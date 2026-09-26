@@ -9,7 +9,7 @@ if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
     printf 'macOS preview builds require a native arm64 Mac\n' >&2
     exit 2
 fi
-for tool in brew cargo go ninja pkg-config python3 otool install_name_tool codesign shasum; do
+for tool in brew cargo git go ninja pkg-config python3 otool install_name_tool codesign shasum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'missing build tool: %s\n' "$tool" >&2
         exit 2
@@ -19,7 +19,7 @@ if ! python3 -c 'import tomllib' >/dev/null 2>&1; then
     printf 'macOS preview builds require Python 3.11 or newer\n' >&2
     exit 2
 fi
-for library in glib-2.0 pixman-1 sdl2 slirp; do
+for library in glib-2.0 pixman-1 sdl2; do
     if ! pkg-config --exists "$library"; then
         printf 'missing pkg-config dependency: %s\n' "$library" >&2
         exit 2
