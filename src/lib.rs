@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub mod install;
 pub mod runtime;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;

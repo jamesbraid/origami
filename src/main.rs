@@ -1,3 +1,4 @@
+use sgi::install;
 use sgi::runtime::{self, Display};
 use sgi::{
     catalogue, create, preset, presets, read_machine, resolve, validate, Drive, Network, Result,
@@ -18,7 +19,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none]\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi version"
+    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none]\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -207,6 +208,32 @@ fn command() -> Result<()> {
             validate(&catalog, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("network: {mode}");
+        }
+        "install-init" => {
+            let dir = directory(&args)?;
+            let mut file = read_machine(&dir)?;
+            let path = install::init(
+                &dir,
+                Path::new(value(&args, "--media-root")?),
+                value(&args, "--mac")?,
+                &mut file,
+            )?;
+            println!("created {}", path.display());
+        }
+        "install-check" | "install-serve" => {
+            let dir = directory(&args)?;
+            let file = read_machine(&dir)?;
+            validate(&catalog, &dir, &file)?;
+            if action == "install-check" {
+                let media = install::read_media(&dir)?;
+                install::config(&dir, &file, &media)?;
+                println!("install media ready");
+            } else {
+                let status = install::serve(&dir, &file)?;
+                if !status.success() {
+                    return Err(format!("Instigator exited with {status}").into());
+                }
+            }
         }
         "version" => println!("sgi {}", env!("CARGO_PKG_VERSION")),
         _ => return Err(usage().into()),
