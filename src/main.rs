@@ -1,7 +1,7 @@
 use sgi::runtime::{self, Display};
 use sgi::{
-    catalogue, create, preset, presets, read_machine, resolve, validate, Drive, Network,
-    Origin300Create, PortForward, Result,
+    catalogue, catalogue_sha256, create, preset, presets, read_machine, resolve, validate, Drive,
+    Network, Origin300Create, PortForward, Result,
 };
 use sgi::{control, install};
 use std::env;
@@ -398,7 +398,25 @@ fn command() -> Result<()> {
                 }
             }
         }
-        "version" => println!("sgi {}", env!("CARGO_PKG_VERSION")),
+        "version" => {
+            println!("sgi {}", env!("CARGO_PKG_VERSION"));
+            println!("catalogue=sha256:{}", catalogue_sha256());
+            let executable = env::current_exe()?;
+            let manifest = executable
+                .parent()
+                .ok_or("cannot locate sgi executable directory")?
+                .join("../share/sgi/source-revisions.txt");
+            if manifest.is_file() {
+                print!("{}", fs::read_to_string(manifest)?);
+            } else {
+                println!("product=unpackaged");
+                println!("qemu={}", include_str!("../build/qemu-revision").trim());
+                println!(
+                    "instigator={}",
+                    include_str!("../build/instigator-revision").trim()
+                );
+            }
+        }
         _ => return Err(usage().into()),
     }
     Ok(())

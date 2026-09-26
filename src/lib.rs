@@ -167,6 +167,13 @@ pub struct Drive {
     pub read_only: bool,
 }
 
+pub fn catalogue_sha256() -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(include_bytes!("../catalogue/sn-catalogue.json"))
+    )
+}
+
 pub fn catalogue() -> Result<Catalog> {
     Ok(serde_json::from_str(include_str!(
         "../catalogue/sn-catalogue.json"
