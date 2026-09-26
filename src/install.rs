@@ -43,7 +43,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "6.5.30",
         name: "overlays1",
-        path: "media/6.5.30/overlays1.image",
+        path: "6.5.30/overlays1.image",
         boot: true,
         base: None,
         dist: None,
@@ -51,7 +51,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "6.5.30",
         name: "overlays2",
-        path: "media/6.5.30/overlays2.image",
+        path: "6.5.30/overlays2.image",
         boot: false,
         base: None,
         dist: None,
@@ -59,7 +59,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "6.5.30",
         name: "overlays3",
-        path: "media/6.5.30/overlays3.image",
+        path: "6.5.30/overlays3.image",
         boot: false,
         base: None,
         dist: None,
@@ -67,7 +67,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "foundations",
         name: "foundation1",
-        path: "media/6.5-base/foundation1.image",
+        path: "6.5-base/foundation1.image",
         boot: false,
         base: None,
         dist: None,
@@ -75,7 +75,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "foundations",
         name: "foundation2",
-        path: "media/6.5-base/foundation2.image",
+        path: "6.5-base/foundation2.image",
         boot: false,
         base: None,
         dist: None,
@@ -83,7 +83,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "foundations",
         name: "onc3-nfs",
-        path: "media/6.5-base/nfs.image",
+        path: "6.5-base/nfs.image",
         boot: false,
         base: None,
         dist: Some("dist6.5"),
@@ -91,7 +91,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "development",
         name: "devlibs",
-        path: "media/6.5-base/devlibs.image",
+        path: "6.5-base/devlibs.image",
         boot: false,
         base: None,
         dist: None,
@@ -99,7 +99,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "development",
         name: "devfoundation",
-        path: "media/6.5-base/devfoundation.image",
+        path: "6.5-base/devfoundation.image",
         boot: false,
         base: None,
         dist: Some("dist/dist6.5"),
@@ -107,7 +107,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "development",
         name: "mipspro744update",
-        path: "media/mipspro/7.4.4/mipspro744update.tar.gz",
+        path: "mipspro/7.4.4/mipspro744update.tar.gz",
         boot: false,
         base: Some("MIPSPro7.4.4"),
         dist: Some("."),
@@ -115,7 +115,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "development",
         name: "mipspro_c",
-        path: "media/mipspro/7.4.4/mipspro_c.tar.gz",
+        path: "mipspro/7.4.4/mipspro_c.tar.gz",
         boot: false,
         base: Some("mipspro_c"),
         dist: Some("dist"),
@@ -123,7 +123,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "applications",
         name: "applications",
-        path: "media/6.5.30/applications.image",
+        path: "6.5.30/applications.image",
         boot: false,
         base: None,
         dist: None,
@@ -131,7 +131,7 @@ const LAYERS: &[Layer] = &[
     Layer {
         set: "complementary",
         name: "complementary",
-        path: "media/6.5.30/complementary.image",
+        path: "6.5.30/complementary.image",
         boot: false,
         base: None,
         dist: None,
@@ -506,6 +506,51 @@ mod tests {
         invalid.addons.push(invalid.addons[0].clone());
         assert!(config(&dir, &file, &invalid).is_err());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn media_root_names_the_directory_containing_release_folders() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let root = std::env::temp_dir().join(format!(
+            "sgi-media-root-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let media_root = root.join("media");
+        fs::create_dir_all(&media_root).unwrap();
+        let prom = root.join("prom.bin");
+        fs::write(&prom, vec![0; 1048576]).unwrap();
+        let machine = root.join("machine");
+        let catalog = crate::catalogue().unwrap();
+        crate::create(
+            &machine,
+            crate::preset(&catalog, "origin200-1").unwrap(),
+            &prom,
+            None,
+        )
+        .unwrap();
+        let mut file = crate::read_machine(&machine).unwrap();
+        init(&machine, &media_root, "08:00:69:12:34:56", &mut file).unwrap();
+        let manifest = read_media(&machine).unwrap();
+        assert_eq!(
+            manifest.media["overlays1"],
+            media_root
+                .join("6.5.30/overlays1.image")
+                .display()
+                .to_string()
+        );
+        assert_eq!(
+            manifest.media["mipspro_c"],
+            media_root
+                .join("mipspro/7.4.4/mipspro_c.tar.gz")
+                .display()
+                .to_string()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
