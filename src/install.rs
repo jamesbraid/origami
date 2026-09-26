@@ -302,6 +302,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         let mut set = json!({ "name": name, "layers": layers });
         if *name == "development" {
             set["collisions"] = json!({ "development/dist/inst.README": "mipspro744update" });
+            set["replacements"] = json!({ "devfoundation": "mipspro744update" });
         }
         sets.push(set);
     }
@@ -482,6 +483,13 @@ mod tests {
             drive: vec![],
         };
         let document = config(&dir, &file, &media).unwrap();
+        let development = document["install_sets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|set| set["name"] == "development")
+            .unwrap();
+        assert_eq!(development["replacements"]["devfoundation"], "mipspro744update");
         let addon_set = &document["install_sets"][SETS.len()];
         assert_eq!(addon_set["name"], "addon-tablet");
         assert_eq!(
