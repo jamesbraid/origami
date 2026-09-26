@@ -146,6 +146,11 @@ const MIPSPRO_INSTALL: &[&str] = &[
     "dev.sw.lib",
 ];
 
+const MIPSPRO_KEEP: &[&str] = &[
+    "java2_plugin.sw32.mozilla_freeware",
+    "java_dev.sw32.binaries",
+];
+
 const SETS: &[&str] = &[
     "6.5.30",
     "foundations",
@@ -309,7 +314,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
     let mut scripts = vec![json!({
         "name": "mipspro",
         "install": MIPSPRO_INSTALL,
-        "keep": ["java2_plugin.sw32.mozilla_freeware", "java_dev.sw32.binaries"]
+        "keep": MIPSPRO_KEEP
     })];
     let mut addon_names = HashSet::new();
     for addon in &media.addons {
@@ -347,6 +352,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         scripts.push(json!({
             "name": format!("addon-{}", addon.name),
             "install": selected,
+            "keep": MIPSPRO_KEEP,
         }));
     }
     Ok(json!({
@@ -508,6 +514,7 @@ mod tests {
         assert_eq!(addon_set["layers"][0]["base"], "tablet-disc");
         let script = &document["install_scripts"][1];
         assert_eq!(script["name"], "addon-tablet");
+        assert_eq!(script["keep"], mipspro["keep"]);
         assert!(script["install"]
             .as_array()
             .unwrap()
