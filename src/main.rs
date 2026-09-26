@@ -380,9 +380,8 @@ fn command() -> Result<()> {
             let file = read_machine(&dir)?;
             validate(&catalog, &dir, &file)?;
             if action == "install-check" {
-                let media = install::read_media(&dir)?;
-                install::config(&dir, &file, &media)?;
-                println!("install media ready");
+                install::check(&dir, &file)?;
+                println!("install media validated");
             } else {
                 let status = install::serve(&dir, &file)?;
                 if !status.success() {

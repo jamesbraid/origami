@@ -3,10 +3,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::io::Write;
 #[cfg(windows)]
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -356,6 +357,44 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
     }))
 }
 
+fn instigator_path() -> Result<PathBuf> {
+    let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
+        "instigator.exe"
+    } else {
+        "instigator"
+    });
+    if !executable.is_file() {
+        return Err(format!("packaged Instigator missing: {}", executable.display()).into());
+    }
+    Ok(executable)
+}
+
+pub fn check(dir: &Path, file: &MachineFile) -> Result<()> {
+    let media = read_media(dir)?;
+    let document = config(dir, file, &media)?;
+    fs::create_dir_all(dir.join("install/cache"))?;
+    let mut child = Command::new(instigator_path()?)
+        .args(["check", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .ok_or("Instigator check has no stdin")?
+        .write_all(&serde_json::to_vec(&document)?)?;
+    let output = child.wait_with_output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "Instigator rejected install media: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
+    }
+    Ok(())
+}
+
 pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     let media = read_media(dir)?;
     let document = config(dir, file, &media)?;
@@ -368,15 +407,7 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
         .endpoint
         .as_deref()
         .ok_or("private network needs endpoint")?;
-    let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
-        "instigator.exe"
-    } else {
-        "instigator"
-    });
-    if !executable.is_file() {
-        return Err(format!("packaged Instigator missing: {}", executable.display()).into());
-    }
-    let mut command = Command::new(executable);
+    let mut command = Command::new(instigator_path()?);
     command.arg("serve");
     if let Some(address) = tcp_endpoint(endpoint)? {
         command.arg("--network-tcp").arg(address.to_string());
