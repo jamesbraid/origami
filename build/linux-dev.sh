@@ -92,6 +92,7 @@ fi
             "$PRODUCT_REV" "$PRODUCT_STATE" "$QEMU_REV" "$INSTIGATOR_REV" \
             > /work/linux-dev/share/sgi/source-revisions.txt
         python3 /product/build/bundle-linux.py /work/linux-dev
+        python3 /product/build/bundle-rust-licenses.py /work/cargo /work/linux-dev
         /work/linux-dev/libexec/sgi/qemu-system-mips64 -display help | grep -qx sdl
         cd /work/linux-dev
         find bin lib libexec share -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
