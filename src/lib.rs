@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 
 pub mod install;
@@ -169,6 +170,19 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
     )?)?)
 }
 
+pub fn tcp_endpoint(endpoint: &str) -> Result<Option<SocketAddrV4>> {
+    let Some(address) = endpoint.strip_prefix("tcp:") else {
+        return Ok(None);
+    };
+    let address: SocketAddrV4 = address
+        .parse()
+        .map_err(|_| "private TCP endpoint must be tcp:127.0.0.1:PORT")?;
+    if !address.ip().is_loopback() || address.port() == 0 {
+        return Err("private TCP endpoint needs a loopback IPv4 address and nonzero port".into());
+    }
+    Ok(Some(address))
+}
+
 pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Result<&'a Offering> {
     if file.format != 1 {
         return Err(format!("unsupported machine format {}", file.format).into());
@@ -212,7 +226,11 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
                 .as_deref()
                 .ok_or("private network needs endpoint")?;
             if endpoint.is_empty() || endpoint.contains(',') {
-                return Err("private network endpoint must be a path without a comma".into());
+                return Err("private network endpoint cannot be empty or contain a comma".into());
+            }
+            let tcp = tcp_endpoint(endpoint)?;
+            if cfg!(windows) && tcp.is_none() {
+                return Err("Windows private network requires a loopback TCP endpoint".into());
             }
             let mac = file
                 .network
@@ -322,6 +340,18 @@ pub fn create(dir: &Path, offering: &Offering, prom: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn private_tcp_endpoint_stays_on_loopback() {
+        assert!(tcp_endpoint("tcp:127.0.0.1:49173").unwrap().is_some());
+        for endpoint in [
+            "tcp:0.0.0.0:49173",
+            "tcp:192.0.2.1:49173",
+            "tcp:127.0.0.1:0",
+        ] {
+            assert!(tcp_endpoint(endpoint).is_err(), "{endpoint}");
+        }
+    }
 
     #[test]
     fn selected_presets_match_compiled_machine_catalogue() {

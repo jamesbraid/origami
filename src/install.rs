@@ -1,8 +1,10 @@
-use crate::{resolve, MachineFile, Result};
+use crate::{resolve, tcp_endpoint, MachineFile, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::fs;
+#[cfg(windows)]
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
@@ -152,9 +154,16 @@ pub fn init(dir: &Path, media_root: &Path, mac: &str, file: &mut MachineFile) ->
     let manifest = InstallMedia { format: 1, media };
     let catalog = crate::catalogue()?;
     let old_network = file.network.clone();
+    #[cfg(windows)]
+    let endpoint = {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        format!("tcp:{}", listener.local_addr()?)
+    };
+    #[cfg(not(windows))]
+    let endpoint = "install/network.sock".to_string();
     file.network = crate::Network {
         mode: "private".into(),
-        endpoint: Some("install/network.sock".into()),
+        endpoint: Some(endpoint),
         mac: Some(mac.into()),
     };
     if let Err(error) = crate::validate(&catalog, dir, file) {
@@ -242,13 +251,11 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     fs::create_dir_all(install_dir.join("cache"))?;
     let config_path = install_dir.join("instigator.json");
     fs::write(&config_path, serde_json::to_vec_pretty(&document)?)?;
-    let endpoint = resolve(
-        dir,
-        file.network
-            .endpoint
-            .as_deref()
-            .ok_or("private network needs endpoint")?,
-    );
+    let endpoint = file
+        .network
+        .endpoint
+        .as_deref()
+        .ok_or("private network needs endpoint")?;
     let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
         "instigator.exe"
     } else {
@@ -258,12 +265,13 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
         return Err(format!("packaged Instigator missing: {}", executable.display()).into());
     }
     let mut command = Command::new(executable);
-    command
-        .arg("serve")
-        .arg("--network-socket")
-        .arg(endpoint)
-        .arg(config_path)
-        .current_dir(dir);
+    command.arg("serve");
+    if let Some(address) = tcp_endpoint(endpoint)? {
+        command.arg("--network-tcp").arg(address.to_string());
+    } else {
+        command.arg("--network-socket").arg(resolve(dir, endpoint));
+    }
+    command.arg(config_path).current_dir(dir);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

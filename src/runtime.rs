@@ -1,4 +1,4 @@
-use crate::{resolve, Drive, MachineFile, Offering, Result};
+use crate::{resolve, tcp_endpoint, Drive, MachineFile, Offering, Result};
 use fs2::FileExt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -210,20 +210,23 @@ pub fn arguments(
     match file.network.mode.as_str() {
         "none" => args.extend(["-nic".into(), "none".into()]),
         "private" => {
-            let endpoint = resolve(
-                dir,
-                file.network
-                    .endpoint
-                    .as_deref()
-                    .ok_or("private network needs endpoint")?,
-            );
-            args.extend([
-                "-netdev".into(),
+            let endpoint = file
+                .network
+                .endpoint
+                .as_deref()
+                .ok_or("private network needs endpoint")?;
+            let address = if let Some(address) = tcp_endpoint(endpoint)? {
+                format!(
+                    "stream,id=net0,server=off,addr.type=inet,addr.host={},addr.port={},reconnect-ms=1000",
+                    address.ip(), address.port()
+                )
+            } else {
                 format!(
                     "stream,id=net0,server=off,addr.type=unix,addr.path={}",
-                    endpoint.display(),
-                ),
-            ]);
+                    resolve(dir, endpoint).display()
+                )
+            };
+            args.extend(["-netdev".into(), address]);
             args.extend([
                 "-net".into(),
                 format!(
@@ -294,25 +297,26 @@ pub fn run(
         .map_err(|error| format!("cannot lock machine: {error}"))?;
     let args = arguments(dir, file, offering, display)?;
     if file.network.mode == "private" {
-        let endpoint = resolve(
-            dir,
-            file.network
-                .endpoint
-                .as_deref()
-                .ok_or("private network needs endpoint")?,
-        );
-        let metadata = fs::metadata(&endpoint)
-            .map_err(|error| format!("private network socket {}: {error}", endpoint.display()))?;
-        #[cfg(unix)]
-        if !metadata.file_type().is_socket() {
-            return Err(format!(
-                "private network endpoint is not a socket: {}",
-                endpoint.display()
-            )
-            .into());
+        let endpoint = file
+            .network
+            .endpoint
+            .as_deref()
+            .ok_or("private network needs endpoint")?;
+        if tcp_endpoint(endpoint)?.is_none() {
+            let path = resolve(dir, endpoint);
+            let metadata = fs::metadata(&path)
+                .map_err(|error| format!("private network socket {}: {error}", path.display()))?;
+            #[cfg(unix)]
+            if !metadata.file_type().is_socket() {
+                return Err(format!(
+                    "private network endpoint is not a socket: {}",
+                    path.display()
+                )
+                .into());
+            }
+            #[cfg(not(unix))]
+            let _ = metadata;
         }
-        #[cfg(not(unix))]
-        let _ = metadata;
     }
     prepare_state(dir, offering, &resolve(dir, &file.firmware.image))?;
     let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
@@ -414,5 +418,23 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-net", "nic,netdev=net0,macaddr=08:00:69:12:34:56"]));
+    }
+
+    #[test]
+    fn private_tcp_network_uses_loopback_stream_client() {
+        let catalog = catalogue().unwrap();
+        let offer = preset(&catalog, "origin200-1").unwrap();
+        let mut file = machine(offer, "rad4");
+        file.network = Network {
+            mode: "private".into(),
+            endpoint: Some("tcp:127.0.0.1:49173".into()),
+            mac: Some("08:00:69:12:34:56".into()),
+        };
+        let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                "-netdev",
+                "stream,id=net0,server=off,addr.type=inet,addr.host=127.0.0.1,addr.port=49173,reconnect-ms=1000"
+            ]));
     }
 }
