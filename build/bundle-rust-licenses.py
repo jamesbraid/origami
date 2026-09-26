@@ -11,7 +11,7 @@ def main():
     if len(sys.argv) != 3:
         raise SystemExit(f"usage: {sys.argv[0]} CARGO-HOME BUNDLE")
     cargo_home, bundle = map(Path, sys.argv[1:])
-    lock = tomllib.loads(Path("/product/Cargo.lock").read_text())
+    lock = tomllib.loads((Path(__file__).resolve().parents[1] / "Cargo.lock").read_text())
     source_root = cargo_home / "registry/src"
     notices = bundle / "share/sgi/licenses/rust"
     shutil.rmtree(notices, ignore_errors=True)

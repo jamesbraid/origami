@@ -7,9 +7,10 @@ from pathlib import Path
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise SystemExit(f"usage: {sys.argv[0]} GO-DEPS BUNDLE")
-    dependencies, bundle = map(Path, sys.argv[1:])
+    if len(sys.argv) not in (3, 4):
+        raise SystemExit(f"usage: {sys.argv[0]} GO-DEPS BUNDLE [GO-MODULE-CACHE]")
+    dependencies, bundle = map(Path, sys.argv[1:3])
+    module_cache = Path(sys.argv[3] if len(sys.argv) == 4 else "/work/go-mod").resolve()
     notices = bundle / "share/sgi/licenses/go"
     shutil.rmtree(notices, ignore_errors=True)
     notices.mkdir(parents=True)
@@ -21,7 +22,7 @@ def main():
         if not version:
             continue  # The main Instigator module has its own notice.
         source = Path(directory)
-        if not source.is_relative_to("/work/go-mod") or not source.is_dir():
+        if not source.is_relative_to(module_cache) or not source.is_dir():
             raise RuntimeError(f"invalid module directory: {directory}")
         files = sorted(path for path in source.iterdir() if path.is_file()
                        and path.name.lower().startswith(("license", "licence", "copying", "notice")))
