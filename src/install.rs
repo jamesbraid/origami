@@ -306,7 +306,11 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         }
         sets.push(set);
     }
-    let mut scripts = vec![json!({ "name": "mipspro", "install": MIPSPRO_INSTALL })];
+    let mut scripts = vec![json!({
+        "name": "mipspro",
+        "install": MIPSPRO_INSTALL,
+        "keep": ["java2_plugin.sw32.mozilla_freeware", "java_dev.sw32.binaries"]
+    })];
     let mut addon_names = HashSet::new();
     for addon in &media.addons {
         if !addon_names.insert(&addon.name) {
@@ -490,6 +494,11 @@ mod tests {
             .find(|set| set["name"] == "development")
             .unwrap();
         assert_eq!(development["replacements"]["devfoundation"], "mipspro744update");
+        let mipspro = &document["install_scripts"][0];
+        assert_eq!(mipspro["keep"], json!([
+            "java2_plugin.sw32.mozilla_freeware",
+            "java_dev.sw32.binaries"
+        ]));
         let addon_set = &document["install_sets"][SETS.len()];
         assert_eq!(addon_set["name"], "addon-tablet");
         assert_eq!(
