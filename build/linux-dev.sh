@@ -45,8 +45,10 @@ fi
 "$engine" build -t localhost/sgi-instigator-builder:dev \
     -f "$product/build/Instigator.Containerfile" "$product/build"
 
-"$engine" run --rm -v "$source:/src:ro" -v "$scratch:/work" \
-    -w /work localhost/sgi-qemu-builder:dev sh -ec '
+build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "$expected")
+"$engine" run --rm -v "$build_source:/src" -v "$scratch:/work" \
+    -w /work -e MESON_PACKAGE_CACHE_DIR=/work/meson-package-cache \
+    localhost/sgi-qemu-builder:dev sh -ec '
         mkdir -p qemu-build
         cd qemu-build
         if [ ! -f build.ninja ]; then

@@ -52,10 +52,12 @@ if ! git -C "$product" diff --quiet || ! git -C "$product" diff --cached --quiet
     product_state=dirty
 fi
 
+build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "$expected")
 build="$scratch/qemu-macos-build"
+export MESON_PACKAGE_CACHE_DIR="$scratch/meson-package-cache"
 mkdir -p "$build"
 if [ ! -f "$build/build.ninja" ]; then
-    (cd "$build" && "$source/configure" --target-list=mips64-softmmu \
+    (cd "$build" && "$build_source/configure" --target-list=mips64-softmmu \
         --disable-docs --disable-gtk --disable-cocoa \
         --enable-sdl --enable-vnc --enable-slirp)
 fi
