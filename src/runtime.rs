@@ -1,4 +1,5 @@
 use crate::{resolve, Drive, MachineFile, Offering, Result};
+use fs2::FileExt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
@@ -289,7 +290,8 @@ pub fn run(
         .write(true)
         .create(true)
         .open(dir.join("state/machine.lock"))?;
-    lock.try_lock().map_err(|_| "machine is already running")?;
+    lock.try_lock_exclusive()
+        .map_err(|error| format!("cannot lock machine: {error}"))?;
     let args = arguments(dir, file, offering, display)?;
     if file.network.mode == "private" {
         let endpoint = resolve(

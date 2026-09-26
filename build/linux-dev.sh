@@ -22,6 +22,12 @@ if ! git -C "$source" diff --quiet || ! git -C "$source" diff --cached --quiet; 
     exit 2
 fi
 instigator_expected=$(cat "$product/build/instigator-revision")
+product_revision=$(git -C "$product" rev-parse HEAD)
+product_state=clean
+if ! git -C "$product" diff --quiet || ! git -C "$product" diff --cached --quiet || \
+    [ -n "$(git -C "$product" ls-files --others --exclude-standard)" ]; then
+    product_state=dirty
+fi
 instigator_actual=$(git -C "$instigator" rev-parse HEAD)
 if [ "$instigator_actual" != "$instigator_expected" ]; then
     printf 'Instigator source is %s; product expects %s\n' "$instigator_actual" "$instigator_expected" >&2
@@ -53,7 +59,7 @@ fi
     '
 
 "$engine" run --rm -v "$product:/src:ro" -v "$scratch:/work" \
-    -w /src -e CARGO_TARGET_DIR=/work/target -e CARGO_HOME=/work/cargo \
+    -w /src -e CARGO_TARGET_DIR=/work/target-stable -e CARGO_HOME=/work/cargo \
     localhost/sgi-rust-builder:dev sh -ec 'cargo test --locked && cargo build --locked --release'
 
 "$engine" run --rm -v "$instigator:/src:ro" -v "$scratch:/work" \
@@ -66,12 +72,14 @@ fi
     '
 
 "$engine" run --rm -v "$scratch:/work" -v "$instigator:/instigator:ro" \
-    -v "$source:/qemu:ro" \
+    -v "$source:/qemu:ro" -v "$product:/product:ro" \
+    -e QEMU_REV="$expected" -e INSTIGATOR_REV="$instigator_expected" \
+    -e PRODUCT_REV="$product_revision" -e PRODUCT_STATE="$product_state" \
     localhost/sgi-qemu-builder:dev sh -ec '
         mkdir -p /work/linux-dev/bin /work/linux-dev/libexec/sgi \
             /work/linux-dev/share/sgi/licenses
         rm -f /work/linux-dev/bin/qemu-system-mips64 /work/linux-dev/bin/qemu-img
-        cp /work/target/release/sgi /work/linux-dev/bin/
+        cp /work/target-stable/release/sgi /work/linux-dev/bin/
         test -s /work/instigator
         cp /work/instigator /work/linux-dev/bin/
         cp /work/qemu-build/qemu-system-mips64 /work/qemu-build/qemu-img \
@@ -80,9 +88,18 @@ fi
         cp /qemu/LICENSE /work/linux-dev/share/sgi/licenses/qemu.LICENSE
         cp /qemu/COPYING /work/linux-dev/share/sgi/licenses/qemu.COPYING
         cp /qemu/COPYING.LIB /work/linux-dev/share/sgi/licenses/qemu.COPYING.LIB
+        printf "product=%s (%s)\nqemu=%s\ninstigator=%s\n" \
+            "$PRODUCT_REV" "$PRODUCT_STATE" "$QEMU_REV" "$INSTIGATOR_REV" \
+            > /work/linux-dev/share/sgi/source-revisions.txt
+        python3 /product/build/bundle-linux.py /work/linux-dev
         /work/linux-dev/libexec/sgi/qemu-system-mips64 -display help | grep -qx sdl
         cd /work/linux-dev
-        sha256sum bin/sgi bin/instigator libexec/sgi/qemu-system-mips64 \
-            libexec/sgi/qemu-img > SHA256SUMS
+        find bin lib libexec share -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
     '
-printf 'development bundle: %s/linux-dev\n' "$scratch"
+"$engine" run --rm -v "$scratch:/work" localhost/sgi-qemu-builder:dev sh -ec '
+    cd /work
+    tar --sort=name --owner=0 --group=0 --numeric-owner \
+        -czf sgi-linux-x86_64-preview.tar.gz linux-dev
+    sha256sum sgi-linux-x86_64-preview.tar.gz > sgi-linux-x86_64-preview.tar.gz.sha256
+'
+printf 'Linux preview archive: %s/sgi-linux-x86_64-preview.tar.gz\n' "$scratch"
