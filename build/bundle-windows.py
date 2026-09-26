@@ -17,6 +17,8 @@ SYSTEM_DLLS = {
     "setupapi.dll", "shell32.dll", "shlwapi.dll", "user32.dll", "userenv.dll",
     "uxtheme.dll", "version.dll", "winmm.dll", "ws2_32.dll",
 }
+# Fedora's SDL2 compatibility DLL loads SDL3 at runtime, outside the PE import table.
+RUNTIME_DLLS = {"sdl2.dll": ("SDL3.dll",)}
 
 
 def output(*args):
@@ -45,7 +47,8 @@ def main():
         queue = [destination / name for name in names]
         copied = set()
         while queue:
-            for name in imports(queue.pop()):
+            module = queue.pop()
+            for name in (*imports(module), *RUNTIME_DLLS.get(module.name.lower(), ())):
                 key = name.lower()
                 if key in copied:
                     continue
