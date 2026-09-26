@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  sgi run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom|tape --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  sgi network-forward-remove DIR NAME\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
+    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--memory-per-node MiB] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  sgi run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom|tape --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  sgi network-forward-remove DIR NAME\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -96,10 +96,16 @@ fn command() -> Result<()> {
             } else {
                 None
             };
+            let memory_per_node = if args.iter().any(|arg| arg == "--memory-per-node") {
+                Some(value(&args, "--memory-per-node")?.parse::<u32>()?)
+            } else {
+                None
+            };
             create(
                 Path::new(path),
                 offer,
                 Path::new(value(&args, "--prom")?),
+                memory_per_node,
                 identity,
             )?;
             println!("created {path}");
@@ -112,8 +118,12 @@ fn command() -> Result<()> {
                 "validate" => println!("valid: {} ({} CPUs)", offer.topology, offer.smp),
                 "show" => {
                     println!(
-                        "{}: {} CPUs, {} nodes, {} graphics",
-                        file.machine.model, offer.smp, offer.nodes, file.machine.graphics
+                        "{}: {} CPUs, {} nodes, {} per node, {} graphics",
+                        file.machine.model,
+                        offer.smp,
+                        offer.nodes,
+                        file.machine.memory_per_node,
+                        file.machine.graphics
                     );
                     println!(
                         "firmware: {}",

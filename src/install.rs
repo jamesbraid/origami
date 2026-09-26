@@ -531,6 +531,7 @@ mod tests {
             crate::preset(&catalog, "origin200-1").unwrap(),
             &prom,
             None,
+            None,
         )
         .unwrap();
         let mut file = crate::read_machine(&machine).unwrap();

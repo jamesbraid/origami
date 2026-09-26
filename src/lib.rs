@@ -412,8 +412,17 @@ pub fn create(
     dir: &Path,
     offering: &Offering,
     prom: &Path,
+    memory_per_node: Option<u32>,
     identity: Option<Origin300Create<'_>>,
 ) -> Result<()> {
+    let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
+    if !offering.memory.accepted.contains(&memory_per_node) {
+        return Err(format!(
+            "{} MiB per node is not offered for {}",
+            memory_per_node, offering.topology
+        )
+        .into());
+    }
     if dir.exists() {
         return Err(format!("destination already exists: {}", dir.display()).into());
     }
@@ -460,7 +469,7 @@ pub fn create(
                 model: offering.product.clone(),
                 nodes: offering.nodes,
                 cpus_per_node: offering.cpus_per_node[0],
-                memory_per_node: format!("{}MiB", offering.memory.default),
+                memory_per_node: format!("{memory_per_node}MiB"),
                 graphics: if offering.product == "origin200"
                     && offering.nodes == 1
                     && offering.smp == 1
@@ -518,6 +527,33 @@ mod tests {
         let ip35 = preset(&catalog, "origin300-2").unwrap();
         assert!(valid_firmware_size(ip35, 1476264));
         assert!(!valid_firmware_size(ip35, 1476263));
+    }
+
+    #[test]
+    fn create_accepts_catalogue_memory_and_rejects_unsupported_memory() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "sgi-create-memory-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let prom = root.join("prom.bin");
+        fs::write(&prom, [0u8; 1]).unwrap();
+        let catalog = catalogue().unwrap();
+        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machine = root.join("machine");
+        create(&machine, offer, &prom, Some(128), None).unwrap();
+        let file = read_machine(&machine).unwrap();
+        assert_eq!(file.machine.memory_per_node, "128MiB");
+        validate(&catalog, &machine, &file).unwrap();
+        let rejected = root.join("rejected");
+        assert!(create(&rejected, offer, &prom, Some(96), None).is_err());
+        assert!(!rejected.exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
