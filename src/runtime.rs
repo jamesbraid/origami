@@ -466,6 +466,11 @@ fn run_inner(
     }
     prepare_state(dir, file, offering, &resolve(dir, &file.firmware.image))?;
     if !background {
+        fs::create_dir_all(dir.join("logs"))?;
+        log_primary_serial(
+            &mut args,
+            "stdio,id=serial0,logfile=logs/serial.log,logappend=on".into(),
+        )?;
         let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
         return Ok(child.wait()?);
     }
@@ -479,14 +484,11 @@ fn run_inner(
         std::process::id(),
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     );
-    let serial = args
-        .windows(2)
-        .position(|pair| pair == ["-serial", "stdio"])
-        .ok_or("primary serial argument missing")?;
-    args[serial + 1] = "chardev:serial0".into();
-    args.extend([
-        "-chardev".into(),
+    log_primary_serial(
+        &mut args,
         format!("socket,id=serial0,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
+    )?;
+    args.extend([
         "-qmp".into(),
         format!("tcp:127.0.0.1:{qmp_port},server=on,wait=off"),
         "-name".into(),
@@ -523,6 +525,16 @@ fn run_inner(
     child.kill()?;
     child.wait()?;
     Err("QEMU did not open its QMP control endpoint".into())
+}
+
+fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
+    let serial = args
+        .windows(2)
+        .position(|pair| pair == ["-serial", "stdio"])
+        .ok_or("primary serial argument missing")?;
+    args[serial + 1] = "chardev:serial0".into();
+    args.extend(["-chardev".into(), chardev]);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -567,6 +579,31 @@ mod tests {
             .windows(2)
             .any(|pair| pair == ["-device", "psitech-rad4,addr=5"]));
         assert!(args.windows(2).any(|pair| pair == ["-serial", "stdio"]));
+    }
+
+    #[test]
+    fn foreground_serial_keeps_console_and_logs_output() {
+        let catalog = catalogue().unwrap();
+        let offer = preset(&catalog, "origin200-1").unwrap();
+        let mut args = arguments(
+            Path::new("/machine"),
+            &machine(offer, "rad4"),
+            offer,
+            Display::None,
+        )
+        .unwrap();
+        log_primary_serial(
+            &mut args,
+            "stdio,id=serial0,logfile=logs/serial.log,logappend=on".into(),
+        )
+        .unwrap();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-serial", "chardev:serial0"]));
+        assert!(args.windows(2).any(|pair| pair == [
+            "-chardev",
+            "stdio,id=serial0,logfile=logs/serial.log,logappend=on"
+        ]));
     }
 
     #[test]
