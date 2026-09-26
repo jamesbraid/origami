@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
+    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -244,6 +244,30 @@ fn command() -> Result<()> {
             validate(&catalog, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("attached {}", path.display());
+        }
+        "drive-detach" => {
+            let dir = directory(&args)?;
+            let name = args.get(1).ok_or("missing drive name")?;
+            if control::is_locked(&dir)? || control::is_running(&dir)? {
+                return Err("stop the machine before detaching a drive".into());
+            }
+            let mut file = read_machine(&dir)?;
+            let matches: Vec<_> = file
+                .drive
+                .iter()
+                .enumerate()
+                .filter(|(_, drive)| drive.name == *name)
+                .map(|(index, _)| index)
+                .collect();
+            if matches.len() != 1 {
+                return Err(
+                    format!("expected one drive named {name}, found {}", matches.len()).into(),
+                );
+            }
+            file.drive.remove(matches[0]);
+            validate(&catalog, &dir, &file)?;
+            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+            println!("detached {name}");
         }
         "network-set" => {
             let dir = directory(&args)?;
