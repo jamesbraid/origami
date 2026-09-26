@@ -194,9 +194,7 @@ fn command() -> Result<()> {
         }
         "drive-create" => {
             let dir = directory(&args)?;
-            if control::is_locked(&dir)? || control::is_running(&dir)? {
-                return Err("stop the machine before changing drives".into());
-            }
+            let _lock = control::lock_for_edit(&dir, "changing drives")?;
             let size: u64 = args.get(1).ok_or("missing size in MiB")?.parse()?;
             if size == 0 || size > 131072 {
                 return Err("disk size must be 1..131072 MiB".into());
@@ -244,9 +242,7 @@ fn command() -> Result<()> {
         }
         "drive-attach" => {
             let dir = directory(&args)?;
-            if control::is_locked(&dir)? || control::is_running(&dir)? {
-                return Err("stop the machine before changing drives".into());
-            }
+            let _lock = control::lock_for_edit(&dir, "changing drives")?;
             let path = PathBuf::from(args.get(1).ok_or("missing image path")?).canonicalize()?;
             let kind = value(&args, "--type")?;
             if !matches!(kind, "disk" | "cdrom") {
@@ -269,9 +265,7 @@ fn command() -> Result<()> {
         "drive-detach" => {
             let dir = directory(&args)?;
             let name = args.get(1).ok_or("missing drive name")?;
-            if control::is_locked(&dir)? || control::is_running(&dir)? {
-                return Err("stop the machine before detaching a drive".into());
-            }
+            let _lock = control::lock_for_edit(&dir, "detaching a drive")?;
             let mut file = read_machine(&dir)?;
             let matches: Vec<_> = file
                 .drive
@@ -292,9 +286,7 @@ fn command() -> Result<()> {
         }
         "network-set" => {
             let dir = directory(&args)?;
-            if control::is_locked(&dir)? || control::is_running(&dir)? {
-                return Err("stop the machine before changing its network".into());
-            }
+            let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
             let mode = value(&args, "--mode")?;
             let forward = file.network.forward.clone();
@@ -319,9 +311,7 @@ fn command() -> Result<()> {
         }
         "network-forward-add" => {
             let dir = directory(&args)?;
-            if control::is_locked(&dir)? || control::is_running(&dir)? {
-                return Err("stop the machine before changing its network".into());
-            }
+            let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
             let name = args.get(1).ok_or("missing forward name")?;
             file.network.forward.push(PortForward {
@@ -336,9 +326,7 @@ fn command() -> Result<()> {
         }
         "network-forward-remove" => {
             let dir = directory(&args)?;
-            if control::is_locked(&dir)? || control::is_running(&dir)? {
-                return Err("stop the machine before changing its network".into());
-            }
+            let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
             let name = args.get(1).ok_or("missing forward name")?;
             let count = file.network.forward.len();
@@ -352,9 +340,7 @@ fn command() -> Result<()> {
         }
         "install-init" => {
             let dir = directory(&args)?;
-            if control::is_locked(&dir)? || control::is_running(&dir)? {
-                return Err("stop the machine before changing its network".into());
-            }
+            let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
             let path = install::init(
                 &dir,

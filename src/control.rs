@@ -94,6 +94,19 @@ pub fn verified_qmp(record: &Record) -> Result<(TcpStream, BufReader<TcpStream>)
     Ok((stream, reader))
 }
 
+pub fn lock_for_edit(dir: &Path, action: &str) -> Result<std::fs::File> {
+    fs::create_dir_all(dir.join("state"))?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(dir.join("state/machine.lock"))?;
+    if file.try_lock_exclusive().is_err() || is_running(dir)? {
+        return Err(format!("stop the machine before {action}").into());
+    }
+    Ok(file)
+}
+
 pub fn is_locked(dir: &Path) -> Result<bool> {
     let file = match OpenOptions::new()
         .read(true)
@@ -143,4 +156,30 @@ pub fn console(dir: &Path) -> Result<()> {
     });
     io::copy(&mut stream, &mut io::stdout())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn edit_lock_excludes_another_writer() {
+        let dir = std::env::temp_dir().join(format!(
+            "sgi-edit-lock-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let lock = lock_for_edit(&dir, "changing drives").unwrap();
+        assert!(is_locked(&dir).unwrap());
+        assert!(lock_for_edit(&dir, "changing drives").is_err());
+        assert!(crate::runtime::start_background(&dir, crate::runtime::Display::None).is_err());
+        drop(lock);
+        assert!(!is_locked(&dir).unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
