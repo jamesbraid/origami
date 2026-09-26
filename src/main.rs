@@ -194,6 +194,9 @@ fn command() -> Result<()> {
         }
         "drive-create" => {
             let dir = directory(&args)?;
+            if control::is_locked(&dir)? || control::is_running(&dir)? {
+                return Err("stop the machine before changing drives".into());
+            }
             let size: u64 = args.get(1).ok_or("missing size in MiB")?.parse()?;
             if size == 0 || size > 131072 {
                 return Err("disk size must be 1..131072 MiB".into());
@@ -241,6 +244,9 @@ fn command() -> Result<()> {
         }
         "drive-attach" => {
             let dir = directory(&args)?;
+            if control::is_locked(&dir)? || control::is_running(&dir)? {
+                return Err("stop the machine before changing drives".into());
+            }
             let path = PathBuf::from(args.get(1).ok_or("missing image path")?).canonicalize()?;
             let kind = value(&args, "--type")?;
             if !matches!(kind, "disk" | "cdrom") {
