@@ -324,11 +324,12 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         }
     }
     let prom = resolve(dir, &file.firmware.image);
-    if fs::metadata(&prom)?.len() != offering.firmware.size {
+    let prom_size = fs::metadata(&prom)?.len();
+    if !valid_firmware_size(offering, prom_size) {
         return Err(format!(
-            "firmware {} must be {} bytes",
+            "firmware {} must {}",
             prom.display(),
-            offering.firmware.size
+            firmware_size_requirement(offering)
         )
         .into());
     }
@@ -391,6 +392,22 @@ pub fn qemu_path_option(path: &Path) -> String {
     path.display().to_string().replace(',', ",,")
 }
 
+fn valid_firmware_size(offering: &Offering, size: u64) -> bool {
+    if offering.firmware.kind == "ip27-prom" {
+        size > 0 && size <= offering.firmware.size
+    } else {
+        size == offering.firmware.size
+    }
+}
+
+fn firmware_size_requirement(offering: &Offering) -> String {
+    if offering.firmware.kind == "ip27-prom" {
+        format!("fit in {} bytes and be nonempty", offering.firmware.size)
+    } else {
+        format!("be {} bytes", offering.firmware.size)
+    }
+}
+
 pub fn create(
     dir: &Path,
     offering: &Offering,
@@ -400,8 +417,8 @@ pub fn create(
     if dir.exists() {
         return Err(format!("destination already exists: {}", dir.display()).into());
     }
-    if fs::metadata(prom)?.len() != offering.firmware.size {
-        return Err(format!("PROM must be {} bytes", offering.firmware.size).into());
+    if !valid_firmware_size(offering, fs::metadata(prom)?.len()) {
+        return Err(format!("PROM must {}", firmware_size_requirement(offering)).into());
     }
     if let Some(expected) = &offering.firmware.sha256 {
         if sha256_file(prom)? != *expected {
@@ -487,6 +504,20 @@ mod tests {
         ] {
             assert!(tcp_endpoint(endpoint).is_err(), "{endpoint}");
         }
+    }
+
+    #[test]
+    fn ip27_payload_fits_flash_and_ip35_keeps_exact_size() {
+        let catalog = catalogue().unwrap();
+        let ip27 = preset(&catalog, "origin200-1").unwrap();
+        assert!(valid_firmware_size(ip27, 908752));
+        assert!(valid_firmware_size(ip27, 1048576));
+        assert!(!valid_firmware_size(ip27, 0));
+        assert!(!valid_firmware_size(ip27, 1048577));
+
+        let ip35 = preset(&catalog, "origin300-2").unwrap();
+        assert!(valid_firmware_size(ip35, 1476264));
+        assert!(!valid_firmware_size(ip35, 1476263));
     }
 
     #[test]
