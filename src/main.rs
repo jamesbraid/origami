@@ -352,6 +352,7 @@ fn command() -> Result<()> {
         }
         "install-addon" => {
             let dir = directory(&args)?;
+            let _lock = control::lock_for_edit(&dir, "changing its install add-ons")?;
             let file = read_machine(&dir)?;
             validate(&catalog, &dir, &file)?;
             let name = value(&args, "--name")?;
