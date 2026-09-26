@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Display {
     Local,
-    Vnc,
+    Vnc { port: u16 },
     None,
 }
 
@@ -22,10 +22,24 @@ impl Display {
     pub fn parse(value: &str) -> Result<Self> {
         Ok(match value {
             "local" => Self::Local,
-            "vnc" => Self::Vnc,
+            "vnc" => Self::Vnc { port: 5900 },
             "none" => Self::None,
             _ => return Err(format!("unknown display: {value}").into()),
         })
+    }
+
+    pub fn with_vnc_port(self, value: Option<&str>) -> Result<Self> {
+        let Some(value) = value else {
+            return Ok(self);
+        };
+        if !matches!(self, Self::Vnc { .. }) {
+            return Err("--vnc-port requires --display vnc".into());
+        }
+        let port: u16 = value.parse().map_err(|_| "VNC port must be 5900..65535")?;
+        if port < 5900 {
+            return Err("VNC port must be 5900..65535".into());
+        }
+        Ok(Self::Vnc { port })
     }
 }
 
@@ -231,7 +245,9 @@ pub fn arguments(
     }
     match display {
         Display::Local => args.extend(["-display".into(), "sdl,window-close=off".into()]),
-        Display::Vnc => args.extend(["-display".into(), "vnc=127.0.0.1:0".into()]),
+        Display::Vnc { port } => {
+            args.extend(["-display".into(), format!("vnc=127.0.0.1:{}", port - 5900)])
+        }
         Display::None => args.extend(["-display".into(), "none".into()]),
     }
     args.extend(["-audio".into(), "none".into()]);
@@ -341,16 +357,21 @@ pub fn start_background(dir: &Path, display: Display) -> Result<()> {
         .create(true)
         .append(true)
         .open(&log_path)?;
-    let display = match display {
+    let display_name = match display {
         Display::Local => "local",
-        Display::Vnc => "vnc",
+        Display::Vnc { .. } => "vnc",
         Display::None => "none",
     };
-    let mut child = Command::new(std::env::current_exe()?)
+    let mut child = Command::new(std::env::current_exe()?);
+    child
         .arg("_serve")
         .arg(dir)
         .arg("--display")
-        .arg(display)
+        .arg(display_name);
+    if let Display::Vnc { port } = display {
+        child.arg("--vnc-port").arg(port.to_string());
+    }
+    let mut child = child
         .stdin(Stdio::null())
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log))
@@ -546,6 +567,39 @@ mod tests {
             .windows(2)
             .any(|pair| pair == ["-device", "psitech-rad4,addr=5"]));
         assert!(args.windows(2).any(|pair| pair == ["-serial", "stdio"]));
+    }
+
+    #[test]
+    fn vnc_port_maps_to_qemu_display_offset() {
+        let catalog = catalogue().unwrap();
+        let offer = preset(&catalog, "origin200-1").unwrap();
+        let display = Display::parse("vnc")
+            .unwrap()
+            .with_vnc_port(Some("5991"))
+            .unwrap();
+        let args = arguments(
+            Path::new("/machine"),
+            &machine(offer, "rad4"),
+            offer,
+            display,
+        )
+        .unwrap();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-display", "vnc=127.0.0.1:91"]));
+        assert_eq!(Display::parse("vnc").unwrap(), Display::Vnc { port: 5900 });
+        assert!(Display::parse("local")
+            .unwrap()
+            .with_vnc_port(Some("5991"))
+            .is_err());
+        assert!(Display::parse("vnc")
+            .unwrap()
+            .with_vnc_port(Some("5899"))
+            .is_err());
+        assert!(Display::parse("vnc")
+            .unwrap()
+            .with_vnc_port(Some("abc"))
+            .is_err());
     }
 
     #[test]

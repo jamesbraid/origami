@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom|tape --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  sgi network-forward-remove DIR NAME\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
+    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  sgi run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom|tape --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  sgi network-forward-remove DIR NAME\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -47,7 +47,11 @@ fn directory(args: &[String]) -> Result<PathBuf> {
 
 fn display(args: &[String], graphics: &str) -> Result<Display> {
     let default = if graphics == "none" { "none" } else { "local" };
-    Display::parse(optional(args, "--display").unwrap_or(default))
+    if args.iter().any(|arg| arg == "--vnc-port") && optional(args, "--vnc-port").is_none() {
+        return Err("missing value for --vnc-port".into());
+    }
+    Display::parse(optional(args, "--display").unwrap_or(default))?
+        .with_vnc_port(optional(args, "--vnc-port"))
 }
 
 fn command() -> Result<()> {
