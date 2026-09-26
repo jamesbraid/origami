@@ -258,8 +258,8 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
                 .endpoint
                 .as_deref()
                 .ok_or("private network needs endpoint")?;
-            if endpoint.is_empty() || endpoint.contains(',') {
-                return Err("private network endpoint cannot be empty or contain a comma".into());
+            if endpoint.is_empty() {
+                return Err("private network endpoint cannot be empty".into());
             }
             let tcp = tcp_endpoint(endpoint)?;
             if cfg!(windows) && tcp.is_none() {
@@ -340,6 +340,10 @@ pub fn resolve(dir: &Path, value: &str) -> PathBuf {
     }
 }
 
+pub fn qemu_path_option(path: &Path) -> String {
+    path.display().to_string().replace(',', ",,")
+}
+
 pub fn create(
     dir: &Path,
     offering: &Offering,
@@ -358,7 +362,6 @@ pub fn create(
         }
     }
     if offering.product == "origin300" {
-        origin300::validate_machine_directory(dir)?;
         let inputs = identity
             .as_ref()
             .ok_or("Origin 300 needs --spd-dimm2 and --spd-dimm3")?;

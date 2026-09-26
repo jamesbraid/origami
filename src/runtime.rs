@@ -1,4 +1,7 @@
-use crate::{control, origin300, resolve, tcp_endpoint, Drive, MachineFile, Offering, Result};
+use crate::{
+    control, origin300, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering,
+    Result,
+};
 use fs2::FileExt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -161,8 +164,7 @@ pub fn arguments(
                 "-drive".into(),
                 format!(
                     "if=pflash,index={node},file={},format=raw",
-                    dir.join(format!("state/node-proms/node{}.bin", node + 1))
-                        .display(),
+                    qemu_path_option(&dir.join(format!("state/node-proms/node{}.bin", node + 1))),
                 ),
             ]);
         }
@@ -176,7 +178,7 @@ pub fn arguments(
                 "-drive".into(),
                 format!(
                     "if=pflash,index=0,file={},format=raw",
-                    origin300::flash_path(dir).display()
+                    qemu_path_option(&origin300::flash_path(dir))
                 ),
             ]);
         }
@@ -193,14 +195,14 @@ pub fn arguments(
             "-drive".into(),
             format!(
                 "if=none,id=sgi-nvram{node},file={},format=raw",
-                path.display()
+                qemu_path_option(&path)
             ),
         ]);
         args.extend([
             "-drive".into(),
             format!(
                 "if=none,id=sgi-nvram{node}-clock,file={},format=raw",
-                dir.join(format!("state/nvram{node}.raw.clock")).display()
+                qemu_path_option(&dir.join(format!("state/nvram{node}.raw.clock")))
             ),
         ]);
     }
@@ -242,7 +244,7 @@ pub fn arguments(
             } else {
                 format!(
                     "stream,id=net0,server=off,addr.type=unix,addr.path={}",
-                    resolve(dir, endpoint).display()
+                    qemu_path_option(&resolve(dir, endpoint))
                 )
             };
             args.extend(["-netdev".into(), address]);
@@ -291,7 +293,7 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, drive: &Drive, index: usize) {
         "-drive".into(),
         format!(
             "if=none,id={id},file={},format={format},readonly={}",
-            path.display(),
+            qemu_path_option(&path),
             if drive.read_only { "on" } else { "off" }
         ),
     ]);
@@ -572,10 +574,16 @@ mod tests {
             .iter()
             .any(|arg| arg == "nic,netdev=net0,macaddr=08:00:69:12:34:56"));
         file.identity.as_mut().unwrap().spd_dimm2 = "firmware/dimm,2.bin".into();
-        assert!(arguments(dir, &file, offer, Display::None)
-            .unwrap_err()
-            .to_string()
-            .contains("comma"));
+        let escaped = arguments(Path::new("/machine,one"), &file, offer, Display::None).unwrap();
+        assert!(escaped
+            .iter()
+            .any(|arg| arg.contains("chassis-eeprom.1=") && arg.contains("machine,,one")));
+        assert!(escaped
+            .iter()
+            .any(|arg| arg.contains("spd-eeprom.3=") && arg.contains("dimm,,2.bin")));
+        assert!(escaped
+            .iter()
+            .any(|arg| arg.contains("if=pflash,index=0,file=") && arg.contains("machine,,one")));
     }
 
     #[cfg(unix)]
@@ -586,14 +594,14 @@ mod tests {
         let mut file = machine(offer, "rad4");
         file.network = Network {
             mode: "private".into(),
-            endpoint: Some("install.sock".into()),
+            endpoint: Some("install,one.sock".into()),
             mac: Some("08:00:69:12:34:56".into()),
         };
         let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-netdev",
-                "stream,id=net0,server=off,addr.type=unix,addr.path=/machine/install.sock"
+                "stream,id=net0,server=off,addr.type=unix,addr.path=/machine/install,,one.sock"
             ]));
         assert!(args
             .windows(2)

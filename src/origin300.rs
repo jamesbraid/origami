@@ -1,4 +1,4 @@
-use crate::{resolve, sha256_file, MachineFile, Origin300Identity, Result};
+use crate::{qemu_path_option, resolve, sha256_file, MachineFile, Origin300Identity, Result};
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -36,50 +36,17 @@ pub fn flash_path(dir: &Path) -> PathBuf {
     dir.join("state/ip35-boot-flash.raw")
 }
 
-pub fn validate_machine_directory(dir: &Path) -> Result<()> {
-    let parent = dir
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let absolute = parent.canonicalize()?.join(
-        dir.file_name()
-            .ok_or("Origin 300 machine directory needs a final name")?,
-    );
-    if absolute.to_string_lossy().contains(',') {
-        return Err(format!(
-            "Origin 300 machine directory contains a comma unsupported by QEMU: {}",
-            absolute.display()
-        )
-        .into());
-    }
-    Ok(())
-}
-
 pub fn machine_options(dir: &Path, file: &MachineFile) -> Result<String> {
     let identity = file
         .identity
         .as_ref()
         .ok_or("Origin 300 needs an identity section")?;
-    for path in [
-        dir.join("state/io8-chassis.bin"),
-        dir.join("state/io8-board.bin"),
-        resolve(dir, &identity.spd_dimm2),
-        resolve(dir, &identity.spd_dimm3),
-    ] {
-        if path.to_string_lossy().contains(',') {
-            return Err(format!(
-                "Origin 300 input path contains a comma unsupported by QEMU: {}",
-                path.display()
-            )
-            .into());
-        }
-    }
     Ok(format!(
         "origin300,chassis-eeprom.0=,chassis-eeprom.1={},board-eeprom.0=,board-eeprom.1={},spd-eeprom.0=,spd-eeprom.1=,spd-eeprom.2=,spd-eeprom.3={},spd-eeprom.4=,spd-eeprom.5={}",
-        dir.join("state/io8-chassis.bin").display(),
-        dir.join("state/io8-board.bin").display(),
-        resolve(dir, &identity.spd_dimm2).display(),
-        resolve(dir, &identity.spd_dimm3).display(),
+        qemu_path_option(&dir.join("state/io8-chassis.bin")),
+        qemu_path_option(&dir.join("state/io8-board.bin")),
+        qemu_path_option(&resolve(dir, &identity.spd_dimm2)),
+        qemu_path_option(&resolve(dir, &identity.spd_dimm3)),
     ))
 }
 
@@ -287,13 +254,6 @@ mod tests {
         fs::write(&path, b"partial").unwrap();
         assert!(ensure_record(&path, b"complete").is_err());
         fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn machine_directory_with_comma_is_rejected_before_creation() {
-        let dir = test_dir("with,comma");
-        assert!(validate_machine_directory(&dir).is_err());
-        assert!(!dir.exists());
     }
 
     #[test]
