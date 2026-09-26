@@ -1,4 +1,4 @@
-use crate::{control, resolve, tcp_endpoint, Drive, MachineFile, Offering, Result};
+use crate::{control, origin300, resolve, tcp_endpoint, Drive, MachineFile, Offering, Result};
 use fs2::FileExt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -50,7 +50,12 @@ pub fn qemu_img_path() -> Result<PathBuf> {
     Ok(qemu_path()?.with_file_name(binary_name("qemu-img")))
 }
 
-pub fn prepare_state(dir: &Path, offering: &Offering, prom: &Path) -> Result<()> {
+pub fn prepare_state(
+    dir: &Path,
+    file: &MachineFile,
+    offering: &Offering,
+    prom: &Path,
+) -> Result<()> {
     fs::create_dir_all(dir.join("state"))?;
     let nvram_count: u32 = offering
         .resources
@@ -61,6 +66,9 @@ pub fn prepare_state(dir: &Path, offering: &Offering, prom: &Path) -> Result<()>
     for node in 0..nvram_count {
         ensure_size(&dir.join(format!("state/nvram{node}.raw")), 32768)?;
         ensure_size(&dir.join(format!("state/nvram{node}.raw.clock")), 16)?;
+    }
+    if offering.product == "origin300" {
+        origin300::prepare_state(dir, file, prom)?;
     }
     if offering.product == "origin2000" {
         let firmware = fs::read(prom)?;
@@ -114,10 +122,11 @@ pub fn arguments(
     offering: &Offering,
     display: Display,
 ) -> Result<Vec<String>> {
-    if offering.product == "origin300" {
-        return Err("Origin 300 launch needs its managed flash and identity inputs; this build cannot run it".into());
-    }
-    let mut machine = offering.product.clone();
+    let mut machine = if offering.product == "origin300" {
+        origin300::machine_options(dir, file)?
+    } else {
+        offering.product.clone()
+    };
     if offering.topology != offering.product && offering.topology != "origin2000-module" {
         machine.push_str(&format!(",topology={}", offering.topology));
     }
@@ -162,6 +171,15 @@ pub fn arguments(
             "-bios".into(),
             resolve(dir, &file.firmware.image).display().to_string(),
         ]);
+        if offering.product == "origin300" {
+            args.extend([
+                "-drive".into(),
+                format!(
+                    "if=pflash,index=0,file={},format=raw",
+                    origin300::flash_path(dir).display()
+                ),
+            ]);
+        }
     }
     let nvram_count: u32 = offering
         .resources
@@ -237,6 +255,19 @@ pub fn arguments(
                         .as_deref()
                         .ok_or("private network needs mac")?,
                 ),
+            ]);
+        }
+        "user" if offering.product == "origin300" => {
+            let mac = &file
+                .identity
+                .as_ref()
+                .ok_or("Origin 300 needs identity")?
+                .mac;
+            args.extend([
+                "-netdev".into(),
+                "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15".into(),
+                "-net".into(),
+                format!("nic,netdev=net0,macaddr={mac}"),
             ]);
         }
         "user" => args.extend([
@@ -386,7 +417,7 @@ fn run_inner(
             let _ = metadata;
         }
     }
-    prepare_state(dir, offering, &resolve(dir, &file.firmware.image))?;
+    prepare_state(dir, file, offering, &resolve(dir, &file.firmware.image))?;
     if !background {
         let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
         return Ok(child.wait()?);
@@ -465,6 +496,7 @@ mod tests {
             firmware: Firmware {
                 image: "firmware/prom.bin".into(),
             },
+            identity: None,
             network: Network::default(),
             drive: vec![],
         }
@@ -511,18 +543,42 @@ mod tests {
     }
 
     #[test]
-    fn origin300_cannot_claim_a_runnable_command() {
+    fn origin300_uses_persistent_flash_and_spd_inputs() {
         let catalog = catalogue().unwrap();
         let offer = preset(&catalog, "origin300-2").unwrap();
-        assert!(arguments(
-            Path::new("/machine"),
-            &machine(offer, "none"),
-            offer,
-            Display::None
-        )
-        .is_err());
+        let dir = Path::new("/machine");
+        let mut file = machine(offer, "none");
+        file.identity = Some(crate::Origin300Identity {
+            mac: "08:00:69:12:34:56".into(),
+            spd_dimm2: "firmware/spd-dimm2.bin".into(),
+            spd_dimm3: "firmware/spd-dimm3.bin".into(),
+        });
+        let args = arguments(dir, &file, offer, Display::None).unwrap();
+        let flash = format!(
+            "if=pflash,index=0,file={},format=raw",
+            dir.join("state/ip35-boot-flash.raw").display()
+        );
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-drive", flash.as_str()]));
+        for (slot, name) in [(3, "spd-dimm2.bin"), (5, "spd-dimm3.bin")] {
+            let expected = format!(
+                "spd-eeprom.{slot}={}",
+                resolve(dir, &format!("firmware/{name}")).display()
+            );
+            assert!(args.iter().any(|arg| arg.contains(&expected)));
+        }
+        assert!(args
+            .iter()
+            .any(|arg| arg == "nic,netdev=net0,macaddr=08:00:69:12:34:56"));
+        file.identity.as_mut().unwrap().spd_dimm2 = "firmware/dimm,2.bin".into();
+        assert!(arguments(dir, &file, offer, Display::None)
+            .unwrap_err()
+            .to_string()
+            .contains("comma"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn private_network_uses_qemu_stream_client() {
         let catalog = catalogue().unwrap();

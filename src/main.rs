@@ -1,6 +1,7 @@
 use sgi::runtime::{self, Display};
 use sgi::{
-    catalogue, create, preset, presets, read_machine, resolve, validate, Drive, Network, Result,
+    catalogue, create, preset, presets, read_machine, resolve, validate, Drive, Network,
+    Origin300Create, Result,
 };
 use sgi::{control, install};
 use std::env;
@@ -19,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
+    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -75,7 +76,28 @@ fn command() -> Result<()> {
         "create" => {
             let path = args.first().ok_or("missing destination directory")?;
             let offer = preset(&catalog, value(&args, "--preset")?)?;
-            create(Path::new(path), offer, Path::new(value(&args, "--prom")?))?;
+            if offer.product != "origin300"
+                && ["--spd-dimm2", "--spd-dimm3", "--mac"]
+                    .iter()
+                    .any(|flag| args.iter().any(|arg| arg == flag))
+            {
+                return Err("SPD and identity inputs apply only to Origin 300".into());
+            }
+            let identity = if offer.product == "origin300" {
+                Some(Origin300Create {
+                    spd_dimm2: Path::new(value(&args, "--spd-dimm2")?),
+                    spd_dimm3: Path::new(value(&args, "--spd-dimm3")?),
+                    mac: optional(&args, "--mac").unwrap_or("08:00:69:12:34:56"),
+                })
+            } else {
+                None
+            };
+            create(
+                Path::new(path),
+                offer,
+                Path::new(value(&args, "--prom")?),
+                identity,
+            )?;
             println!("created {path}");
         }
         "validate" | "show" | "show-command" | "run" | "_serve" => {
@@ -94,6 +116,17 @@ fn command() -> Result<()> {
                         resolve(&dir, &file.firmware.image).display()
                     );
                     println!("network: {}", file.network.mode);
+                    if let Some(identity) = &file.identity {
+                        println!("IO8 MAC: {}", identity.mac);
+                        println!(
+                            "SPD DIMM 2: {}",
+                            resolve(&dir, &identity.spd_dimm2).display()
+                        );
+                        println!(
+                            "SPD DIMM 3: {}",
+                            resolve(&dir, &identity.spd_dimm3).display()
+                        );
+                    }
                     for drive in &file.drive {
                         println!(
                             "{}: {} at scsi.{}:{} ({})",
