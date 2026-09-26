@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
+    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -300,6 +300,31 @@ fn command() -> Result<()> {
                 &mut file,
             )?;
             println!("created {}", path.display());
+        }
+        "install-addon" => {
+            let dir = directory(&args)?;
+            let file = read_machine(&dir)?;
+            validate(&catalog, &dir, &file)?;
+            let name = value(&args, "--name")?;
+            let install = args
+                .iter()
+                .enumerate()
+                .filter(|(_, arg)| *arg == "--install")
+                .map(|(index, _)| {
+                    args.get(index + 1)
+                        .cloned()
+                        .ok_or("missing value for --install".into())
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let path = install::add_addon(
+                &dir,
+                name,
+                Path::new(value(&args, "--source")?),
+                optional(&args, "--base"),
+                optional(&args, "--dist"),
+                &install,
+            )?;
+            println!("configured add-on {name} in {}", path.display());
         }
         "install-check" | "install-serve" => {
             let dir = directory(&args)?;

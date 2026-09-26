@@ -1,7 +1,7 @@
 use crate::{resolve, tcp_endpoint, MachineFile, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 #[cfg(windows)]
 use std::net::TcpListener;
@@ -13,6 +13,20 @@ use std::process::{Command, ExitStatus};
 pub struct InstallMedia {
     pub format: u32,
     pub media: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub addons: Vec<InstallAddon>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstallAddon {
+    pub name: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dist: Option<String>,
+    pub install: Vec<String>,
 }
 
 struct Layer {
@@ -123,6 +137,14 @@ const LAYERS: &[Layer] = &[
     },
 ];
 
+const MIPSPRO_INSTALL: &[&str] = &[
+    "c_fe.sw.c",
+    "c_dev.sw.c",
+    "compiler_dev.sw.base",
+    "compiler_dev.sw.ld",
+    "dev.sw.lib",
+];
+
 const SETS: &[&str] = &[
     "6.5.30",
     "foundations",
@@ -151,7 +173,11 @@ pub fn init(dir: &Path, media_root: &Path, mac: &str, file: &mut MachineFile) ->
             )
         })
         .collect();
-    let manifest = InstallMedia { format: 1, media };
+    let manifest = InstallMedia {
+        format: 1,
+        media,
+        addons: vec![],
+    };
     let catalog = crate::catalogue()?;
     let old_network = file.network.clone();
     #[cfg(windows)]
@@ -174,6 +200,58 @@ pub fn init(dir: &Path, media_root: &Path, mac: &str, file: &mut MachineFile) ->
     fs::write(&manifest_path, toml::to_string_pretty(&manifest)?)?;
     fs::write(dir.join("machine.toml"), toml::to_string_pretty(file)?)?;
     Ok(manifest_path)
+}
+
+fn valid_addon_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+}
+
+fn valid_install_selection(item: &str) -> bool {
+    !item.is_empty()
+        && item
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._+-".contains(&byte))
+}
+
+pub fn add_addon(
+    dir: &Path,
+    name: &str,
+    source: &Path,
+    base: Option<&str>,
+    dist: Option<&str>,
+    install: &[String],
+) -> Result<PathBuf> {
+    if !valid_addon_name(name) {
+        return Err("add-on name must use letters, digits, hyphens, or underscores".into());
+    }
+    if install.is_empty() || install.iter().any(|item| !valid_install_selection(item)) {
+        return Err("add-on needs one or more package names using letters, digits, dots, underscores, hyphens, or plus signs".into());
+    }
+    let source = source.canonicalize()?;
+    if !source.is_file() && !source.is_dir() {
+        return Err(format!(
+            "add-on source is not a file or directory: {}",
+            source.display()
+        )
+        .into());
+    }
+    let mut media = read_media(dir)?;
+    if media.addons.iter().any(|addon| addon.name == name) {
+        return Err(format!("add-on already configured: {name}").into());
+    }
+    media.addons.push(InstallAddon {
+        name: name.into(),
+        source: source.display().to_string(),
+        base: base.map(str::to_owned),
+        dist: dist.map(str::to_owned),
+        install: install.to_vec(),
+    });
+    let path = dir.join("install/media.toml");
+    fs::write(&path, toml::to_string_pretty(&media)?)?;
+    Ok(path)
 }
 
 pub fn read_media(dir: &Path) -> Result<InstallMedia> {
@@ -225,6 +303,45 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         }
         sets.push(set);
     }
+    let mut scripts = vec![json!({ "name": "mipspro", "install": MIPSPRO_INSTALL })];
+    let mut addon_names = HashSet::new();
+    for addon in &media.addons {
+        if !addon_names.insert(&addon.name) {
+            return Err(format!("duplicate add-on name: {}", addon.name).into());
+        }
+        if !valid_addon_name(&addon.name) {
+            return Err(format!("invalid add-on name: {}", addon.name).into());
+        }
+        if addon.install.is_empty()
+            || addon
+                .install
+                .iter()
+                .any(|item| !valid_install_selection(item))
+        {
+            return Err(format!("add-on {} has invalid install selections", addon.name).into());
+        }
+        let source = resolve(dir, &addon.source);
+        if !source.is_file() && !source.is_dir() {
+            return Err(format!("missing add-on {}: {}", addon.name, source.display()).into());
+        }
+        let mut layer = json!({ "name": addon.name, "source": source });
+        if let Some(base) = &addon.base {
+            layer["base"] = json!(base);
+        }
+        if let Some(dist) = &addon.dist {
+            layer["dist"] = json!(dist);
+        }
+        sets.push(json!({
+            "name": format!("addon-{}", addon.name),
+            "layers": [layer],
+        }));
+        let mut selected: Vec<&str> = MIPSPRO_INSTALL.to_vec();
+        selected.extend(addon.install.iter().map(String::as_str));
+        scripts.push(json!({
+            "name": format!("addon-{}", addon.name),
+            "install": selected,
+        }));
+    }
     Ok(json!({
         "server_ip": "10.98.0.2",
         "netmask": "10.98.0.0/24",
@@ -233,13 +350,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         "services": {
             "bootp": true, "tftp": { "port_range": [2048, 32767] }, "rsh": true
         },
-        "install_scripts": [{
-            "name": "mipspro",
-            "install": [
-                "c_fe.sw.c", "c_dev.sw.c", "compiler_dev.sw.base",
-                "compiler_dev.sw.ld", "dev.sw.lib"
-            ]
-        }],
+        "install_scripts": scripts,
         "install_sets": sets
     }))
 }
@@ -286,6 +397,83 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn addon_script_selects_mipspro_and_local_package() {
+        use crate::{Firmware, Machine, Network};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let dir = std::env::temp_dir().join(format!(
+            "sgi-addon-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let source = dir.join("tablet.tardist");
+        fs::write(&source, b"synthetic source").unwrap();
+        let media = InstallMedia {
+            format: 1,
+            media: LAYERS
+                .iter()
+                .map(|layer| (layer.name.into(), source.display().to_string()))
+                .collect(),
+            addons: vec![InstallAddon {
+                name: "tablet".into(),
+                source: source.display().to_string(),
+                base: Some("tablet-disc".into()),
+                dist: Some("dist".into()),
+                install: vec!["tablet.sw.helper".into()],
+            }],
+        };
+        let file = MachineFile {
+            format: 1,
+            machine: Machine {
+                model: "origin200".into(),
+                nodes: 1,
+                cpus_per_node: 1,
+                memory_per_node: "256MiB".into(),
+                graphics: "rad4".into(),
+            },
+            firmware: Firmware {
+                image: "prom.bin".into(),
+            },
+            identity: None,
+            network: Network {
+                mode: "private".into(),
+                endpoint: Some("install/network.sock".into()),
+                mac: Some("08:00:69:12:34:56".into()),
+            },
+            drive: vec![],
+        };
+        let document = config(&dir, &file, &media).unwrap();
+        let addon_set = &document["install_sets"][SETS.len()];
+        assert_eq!(addon_set["name"], "addon-tablet");
+        assert_eq!(
+            addon_set["layers"][0]["source"],
+            source.display().to_string()
+        );
+        assert_eq!(addon_set["layers"][0]["base"], "tablet-disc");
+        let script = &document["install_scripts"][1];
+        assert_eq!(script["name"], "addon-tablet");
+        assert!(script["install"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("c_fe.sw.c")));
+        assert!(script["install"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("tablet.sw.helper")));
+        let mut invalid = media.clone();
+        invalid.addons[0].install = vec!["tablet.sw.helper\nquit".into()];
+        assert!(config(&dir, &file, &invalid).is_err());
+        invalid.addons[0].install = vec!["tablet.sw.helper".into()];
+        invalid.addons.push(invalid.addons[0].clone());
+        assert!(config(&dir, &file, &invalid).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn standard_profile_contains_mipspro_media() {
