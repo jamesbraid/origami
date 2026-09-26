@@ -154,6 +154,8 @@ pub fn arguments(
         .trim_end_matches("MiB")
         .parse()?;
     let mut args = vec![
+        // Default devices create a second, empty SDL window beside RAD4.
+        "-nodefaults".into(),
         "-accel".into(),
         if offering.smp > 1 {
             "tcg,thread=multi"
