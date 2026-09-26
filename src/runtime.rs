@@ -53,6 +53,13 @@ pub fn qemu_img_path() -> Result<PathBuf> {
     Ok(qemu_path()?.with_file_name(binary_name("qemu-img")))
 }
 
+fn qemu_data_path() -> Result<PathBuf> {
+    Ok(qemu_path()?
+        .parent()
+        .ok_or("cannot locate packaged QEMU directory")?
+        .join("../../share/sgi/qemu"))
+}
+
 pub fn prepare_state(
     dir: &Path,
     file: &MachineFile,
@@ -156,6 +163,8 @@ pub fn arguments(
     let mut args = vec![
         // Default devices create a second, empty SDL window beside RAD4.
         "-nodefaults".into(),
+        "-L".into(),
+        qemu_data_path()?.display().to_string(),
         "-accel".into(),
         if offering.smp > 1 {
             "tcg,thread=multi"
@@ -398,6 +407,10 @@ fn run_inner(
     let qemu = qemu_path()?;
     if !qemu.is_file() {
         return Err(format!("packaged QEMU missing: {}", qemu.display()).into());
+    }
+    let keymap = qemu_data_path()?.join("keymaps/en-us");
+    if !keymap.is_file() {
+        return Err(format!("packaged QEMU keymap missing: {}", keymap.display()).into());
     }
     fs::create_dir_all(dir.join("state"))?;
     let lock = OpenOptions::new()

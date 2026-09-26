@@ -91,6 +91,11 @@ fi
         cp /qemu/LICENSE /work/linux-dev/share/sgi/licenses/qemu.LICENSE
         cp /qemu/COPYING /work/linux-dev/share/sgi/licenses/qemu.COPYING
         cp /qemu/COPYING.LIB /work/linux-dev/share/sgi/licenses/qemu.COPYING.LIB
+        rm -rf /work/linux-dev/share/sgi/qemu/keymaps
+        mkdir -p /work/linux-dev/share/sgi/qemu/keymaps
+        for keymap in /qemu/pc-bios/keymaps/*; do
+            [ "${keymap##*/}" = meson.build ] || cp "$keymap" /work/linux-dev/share/sgi/qemu/keymaps/
+        done
         printf "product=%s (%s)\nqemu=%s\ninstigator=%s\n" \
             "$PRODUCT_REV" "$PRODUCT_STATE" "$QEMU_REV" "$INSTIGATOR_REV" \
             > /work/linux-dev/share/sgi/source-revisions.txt

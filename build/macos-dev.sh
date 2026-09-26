@@ -89,6 +89,10 @@ cp "$instigator/LICENSE" "$stage/share/sgi/licenses/instigator.LICENSE"
 cp "$source/LICENSE" "$stage/share/sgi/licenses/qemu.LICENSE"
 cp "$source/COPYING" "$stage/share/sgi/licenses/qemu.COPYING"
 cp "$source/COPYING.LIB" "$stage/share/sgi/licenses/qemu.COPYING.LIB"
+mkdir -p "$stage/share/sgi/qemu/keymaps"
+for keymap in "$source"/pc-bios/keymaps/*; do
+    [ "${keymap##*/}" = meson.build ] || cp "$keymap" "$stage/share/sgi/qemu/keymaps/"
+done
 printf 'product=%s (%s)\nqemu=%s\ninstigator=%s\n' \
     "$product_revision" "$product_state" "$expected" "$instigator_expected" \
     > "$stage/share/sgi/source-revisions.txt"
