@@ -4,7 +4,6 @@ use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::Write;
-#[cfg(windows)]
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
@@ -186,13 +185,8 @@ pub fn init(dir: &Path, media_root: &Path, mac: &str, file: &mut MachineFile) ->
     };
     let catalog = crate::catalogue()?;
     let old_network = file.network.clone();
-    #[cfg(windows)]
-    let endpoint = {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
-        format!("tcp:{}", listener.local_addr()?)
-    };
-    #[cfg(not(windows))]
-    let endpoint = "install/network.sock".to_string();
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let endpoint = format!("tcp:{}", listener.local_addr()?);
     file.network = crate::Network {
         mode: "private".into(),
         endpoint: Some(endpoint),
@@ -561,6 +555,12 @@ mod tests {
         let mut file = crate::read_machine(&machine).unwrap();
         init(&machine, &media_root, "08:00:69:12:34:56", &mut file).unwrap();
         let manifest = read_media(&machine).unwrap();
+        assert!(file
+            .network
+            .endpoint
+            .as_deref()
+            .unwrap()
+            .starts_with("tcp:127.0.0.1:"));
         assert_eq!(
             manifest.media["overlays1"],
             media_root
