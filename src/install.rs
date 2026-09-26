@@ -191,6 +191,7 @@ pub fn init(dir: &Path, media_root: &Path, mac: &str, file: &mut MachineFile) ->
         mode: "private".into(),
         endpoint: Some(endpoint),
         mac: Some(mac.into()),
+        forward: old_network.forward.clone(),
     };
     if let Err(error) = crate::validate(&catalog, dir, file) {
         file.network = old_network;
@@ -445,6 +446,7 @@ mod tests {
                 mode: "private".into(),
                 endpoint: Some("install/network.sock".into()),
                 mac: Some("08:00:69:12:34:56".into()),
+                forward: vec![],
             },
             drive: vec![],
         };

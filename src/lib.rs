@@ -105,6 +105,17 @@ pub struct Network {
     pub endpoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mac: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forward: Vec<PortForward>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PortForward {
+    pub name: String,
+    pub protocol: String,
+    pub host_port: u16,
+    pub guest_port: u16,
 }
 
 fn default_network_mode() -> String {
@@ -117,6 +128,7 @@ impl Default for Network {
             mode: default_network_mode(),
             endpoint: None,
             mac: None,
+            forward: vec![],
         }
     }
 }
@@ -275,6 +287,34 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
             }
         }
         _ => return Err("network mode must be user, none, or private".into()),
+    }
+    let mut names = std::collections::HashSet::new();
+    let mut host_ports = std::collections::HashSet::new();
+    for forward in &file.network.forward {
+        if forward.name.is_empty()
+            || !forward
+                .name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        {
+            return Err("forward name must use letters, digits, hyphens, or underscores".into());
+        }
+        if !matches!(forward.protocol.as_str(), "tcp" | "udp") {
+            return Err(format!("forward {} must use tcp or udp", forward.name).into());
+        }
+        if forward.host_port == 0 || forward.guest_port == 0 {
+            return Err(format!("forward {} needs nonzero ports", forward.name).into());
+        }
+        if !names.insert(&forward.name) {
+            return Err(format!("duplicate forward name: {}", forward.name).into());
+        }
+        if !host_ports.insert((&forward.protocol, forward.host_port)) {
+            return Err(format!(
+                "duplicate {} host port {}",
+                forward.protocol, forward.host_port
+            )
+            .into());
+        }
     }
     let prom = resolve(dir, &file.firmware.image);
     if fs::metadata(&prom)?.len() != offering.firmware.size {

@@ -1,7 +1,7 @@
 use sgi::runtime::{self, Display};
 use sgi::{
     catalogue, create, preset, presets, read_machine, resolve, validate, Drive, Network,
-    Origin300Create, Result,
+    Origin300Create, PortForward, Result,
 };
 use sgi::{control, install};
 use std::env;
@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
+    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  sgi network-forward-remove DIR NAME\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -116,6 +116,21 @@ fn command() -> Result<()> {
                         resolve(&dir, &file.firmware.image).display()
                     );
                     println!("network: {}", file.network.mode);
+                    for forward in &file.network.forward {
+                        let status = if file.network.mode == "user" {
+                            ""
+                        } else {
+                            " (inactive until user networking)"
+                        };
+                        println!(
+                            "forward {}: {} 127.0.0.1:{} -> guest:{}{}",
+                            forward.name,
+                            forward.protocol,
+                            forward.host_port,
+                            forward.guest_port,
+                            status
+                        );
+                    }
                     if let Some(identity) = &file.identity {
                         println!("IO8 MAC: {}", identity.mac);
                         println!(
@@ -271,18 +286,24 @@ fn command() -> Result<()> {
         }
         "network-set" => {
             let dir = directory(&args)?;
+            if control::is_locked(&dir)? || control::is_running(&dir)? {
+                return Err("stop the machine before changing its network".into());
+            }
             let mut file = read_machine(&dir)?;
             let mode = value(&args, "--mode")?;
+            let forward = file.network.forward.clone();
             file.network = match mode {
                 "private" => Network {
                     mode: mode.into(),
                     endpoint: Some(value(&args, "--endpoint")?.into()),
                     mac: Some(value(&args, "--mac")?.into()),
+                    forward,
                 },
                 "user" | "none" => Network {
                     mode: mode.into(),
                     endpoint: None,
                     mac: None,
+                    forward,
                 },
                 _ => return Err("network mode must be user, none, or private".into()),
             };
@@ -290,8 +311,44 @@ fn command() -> Result<()> {
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("network: {mode}");
         }
+        "network-forward-add" => {
+            let dir = directory(&args)?;
+            if control::is_locked(&dir)? || control::is_running(&dir)? {
+                return Err("stop the machine before changing its network".into());
+            }
+            let mut file = read_machine(&dir)?;
+            let name = args.get(1).ok_or("missing forward name")?;
+            file.network.forward.push(PortForward {
+                name: name.clone(),
+                protocol: value(&args, "--protocol")?.into(),
+                host_port: value(&args, "--host-port")?.parse()?,
+                guest_port: value(&args, "--guest-port")?.parse()?,
+            });
+            validate(&catalog, &dir, &file)?;
+            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+            println!("forward added: {name}");
+        }
+        "network-forward-remove" => {
+            let dir = directory(&args)?;
+            if control::is_locked(&dir)? || control::is_running(&dir)? {
+                return Err("stop the machine before changing its network".into());
+            }
+            let mut file = read_machine(&dir)?;
+            let name = args.get(1).ok_or("missing forward name")?;
+            let count = file.network.forward.len();
+            file.network.forward.retain(|forward| forward.name != *name);
+            if file.network.forward.len() == count {
+                return Err(format!("unknown forward: {name}").into());
+            }
+            validate(&catalog, &dir, &file)?;
+            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+            println!("forward removed: {name}");
+        }
         "install-init" => {
             let dir = directory(&args)?;
+            if control::is_locked(&dir)? || control::is_running(&dir)? {
+                return Err("stop the machine before changing its network".into());
+            }
             let mut file = read_machine(&dir)?;
             let path = install::init(
                 &dir,

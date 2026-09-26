@@ -1,6 +1,6 @@
 use crate::{
     control, origin300, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering,
-    Result,
+    PortForward, Result,
 };
 use fs2::FileExt;
 use std::fs::{self, OpenOptions};
@@ -117,6 +117,18 @@ fn ensure_size(path: &Path, bytes: u64) -> Result<()> {
             .set_len(bytes)?;
     }
     Ok(())
+}
+
+fn user_network(forward: &[PortForward]) -> String {
+    let mut option =
+        "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15".to_string();
+    for rule in forward {
+        option.push_str(&format!(
+            ",hostfwd={}:127.0.0.1:{}-:{}",
+            rule.protocol, rule.host_port, rule.guest_port
+        ));
+    }
+    option
 }
 
 pub fn arguments(
@@ -267,15 +279,12 @@ pub fn arguments(
                 .mac;
             args.extend([
                 "-netdev".into(),
-                "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15".into(),
+                user_network(&file.network.forward),
                 "-net".into(),
                 format!("nic,netdev=net0,macaddr={mac}"),
             ]);
         }
-        "user" => args.extend([
-            "-nic".into(),
-            "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15".into(),
-        ]),
+        "user" => args.extend(["-nic".into(), user_network(&file.network.forward)]),
         _ => return Err("network mode must be user, none, or private".into()),
     }
     Ok(args)
@@ -525,6 +534,42 @@ mod tests {
     }
 
     #[test]
+    fn user_network_forwards_bind_only_to_loopback() {
+        let catalog = catalogue().unwrap();
+        let rules = vec![
+            PortForward {
+                name: "ssh".into(),
+                protocol: "tcp".into(),
+                host_port: 2222,
+                guest_port: 22,
+            },
+            PortForward {
+                name: "dns".into(),
+                protocol: "udp".into(),
+                host_port: 5353,
+                guest_port: 53,
+            },
+        ];
+        let expected = "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15,hostfwd=tcp:127.0.0.1:2222-:22,hostfwd=udp:127.0.0.1:5353-:53";
+        let origin200 = preset(&catalog, "origin200-1").unwrap();
+        let mut file = machine(origin200, "rad4");
+        file.network.forward = rules.clone();
+        let args = arguments(Path::new("/machine"), &file, origin200, Display::None).unwrap();
+        assert!(args.windows(2).any(|pair| pair == ["-nic", expected]));
+
+        let origin300 = preset(&catalog, "origin300-2").unwrap();
+        let mut file = machine(origin300, "none");
+        file.network.forward = rules;
+        file.identity = Some(crate::Origin300Identity {
+            mac: "08:00:69:12:34:56".into(),
+            spd_dimm2: "firmware/spd-dimm2.bin".into(),
+            spd_dimm3: "firmware/spd-dimm3.bin".into(),
+        });
+        let args = arguments(Path::new("/machine"), &file, origin300, Display::None).unwrap();
+        assert!(args.windows(2).any(|pair| pair == ["-netdev", expected]));
+    }
+
+    #[test]
     fn origin2000_uses_independent_node_flash_images() {
         let catalog = catalogue().unwrap();
         let offer = preset(&catalog, "origin2000-8").unwrap();
@@ -596,6 +641,7 @@ mod tests {
             mode: "private".into(),
             endpoint: Some("install,one.sock".into()),
             mac: Some("08:00:69:12:34:56".into()),
+            forward: vec![],
         };
         let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
         assert!(args.windows(2).any(|pair| pair
@@ -617,6 +663,7 @@ mod tests {
             mode: "private".into(),
             endpoint: Some("tcp:127.0.0.1:49173".into()),
             mac: Some("08:00:69:12:34:56".into()),
+            forward: vec![],
         };
         let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
         assert!(args.windows(2).any(|pair| pair
