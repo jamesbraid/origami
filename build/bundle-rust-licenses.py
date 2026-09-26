@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect license files for the crates used by the Linux build."""
+"""Collect license files for the crates used by a product build."""
 
 import shutil
 import sys
@@ -27,6 +27,13 @@ def main():
                 continue  # Windows-only crates are absent from the Linux build.
             raise RuntimeError(f"missing crate source: {name} {version}")
         files = sorted(path for path in source[0].iterdir() if path.name.startswith("LICENSE"))
+        if not files and (name, version) == ("winapi-x86_64-pc-windows-gnu", "0.4.0"):
+            # This import-library crate omits license files but declares the same
+            # MIT/Apache-2.0 terms as its winapi parent repository.
+            parent = list(source_root.glob("*/winapi-0.3.9"))
+            if parent:
+                files = sorted(path for path in parent[0].iterdir()
+                               if path.name.startswith("LICENSE"))
         if not files:
             raise RuntimeError(f"missing license file: {name} {version}")
         destination = notices / f"{name}-{version}"

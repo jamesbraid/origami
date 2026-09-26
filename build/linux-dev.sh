@@ -69,6 +69,9 @@ fi
         go test -mod=readonly ./internal/qemunet ./cmd/instigator
         go build -mod=readonly -trimpath -o /work/instigator ./cmd/instigator
         test -s /work/instigator
+        go list -mod=readonly -deps \
+            -f "{{if .Module}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}" \
+            ./cmd/instigator | sort -u > /work/instigator-go-deps-linux.txt
     '
 
 "$engine" run --rm -v "$scratch:/work" -v "$instigator:/instigator:ro" \
@@ -93,6 +96,8 @@ fi
             > /work/linux-dev/share/sgi/source-revisions.txt
         python3 /product/build/bundle-linux.py /work/linux-dev
         python3 /product/build/bundle-rust-licenses.py /work/cargo /work/linux-dev
+        python3 /product/build/bundle-go-licenses.py \
+            /work/instigator-go-deps-linux.txt /work/linux-dev
         /work/linux-dev/libexec/sgi/qemu-system-mips64 -display help | grep -qx sdl
         cd /work/linux-dev
         find bin lib libexec share -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
