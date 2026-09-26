@@ -3,6 +3,7 @@ use std::fs;
 use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 
+pub mod control;
 pub mod install;
 pub mod runtime;
 

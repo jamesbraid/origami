@@ -1,8 +1,8 @@
-use sgi::install;
 use sgi::runtime::{self, Display};
 use sgi::{
     catalogue, create, preset, presets, read_machine, resolve, validate, Drive, Network, Result,
 };
+use sgi::{control, install};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none]\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
+    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none]\n  sgi run DIR [--display local|vnc|none] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom --target N\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -78,7 +78,7 @@ fn command() -> Result<()> {
             create(Path::new(path), offer, Path::new(value(&args, "--prom")?))?;
             println!("created {path}");
         }
-        "validate" | "show" | "show-command" | "run" => {
+        "validate" | "show" | "show-command" | "run" | "_serve" => {
             let dir = directory(&args)?;
             let file = read_machine(&dir)?;
             let offer = validate(&catalog, &dir, &file)?;
@@ -110,15 +110,39 @@ fn command() -> Result<()> {
                         println!("  {arg}");
                     }
                 }
-                "run" => {
+                "run" | "_serve" => {
                     let display = display(&args, &file.machine.graphics)?;
-                    let status = runtime::run(&dir, &file, offer, display)?;
-                    if !status.success() {
-                        return Err(format!("QEMU exited with {status}").into());
+                    if action == "run" && args.iter().any(|arg| arg == "--background") {
+                        runtime::start_background(&dir, display)?;
+                    } else {
+                        let status = if action == "_serve" {
+                            runtime::serve(&dir, &file, offer, display)?
+                        } else {
+                            runtime::run(&dir, &file, offer, display)?
+                        };
+                        if !status.success() {
+                            return Err(format!("QEMU exited with {status}").into());
+                        }
                     }
                 }
                 _ => unreachable!(),
             }
+        }
+        "status" => {
+            let dir = directory(&args)?;
+            if control::is_running(&dir)? {
+                let record = control::read(&dir)?;
+                println!("running: pid {}", record.pid);
+            } else if control::is_locked(&dir)? {
+                println!("running: foreground or starting");
+            } else {
+                println!("stopped");
+            }
+        }
+        "console" => control::console(&directory(&args)?)?,
+        "stop" => {
+            control::stop(&directory(&args)?)?;
+            println!("stop requested");
         }
         "drive-create" => {
             let dir = directory(&args)?;

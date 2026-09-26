@@ -1,11 +1,12 @@
-use crate::{resolve, tcp_endpoint, Drive, MachineFile, Offering, Result};
+use crate::{control, resolve, tcp_endpoint, Drive, MachineFile, Offering, Result};
 use fs2::FileExt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Display {
@@ -277,11 +278,78 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, drive: &Drive, index: usize) {
     ]);
 }
 
+pub fn start_background(dir: &Path, display: Display) -> Result<()> {
+    if control::is_running(dir)? || control::is_locked(dir)? {
+        return Err("machine is already running".into());
+    }
+    fs::create_dir_all(dir.join("logs"))?;
+    let log_path = dir.join("logs/runner.log");
+    let log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)?;
+    let display = match display {
+        Display::Local => "local",
+        Display::Vnc => "vnc",
+        Display::None => "none",
+    };
+    let mut child = Command::new(std::env::current_exe()?)
+        .arg("_serve")
+        .arg(dir)
+        .arg("--display")
+        .arg(display)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log.try_clone()?))
+        .stderr(Stdio::from(log))
+        .spawn()?;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if let Ok(record) = control::read(dir) {
+            if record.pid == child.id() && control::verified_qmp(&record).is_ok() {
+                println!("running: pid {}", record.pid);
+                return Ok(());
+            }
+        }
+        if let Some(status) = child.try_wait()? {
+            return Err(format!(
+                "machine failed to start ({status}); see {}",
+                log_path.display()
+            )
+            .into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Err(format!(
+        "machine startup timed out; inspect {} and use sgi status",
+        log_path.display()
+    )
+    .into())
+}
+
 pub fn run(
     dir: &Path,
     file: &MachineFile,
     offering: &Offering,
     display: Display,
+) -> Result<ExitStatus> {
+    run_inner(dir, file, offering, display, false)
+}
+
+pub fn serve(
+    dir: &Path,
+    file: &MachineFile,
+    offering: &Offering,
+    display: Display,
+) -> Result<ExitStatus> {
+    run_inner(dir, file, offering, display, true)
+}
+
+fn run_inner(
+    dir: &Path,
+    file: &MachineFile,
+    offering: &Offering,
+    display: Display,
+    background: bool,
 ) -> Result<ExitStatus> {
     let qemu = qemu_path()?;
     if !qemu.is_file() {
@@ -295,7 +363,7 @@ pub fn run(
         .open(dir.join("state/machine.lock"))?;
     lock.try_lock_exclusive()
         .map_err(|error| format!("cannot lock machine: {error}"))?;
-    let args = arguments(dir, file, offering, display)?;
+    let mut args = arguments(dir, file, offering, display)?;
     if file.network.mode == "private" {
         let endpoint = file
             .network
@@ -319,8 +387,64 @@ pub fn run(
         }
     }
     prepare_state(dir, offering, &resolve(dir, &file.firmware.image))?;
-    let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
-    Ok(child.wait()?)
+    if !background {
+        let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
+        return Ok(child.wait()?);
+    }
+    let qmp_port = control::free_port()?;
+    let mut console_port = control::free_port()?;
+    while console_port == qmp_port {
+        console_port = control::free_port()?;
+    }
+    let name = format!(
+        "sgi-{}-{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    );
+    let serial = args
+        .windows(2)
+        .position(|pair| pair == ["-serial", "stdio"])
+        .ok_or("primary serial argument missing")?;
+    args[serial + 1] = "chardev:serial0".into();
+    args.extend([
+        "-chardev".into(),
+        format!("socket,id=serial0,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
+        "-qmp".into(),
+        format!("tcp:127.0.0.1:{qmp_port},server=on,wait=off"),
+        "-name".into(),
+        name.clone(),
+    ]);
+    let record = control::Record {
+        pid: std::process::id(),
+        qmp_port,
+        console_port,
+        name,
+    };
+    let mut child = Command::new(qemu)
+        .args(args)
+        .current_dir(dir)
+        .stdin(Stdio::null())
+        .spawn()?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        if control::verified_qmp(&record).is_ok() {
+            if let Err(error) = control::write(dir, &record) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
+            let status = child.wait()?;
+            control::clear_if_current(dir, &record);
+            return Ok(status);
+        }
+        if let Some(status) = child.try_wait()? {
+            return Err(format!("QEMU exited before QMP was ready ({status})").into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    child.kill()?;
+    child.wait()?;
+    Err("QEMU did not open its QMP control endpoint".into())
 }
 
 #[cfg(test)]
