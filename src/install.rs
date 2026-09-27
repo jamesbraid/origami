@@ -137,6 +137,8 @@ const LAYERS: &[Layer] = &[
     },
 ];
 
+const RAD4_FINISH_SCRIPT: &str = include_str!("../guest/irix/finish-rad4.sh");
+
 const MIPSPRO_INSTALL: &[&str] = &[
     "c_fe.sw.c",
     "c_dev.sw.c",
@@ -337,9 +339,17 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         if let Some(dist) = &addon.dist {
             layer["dist"] = json!(dist);
         }
+        let mut layers = vec![layer];
+        if addon.install.iter().any(|selection| selection == "rad4x") {
+            layers.push(json!({
+                "name": "sgi-rad4-finish",
+                "source": dir.join("install/generated/rad4"),
+                "dist": "dist",
+            }));
+        }
         sets.push(json!({
             "name": format!("addon-{}", addon.name),
-            "layers": [layer],
+            "layers": layers,
         }));
         let mut selected: Vec<&str> = MIPSPRO_INSTALL.to_vec();
         selected.extend(addon.install.iter().map(String::as_str));
@@ -362,6 +372,19 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
     }))
 }
 
+fn prepare_guest_scripts(dir: &Path, media: &InstallMedia) -> Result<()> {
+    if media
+        .addons
+        .iter()
+        .any(|addon| addon.install.iter().any(|selection| selection == "rad4x"))
+    {
+        let path = dir.join("install/generated/rad4/dist/finish-rad4.sh");
+        fs::create_dir_all(path.parent().ok_or("RAD4 script has no parent directory")?)?;
+        fs::write(path, RAD4_FINISH_SCRIPT)?;
+    }
+    Ok(())
+}
+
 fn instigator_path() -> Result<PathBuf> {
     let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
         "instigator.exe"
@@ -376,6 +399,7 @@ fn instigator_path() -> Result<PathBuf> {
 
 pub fn check(dir: &Path, file: &MachineFile) -> Result<()> {
     let media = read_media(dir)?;
+    prepare_guest_scripts(dir, &media)?;
     let document = config(dir, file, &media)?;
     fs::create_dir_all(dir.join("install/cache"))?;
     let mut child = Command::new(instigator_path()?)
@@ -402,6 +426,7 @@ pub fn check(dir: &Path, file: &MachineFile) -> Result<()> {
 
 pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     let media = read_media(dir)?;
+    prepare_guest_scripts(dir, &media)?;
     let document = config(dir, file, &media)?;
     let install_dir = dir.join("install");
     fs::create_dir_all(install_dir.join("cache"))?;
@@ -523,6 +548,20 @@ mod tests {
         invalid.addons[0].install = vec!["tablet.sw.helper".into()];
         invalid.addons.push(invalid.addons[0].clone());
         assert!(config(&dir, &file, &invalid).is_err());
+
+        let mut rad4 = media.clone();
+        rad4.addons[0].name = "rad4".into();
+        rad4.addons[0].install = vec!["rad4x".into()];
+        prepare_guest_scripts(&dir, &rad4).unwrap();
+        let script_path = dir.join("install/generated/rad4/dist/finish-rad4.sh");
+        assert_eq!(fs::read_to_string(script_path).unwrap(), RAD4_FINISH_SCRIPT);
+        let document = config(&dir, &file, &rad4).unwrap();
+        let layers = document["install_sets"][SETS.len()]["layers"]
+            .as_array()
+            .unwrap();
+        assert_eq!(layers.len(), 2);
+        assert_eq!(layers[1]["name"], "sgi-rad4-finish");
+        assert_eq!(layers[1]["dist"], "dist");
         fs::remove_dir_all(dir).unwrap();
     }
 
