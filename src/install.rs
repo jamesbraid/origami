@@ -515,6 +515,147 @@ impl InstallConsole {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InstallPhase {
+    ReadingSources,
+    Transferring,
+    Checking,
+    Finalizing,
+}
+
+struct InstallProgress {
+    phase: InstallPhase,
+    pending: Vec<u8>,
+    menu_pending: Vec<u8>,
+    menu_answered: bool,
+}
+
+impl InstallProgress {
+    fn new() -> Self {
+        Self {
+            phase: InstallPhase::ReadingSources,
+            pending: Vec::new(),
+            menu_pending: Vec::new(),
+            menu_answered: false,
+        }
+    }
+
+    fn distribution_choice(&mut self, bytes: &[u8]) -> Option<u8> {
+        if self.menu_answered || self.phase != InstallPhase::ReadingSources {
+            return None;
+        }
+        self.menu_pending.extend_from_slice(bytes);
+        if self.menu_pending.len() > 4096 {
+            self.menu_pending.drain(..self.menu_pending.len() - 4096);
+        }
+        if !self.menu_pending.ends_with(b"] ") {
+            return None;
+        }
+        let output = String::from_utf8_lossy(&self.menu_pending);
+        let menu = output.rfind("Install software from: [")?;
+        let item = output[..menu]
+            .lines()
+            .rev()
+            .find(|line| line.contains(" done (distribution information read"))?;
+        let choice = item.split_whitespace().next()?.parse().ok()?;
+        self.menu_answered = true;
+        Some(choice)
+    }
+
+    fn observe(&mut self, bytes: &[u8]) -> bool {
+        self.pending.extend_from_slice(bytes);
+        loop {
+            let marker: &[u8] = match self.phase {
+                InstallPhase::ReadingSources => b"Installing/removing files ..",
+                InstallPhase::Transferring => b"Checking dependencies ..",
+                InstallPhase::Checking => b"Calculating sizes ..",
+                InstallPhase::Finalizing => {
+                    if self.pending.ends_with(INSTALL_PROMPT) {
+                        return true;
+                    }
+                    let keep = INSTALL_PROMPT.len() - 1;
+                    if self.pending.len() > keep {
+                        self.pending.drain(..self.pending.len() - keep);
+                    }
+                    return false;
+                }
+            };
+            let Some(position) = self.pending.windows(marker.len()).position(|w| w == marker)
+            else {
+                let keep = marker.len().saturating_sub(1);
+                if self.pending.len() > keep {
+                    self.pending.drain(..self.pending.len() - keep);
+                }
+                return false;
+            };
+            self.pending.drain(..position + marker.len());
+            self.phase = match self.phase {
+                InstallPhase::ReadingSources => InstallPhase::Transferring,
+                InstallPhase::Transferring => InstallPhase::Checking,
+                InstallPhase::Checking => InstallPhase::Finalizing,
+                InstallPhase::Finalizing => unreachable!(),
+            };
+        }
+    }
+}
+
+impl InstallConsole {
+    fn wait_for_install(&mut self, timeout: Duration) -> Result<()> {
+        let deadline = Instant::now() + timeout;
+        let mut progress = InstallProgress::new();
+        let mut chunk = [0u8; 4096];
+        while Instant::now() < deadline {
+            match self.stream.read(&mut chunk) {
+                Ok(0) => return Err("guest serial console closed during installation".into()),
+                Ok(count) => {
+                    io::stdout().write_all(&chunk[..count])?;
+                    io::stdout().flush()?;
+                    if let Some(choice) = progress.distribution_choice(&chunk[..count]) {
+                        self.stream.write_all(format!("{choice}\n").as_bytes())?;
+                    }
+                    if progress.observe(&chunk[..count]) {
+                        return Ok(());
+                    }
+                }
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock
+                        || error.kind() == io::ErrorKind::TimedOut => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(format!(
+            "guest installation did not finish after {} seconds ({:?}); machine remains running",
+            timeout.as_secs(),
+            progress.phase
+        )
+        .into())
+    }
+}
+
+pub fn apply(dir: &Path, file: &MachineFile, addon: Option<&str>) -> Result<()> {
+    if file.network.mode != "private" {
+        return Err("package installation requires private installation networking".into());
+    }
+    let media = read_media(dir)?;
+    let script = if let Some(name) = addon {
+        if !valid_addon_name(name) || !media.addons.iter().any(|item| item.name == name) {
+            return Err(format!("unknown install add-on: {name}").into());
+        }
+        format!("addon-{name}")
+    } else {
+        "mipspro".into()
+    };
+    let mut console = InstallConsole::connect(dir)?;
+    println!("Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.");
+    console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
+    console
+        .stream
+        .write_all(format!("admin source 10.98.0.2:/{script}.cmds\n").as_bytes())?;
+    console.wait_for_install(Duration::from_secs(4 * 60 * 60))?;
+    println!("Package transfer returned to Inst>. Review the serial output for package errors before finishing the install.");
+    Ok(())
+}
+
 // POSIX cksum includes the byte length after the data and complements the CRC.
 fn posix_cksum(bytes: &[u8]) -> u32 {
     let mut crc = 0u32;
@@ -656,6 +797,32 @@ pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_progress_selects_distribution_menu_once() {
+        let mut progress = InstallProgress::new();
+        assert_eq!(progress.distribution_choice(b" 1 primary\r\n 7 done (distribution information read, return to inst prompt)\r\nInstall software from: [primary"), None);
+        assert_eq!(progress.distribution_choice(b"] "), Some(7));
+        assert_eq!(
+            progress.distribution_choice(b"Install software from: [primary] "),
+            None
+        );
+    }
+
+    #[test]
+    fn install_progress_ignores_intermediate_inst_prompt() {
+        let mut progress = InstallProgress::new();
+        assert!(!progress.observe(b"Inst> Reading product descriptions .. 100% Done.\r\n"));
+        assert!(!progress.observe(b"Inst> "));
+        assert_eq!(progress.phase, InstallPhase::ReadingSources);
+        assert!(!progress.observe(b"Installing/removing fi"));
+        assert!(!progress.observe(b"les .. 22%\r\n"));
+        assert_eq!(progress.phase, InstallPhase::Transferring);
+        assert!(!progress.observe(b"Checking dependencies .. 97% 100% Done.\r\n"));
+        assert_eq!(progress.phase, InstallPhase::Checking);
+        assert!(!progress.observe(b"Calculating sizes .. 100% Done.\r\nInst>"));
+        assert!(progress.observe(b" "));
+    }
 
     #[test]
     fn rad4_guest_transfer_must_match_packaged_helper() {
