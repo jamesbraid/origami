@@ -467,7 +467,17 @@ struct InstallConsole {
 
 impl InstallConsole {
     fn connect(dir: &Path) -> Result<Self> {
-        let record = control::read(dir)?;
+        let record = control::read(dir).map_err(|error| {
+            if error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == io::ErrorKind::NotFound)
+            {
+                "install commands require a background run; start with sgi run DIR --background"
+                    .into()
+            } else {
+                error
+            }
+        })?;
         control::verified_qmp(&record)?;
         let address = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, record.console_port);
         let stream = TcpStream::connect_timeout(&address.into(), Duration::from_secs(5))?;
