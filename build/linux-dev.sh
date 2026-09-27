@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 3 ]; then
-    printf 'usage: %s QEMU-SOURCE INSTIGATOR-SOURCE SCRATCH-DIR\n' "$0" >&2
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+    printf 'usage: %s QEMU-SOURCE INSTIGATOR-SOURCE SCRATCH-DIR [ARCHIVE-DIR]\n' "$0" >&2
     exit 2
 fi
 
@@ -10,6 +10,9 @@ product=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 source=$(CDPATH= cd -- "$1" && pwd)
 instigator=$(CDPATH= cd -- "$2" && pwd)
 scratch=$(CDPATH= cd -- "$3" && pwd)
+archive_dir=${4:-$scratch}
+mkdir -p "$archive_dir"
+archive_dir=$(CDPATH= cd -- "$archive_dir" && pwd)
 engine=${SGI_CONTAINER_ENGINE:-podman}
 expected=$(cat "$product/build/qemu-revision")
 actual=$(git -C "$source" rev-parse HEAD)
@@ -109,10 +112,12 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         cd /work/linux-dev
         find bin lib libexec share -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
     '
-"$engine" run --rm -v "$scratch:/work" localhost/sgi-qemu-builder:dev sh -ec '
+"$engine" run --rm -v "$scratch:/work" -v "$archive_dir:/out" \
+    localhost/sgi-qemu-builder:dev sh -ec '
     cd /work
     tar --sort=name --owner=0 --group=0 --numeric-owner \
-        -czf sgi-linux-x86_64-preview.tar.gz linux-dev
+        -czf /out/sgi-linux-x86_64-preview.tar.gz linux-dev
+    cd /out
     sha256sum sgi-linux-x86_64-preview.tar.gz > sgi-linux-x86_64-preview.tar.gz.sha256
 '
-printf 'Linux preview archive: %s/sgi-linux-x86_64-preview.tar.gz\n' "$scratch"
+printf 'Linux preview archive: %s/sgi-linux-x86_64-preview.tar.gz\n' "$archive_dir"
