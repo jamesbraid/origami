@@ -1,12 +1,13 @@
-use crate::{resolve, tcp_endpoint, MachineFile, Result};
+use crate::{control, resolve, tcp_endpoint, MachineFile, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io::Write;
-use std::net::TcpListener;
+use std::io::{self, Read, Write};
+use std::net::{SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -456,9 +457,228 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     }
 }
 
+const INSTALL_PROMPT: &[u8] = b"Inst> ";
+const SHELL_PROMPT: &[u8] = b"# ";
+const TFTP_PROMPT: &[u8] = b"tftp> ";
+
+struct InstallConsole {
+    stream: TcpStream,
+}
+
+impl InstallConsole {
+    fn connect(dir: &Path) -> Result<Self> {
+        let record = control::read(dir)?;
+        control::verified_qmp(&record)?;
+        let address = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, record.console_port);
+        let stream = TcpStream::connect_timeout(&address.into(), Duration::from_secs(5))?;
+        stream.set_read_timeout(Some(Duration::from_secs(1)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+        Ok(Self { stream })
+    }
+
+    fn wait_for(&mut self, prompt: &[u8], timeout: Duration) -> Result<String> {
+        let deadline = Instant::now() + timeout;
+        let mut output = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while Instant::now() < deadline {
+            match self.stream.read(&mut chunk) {
+                Ok(0) => return Err("guest serial console closed".into()),
+                Ok(count) => {
+                    io::stdout().write_all(&chunk[..count])?;
+                    io::stdout().flush()?;
+                    output.extend_from_slice(&chunk[..count]);
+                    if output.len() > 65536 {
+                        output.drain(..output.len() - 65536);
+                    }
+                    if output.ends_with(prompt) {
+                        return Ok(String::from_utf8_lossy(&output).into_owned());
+                    }
+                }
+                Err(error)
+                    if error.kind() == io::ErrorKind::WouldBlock
+                        || error.kind() == io::ErrorKind::TimedOut => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(format!(
+            "guest did not reach {} within {} seconds; machine remains running",
+            String::from_utf8_lossy(prompt),
+            timeout.as_secs()
+        )
+        .into())
+    }
+
+    fn command(&mut self, command: &str, prompt: &[u8], timeout: Duration) -> Result<String> {
+        self.stream.write_all(command.as_bytes())?;
+        self.stream.write_all(b"\n")?;
+        self.wait_for(prompt, timeout)
+    }
+}
+
+// POSIX cksum includes the byte length after the data and complements the CRC.
+fn posix_cksum(bytes: &[u8]) -> u32 {
+    let mut crc = 0u32;
+    let mut feed = |byte: u8| {
+        crc ^= (byte as u32) << 24;
+        for _ in 0..8 {
+            crc = (crc << 1)
+                ^ if crc & 0x8000_0000 != 0 {
+                    0x04c1_1db7
+                } else {
+                    0
+                };
+        }
+    };
+    for byte in bytes {
+        feed(*byte);
+    }
+    let mut length = bytes.len();
+    while length > 0 {
+        feed(length as u8);
+        length >>= 8;
+    }
+    !crc
+}
+
+fn received_expected(output: &str, size: usize) -> bool {
+    output
+        .lines()
+        .any(|line| line.trim().starts_with(&format!("Received {size} bytes ")))
+}
+
+fn checksum_matches(output: &str, crc: u32, size: usize) -> bool {
+    output.lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        let parsed = (
+            fields.next().and_then(|value| value.parse::<u32>().ok()),
+            fields.next().and_then(|value| value.parse::<usize>().ok()),
+            fields.next(),
+        );
+        parsed == (Some(crc), Some(size), Some("/tmp/finish-rad4.sh"))
+    })
+}
+
+pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
+    if file.machine.model != "origin200" || file.machine.graphics != "rad4" {
+        return Err("RAD4 finish requires an Origin 200 RAD4 machine".into());
+    }
+    if file.network.mode != "private" {
+        return Err("RAD4 finish requires private installation networking".into());
+    }
+    let media = read_media(dir)?;
+    if !media
+        .addons
+        .iter()
+        .any(|addon| addon.install.iter().any(|item| item == "rad4x"))
+    {
+        return Err("RAD4 add-on is not configured for this machine".into());
+    }
+    let generated = dir.join("install/generated/rad4/dist/finish-rad4.sh");
+    if fs::read(&generated)? != RAD4_FINISH_SCRIPT.as_bytes() {
+        return Err(format!(
+            "RAD4 helper differs from packaged source: {}",
+            generated.display()
+        )
+        .into());
+    }
+
+    let mut console = InstallConsole::connect(dir)?;
+    println!("Finish the installation only after its Inst> prompt appears.");
+    console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
+    console.command("shroot", SHELL_PROMPT, Duration::from_secs(60))?;
+    console.command(
+        "ifconfig ef0 10.98.0.65 netmask 255.255.255.0 up",
+        SHELL_PROMPT,
+        Duration::from_secs(30),
+    )?;
+    console.command("tftp 10.98.0.2", TFTP_PROMPT, Duration::from_secs(30))?;
+    console.command("binary", TFTP_PROMPT, Duration::from_secs(30))?;
+    let received = console.command(
+        "get /addon-rad4/dist/finish-rad4.sh /tmp/finish-rad4.sh",
+        TFTP_PROMPT,
+        Duration::from_secs(60),
+    )?;
+    console.command("quit", SHELL_PROMPT, Duration::from_secs(30))?;
+    if !received_expected(&received, RAD4_FINISH_SCRIPT.len()) {
+        return Err(
+            "RAD4 helper TFTP transfer did not report its expected size; machine remains running"
+                .into(),
+        );
+    }
+    let checksum = console.command(
+        "cksum /tmp/finish-rad4.sh",
+        SHELL_PROMPT,
+        Duration::from_secs(30),
+    )?;
+    if !checksum_matches(
+        &checksum,
+        posix_cksum(RAD4_FINISH_SCRIPT.as_bytes()),
+        RAD4_FINISH_SCRIPT.len(),
+    ) {
+        return Err(
+            "RAD4 helper guest checksum differs from packaged source; machine remains running"
+                .into(),
+        );
+    }
+    let syntax = console.command(
+        "/bin/sh -c '/bin/sh -n /tmp/finish-rad4.sh; echo SGI_RAD4_SYNTAX_STATUS=$?'",
+        SHELL_PROMPT,
+        Duration::from_secs(30),
+    )?;
+    if !syntax
+        .lines()
+        .any(|line| line.trim() == "SGI_RAD4_SYNTAX_STATUS=0")
+    {
+        return Err("RAD4 helper failed guest shell syntax check; machine remains running".into());
+    }
+    let result = console.command(
+        "/bin/sh -c '/bin/sh /tmp/finish-rad4.sh /; echo SGI_RAD4_FINISH_STATUS=$?'",
+        SHELL_PROMPT,
+        Duration::from_secs(900),
+    )?;
+    if !result
+        .lines()
+        .any(|line| line.trim() == "SGI_RAD4_FINISH_STATUS=0")
+    {
+        return Err("RAD4 helper did not report successful exit; machine remains running".into());
+    }
+    console.command("exit", INSTALL_PROMPT, Duration::from_secs(60))?;
+    console.command(
+        "quit",
+        b"Restart? { (y)es, (n)o, (sh)ell, (h)elp }: ",
+        Duration::from_secs(900),
+    )?;
+    console.command("y", b"IRIS console login: ", Duration::from_secs(600))?;
+    println!("RAD4 configured and installed IRIX reached serial login. Stop the machine before switching to user networking and SDL.");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rad4_guest_transfer_must_match_packaged_helper() {
+        let size = RAD4_FINISH_SCRIPT.len();
+        let crc = posix_cksum(RAD4_FINISH_SCRIPT.as_bytes());
+        assert_eq!(crc, 2973792095);
+        assert_eq!(posix_cksum(b"123456789"), 930766865);
+        assert!(received_expected(
+            "Received 2550 bytes in 0.0 seconds\r\n",
+            size
+        ));
+        assert!(checksum_matches(
+            "2973792095 2550 /tmp/finish-rad4.sh\r\n",
+            crc,
+            size,
+        ));
+        assert!(!received_expected("Error: transfer failed\r\n", size));
+        assert!(!checksum_matches(
+            "2973792095 2549 /tmp/finish-rad4.sh\r\n",
+            crc,
+            size,
+        ));
+    }
 
     #[test]
     fn addon_script_selects_mipspro_and_local_package() {
@@ -518,12 +738,18 @@ mod tests {
             .iter()
             .find(|set| set["name"] == "development")
             .unwrap();
-        assert_eq!(development["replacements"]["devfoundation"], "mipspro744update");
+        assert_eq!(
+            development["replacements"]["devfoundation"],
+            "mipspro744update"
+        );
         let mipspro = &document["install_scripts"][0];
-        assert_eq!(mipspro["keep"], json!([
-            "java2_plugin.sw32.mozilla_freeware",
-            "java_dev.sw32.binaries"
-        ]));
+        assert_eq!(
+            mipspro["keep"],
+            json!([
+                "java2_plugin.sw32.mozilla_freeware",
+                "java_dev.sw32.binaries"
+            ])
+        );
         let addon_set = &document["install_sets"][SETS.len()];
         assert_eq!(addon_set["name"], "addon-tablet");
         assert_eq!(

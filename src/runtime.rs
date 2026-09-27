@@ -600,10 +600,11 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-serial", "chardev:serial0"]));
-        assert!(args.windows(2).any(|pair| pair == [
-            "-chardev",
-            "stdio,id=serial0,logfile=logs/serial.log,logappend=on"
-        ]));
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                "-chardev",
+                "stdio,id=serial0,logfile=logs/serial.log,logappend=on"
+            ]));
     }
 
     #[test]
