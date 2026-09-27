@@ -446,6 +446,9 @@ pub fn create(
     } else if identity.is_some() {
         return Err("SPD inputs are only supported for Origin 300".into());
     }
+    if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)?;
+    }
     fs::create_dir(dir)?;
     let result = (|| -> Result<()> {
         for name in ["firmware", "drives", "state", "logs"] {
@@ -545,7 +548,7 @@ mod tests {
         fs::write(&prom, [0u8; 1]).unwrap();
         let catalog = catalogue().unwrap();
         let offer = preset(&catalog, "origin200-1").unwrap();
-        let machine = root.join("machine");
+        let machine = root.join("nested/machine");
         create(&machine, offer, &prom, Some(128), None).unwrap();
         let file = read_machine(&machine).unwrap();
         assert_eq!(file.machine.memory_per_node, "128MiB");
