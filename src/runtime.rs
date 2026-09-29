@@ -163,7 +163,7 @@ pub fn arguments(
     } else {
         offering.product.clone()
     };
-    if offering.topology != offering.product && offering.topology != "origin2000-module" {
+    if offering.topology != offering.product {
         machine.push_str(&format!(",topology={}", offering.topology));
     }
     if offering.needs_debug_leds_off {
@@ -693,7 +693,9 @@ mod tests {
             .count();
         assert_eq!(flashes, 4);
         assert!(!args.iter().any(|arg| arg == "-bios"));
-        assert!(args.windows(2).any(|pair| pair == ["-M", "origin2000"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-M", "origin2000,topology=origin2000-rack"]));
     }
 
     #[test]

@@ -507,6 +507,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn embedded_offerings_match_pinned_qemu() {
+        let product: serde_json::Value =
+            serde_json::from_str(include_str!("../catalogue/sn-catalogue.json")).unwrap();
+        let qemu: serde_json::Value =
+            serde_json::from_str(include_str!("../qemu/hw/mips/sgi/sn-catalogue.json")).unwrap();
+        let qemu_offerings = qemu["offerings"].as_array().unwrap();
+        for offering in product["offerings"].as_array().unwrap() {
+            let matching: Vec<_> = qemu_offerings
+                .iter()
+                .filter(|candidate| {
+                    ["product", "topology", "nodes", "smp"]
+                        .iter()
+                        .all(|key| candidate[key] == offering[*key])
+                })
+                .collect();
+            assert_eq!(matching.len(), 1, "no unique QEMU offering for {offering}");
+            for key in [
+                "cpus-per-node",
+                "default-cpu-model",
+                "memory-per-node-mib",
+                "firmware",
+                "storage",
+                "resources",
+            ] {
+                assert_eq!(
+                    offering[key], matching[0][key],
+                    "mismatched {key} for {offering}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn private_tcp_endpoint_stays_on_loopback() {
         assert!(tcp_endpoint("tcp:127.0.0.1:49173").unwrap().is_some());
         for endpoint in [
