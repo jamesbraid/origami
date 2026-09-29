@@ -93,6 +93,7 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         cp /work/qemu-build/qemu-system-mips64 /work/qemu-build/qemu-img \
             /work/linux-dev/libexec/sgi/
         cp /instigator/LICENSE /work/linux-dev/share/sgi/licenses/instigator.LICENSE
+        cp /product/LICENSE /work/linux-dev/share/sgi/licenses/origami.LICENSE
         cp /qemu/LICENSE /work/linux-dev/share/sgi/licenses/qemu.LICENSE
         cp /qemu/COPYING /work/linux-dev/share/sgi/licenses/qemu.COPYING
         cp /qemu/COPYING.LIB /work/linux-dev/share/sgi/licenses/qemu.COPYING.LIB
