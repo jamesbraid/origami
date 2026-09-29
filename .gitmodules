@@ -1,0 +1,6 @@
+[submodule "qemu"]
+	path = qemu
+	url = ../qemu.git
+[submodule "instigator"]
+	path = instigator
+	url = ../instigator.git

@@ -26,22 +26,40 @@ for library in glib-2.0 pixman-1 sdl2; do
     fi
 done
 
-product=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-source=$(CDPATH= cd -- "$1" && pwd)
-instigator=$(CDPATH= cd -- "$2" && pwd)
-scratch=$(CDPATH= cd -- "$3" && pwd)
-expected=$(cat "$product/build/qemu-revision")
+product=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+if [ ! -d "$1" ]; then
+    printf 'QEMU source is missing: %s; initialize the frontend submodule with git submodule update --init -- qemu\n' "$1" >&2
+    exit 2
+fi
+if [ ! -d "$2" ]; then
+    printf 'Instigator source is missing: %s; initialize the frontend submodule with git submodule update --init -- instigator\n' "$2" >&2
+    exit 2
+fi
+source=$(CDPATH= cd -- "$1" && pwd -P)
+instigator=$(CDPATH= cd -- "$2" && pwd -P)
+scratch=$(CDPATH= cd -- "$3" && pwd -P)
+. "$product/build/gitlink-revision.sh"
+expected=$(gitlink_revision qemu)
+instigator_expected=$(gitlink_revision instigator)
+source_top=$(git -C "$source" rev-parse --show-toplevel)
+instigator_top=$(git -C "$instigator" rev-parse --show-toplevel)
+if [ "$(CDPATH= cd -- "$source_top" && pwd -P)" != "$source" ]; then
+    printf 'QEMU source is not a standalone checkout: %s\n' "$source" >&2
+    exit 2
+fi
+if [ "$(CDPATH= cd -- "$instigator_top" && pwd -P)" != "$instigator" ]; then
+    printf 'Instigator source is not a standalone checkout: %s\n' "$instigator" >&2
+    exit 2
+fi
 actual=$(git -C "$source" rev-parse HEAD)
 if [ "$actual" != "$expected" ] || ! git -C "$source" diff --quiet || \
     ! git -C "$source" diff --cached --quiet; then
     printf 'QEMU needs a clean checkout at %s\n' "$expected" >&2
     exit 2
 fi
-instigator_expected=$(cat "$product/build/instigator-revision")
 instigator_actual=$(git -C "$instigator" rev-parse HEAD)
 if [ "$instigator_actual" != "$instigator_expected" ] || \
-    ! git -C "$instigator" diff --quiet || \
-    ! git -C "$instigator" diff --cached --quiet; then
+    ! git -C "$instigator" diff --quiet || ! git -C "$instigator" diff --cached --quiet; then
     printf 'Instigator needs a clean checkout at %s\n' "$instigator_expected" >&2
     exit 2
 fi
@@ -67,6 +85,8 @@ ninja -C "$build" -j4 qemu-system-mips64 qemu-img
 
 export CARGO_HOME="$scratch/cargo"
 export CARGO_TARGET_DIR="$scratch/target-macos"
+export SGI_QEMU_REVISION="$expected"
+export SGI_INSTIGATOR_REVISION="$instigator_expected"
 (cd "$product" && cargo test --locked && cargo build --locked --release)
 export GOMODCACHE="$scratch/go-mod"
 export GOCACHE="$scratch/go-build"

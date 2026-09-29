@@ -6,15 +6,35 @@ if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
     exit 2
 fi
 
-product=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-source=$(CDPATH= cd -- "$1" && pwd)
-instigator=$(CDPATH= cd -- "$2" && pwd)
-scratch=$(CDPATH= cd -- "$3" && pwd)
+product=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+if [ ! -d "$1" ]; then
+    printf 'QEMU source is missing: %s; initialize the frontend submodule with git submodule update --init -- qemu\n' "$1" >&2
+    exit 2
+fi
+if [ ! -d "$2" ]; then
+    printf 'Instigator source is missing: %s; initialize the frontend submodule with git submodule update --init -- instigator\n' "$2" >&2
+    exit 2
+fi
+source=$(CDPATH= cd -- "$1" && pwd -P)
+instigator=$(CDPATH= cd -- "$2" && pwd -P)
+scratch=$(CDPATH= cd -- "$3" && pwd -P)
 archive_dir=${4:-$scratch}
 mkdir -p "$archive_dir"
 archive_dir=$(CDPATH= cd -- "$archive_dir" && pwd)
 engine=${SGI_CONTAINER_ENGINE:-podman}
-expected=$(cat "$product/build/qemu-revision")
+. "$product/build/gitlink-revision.sh"
+expected=$(gitlink_revision qemu)
+instigator_expected=$(gitlink_revision instigator)
+source_top=$(git -C "$source" rev-parse --show-toplevel)
+instigator_top=$(git -C "$instigator" rev-parse --show-toplevel)
+if [ "$(CDPATH= cd -- "$source_top" && pwd -P)" != "$source" ]; then
+    printf 'QEMU source is not a standalone checkout: %s\n' "$source" >&2
+    exit 2
+fi
+if [ "$(CDPATH= cd -- "$instigator_top" && pwd -P)" != "$instigator" ]; then
+    printf 'Instigator source is not a standalone checkout: %s\n' "$instigator" >&2
+    exit 2
+fi
 actual=$(git -C "$source" rev-parse HEAD)
 if [ "$actual" != "$expected" ]; then
     printf 'QEMU source is %s; product expects %s\n' "$actual" "$expected" >&2
@@ -24,13 +44,6 @@ if ! git -C "$source" diff --quiet || ! git -C "$source" diff --cached --quiet; 
     printf 'QEMU source has tracked changes; use a clean checkout at %s\n' "$expected" >&2
     exit 2
 fi
-instigator_expected=$(cat "$product/build/instigator-revision")
-product_revision=$(git -C "$product" rev-parse HEAD)
-product_state=clean
-if ! git -C "$product" diff --quiet || ! git -C "$product" diff --cached --quiet || \
-    [ -n "$(git -C "$product" ls-files --others --exclude-standard)" ]; then
-    product_state=dirty
-fi
 instigator_actual=$(git -C "$instigator" rev-parse HEAD)
 if [ "$instigator_actual" != "$instigator_expected" ]; then
     printf 'Instigator source is %s; product expects %s\n' "$instigator_actual" "$instigator_expected" >&2
@@ -39,6 +52,12 @@ fi
 if ! git -C "$instigator" diff --quiet || ! git -C "$instigator" diff --cached --quiet; then
     printf 'Instigator source has tracked changes; use a clean checkout at %s\n' "$instigator_expected" >&2
     exit 2
+fi
+product_revision=$(git -C "$product" rev-parse HEAD)
+product_state=clean
+if ! git -C "$product" diff --quiet || ! git -C "$product" diff --cached --quiet || \
+    [ -n "$(git -C "$product" ls-files --others --exclude-standard)" ]; then
+    product_state=dirty
 fi
 
 "$engine" build -t localhost/sgi-qemu-builder:dev \
@@ -65,6 +84,7 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
 
 "$engine" run --rm -v "$product:/src:ro" -v "$scratch:/work" \
     -w /src -e CARGO_TARGET_DIR=/work/target-stable -e CARGO_HOME=/work/cargo \
+    -e SGI_QEMU_REVISION="$expected" -e SGI_INSTIGATOR_REVISION="$instigator_expected" \
     localhost/sgi-rust-builder:dev sh -ec 'cargo test --locked && cargo build --locked --release'
 
 "$engine" run --rm -v "$instigator:/src:ro" -v "$scratch:/work" \

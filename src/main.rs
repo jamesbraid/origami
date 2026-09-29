@@ -433,11 +433,8 @@ fn command() -> Result<()> {
                 print!("{}", fs::read_to_string(manifest)?);
             } else {
                 println!("product=unpackaged");
-                println!("qemu={}", include_str!("../build/qemu-revision").trim());
-                println!(
-                    "instigator={}",
-                    include_str!("../build/instigator-revision").trim()
-                );
+                println!("qemu={}", env!("SGI_QEMU_REVISION"));
+                println!("instigator={}", env!("SGI_INSTIGATOR_REVISION"));
             }
         }
         _ => return Err(usage().into()),
