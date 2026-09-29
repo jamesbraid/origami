@@ -104,6 +104,7 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
     -e QEMU_REV="$expected" -e INSTIGATOR_REV="$instigator_expected" \
     -e PRODUCT_REV="$product_revision" -e PRODUCT_STATE="$product_state" \
     localhost/sgi-qemu-builder:dev sh -ec '
+        rm -rf /work/linux-dev
         mkdir -p /work/linux-dev/bin /work/linux-dev/libexec/sgi \
             /work/linux-dev/share/sgi/licenses
         rm -f /work/linux-dev/bin/qemu-system-mips64 /work/linux-dev/bin/qemu-img
