@@ -38,7 +38,7 @@ def main():
     shutil.rmtree(notices, ignore_errors=True)
     notices.mkdir(parents=True)
     manifest = ["directory\tdll\tfedora package\tlicense\n"]
-    for directory, names in (("bin", ("sgi.exe", "instigator.exe")),
+    for directory, names in (("bin", ("origami.exe", "instigator.exe")),
                              ("libexec/sgi", ("qemu-system-mips64.exe", "qemu-img.exe"))):
         destination = bundle / directory
         for stale in destination.iterdir():

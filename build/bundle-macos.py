@@ -85,7 +85,7 @@ def main():
     if len(sys.argv) != 2:
         raise SystemExit(f"usage: {sys.argv[0]} BUNDLE")
     bundle = Path(sys.argv[1]).resolve()
-    roots = [bundle / "bin/sgi", bundle / "bin/instigator",
+    roots = [bundle / "bin/origami", bundle / "bin/instigator",
              bundle / "libexec/sgi/qemu-system-mips64", bundle / "libexec/sgi/qemu-img"]
     for root in roots:
         if not root.is_file():

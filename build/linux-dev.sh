@@ -107,7 +107,7 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         mkdir -p /work/linux-dev/bin /work/linux-dev/libexec/sgi \
             /work/linux-dev/share/sgi/licenses
         rm -f /work/linux-dev/bin/qemu-system-mips64 /work/linux-dev/bin/qemu-img
-        cp /work/target-stable/release/sgi /work/linux-dev/bin/
+        cp /work/target-stable/release/origami /work/linux-dev/bin/
         test -s /work/instigator
         cp /work/instigator /work/linux-dev/bin/
         cp /work/qemu-build/qemu-system-mips64 /work/qemu-build/qemu-img \
@@ -137,8 +137,8 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
     localhost/sgi-qemu-builder:dev sh -ec '
     cd /work
     tar --sort=name --owner=0 --group=0 --numeric-owner \
-        -czf /out/sgi-linux-x86_64-preview.tar.gz linux-dev
+        -czf /out/origami-linux-x86_64-preview.tar.gz linux-dev
     cd /out
-    sha256sum sgi-linux-x86_64-preview.tar.gz > sgi-linux-x86_64-preview.tar.gz.sha256
+    sha256sum origami-linux-x86_64-preview.tar.gz > origami-linux-x86_64-preview.tar.gz.sha256
 '
-printf 'Linux preview archive: %s/sgi-linux-x86_64-preview.tar.gz\n' "$archive_dir"
+printf 'Linux preview archive: %s/origami-linux-x86_64-preview.tar.gz\n' "$archive_dir"

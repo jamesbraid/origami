@@ -472,7 +472,7 @@ impl InstallConsole {
                 .downcast_ref::<io::Error>()
                 .is_some_and(|error| error.kind() == io::ErrorKind::NotFound)
             {
-                "install commands require a background run; start with sgi run DIR --background"
+                "install commands require a background run; start with origami run DIR --background"
                     .into()
             } else {
                 error

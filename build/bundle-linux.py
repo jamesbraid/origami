@@ -53,7 +53,7 @@ def main():
         raise SystemExit(f"usage: {sys.argv[0]} BUNDLE")
     bundle = Path(sys.argv[1]).resolve()
     binaries = [
-        bundle / "bin/sgi",
+        bundle / "bin/origami",
         bundle / "libexec/sgi/qemu-system-mips64",
         bundle / "libexec/sgi/qemu-img",
     ]

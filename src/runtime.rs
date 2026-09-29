@@ -50,7 +50,7 @@ pub fn qemu_path() -> Result<PathBuf> {
     let exe = std::env::current_exe()?;
     Ok(exe
         .parent()
-        .ok_or("cannot locate sgi executable directory")?
+        .ok_or("cannot locate origami executable directory")?
         .join("../libexec/sgi")
         .join(binary_name("qemu-system-mips64")))
 }
@@ -394,7 +394,7 @@ pub fn start_background(dir: &Path, display: Display) -> Result<()> {
         std::thread::sleep(Duration::from_millis(100));
     }
     Err(format!(
-        "machine startup timed out; inspect {} and use sgi status",
+        "machine startup timed out; inspect {} and use origami status",
         log_path.display()
     )
     .into())

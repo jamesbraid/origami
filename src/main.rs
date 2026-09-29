@@ -1,9 +1,9 @@
-use sgi::runtime::{self, Display};
-use sgi::{
+use origami::runtime::{self, Display};
+use origami::{
     catalogue, catalogue_sha256, create, preset, presets, read_machine, resolve, validate, Drive,
     Network, Origin300Create, PortForward, Result,
 };
-use sgi::{control, install};
+use origami::{control, install};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,14 +13,14 @@ fn main() -> ExitCode {
     match command() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("sgi: {error}");
+            eprintln!("origami: {error}");
             ExitCode::FAILURE
         }
     }
 }
 
 fn usage() -> &'static str {
-    "usage:\n  sgi machines\n  sgi create DIR --preset PRESET --prom FILE [--memory-per-node MiB] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  sgi validate DIR\n  sgi show DIR\n  sgi show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  sgi run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  sgi status DIR\n  sgi console DIR\n  sgi stop DIR\n  sgi drive-create DIR SIZE-MiB\n  sgi drive-attach DIR FILE --type disk|cdrom|tape --target N\n  sgi drive-detach DIR NAME\n  sgi network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  sgi network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  sgi network-forward-remove DIR NAME\n  sgi install-init DIR --media-root PATH --mac MAC\n  sgi install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  sgi install-check DIR\n  sgi install-serve DIR\n  sgi install-apply DIR [--addon NAME]\n  sgi install-finish DIR\n  sgi version"
+    "usage:\n  origami machines\n  origami create DIR --preset PRESET --prom FILE [--memory-per-node MiB] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  origami validate DIR\n  origami show DIR\n  origami show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  origami run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  origami status DIR\n  origami console DIR\n  origami stop DIR\n  origami drive-create DIR SIZE-MiB\n  origami drive-attach DIR FILE --type disk|cdrom|tape --target N\n  origami drive-detach DIR NAME\n  origami network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  origami network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  origami network-forward-remove DIR NAME\n  origami install-init DIR --media-root PATH --mac MAC\n  origami install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  origami install-check DIR\n  origami install-serve DIR\n  origami install-apply DIR [--addon NAME]\n  origami install-finish DIR\n  origami version"
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -422,12 +422,12 @@ fn command() -> Result<()> {
             }
         }
         "version" => {
-            println!("sgi {}", env!("CARGO_PKG_VERSION"));
+            println!("origami {}", env!("CARGO_PKG_VERSION"));
             println!("catalogue=sha256:{}", catalogue_sha256());
             let executable = env::current_exe()?;
             let manifest = executable
                 .parent()
-                .ok_or("cannot locate sgi executable directory")?
+                .ok_or("cannot locate origami executable directory")?
                 .join("../share/sgi/source-revisions.txt");
             if manifest.is_file() {
                 print!("{}", fs::read_to_string(manifest)?);

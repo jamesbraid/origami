@@ -104,7 +104,7 @@ sort -u "$scratch/instigator-go-deps-macos.unsorted.txt" \
 package_work=$(mktemp -d "$scratch/macos-package.XXXXXXXX")
 stage="$package_work/macos-arm64-dev"
 mkdir -p "$stage/bin" "$stage/libexec/sgi" "$stage/share/sgi/licenses"
-cp "$CARGO_TARGET_DIR/release/sgi" "$stage/bin/sgi"
+cp "$CARGO_TARGET_DIR/release/origami" "$stage/bin/origami"
 cp "$scratch/instigator-macos" "$stage/bin/instigator"
 cp "$build/qemu-system-mips64" "$build/qemu-img" "$stage/libexec/sgi/"
 cp "$instigator/LICENSE" "$stage/share/sgi/licenses/instigator.LICENSE"
@@ -134,7 +134,7 @@ with (root / "SHA256SUMS").open("w") as output:
     for path in files:
         output.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root)}\n")
 PY
-tar -C "$package_work" -czf "$scratch/sgi-macos-arm64-preview.tar.gz" macos-arm64-dev
-(cd "$scratch" && shasum -a 256 sgi-macos-arm64-preview.tar.gz \
-    > sgi-macos-arm64-preview.tar.gz.sha256)
-printf 'macOS preview archive: %s/sgi-macos-arm64-preview.tar.gz\n' "$scratch"
+tar -C "$package_work" -czf "$scratch/origami-macos-arm64-preview.tar.gz" macos-arm64-dev
+(cd "$scratch" && shasum -a 256 origami-macos-arm64-preview.tar.gz \
+    > origami-macos-arm64-preview.tar.gz.sha256)
+printf 'macOS preview archive: %s/origami-macos-arm64-preview.tar.gz\n' "$scratch"

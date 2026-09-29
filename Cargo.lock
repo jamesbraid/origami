@@ -177,7 +177,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sgi"
+name = "origami"
 version = "0.1.0"
 dependencies = [
  "fs2",
