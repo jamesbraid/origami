@@ -332,3 +332,9 @@ The original frontend and build tooling are licensed under
 their own licenses. Packaged notices are in `share/sgi/licenses/`. Guest
 firmware, operating systems, and third-party drivers are not covered by the
 frontend license.
+
+## Contributing
+
+Open issues and pull requests on GitHub. The [contribution guide](.github/CONTRIBUTING.md)
+explains what to include in reports and patches and where to submit dependency
+changes.
