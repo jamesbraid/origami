@@ -218,6 +218,13 @@ fn command() -> Result<()> {
             if file.drive.iter().any(|d| d.name == "system") {
                 return Err("system disk already attached".into());
             }
+            if file
+                .drive
+                .iter()
+                .any(|drive| drive.bus == 0 && drive.target == 1)
+            {
+                return Err("system disk target 1 is occupied".into());
+            }
             if !offer
                 .storage
                 .iter()
