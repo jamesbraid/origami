@@ -10,7 +10,7 @@ if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
     exit 2
 fi
 export MACOSX_DEPLOYMENT_TARGET=14.0
-for tool in brew cargo git go ninja pkg-config python3 dylibbundler otool codesign shasum; do
+for tool in brew cargo rustc git go ninja pkg-config python3 dylibbundler otool codesign shasum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'missing build tool: %s\n' "$tool" >&2
         exit 2
@@ -26,6 +26,12 @@ for library in glib-2.0 pixman-1 sdl2; do
         exit 2
     fi
 done
+
+rust_notices="$(rustc --print sysroot)/share/doc/rust"
+test -s "$rust_notices/COPYRIGHT-library.html"
+test -s "$rust_notices/licenses/MIT.txt"
+go_root=$(go env GOROOT)
+test -s "$go_root/LICENSE"
 
 product=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 if [ ! -d "$1" ]; then
@@ -109,14 +115,10 @@ cp "$CARGO_TARGET_DIR/release/origami" "$stage/bin/origami"
 cp "$scratch/instigator-macos" "$stage/bin/instigator"
 cp "$build/qemu-system-mips64" "$build/qemu-img" "$stage/libexec/sgi/"
 cp "$instigator/LICENSE" "$stage/share/sgi/licenses/instigator.LICENSE"
-rust_notices="$(rustc --print sysroot)/share/doc/rust"
 mkdir -p "$stage/share/sgi/licenses/toolchains/rust" "$stage/share/sgi/licenses/toolchains/go"
-test -s "$rust_notices/COPYRIGHT-library.html"
-test -s "$rust_notices/licenses/MIT.txt"
 cp "$rust_notices/COPYRIGHT-library.html" "$stage/share/sgi/licenses/toolchains/rust/"
 cp -R "$rust_notices/licenses" "$stage/share/sgi/licenses/toolchains/rust/"
 rustc -Vv > "$stage/share/sgi/licenses/toolchains/rust/toolchain.txt"
-go_root=$(go env GOROOT)
 cp "$go_root/LICENSE" "$stage/share/sgi/licenses/toolchains/go/"
 go version > "$stage/share/sgi/licenses/toolchains/go/toolchain.txt"
 (cd "$go_root" && find src -type f \( -name LICENSE -o -name "LICENSE.*" \
