@@ -1003,16 +1003,17 @@ mod tests {
             .as_deref()
             .unwrap()
             .starts_with("tcp:127.0.0.1:"));
+        let expected_root = media_root.canonicalize().unwrap();
         assert_eq!(
             manifest.media["overlays1"],
-            media_root
+            expected_root
                 .join("6.5.30/overlays1.image")
                 .display()
                 .to_string()
         );
         assert_eq!(
             manifest.media["mipspro_c"],
-            media_root
+            expected_root
                 .join("mipspro/7.4.4/mipspro_c.tar.gz")
                 .display()
                 .to_string()
