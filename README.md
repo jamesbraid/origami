@@ -41,7 +41,6 @@ serves the installation media.
 | Peripherals | Serial ports, PS/2 keyboard and mouse, OHCI USB, RAD1 audio |
 | Housekeeping | ELSC, module management, L1, flash, EEPROMs and clocks |
 
-VPro / Odyssey isn't in the current QEMU pin yet.
 The CLI has fewer presets than QEMU has configurations. The
 [user guide](docs/usage.md) covers those, and the
 [QEMU machine reference](qemu/docs/specs/sgi-sn.rst) covers the rest.

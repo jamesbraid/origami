@@ -169,8 +169,8 @@ machine before changing its network or forwards.
 `create --memory-per-node MiB` selects one of the values accepted by the chosen preset. Without it, `create` uses that preset's default. `origami show` prints the selected amount.
 
 The package also contains the full QEMU implementation, including Origin 200,
-Origin 2000, Origin 300 and Onyx2 machines and the implemented RAD4, SI and
-InfiniteReality graphics devices. Many configurations have no managed
+Origin 2000, Origin 300 and Onyx2 machines and the implemented RAD4, SI,
+InfiniteReality and VPro graphics devices. Many configurations have no managed
 `origami create` preset. To inspect the QEMU machine and device options in an
 extracted archive, run `libexec/sgi/qemu-system-mips64 -machine help` and
 `libexec/sgi/qemu-system-mips64 -device help` (use `.exe` on Windows). Invoke
