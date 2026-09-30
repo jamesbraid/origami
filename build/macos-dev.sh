@@ -156,6 +156,12 @@ python3 "$product/build/collect-homebrew-notices.py" \
 python3 "$product/build/bundle-rust-licenses.py" "$CARGO_HOME" "$stage"
 python3 "$product/build/bundle-go-licenses.py" \
     "$scratch/instigator-go-deps-macos.txt" "$stage" "$GOMODCACHE"
+"$stage/bin/origami" version
+"$stage/bin/origami" machines
+"$stage/bin/instigator" --help
+"$stage/libexec/sgi/qemu-system-mips64" --version
+"$stage/libexec/sgi/qemu-img" --version
+
 python3 - "$stage" <<'PY'
 import hashlib
 import sys
