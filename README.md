@@ -6,13 +6,22 @@ Inspired by [Iris](https://github.com/techomancer/iris), and nostalgia for the
 systems I cut my teeth on as a young fella. This became an adventure in burning
 tokens. Somehow, IRIX boots.
 
-[Our extremely elite website](https://origami.irix.fans) ·
+[A website also stuck in the late ’90s](https://origami.irix.fans) ·
 [User guide](docs/usage.md) ·
 [Contributing](.github/CONTRIBUTING.md)
 
-![IRIX running the OpenGL Performer Lotus demo on emulated SI graphics](docs/images/si-performer.png)
+![IRIX hinv on an emulated Origin 200 with two nodes](docs/images/origin200-hinv.png)
 
-*SI graphics, IRIX and a Lotus. Development capture.*
+![IRIX hinv on an emulated Origin 2000 with four nodes](docs/images/origin2000-hinv.png)
+
+*Origin 200 and Origin 2000. Cropped development captures; the second has
+contrast adjusted for readability. [Capture details](docs/images/README.md).*
+
+## Machines
+
+- **SN0:** Origin 200, Origin 2000, Onyx2.
+- **SN1:** Origin 300; Fuel is a work in progress.
+- **Other:** Octane / Octane2 are a work in progress.
 
 ## What's in here
 
@@ -22,17 +31,17 @@ serves the installation media.
 
 | Hardware | Emulated bits |
 |---|---|
-| Machines | Origin 200, Origin 2000, Origin 300, Onyx2, with deskside, rack and GIGAchannel configurations |
-| CPUs | R10000 and R14000, multiple CPUs and NUMA nodes |
-| Graphics | PsiTech RAD1 and RAD4, SI (MGRAS), InfiniteReality |
+| Configurations | Deskside, rack and GIGAchannel; SMP, multiple nodes and NUMA |
+| CPUs | R10000 and R14000 |
+| Graphics | PsiTech RAD1 / RAD4, IMPACT / SI (MGRAS), InfiniteReality (Kona), VPro (Odyssey) |
 | Interconnect | Hub, Bedrock, Crossbow, Bridge, XBridge, routers and CrayLink |
 | I/O boards | BaseIO, BaseIO-G / MediaIO, IO-8, MENET, MSCSI, PCI carriers and shoehorns |
 | Storage | QLogic ISP1040 / ISP12160 SCSI controllers, disks, CD-ROMs and tapes |
-| Networking | IOC3 Ethernet, Tigon and BCM570x adapters |
+| Networking | IOC3 Ethernet, Tigon, BCM570x and Neterion Xframe adapters |
 | Peripherals | Serial ports, PS/2 keyboard and mouse, OHCI USB, RAD1 audio |
 | Housekeeping | ELSC, module management, L1, flash, EEPROMs and clocks |
 
-VPro / Odyssey is also under development. It isn't in the current QEMU pin yet.
+VPro / Odyssey isn't in the current QEMU pin yet.
 The CLI has fewer presets than QEMU has configurations. The
 [user guide](docs/usage.md) covers those, and the
 [QEMU machine reference](qemu/docs/specs/sgi-sn.rst) covers the rest.
@@ -42,6 +51,10 @@ Others are an opportunity to stare at a serial console. This is a hobby
 experiment. Expect broken things and frequent changes.
 
 ## A little more paper silicon
+
+![IRIX running the OpenGL Performer Lotus demo on emulated SI graphics](docs/images/si-performer.png)
+
+*SI graphics, IRIX and a Lotus.*
 
 | VPro / Odyssey: IRIX desktop | InfiniteReality: PROM menu |
 |---|---|
