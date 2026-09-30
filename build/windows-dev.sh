@@ -59,6 +59,11 @@ fi
     "$source/tests/docker/dockerfiles"
 "$engine" build -t localhost/sgi-win64-rust-builder:dev \
     -f "$product/build/Windows.Containerfile" "$product/build"
+"$engine" run --rm -v "$product:/product:ro" \
+    localhost/sgi-win64-rust-builder:dev sh -ec '
+        python3 /product/build/tests/test_bundle_windows.py
+        python3 /product/build/tests/test_bundle_windows_runtime.py
+    '
 "$engine" build -t localhost/sgi-instigator-builder:dev \
     --build-arg "BASE_IMAGE=${SGI_INSTIGATOR_BASE_IMAGE:-docker.io/library/debian:forky-slim}" \
     -f "$product/build/Instigator.Containerfile" "$product/build"
@@ -106,10 +111,11 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
 
 "$engine" run --rm -v "$scratch:/work" -v "$archive_dir:/out" \
     -v "$product:/product:ro" \
-    -v "$source:/qemu:ro" -v "$instigator:/instigator:ro" \
+    -v "$source:/qemu:ro" -v "$build_source:/qemu-build-source:ro" \
+    -v "$instigator:/instigator:ro" \
     -e PRODUCT_REV="$product_revision" -e PRODUCT_STATE="$product_state" \
     -e QEMU_REV="$expected" -e INSTIGATOR_REV="$instigator_expected" \
-    localhost/sgi-win64-builder:dev sh -ec '
+    localhost/sgi-win64-rust-builder:dev sh -ec '
         rm -rf /work/windows-dev
         mkdir -p /work/windows-dev/bin /work/windows-dev/libexec/sgi \
             /work/windows-dev/share/sgi/licenses
@@ -122,6 +128,11 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         cp /qemu/LICENSE /work/windows-dev/share/sgi/licenses/qemu.LICENSE
         cp /qemu/COPYING /work/windows-dev/share/sgi/licenses/qemu.COPYING
         cp /qemu/COPYING.LIB /work/windows-dev/share/sgi/licenses/qemu.COPYING.LIB
+        libslirp_directory=$(sed -n "s/^directory = //p" \
+            /qemu-build-source/subprojects/libslirp.wrap)
+        test -n "$libslirp_directory"
+        cp "/qemu-build-source/subprojects/$libslirp_directory/COPYRIGHT" \
+            /work/windows-dev/share/sgi/licenses/libslirp.COPYRIGHT
         rm -rf /work/windows-dev/share/sgi/qemu/keymaps
         mkdir -p /work/windows-dev/share/sgi/qemu/keymaps
         for keymap in /qemu/pc-bios/keymaps/*; do
