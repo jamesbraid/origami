@@ -370,9 +370,12 @@ are in `qemu/subprojects/libslirp.wrap`. The patch and its tests are in
 `qemu/subprojects/packagefiles/libslirp-sgi-prom.patch` in the initialized
 QEMU checkout.
 
-## GitHub archive workflow
+## Preview archive workflow
 
-The `Preview archives` GitHub Actions workflow builds Linux, Windows and
-macOS artifacts on pull requests, mirrored `main` commits and version tags.
-It uploads archives and SHA-256 files as run artifacts. It does not upload
-firmware or guest media. The workflow has not run against this candidate.
+The `Preview archives` workflow runs for version tags or manually requested
+builds. GitHub Actions builds the macOS archive. Linux and Windows use the
+same workflow on the project's build runners. Pull requests and `main`
+pushes do not build archives.
+
+Run artifacts contain archives and their SHA-256 files. Firmware and guest
+media are not included.
