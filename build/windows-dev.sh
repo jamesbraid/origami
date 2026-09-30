@@ -107,6 +107,33 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         go list -mod=readonly -deps \
             -f "{{if .Module}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}" \
             ./cmd/instigator | sort -u > /work/instigator-go-deps-windows.txt
+        go env GOVERSION GOROOT > /work/go-toolchain-identity-windows.txt
+        go version >> /work/go-toolchain-identity-windows.txt
+        go_root=$(go env GOROOT)
+        compiler=$(realpath "$(command -v go)")
+        standard_library=$(realpath "$go_root/src/runtime/proc.go")
+        : > /work/go-toolchain-packages-windows.txt
+        rm -rf /work/toolchain-notices/windows/go
+        mkdir -p /work/toolchain-notices/windows/go
+        for entry in "compiler:$compiler" "standard-library:$standard_library"; do
+            label=${entry%%:*}
+            path=${entry#*:}
+            package=$(dpkg-query -S "$path" | sed -n "1s/: .*//p")
+            test -n "$package"
+            printf "%s-file=%s\n%s-package=%s\n" \
+                "$label" "$path" "$label" "$package" \
+                >> /work/go-toolchain-identity-windows.txt
+            if ! grep -Fxq "$package" /work/go-toolchain-packages-windows.txt; then
+                printf "%s\n" "$package" >> /work/go-toolchain-packages-windows.txt
+                dpkg-query -W -f="\${binary:Package} \${Version} \${Architecture}\n" \
+                    "$package" >> /work/go-toolchain-identity-windows.txt
+                copyright=$(dpkg-query -L "$package" | \
+                    awk "/\\/copyright$/ { print; exit }")
+                test -n "$copyright" && test -s "$copyright"
+                cp "$copyright" \
+                    "/work/toolchain-notices/windows/go/$package.copyright"
+            fi
+        done
     '
 
 "$engine" run --rm -v "$scratch:/work" -v "$archive_dir:/out" \
@@ -141,6 +168,33 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
             [ "${keymap##*/}" = meson.build ] || cp "$keymap" /work/windows-dev/share/sgi/qemu/keymaps/
         done
         cp /instigator/LICENSE /work/windows-dev/share/sgi/licenses/instigator.LICENSE
+        mkdir -p /work/windows-dev/share/sgi/licenses/toolchains/rust
+        rustc --version --verbose \
+            > /work/windows-dev/share/sgi/licenses/toolchains/rust/toolchain.txt
+        : > /work/windows-dev/share/sgi/licenses/toolchains/rust/packages.txt
+        for package in rust rust-std-static \
+            rust-std-static-x86_64-pc-windows-gnu; do
+            rpm -q --qf "%{NAME} %{VERSION}-%{RELEASE}.%{ARCH}\n" "$package" \
+                >> /work/windows-dev/share/sgi/licenses/toolchains/rust/packages.txt
+            package_dir="/work/windows-dev/share/sgi/licenses/toolchains/rust/$package"
+            mkdir -p "$package_dir"
+            rpm -q --licensefiles "$package" > "/work/$package-licensefiles.txt"
+            while IFS= read -r notice; do
+                test -s "$notice"
+                case "$notice" in
+                    /usr/share/*) relative=${notice#/usr/share/} ;;
+                    *) printf 'unexpected RPM license path: %s\n' "$notice" >&2; exit 1 ;;
+                esac
+                mkdir -p "$package_dir/$(dirname "$relative")"
+                cp "$notice" "$package_dir/$relative"
+            done < "/work/$package-licensefiles.txt"
+            test -s "/work/$package-licensefiles.txt"
+        done
+        mkdir -p /work/windows-dev/share/sgi/licenses/toolchains/go
+        cp /work/go-toolchain-identity-windows.txt \
+            /work/windows-dev/share/sgi/licenses/toolchains/go/toolchain.txt
+        cp -R /work/toolchain-notices/windows/go/. \
+            /work/windows-dev/share/sgi/licenses/toolchains/go/
         printf "product=%s (%s)\nqemu=%s\ninstigator=%s\n" \
             "$PRODUCT_REV" "$PRODUCT_STATE" "$QEMU_REV" "$INSTIGATOR_REV" \
             > /work/windows-dev/share/sgi/source-revisions.txt

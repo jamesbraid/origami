@@ -85,7 +85,13 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
 "$engine" run --rm -v "$product:/src:ro" -v "$scratch:/work" \
     -w /src -e CARGO_TARGET_DIR=/work/target-stable -e CARGO_HOME=/work/cargo \
     -e SGI_QEMU_REVISION="$expected" -e SGI_INSTIGATOR_REVISION="$instigator_expected" \
-    localhost/sgi-rust-builder:dev sh -ec 'cargo test --locked && cargo build --locked --release'
+    localhost/sgi-rust-builder:dev sh -ec '
+        cargo test --locked && cargo build --locked --release
+        mkdir -p /work/toolchain-notices/linux/rust
+        cp /usr/share/doc/libstd-rust-dev/copyright /work/toolchain-notices/linux/rust/COPYRIGHT
+        rustc -Vv > /work/toolchain-notices/linux/rust/toolchain.txt
+        dpkg-query -W rustc libstd-rust-dev >> /work/toolchain-notices/linux/rust/toolchain.txt
+    '
 
 "$engine" run --rm -v "$instigator:/src:ro" -v "$scratch:/work" \
     -w /src -e GOMODCACHE=/work/go-mod -e GOCACHE=/work/go-build \
@@ -94,6 +100,18 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         go test -mod=readonly ./internal/qemunet ./cmd/instigator
         go build -mod=readonly -trimpath -o /work/instigator ./cmd/instigator
         test -s /work/instigator
+        go_source=$(realpath "$(go env GOROOT)/src/runtime/proc.go")
+        go_package=$(dpkg-query -S "$go_source" | sed "s/: \/.*//")
+        go_compiler=$(realpath "$(command -v go)")
+        go_compiler_package=$(dpkg-query -S "$go_compiler" | sed "s/: \/.*//")
+        rm -rf /work/toolchain-notices/linux/go
+        mkdir -p /work/toolchain-notices/linux/go
+        cp "/usr/share/doc/$go_package/copyright" /work/toolchain-notices/linux/go/COPYRIGHT
+        go version > /work/toolchain-notices/linux/go/toolchain.txt
+        cp "/usr/share/doc/$go_compiler_package/copyright" \
+            "/work/toolchain-notices/linux/go/$go_compiler_package.copyright"
+        dpkg-query -W "$go_package" "$go_compiler_package" \
+            >> /work/toolchain-notices/linux/go/toolchain.txt
         go list -mod=readonly -deps \
             -f "{{if .Module}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}" \
             ./cmd/instigator | sort -u > /work/instigator-go-deps-linux.txt
@@ -115,6 +133,7 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         cp /work/qemu-build/qemu-system-mips64 /work/qemu-build/qemu-img \
             /work/linux-dev/libexec/sgi/
         cp /instigator/LICENSE /work/linux-dev/share/sgi/licenses/instigator.LICENSE
+        cp -R /work/toolchain-notices/linux /work/linux-dev/share/sgi/licenses/toolchains
         cp /product/LICENSE /work/linux-dev/share/sgi/licenses/origami.LICENSE
         cp /qemu/LICENSE /work/linux-dev/share/sgi/licenses/qemu.LICENSE
         cp /qemu/COPYING /work/linux-dev/share/sgi/licenses/qemu.COPYING

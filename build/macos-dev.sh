@@ -108,6 +108,25 @@ cp "$CARGO_TARGET_DIR/release/origami" "$stage/bin/origami"
 cp "$scratch/instigator-macos" "$stage/bin/instigator"
 cp "$build/qemu-system-mips64" "$build/qemu-img" "$stage/libexec/sgi/"
 cp "$instigator/LICENSE" "$stage/share/sgi/licenses/instigator.LICENSE"
+rust_notices="$(rustc --print sysroot)/share/doc/rust"
+mkdir -p "$stage/share/sgi/licenses/toolchains/rust" "$stage/share/sgi/licenses/toolchains/go"
+test -s "$rust_notices/COPYRIGHT-library.html"
+test -s "$rust_notices/licenses/MIT.txt"
+cp "$rust_notices/COPYRIGHT-library.html" "$stage/share/sgi/licenses/toolchains/rust/"
+cp -R "$rust_notices/licenses" "$stage/share/sgi/licenses/toolchains/rust/"
+rustc -Vv > "$stage/share/sgi/licenses/toolchains/rust/toolchain.txt"
+go_root=$(go env GOROOT)
+cp "$go_root/LICENSE" "$stage/share/sgi/licenses/toolchains/go/"
+go version > "$stage/share/sgi/licenses/toolchains/go/toolchain.txt"
+(cd "$go_root" && find src -type f \( -name LICENSE -o -name "LICENSE.*" \
+    -o -name "LICENSE-*" -o -name COPYING -o -name "COPYING.*" \
+    -o -name NOTICE -o -name "NOTICE.*" -o -name COPYRIGHT -o -name PATENTS \)) \
+    > "$scratch/go-standard-notices.txt"
+while IFS= read -r notice; do
+    destination="$stage/share/sgi/licenses/toolchains/go/$notice"
+    mkdir -p "$(dirname "$destination")"
+    cp "$go_root/$notice" "$destination"
+done < "$scratch/go-standard-notices.txt"
 cp "$product/LICENSE" "$stage/share/sgi/licenses/origami.LICENSE"
 cp "$source/LICENSE" "$stage/share/sgi/licenses/qemu.LICENSE"
 cp "$source/COPYING" "$stage/share/sgi/licenses/qemu.COPYING"

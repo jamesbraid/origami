@@ -11,3 +11,20 @@ wrap. Review the notice when the upstream version or source hash changes, even
 if the directory name stays the same. The generic `foo` wording in the license
 paragraphs is retained template text. File attribution comes from the
 `Copyright` fields.
+
+## Standard libraries
+
+The archives also include notices for the Rust and Go standard libraries linked
+into the CLI and installer. Linux uses Debian's copyright inventory for
+`libstd-rust-dev` and the packages owning the Go compiler and runtime source. Windows uses
+Fedora's Rust compiler and target-library license files, plus Debian's Go
+inventory from its cross-build container. These inventories can describe more
+code than the final executable links.
+
+macOS copies Rust's standard-library copyright inventory and its referenced
+license texts from the compiler's sysroot. It copies Go's root license and
+supplemental notice files from the official toolchain's source tree, retaining
+their paths. Compiler versions accompany these notices under
+`share/sgi/licenses/toolchains`. Crate and module notices remain separate.
+
+The macOS notice paths still need verification in a native package build.
