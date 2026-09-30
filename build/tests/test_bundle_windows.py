@@ -73,8 +73,11 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
             def rpm_output(*command):
                 if command[:2] == ("rpm", "-qf"):
                     return "test-package"
-                if command[1:3] == ("-q", "--qf"):
-                    return "BSD-3-Clause"
+                if command[:3] == ("rpm", "-q", "--qf"):
+                    if command[3] == "%{LICENSE}":
+                        return "BSD-3-Clause"
+                    if command[3] == "%{VERSION}-%{RELEASE}\t%{SOURCERPM}":
+                        return "2.4.6-1.fc43\ttest-source-2.4.6-1.fc43.src.rpm"
                 if command[:2] == ("rpm", "-ql"):
                     return rpm_notice
                 raise AssertionError(f"unexpected command: {command}")
@@ -102,8 +105,9 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
             manifest = (bundle / "share/sgi/windows-dlls.tsv").read_text()
             self.assertEqual(
                 manifest,
-                "directory\tdll\tfedora package\tlicense\n"
-                "bin\tSDL2.dll\ttest-package\tBSD-3-Clause\n",
+                "directory\tdll\tfedora package\tlicense\tfedora package version\tsource RPM\n"
+                "bin\tSDL2.dll\ttest-package\tBSD-3-Clause\t2.4.6-1.fc43\t"
+                "test-source-2.4.6-1.fc43.src.rpm\n",
             )
 
 

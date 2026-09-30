@@ -67,19 +67,32 @@ def main():
     shutil.rmtree(notices, ignore_errors=True)
     libdir.mkdir(parents=True, exist_ok=True)
     notices.mkdir(parents=True, exist_ok=True)
-    package_names = {}
+    package_records = {}
     for name, source in sorted(libraries.items()):
         shutil.copy2(source, libdir / name, follow_symlinks=True)
         package = package_for(source)
-        package_names[name] = package
+        metadata = run(
+            "dpkg-query", "-W",
+            "-f=${binary:Package}\t${Version}\t${source:Package}\t${source:Version}",
+            package,
+        ).split("\t")
+        if len(metadata) != 4 or not all(metadata):
+            raise RuntimeError(f"incomplete Debian package metadata for {package}")
+        package_records[name] = metadata
         copyright_file = Path("/usr/share/doc") / package.split(":", 1)[0] / "copyright"
         if not copyright_file.is_file():
             raise RuntimeError(f"missing license notice for {package}: {copyright_file}")
         shutil.copy2(copyright_file, notices / f"{package.replace(':', '_')}.copyright")
-    (bundle / "share/sgi/debian-libraries.tsv").write_text(
-        "library\tdebian package\n"
-        + "".join(f"{name}\t{package}\n" for name, package in sorted(package_names.items()))
+    manifest = [
+        "library\tdebian package\tdebian package version\t"
+        "debian source package\tdebian source version\n"
+    ]
+    manifest.extend(
+        f"{name}\t{package}\t{package_version}\t{source_package}\t{source_version}\n"
+        for name, (package, package_version, source_package, source_version)
+        in sorted(package_records.items())
     )
+    (bundle / "share/sgi/debian-libraries.tsv").write_text("".join(manifest))
     for binary in binaries:
         relative = os.path.relpath(libdir, binary.parent)
         subprocess.run(["patchelf", "--set-rpath", f"$ORIGIN/{relative}", str(binary)], check=True)

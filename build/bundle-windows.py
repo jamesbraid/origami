@@ -54,7 +54,10 @@ def main():
     notices = bundle / "share/sgi/licenses/fedora"
     shutil.rmtree(notices, ignore_errors=True)
     notices.mkdir(parents=True)
-    manifest = ["directory\tdll\tfedora package\tlicense\n"]
+    manifest = [
+        "directory\tdll\tfedora package\tlicense\t"
+        "fedora package version\tsource RPM\n"
+    ]
     for directory, names in (("bin", ("origami.exe", "instigator.exe")),
                              ("libexec/sgi", ("qemu-system-mips64.exe", "qemu-img.exe"))):
         destination = bundle / directory
@@ -76,6 +79,9 @@ def main():
             copied.add(key)
             package = output("rpm", "-qf", "--qf", "%{NAME}", str(source))
             license_name = output("rpm", "-q", "--qf", "%{LICENSE}", package)
+            package_version, source_rpm = output(
+                "rpm", "-q", "--qf", "%{VERSION}-%{RELEASE}\t%{SOURCERPM}", package
+            ).split("\t")
             licenses = [Path(path) for path in output("rpm", "-ql", package).splitlines()
                         if Path(path).is_file() and (
                             path.startswith(f"/usr/share/licenses/{package}/")
@@ -94,7 +100,10 @@ def main():
                     f"Fedora declares {package} as {license_name}.\n")
             elif not licenses:
                 raise RuntimeError(f"no license files installed for {package} ({source.name})")
-            manifest.append(f"{directory}\t{source.name}\t{package}\t{license_name}\n")
+            manifest.append(
+                f"{directory}\t{source.name}\t{package}\t{license_name}\t"
+                f"{package_version}\t{source_rpm}\n"
+            )
     (bundle / "share/sgi/windows-dlls.tsv").write_text("".join(manifest))
     print(f"bundled {len(manifest) - 1} Windows DLL copies")
 
