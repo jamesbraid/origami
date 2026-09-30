@@ -1,5 +1,8 @@
 # Contributing to Origami
 
+The [developer guide](../docs/development.md) covers source builds, archive
+contents and CI.
+
 Open issues and pull requests on GitHub against `main`. Accepted changes retain
 contributor authorship. The maintainer closes the pull request with a link to
 the resulting commit.
