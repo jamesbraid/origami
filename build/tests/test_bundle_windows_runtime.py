@@ -31,8 +31,6 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
         self.bin.mkdir()
         self.sysroot = self.root / "sysroot"
         self.sysroot.mkdir()
-        self.search = self.root / "search"
-        self.search.mkdir()
         self._sysroot_patch = patch.object(BUNDLER, "SYSROOT", self.sysroot)
         self._sysroot_patch.start()
         self.addCleanup(self._sysroot_patch.stop)
@@ -70,42 +68,23 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
         return output_path
 
     def scan(self, executable):
-        for source in self.sysroot.glob("*.dll"):
-            alias = self.search / source.name.lower()
-            if not alias.exists():
-                alias.symlink_to(source)
-        output = self.root / f"{executable.stem}-dependencies.txt"
-        result = subprocess.run(
-            [
-                CMAKE,
-                f"-DROOTS={executable}",
-                f"-DSEARCH_DIRECTORIES={self.search}",
-                f"-DSYSTEM_DLLS={';'.join(sorted(BUNDLER.SYSTEM_DLLS))}",
-                f"-DOUTPUT={output}",
-                "-P", str(BUNDLER.RUNTIME_DEPENDENCIES_SCRIPT),
-            ],
-            capture_output=True, text=True,
-        )
-        return result, output
+        return BUNDLER.runtime_dependencies([executable])
 
     def test_collects_transitive_dlls_and_sdl3_runtime_dependency(self):
         self.dll("second.dll", "int second(void) { return 2; }")
         self.dll("first.dll", "extern int second(void); int first(void) { return second(); }",
                  libraries=("second",))
-        self.dll("sdl2.dll", "int sdl2(void) { return 2; }")
-        self.dll("sdl3.dll", "extern int second(void); int sdl3(void) { return second(); }",
+        self.dll("SDL2.dll", "int sdl2(void) { return 2; }")
+        self.dll("SDL3.dll", "extern int second(void); int sdl3(void) { return second(); }",
                  libraries=("second",))
         executable = self.executable(
             "app.exe",
             "extern int first(void); extern int sdl2(void); "
             "int main(void) { return first() + sdl2(); }",
-            libraries=("first", "sdl2"),
+            libraries=("first", "SDL2"),
         )
 
-        result, output = self.scan(executable)
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        dependencies = {Path(line).name.lower() for line in output.read_text().splitlines()}
+        dependencies = {path.name.lower() for path in self.scan(executable)}
         self.assertTrue({"first.dll", "second.dll", "sdl2.dll", "sdl3.dll"} <= dependencies)
 
     def test_excludes_unavailable_api_set_import(self):
@@ -124,10 +103,7 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
             libraries=("api",), library_dirs=(api_dir,),
         )
 
-        result, output = self.scan(executable)
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        dependencies = {Path(line).name.lower() for line in output.read_text().splitlines()}
+        dependencies = {path.name.lower() for path in self.scan(executable)}
         self.assertNotIn("api-ms-win-test.dll", dependencies)
 
     def test_reports_missing_non_system_dll_import(self):
@@ -147,11 +123,17 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
         )
         missing_dll.unlink()
 
-        result, _ = self.scan(executable)
+        real_run = subprocess.run
 
-        self.assertNotEqual(result.returncode, 0)
+        def capture_cmake(command, check):
+            return real_run(command, check=check, capture_output=True, text=True)
+
+        with patch.object(BUNDLER.subprocess, "run", side_effect=capture_cmake):
+            with self.assertRaises(subprocess.CalledProcessError) as error:
+                self.scan(executable)
+
         diagnostic = next(
-            line.strip() for line in result.stderr.splitlines()
+            line.strip() for line in error.exception.stderr.splitlines()
             if "unresolved Windows DLL dependencies:" in line
         )
         self.assertEqual(diagnostic, "unresolved Windows DLL dependencies: missing.dll")

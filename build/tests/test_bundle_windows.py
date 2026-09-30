@@ -18,7 +18,7 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
             executable = root / "origami.exe"
             sysroot = root / "sysroot"
             sysroot.mkdir()
-            dependency = sysroot / "libgcc_s_seh-1.dll"
+            dependency = sysroot / "SDL2.dll"
             dependency.touch()
             def run(command, check):
                 self.assertEqual(command[0], "cmake")
@@ -31,6 +31,9 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
                 self.assertEqual(search_directory.name, "dlls")
                 self.assertEqual(
                     (search_directory / dependency.name.lower()).resolve(), dependency,
+                )
+                self.assertEqual(
+                    (search_directory / dependency.name).resolve(), dependency,
                 )
                 self.assertEqual(command[-2:], [
                     "-P", str(BUNDLER.RUNTIME_DEPENDENCIES_SCRIPT),

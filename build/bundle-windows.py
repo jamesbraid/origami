@@ -25,9 +25,10 @@ def runtime_dependencies(executables):
         temporary = Path(temporary)
         dll_directory = temporary / "dlls"
         dll_directory.mkdir()
-        # CMake lowercases PE imports, while Fedora preserves DLL filename case.
+        # Preserve DLL case for objdump and add lowercase aliases for case-folded lookup.
         for source in SYSROOT.glob("*.dll"):
-            (dll_directory / source.name.lower()).symlink_to(source)
+            for name in {source.name, source.name.lower()}:
+                (dll_directory / name).symlink_to(source)
         output_file = temporary / "dependencies.txt"
         command = [
             "cmake",
