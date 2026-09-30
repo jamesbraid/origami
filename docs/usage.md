@@ -354,6 +354,24 @@ repositories. GitHub's automatic source ZIP omits submodule contents. Use the
 Git clone when building from source. The platform build commands above use
 these exact checkouts.
 
+## Licenses and dependency sources
+
+The Origami CLI and Instigator use BSD-3-Clause. QEMU as a whole uses GPLv2.
+Bundled libraries retain their own licenses, with notices under
+`share/sgi/licenses/` in the archive.
+
+`share/sgi/source-revisions.txt` identifies the product, QEMU and Instigator
+commits. The Debian and Windows library manifests record the exact binary and
+source package versions. Rust and Go dependency manifests identify their
+modules and bundled notices.
+
+QEMU statically links a patched libslirp. Its pinned source URL and checksum
+are in `qemu/subprojects/libslirp.wrap`. The patch and its tests are in
+`qemu/subprojects/packagefiles/libslirp-sgi-prom.patch` in the initialized
+QEMU checkout.
+
+## GitHub archive workflow
+
 The `Preview archives` GitHub Actions workflow builds Linux, Windows and
 macOS artifacts on pull requests, mirrored `main` commits and version tags.
 It uploads archives and SHA-256 files as run artifacts. It does not upload
