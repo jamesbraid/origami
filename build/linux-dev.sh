@@ -100,7 +100,8 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
     '
 
 "$engine" run --rm -v "$scratch:/work" -v "$instigator:/instigator:ro" \
-    -v "$source:/qemu:ro" -v "$product:/product:ro" \
+    -v "$source:/qemu:ro" -v "$build_source:/qemu-build-source:ro" \
+    -v "$product:/product:ro" \
     -e QEMU_REV="$expected" -e INSTIGATOR_REV="$instigator_expected" \
     -e PRODUCT_REV="$product_revision" -e PRODUCT_STATE="$product_state" \
     localhost/sgi-qemu-builder:dev sh -ec '
@@ -118,6 +119,9 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         cp /qemu/LICENSE /work/linux-dev/share/sgi/licenses/qemu.LICENSE
         cp /qemu/COPYING /work/linux-dev/share/sgi/licenses/qemu.COPYING
         cp /qemu/COPYING.LIB /work/linux-dev/share/sgi/licenses/qemu.COPYING.LIB
+        slirp_dir=$(sed -n "s/^directory[[:space:]]*=[[:space:]]*//p" /qemu/subprojects/libslirp.wrap)
+        cp "/qemu-build-source/subprojects/$slirp_dir/COPYRIGHT" \
+            /work/linux-dev/share/sgi/licenses/libslirp.COPYRIGHT
         rm -rf /work/linux-dev/share/sgi/qemu/keymaps
         mkdir -p /work/linux-dev/share/sgi/qemu/keymaps
         for keymap in /qemu/pc-bios/keymaps/*; do
