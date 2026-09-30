@@ -9,7 +9,7 @@ if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
     printf 'macOS preview builds require a native arm64 Mac\n' >&2
     exit 2
 fi
-for tool in brew cargo git go ninja pkg-config python3 otool install_name_tool codesign shasum; do
+for tool in brew cargo git go ninja pkg-config python3 dylibbundler otool codesign shasum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'missing build tool: %s\n' "$tool" >&2
         exit 2
@@ -112,6 +112,13 @@ cp "$product/LICENSE" "$stage/share/sgi/licenses/origami.LICENSE"
 cp "$source/LICENSE" "$stage/share/sgi/licenses/qemu.LICENSE"
 cp "$source/COPYING" "$stage/share/sgi/licenses/qemu.COPYING"
 cp "$source/COPYING.LIB" "$stage/share/sgi/licenses/qemu.COPYING.LIB"
+libslirp_dir=$(sed -n 's/^directory = //p' "$source/subprojects/libslirp.wrap")
+if [ -z "$libslirp_dir" ]; then
+    printf 'QEMU libslirp wrap has no source directory\n' >&2
+    exit 2
+fi
+cp "$build_source/subprojects/$libslirp_dir/COPYRIGHT" \
+    "$stage/share/sgi/licenses/libslirp.COPYRIGHT"
 mkdir -p "$stage/share/sgi/qemu/keymaps"
 for keymap in "$source"/pc-bios/keymaps/*; do
     [ "${keymap##*/}" = meson.build ] || cp "$keymap" "$stage/share/sgi/qemu/keymaps/"
@@ -120,6 +127,8 @@ printf 'product=%s (%s)\nqemu=%s\ninstigator=%s\n' \
     "$product_revision" "$product_state" "$expected" "$instigator_expected" \
     > "$stage/share/sgi/source-revisions.txt"
 python3 "$product/build/bundle-macos.py" "$stage"
+python3 "$product/build/collect-homebrew-notices.py" \
+    "$stage" "$scratch/macos-homebrew-notices"
 python3 "$product/build/bundle-rust-licenses.py" "$CARGO_HOME" "$stage"
 python3 "$product/build/bundle-go-licenses.py" \
     "$scratch/instigator-go-deps-macos.txt" "$stage" "$GOMODCACHE"
