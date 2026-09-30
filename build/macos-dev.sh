@@ -119,6 +119,8 @@ if [ -z "$libslirp_dir" ]; then
 fi
 cp "$build_source/subprojects/$libslirp_dir/COPYRIGHT" \
     "$stage/share/sgi/licenses/libslirp.COPYRIGHT"
+cp "$product/build/licenses/$libslirp_dir.copyright" \
+    "$stage/share/sgi/licenses/libslirp.NOTICES"
 mkdir -p "$stage/share/sgi/qemu/keymaps"
 for keymap in "$source"/pc-bios/keymaps/*; do
     [ "${keymap##*/}" = meson.build ] || cp "$keymap" "$stage/share/sgi/qemu/keymaps/"

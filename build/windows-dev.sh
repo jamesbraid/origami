@@ -133,6 +133,8 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         test -n "$libslirp_directory"
         cp "/qemu-build-source/subprojects/$libslirp_directory/COPYRIGHT" \
             /work/windows-dev/share/sgi/licenses/libslirp.COPYRIGHT
+        cp "/product/build/licenses/$libslirp_directory.copyright" \
+            /work/windows-dev/share/sgi/licenses/libslirp.NOTICES
         rm -rf /work/windows-dev/share/sgi/qemu/keymaps
         mkdir -p /work/windows-dev/share/sgi/qemu/keymaps
         for keymap in /qemu/pc-bios/keymaps/*; do

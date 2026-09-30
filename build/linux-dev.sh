@@ -122,6 +122,8 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         slirp_dir=$(sed -n "s/^directory[[:space:]]*=[[:space:]]*//p" /qemu/subprojects/libslirp.wrap)
         cp "/qemu-build-source/subprojects/$slirp_dir/COPYRIGHT" \
             /work/linux-dev/share/sgi/licenses/libslirp.COPYRIGHT
+        cp "/product/build/licenses/$slirp_dir.copyright" \
+            /work/linux-dev/share/sgi/licenses/libslirp.NOTICES
         rm -rf /work/linux-dev/share/sgi/qemu/keymaps
         mkdir -p /work/linux-dev/share/sgi/qemu/keymaps
         for keymap in /qemu/pc-bios/keymaps/*; do
