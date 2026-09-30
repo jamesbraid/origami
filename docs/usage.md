@@ -3,6 +3,57 @@
 [Back to the README](../README.md). Commands below run from the repository root
 or an extracted preview archive, as indicated.
 
+## Downloaded previews
+
+Download the archive for your host and its `.sha256` file from the
+[release page](https://github.com/jamesbraid/origami/releases). Check the hash
+before extracting. Keep the extracted directory together: the CLI needs the
+bundled executables, libraries and data beside it.
+
+On Linux:
+
+```sh
+sha256sum -c origami-linux-x86_64-preview.tar.gz.sha256
+tar -xzf origami-linux-x86_64-preview.tar.gz
+./linux-dev/bin/origami machines
+```
+
+On Windows, compare the displayed hash with the value in the `.sha256` file,
+then extract and start the CLI from PowerShell:
+
+```powershell
+Get-FileHash -Algorithm SHA256 .\origami-windows-x86_64-preview.zip
+Expand-Archive .\origami-windows-x86_64-preview.zip -DestinationPath .\origami
+.\origami\windows-dev\bin\origami.exe machines
+```
+
+On Apple Silicon macOS:
+
+```sh
+shasum -a 256 -c origami-macos-arm64-preview.tar.gz.sha256
+tar -xzf origami-macos-arm64-preview.tar.gz
+./macos-dev/bin/origami machines
+```
+
+The archives are unsigned. Native Windows and macOS download warnings remain
+unverified. There is no installer or automatic updater. To try a newer version,
+extract its archive into a separate directory. Keep your machine directories,
+firmware and disks outside the extracted package.
+
+Use the full CLI path above in place of `origami` in the examples below, or
+add the package's `bin` directory to your PATH. Firmware and guest media are
+user supplied. The first `create` example prepares a machine using your PROM.
+To use an existing guest disk after `create`, attach a copy as the system disk:
+
+```sh
+origami drive-attach my-origin /path/to/copied-guest-disk.qcow2 --type disk --target 1
+origami run my-origin
+```
+
+Use a disk prepared for that emulated machine. The guest can change it while
+running. For a new disk, use `drive-create` and the installation instructions
+below instead.
+
 ## Current commands
 
 ```text
