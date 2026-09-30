@@ -183,7 +183,7 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
                 test -s "$notice"
                 case "$notice" in
                     /usr/share/*) relative=${notice#/usr/share/} ;;
-                    *) printf 'unexpected RPM license path: %s\n' "$notice" >&2; exit 1 ;;
+                    *) printf "unexpected RPM license path: %s\n" "$notice" >&2; exit 1 ;;
                 esac
                 mkdir -p "$package_dir/$(dirname "$relative")"
                 cp "$notice" "$package_dir/$relative"
