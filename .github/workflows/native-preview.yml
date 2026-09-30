@@ -60,7 +60,7 @@ jobs:
       group: native-preview-${{ github.workflow }}-${{ github.ref }}-macos-arm64
       cancel-in-progress: false
     if: github.server_url == 'https://github.com' && (github.event_name != 'workflow_dispatch' || (inputs.platform == 'macos-arm64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))
-    runs-on: macos-15
+    runs-on: macos-14
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
