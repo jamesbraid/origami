@@ -25,7 +25,12 @@ jobs:
           token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
           persist-credentials: false
           submodules: true
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        run: |
+          curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
+            https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Record toolchain
         run: rustc -Vv
       - name: Test CLI
