@@ -154,9 +154,10 @@ builds the kernel from the installed target. The PROM boot, disk preparation,
 and first-run questions still use the interactive guest installer. Packaged
 `install-finish` passed at the first `Inst>` handoff on a blank-disk installation
 and reached serial login with RAD4 attached. A candidate CLI completed
-`install-apply` on a blank-disk guest. The current clean archive has completed
-`install-finish` and SDL desktop login on that guest, but has not repeated the
-package stage from a blank disk.
+`install-apply` on a blank-disk guest. An earlier clean archive completed
+`install-finish` and SDL desktop login on that guest without repeating the
+package stage from a blank disk. Those
+guest checks have not been repeated with the current QEMU pin.
 
 A forward binds only to the host loopback address. The example sends host TCP
 port 2222 to guest port 22 while user networking is active. Use
@@ -187,7 +188,7 @@ MAC address (`--mac`, default `08:00:69:12:34:56`). Use that same address for
 `install-init --mac` or a private network attachment. The SPD records and PROM
 are user supplied. Their redistribution rights have not been settled. Origin
 300 reached the firmware System Maintenance Menu from an earlier Linux package
-at the same QEMU revision.
+at an older QEMU revision.
 An earlier Windows package reached it under Wine. IRIX boot on Origin 300 still
 needs package-level qualification.
 
@@ -232,8 +233,10 @@ records the source revisions and checkout state. The library manifest at
 list the Rust crates and Go modules with their bundled license files.
 
 The archive needs Linux x86-64 with glibc 2.39 or newer. SDL uses the host's
-display and input services. An earlier archive at the same QEMU revision passed
-a runtime check in Ubuntu 24.04 with glibc 2.39 and SDL's dummy video driver.
+display and input services. The archive built at product `e4f283b` and QEMU
+`2b1e1cc` passed CLI, QEMU and qemu-img startup checks on Ubuntu 24.04.
+Its QMP catalogue matched the pinned source. Guest and display checks below
+used earlier archives and have not been repeated with this QEMU pin.
 A blank-disk install reached graphical login and desktop through packaged
 SDL under Xvfb at 1280×1024 after the generated RAD4 helper ran at the first
 installer handoff. XTest keyboard input logged in and typed into NEdit. XTest
@@ -257,14 +260,13 @@ QEMU with SDL and VNC, `qemu-img.exe`, Instigator, QEMU keymaps, the required
 MinGW DLLs, license notices, source revisions, and per-file checksums. The CLI uses a
 loopback TCP endpoint for Instigator's private install network on Windows.
 
-The extracted archive passed every per-file checksum. Under Wine, the packaged
+An earlier archive passed every per-file checksum. Under Wine, its packaged
 CLI and `qemu-img.exe` created a machine and disk. The eight-CPU Origin 2000
-reached its firmware menu with clean diagnostics. The current ZIP booted an
+reached its firmware menu with clean diagnostics. That earlier ZIP booted an
 installed IRIX 6.5.30 disk to the 1280×1024 RAD4 desktop in its SDL window.
 XTest keyboard input logged in. A synthetic pointer click produced no visible
-guest response, so SDL pointer input needs a native check. An earlier archive
-at the same QEMU revision reached graphical login over VNC and accepted VNC
-pointer and keyboard input. Native Windows graphics and input remain untested.
+guest response, so SDL pointer input needs a native check. Another earlier
+archive reached graphical login over VNC and accepted VNC pointer and keyboard input. Native Windows graphics and input remain untested.
 
 ## macOS arm64 preview build
 
