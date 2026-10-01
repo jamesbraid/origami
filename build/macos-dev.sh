@@ -183,7 +183,7 @@ with (root / "SHA256SUMS").open("w") as output:
     for path in files:
         output.write(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root)}\n")
 PY
-tar -C "$package_work" -czf "$scratch/origami-macos-arm64-preview.tar.gz" macos-arm64-dev
+COPYFILE_DISABLE=1 tar -C "$package_work" -czf "$scratch/origami-macos-arm64-preview.tar.gz" macos-arm64-dev
 (cd "$scratch" && shasum -a 256 origami-macos-arm64-preview.tar.gz \
     > origami-macos-arm64-preview.tar.gz.sha256)
 printf 'macOS preview archive: %s/origami-macos-arm64-preview.tar.gz\n' "$scratch"
