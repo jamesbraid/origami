@@ -104,6 +104,31 @@ class HomebrewNoticeTests(unittest.TestCase):
                     {"glib": ["2.80"]}, {"glib": other_keg},
                 )
 
+    def test_uses_installed_keg_when_formula_name_now_resolves_to_a_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cellar = root / "Cellar"
+            keg = cellar / "sdl2/2.32.10"
+            library = keg / "lib/libSDL2-2.0.0.dylib"
+            library.parent.mkdir(parents=True)
+            library.write_bytes(b"library")
+            (keg / "LICENSE.txt").write_text("installed SDL2 notice")
+            bundled = root / "bundle/lib/sgi" / library.name
+            bundled.parent.mkdir(parents=True)
+            bundled.write_bytes(b"library")
+            replies = {
+                ("brew", "--cellar"): str(cellar),
+                ("brew", "list", "--formula"): "sdl2",
+                ("brew", "list", "--versions", "sdl2"): "sdl2 2.32.10",
+                ("brew", "--prefix", "sdl2"): str(root / "opt/sdl2-compat"),
+                ("brew", "list", "--verbose", "sdl2"): str(library),
+            }
+            with patch.object(COLLECTOR, "output", side_effect=lambda *args: replies[args]), \
+                 patch.object(sys, "argv", [str(SCRIPT), str(root / "bundle"), str(root / "scratch")]):
+                COLLECTOR.main()
+            copied = root / "bundle/share/sgi/licenses/homebrew/sdl2/LICENSE.txt"
+            self.assertEqual(copied.read_text(), "installed SDL2 notice")
+
     def test_uses_installed_notices_before_source_unpack(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
