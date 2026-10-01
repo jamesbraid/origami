@@ -27,7 +27,11 @@ for library in glib-2.0 pixman-1 sdl2; do
     fi
 done
 
-rust_notices="$(rustc --print sysroot)/share/doc/rust"
+rust_sysroot=$(rustc --print sysroot)
+rust_notices="$rust_sysroot/share/doc/rust"
+if [ ! -s "$rust_notices/COPYRIGHT-library.html" ]; then
+    rust_notices="$rust_sysroot/share/doc/rustc"
+fi
 test -s "$rust_notices/COPYRIGHT-library.html"
 test -s "$rust_notices/licenses/MIT.txt"
 go_root=$(go env GOROOT)
