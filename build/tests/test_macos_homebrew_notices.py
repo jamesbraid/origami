@@ -187,8 +187,9 @@ class HomebrewNoticeTests(unittest.TestCase):
             unpacked = root / "scratch/unpacked/glib/glib-2.80"
 
             def unpack(command, check):
-                self.assertEqual(command[0:3], ["brew", "unpack", "--patch"])
-                self.assertEqual(command[3], f"--destdir={root / 'scratch/unpacked/glib'}")
+                self.assertEqual(command[0:2], ["brew", "unpack"])
+                self.assertNotIn("--patch", command)
+                self.assertEqual(command[2], f"--destdir={root / 'scratch/unpacked/glib'}")
                 self.assertEqual(command[-1], str(formula))
                 unpacked.mkdir(parents=True)
                 (unpacked / "COPYING").write_text("source license")

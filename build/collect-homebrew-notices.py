@@ -53,7 +53,7 @@ def source_notices(keg, formula, scratch):
     unpacked = scratch / "unpacked" / formula
     shutil.rmtree(unpacked, ignore_errors=True)
     unpacked.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["brew", "unpack", "--patch", f"--destdir={unpacked}",
+    subprocess.run(["brew", "unpack", f"--destdir={unpacked}",
                     str(formula_file)], check=True)
     roots = [unpacked, *(path for path in unpacked.iterdir() if path.is_dir())]
     files = sorted(path for root in roots for path in root.iterdir()
