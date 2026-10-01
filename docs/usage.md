@@ -56,7 +56,7 @@ below instead.
 ## Hosts and current limitations
 
 The launch targets are Linux x86-64 with glibc 2.39 or newer, Windows 11
-x86-64, and macOS 14 or newer on Apple Silicon.
+x86-64, and macOS 15 or newer on Apple Silicon.
 
 Native Windows graphics and input remain untested. The macOS archive has not
 been built yet. Linux graphical checks used Xvfb, so physical keyboard and

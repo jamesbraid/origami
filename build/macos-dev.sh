@@ -9,7 +9,7 @@ if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
     printf 'macOS preview builds require a native arm64 Mac\n' >&2
     exit 2
 fi
-export MACOSX_DEPLOYMENT_TARGET=14.0
+export MACOSX_DEPLOYMENT_TARGET=15.0
 for tool in brew cargo rustc git go ninja pkg-config python3 dylibbundler otool codesign shasum; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         printf 'missing build tool: %s\n' "$tool" >&2
