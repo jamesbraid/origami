@@ -90,8 +90,8 @@ sh build/macos-dev.sh "$PWD/qemu" "$PWD/instigator" /path/to/scratch
 The script stops if a non-system library cannot be bundled, a Homebrew license
 notice is missing, or a library still resolves outside the archive. It writes
 `origami-macos-arm64-preview.tar.gz`, a SHA-256 hash, and per-file checksums.
-This build path has not run on macOS yet, so no macOS archive or host support is
-claimed.
+The archive passed native startup and relocation checks on macOS 15.8. Guest
+graphics and input remain untested there.
 
 ## Source and GitHub builds
 
@@ -129,10 +129,28 @@ QEMU checkout.
 
 ## Preview archive workflow
 
-The `Preview archives` workflow runs for version tags or manually requested
-builds. GitHub Actions builds the macOS archive. Linux and Windows use the
-same workflow on the project's build runners. Pull requests and `main`
-pushes do not build archives.
+The `Build release archives` workflow runs for version tags or manually
+requested builds. Public GitHub tag builds produce Linux, macOS and Windows
+archives, then publish a prerelease with their checksums. Windows is
+cross-compiled on Linux. Only assets produced in that workflow run are
+uploaded. Private GitHub repositories skip these jobs. Pull requests and
+`main` pushes do not build archives.
 
-Run artifacts contain archives and their SHA-256 files. Firmware and guest
-media are not included.
+Manual runs build the selected platform without publishing a release.
+Routine development checks and additional archive builds can use the same
+workflow on the project's build runners.
+
+The Linux and macOS jobs extract their archives into paths containing spaces
+and run the product smoke test. It checks bundled executables, disk creation,
+QEMU start/status/stop, a VNC connection, concurrent-launch refusal and
+drive-edit locks using
+an original synthetic MIPS loop. No firmware or guest media is needed.
+To run it against an extracted package:
+
+```sh
+python3 build/smoke-test.py /path/to/linux-dev --scratch /path/to/scratch
+```
+
+This checks product integration, not firmware or guest compatibility. Run
+artifacts contain archives and SHA-256 files. Firmware and guest media are
+not included.
