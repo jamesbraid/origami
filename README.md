@@ -10,12 +10,16 @@ tokens. Somehow, IRIX boots.
 [User guide](docs/usage.md) ·
 [Contributing](.github/CONTRIBUTING.md)
 
-![IRIX hinv on an emulated Origin 200 with two nodes](docs/images/origin200-hinv.png)
+![IRIX desktop with hinv on an emulated two-node Origin 200](docs/images/origin200-hinv.png)
 
-![IRIX hinv on an emulated Origin 2000 with four nodes](docs/images/origin2000-hinv.png)
+*Origin 200, two nodes, four CPUs. A moderately expensive way to run `hinv`.*
 
-*Origin 200 and Origin 2000. Cropped development captures; the second has
-contrast adjusted for readability. [Capture details](docs/images/README.md).*
+![IRIX desktop running an Inventor 3D demo on emulated SI graphics](docs/images/si-desktop-3d.png)
+
+*Origin 2000 with SI graphics. Some polygons escaped the serial console.*
+
+Development captures from different QEMU revisions.
+[Capture details](docs/images/README.md).
 
 ## Machines
 
@@ -48,19 +52,6 @@ The CLI has fewer presets than QEMU has configurations. The
 Implemented does not mean finished. Some combinations boot to a desktop.
 Others are an opportunity to stare at a serial console. This is a hobby
 experiment. Expect broken things and frequent changes.
-
-## A little more paper silicon
-
-![IRIX running the OpenGL Performer Lotus demo on emulated SI graphics](docs/images/si-performer.png)
-
-*SI graphics, IRIX and a Lotus.*
-
-| VPro / Odyssey: IRIX desktop | InfiniteReality: PROM menu |
-|---|---|
-| ![IRIX desktop with gr_osview and Icon Catalog on emulated VPro graphics](docs/images/vpro-desktop.png) | ![InfiniteReality graphical System Maintenance Menu on emulated InfiniteReality graphics](docs/images/infinitereality-prom.png) |
-
-These are development captures from different QEMU revisions, including work
-newer than the bundled version. [Capture details](docs/images/README.md).
 
 ## Trying it
 

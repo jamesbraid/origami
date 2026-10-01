@@ -1,9 +1,9 @@
 # Screenshot captures
 
-Emulator captures. The `hinv` images are cropped, and the Origin 2000
-image has contrast adjusted to make its dark text readable. The graphics
-captures are unedited. These show individual development runs,
-not compatibility guarantees for all configurations.
+The README uses full, unedited desktop captures. These show individual
+development runs, not compatibility guarantees for all configurations.
+Other captures retained here include the older cropped Origin 2000 inventory
+image, whose contrast was adjusted for readability.
 
 ## si-performer.png
 
@@ -32,7 +32,8 @@ Performer demo, not general OpenGL compatibility.
 - Machine: `origin200`, four CPUs and two nodes.
 - QEMU revision: `687740296cb0c1724623b949504f39ff4a692706`.
 - Capture: `rad4-dualnode-hinv.ppm`, 18 September 2026.
-- Cropped to the console. The Icon Catalog overlaps its right edge.
+- Full 1280 × 1024 desktop, converted from PPM to PNG without changing pixels.
+- The Icon Catalog overlaps the Console window.
 
 ## origin2000-hinv.png
 
@@ -41,3 +42,11 @@ Performer demo, not general OpenGL compatibility.
 - Capture: `attempt1-hinv.ppm`, 24 September 2026.
 - Cropped to the console. Dark text was changed to light text against
   a dark background for readability. No text was added or replaced.
+
+## si-desktop-3d.png
+
+- Machine: `origin2000`, BaseIO-G / MediaIO.
+- Graphics: SI (`sgi-mgras`).
+- QEMU revision: `c6430d2dd712da4fc89133ed6511cf161647b317`.
+- Capture: `ivview_texture-b.png`, 29 September 2026.
+- Full 1280 × 1024 desktop with the Inventor viewer, copied unchanged.
