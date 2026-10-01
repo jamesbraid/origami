@@ -129,6 +129,31 @@ class HomebrewNoticeTests(unittest.TestCase):
             copied = root / "bundle/share/sgi/licenses/homebrew/sdl2/LICENSE.txt"
             self.assertEqual(copied.read_text(), "installed SDL2 notice")
 
+    def test_uses_listed_library_keg_when_an_older_version_is_also_installed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            cellar = root / "Cellar"
+            keg = cellar / "glib/2.88.2"
+            library = keg / "lib/libglib-2.0.0.dylib"
+            library.parent.mkdir(parents=True)
+            library.write_bytes(b"library")
+            (keg / "COPYING").write_text("current GLib notice")
+            bundled = root / "bundle/lib/sgi" / library.name
+            bundled.parent.mkdir(parents=True)
+            bundled.write_bytes(b"library")
+            replies = {
+                ("brew", "--cellar"): str(cellar),
+                ("brew", "list", "--formula"): "glib",
+                ("brew", "list", "--versions", "glib"): "glib 2.88.0 2.88.2",
+                ("brew", "list", "--verbose", "glib"): str(library),
+            }
+            with patch.object(COLLECTOR, "output", side_effect=lambda *args: replies[args]), \
+                 patch.object(sys, "argv", [str(SCRIPT), str(root / "bundle"), str(root / "scratch")]):
+                COLLECTOR.main()
+            self.assertIn("glib\t2.88.2", (root / "bundle/share/sgi/macos-libraries.tsv").read_text())
+            copied = root / "bundle/share/sgi/licenses/homebrew/glib/COPYING"
+            self.assertEqual(copied.read_text(), "current GLib notice")
+
     def test_uses_installed_notices_before_source_unpack(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

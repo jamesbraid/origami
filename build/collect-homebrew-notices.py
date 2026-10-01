@@ -102,6 +102,8 @@ def main():
         raise SystemExit(f"usage: {sys.argv[0]} BUNDLE SCRATCH")
     bundle, scratch = map(Path, sys.argv[1:])
     os.environ["HOMEBREW_NO_AUTO_UPDATE"] = "1"
+    libraries = {path.name for path in (bundle / "lib/sgi").rglob("*.dylib")
+                 if path.is_file()}
     cellar = Path(output("brew", "--cellar"))
     formulas = output("brew", "list", "--formula").splitlines()
     versions = {}
@@ -111,13 +113,21 @@ def main():
         fields = output("brew", "list", "--versions", formula).split()
         if len(fields) < 2 or fields[0] != formula:
             continue
-        versions[formula] = fields[1:]
-        # Formula aliases may now point at a replacement package.
-        prefix = (cellar / formula / fields[1]).resolve()
-        kegs[formula] = prefix
-        listings[formula] = [(Path(path).name, str(Path(path).resolve()))
-                             for path in output("brew", "list", "--verbose", formula).splitlines()
-                             if path.startswith("/")]
+        files = [(Path(path).name, str(Path(path).resolve()))
+                 for path in output("brew", "list", "--verbose", formula).splitlines()
+                 if path.startswith("/")]
+        matching = [Path(path) for name, path in files if name in libraries]
+        if not matching:
+            continue
+        # Use the listed library keg, not a renamed formula's current alias.
+        formula_cellar = (cellar / formula).resolve()
+        selected = {path.relative_to(formula_cellar).parts[0] for path in matching}
+        if len(selected) != 1 or not selected.issubset(fields[1:]):
+            raise RuntimeError(f"ambiguous installed library version for {formula}")
+        version = selected.pop()
+        versions[formula] = [version]
+        kegs[formula] = formula_cellar / version
+        listings[formula] = files
     print(collect_notices(bundle, scratch, kegs, versions, listings))
 
 
