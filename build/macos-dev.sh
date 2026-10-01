@@ -35,7 +35,11 @@ fi
 test -s "$rust_notices/COPYRIGHT-library.html"
 test -s "$rust_notices/licenses/MIT.txt"
 go_root=$(go env GOROOT)
-test -s "$go_root/LICENSE"
+go_license="$go_root/LICENSE"
+if [ ! -s "$go_license" ]; then
+    go_license="$(dirname "$go_root")/LICENSE"
+fi
+test -s "$go_license"
 
 product=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 if [ ! -d "$1" ]; then
@@ -123,7 +127,7 @@ mkdir -p "$stage/share/sgi/licenses/toolchains/rust" "$stage/share/sgi/licenses/
 cp "$rust_notices/COPYRIGHT-library.html" "$stage/share/sgi/licenses/toolchains/rust/"
 cp -R "$rust_notices/licenses" "$stage/share/sgi/licenses/toolchains/rust/"
 rustc -Vv > "$stage/share/sgi/licenses/toolchains/rust/toolchain.txt"
-cp "$go_root/LICENSE" "$stage/share/sgi/licenses/toolchains/go/"
+cp "$go_license" "$stage/share/sgi/licenses/toolchains/go/LICENSE"
 go version > "$stage/share/sgi/licenses/toolchains/go/toolchain.txt"
 (cd "$go_root" && find src -type f \( -name LICENSE -o -name "LICENSE.*" \
     -o -name "LICENSE-*" -o -name COPYING -o -name "COPYING.*" \
