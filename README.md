@@ -48,7 +48,7 @@ serves the installation media.
 
 The CLI has fewer presets than QEMU has configurations. The
 [user guide](docs/usage.md) covers those, and the
-[QEMU machine reference](https://github.com/jamesbraid/qemu/blob/2b1e1cc01a57330601d9bbf428fe715e0cbc5f95/docs/specs/sgi-sn.rst) covers the rest.
+[QEMU machine reference](https://github.com/jamesbraid/qemu/blob/205aaf62e41fa03daede3673d0e90ae953f930fd/docs/specs/sgi-sn.rst) covers the rest.
 
 Implemented does not mean finished. Some combinations boot to a desktop.
 Others are an opportunity to stare at a serial console. This is a hobby

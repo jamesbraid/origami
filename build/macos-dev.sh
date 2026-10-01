@@ -134,6 +134,8 @@ cp "$product/LICENSE" "$stage/share/sgi/licenses/origami.LICENSE"
 cp "$source/LICENSE" "$stage/share/sgi/licenses/qemu.LICENSE"
 cp "$source/COPYING" "$stage/share/sgi/licenses/qemu.COPYING"
 cp "$source/COPYING.LIB" "$stage/share/sgi/licenses/qemu.COPYING.LIB"
+cp "$source/hw/mips/sgi/models/LICENSE" \
+    "$stage/share/sgi/licenses/qemu.sgi-models.LICENSE"
 libslirp_dir=$(sed -n 's/^directory = //p' "$source/subprojects/libslirp.wrap")
 if [ -z "$libslirp_dir" ]; then
     printf 'QEMU libslirp wrap has no source directory\n' >&2

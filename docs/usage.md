@@ -234,7 +234,7 @@ InfiniteReality and VPro graphics devices. Many configurations have no managed
 extracted archive, run `libexec/sgi/qemu-system-mips64 -machine help` and
 `libexec/sgi/qemu-system-mips64 -device help` (use `.exe` on Windows). Invoke
 that bundled QEMU binary directly for configurations outside the five presets.
-The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/2b1e1cc01a57330601d9bbf428fe715e0cbc5f95/docs/specs/sgi-sn.rst) describes its
+The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/205aaf62e41fa03daede3673d0e90ae953f930fd/docs/specs/sgi-sn.rst) describes its
 topologies and board options. These options are experimental and do not imply
 that firmware, installation or graphics work for every combination.
 

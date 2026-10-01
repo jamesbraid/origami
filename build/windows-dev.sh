@@ -155,6 +155,8 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         cp /qemu/LICENSE /work/windows-dev/share/sgi/licenses/qemu.LICENSE
         cp /qemu/COPYING /work/windows-dev/share/sgi/licenses/qemu.COPYING
         cp /qemu/COPYING.LIB /work/windows-dev/share/sgi/licenses/qemu.COPYING.LIB
+        cp /qemu/hw/mips/sgi/models/LICENSE \
+            /work/windows-dev/share/sgi/licenses/qemu.sgi-models.LICENSE
         libslirp_directory=$(sed -n "s/^directory = //p" \
             /qemu-build-source/subprojects/libslirp.wrap)
         test -n "$libslirp_directory"

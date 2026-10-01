@@ -138,6 +138,8 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
         cp /qemu/LICENSE /work/linux-dev/share/sgi/licenses/qemu.LICENSE
         cp /qemu/COPYING /work/linux-dev/share/sgi/licenses/qemu.COPYING
         cp /qemu/COPYING.LIB /work/linux-dev/share/sgi/licenses/qemu.COPYING.LIB
+        cp /qemu/hw/mips/sgi/models/LICENSE \
+            /work/linux-dev/share/sgi/licenses/qemu.sgi-models.LICENSE
         slirp_dir=$(sed -n "s/^directory[[:space:]]*=[[:space:]]*//p" /qemu/subprojects/libslirp.wrap)
         cp "/qemu-build-source/subprojects/$slirp_dir/COPYRIGHT" \
             /work/linux-dev/share/sgi/licenses/libslirp.COPYRIGHT
