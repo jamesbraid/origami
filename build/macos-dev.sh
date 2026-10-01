@@ -140,6 +140,8 @@ while IFS= read -r notice; do
 done < "$scratch/go-standard-notices.txt"
 cp "$product/LICENSE" "$stage/share/sgi/licenses/origami.LICENSE"
 cp "$source/LICENSE" "$stage/share/sgi/licenses/qemu.LICENSE"
+cp "$source/LICENSE.origami" "$stage/share/sgi/licenses/qemu.origami.LICENSE"
+cp "$source/LICENSE.origami.paths" "$stage/share/sgi/licenses/qemu.origami.paths"
 cp "$source/COPYING" "$stage/share/sgi/licenses/qemu.COPYING"
 cp "$source/COPYING.LIB" "$stage/share/sgi/licenses/qemu.COPYING.LIB"
 cp "$source/hw/mips/sgi/models/LICENSE" \

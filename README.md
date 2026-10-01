@@ -48,7 +48,7 @@ serves the installation media.
 
 The CLI has fewer presets than QEMU has configurations. The
 [user guide](docs/usage.md) covers those, and the
-[QEMU machine reference](https://github.com/jamesbraid/qemu/blob/205aaf62e41fa03daede3673d0e90ae953f930fd/docs/specs/sgi-sn.rst) covers the rest.
+[QEMU machine reference](https://github.com/jamesbraid/qemu/blob/f06422cfa1fc8f90e7ebdfe97f344ac35123823a/docs/specs/sgi-sn.rst) covers the rest.
 
 Implemented does not mean finished. Some combinations boot to a desktop.
 Others are an opportunity to stare at a serial console. This is a hobby
@@ -62,5 +62,6 @@ Start with `origami machines` and the [user guide](docs/usage.md).
 
 ## License
 
-[BSD-3-Clause](LICENSE) for the frontend and build tooling. QEMU and bundled
+[BSD-3-Clause](LICENSE) for the frontend, build tooling and our original QEMU
+additions. The combined QEMU emulator is GPL. Upstream code and bundled
 dependencies retain their own licenses.

@@ -153,6 +153,8 @@ build_source=$(sh "$product/build/prepare-qemu-source.sh" "$source" "$scratch" "
             /work/qemu-win-build/qemu-img.exe /work/windows-dev/libexec/sgi/
         cp /product/LICENSE /work/windows-dev/share/sgi/licenses/origami.LICENSE
         cp /qemu/LICENSE /work/windows-dev/share/sgi/licenses/qemu.LICENSE
+        cp /qemu/LICENSE.origami /work/windows-dev/share/sgi/licenses/qemu.origami.LICENSE
+        cp /qemu/LICENSE.origami.paths /work/windows-dev/share/sgi/licenses/qemu.origami.paths
         cp /qemu/COPYING /work/windows-dev/share/sgi/licenses/qemu.COPYING
         cp /qemu/COPYING.LIB /work/windows-dev/share/sgi/licenses/qemu.COPYING.LIB
         cp /qemu/hw/mips/sgi/models/LICENSE \

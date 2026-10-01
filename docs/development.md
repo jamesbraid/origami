@@ -113,7 +113,10 @@ these exact checkouts.
 
 ## Licenses and dependency sources
 
-The Origami CLI and Instigator use BSD-3-Clause. QEMU as a whole uses GPLv2.
+The Origami CLI, Instigator and original Origami additions to QEMU use
+BSD-3-Clause. QEMU as a whole uses GPLv2. Upstream and adapted code retain
+their existing licenses. `qemu/LICENSE.origami.paths` lists original files
+covered by the BSD grant, and `qemu/LICENSE.origami` contains its terms.
 Bundled libraries retain their own licenses, with notices under
 `share/sgi/licenses/` in the archive.
 

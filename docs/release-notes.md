@@ -20,5 +20,6 @@ Some configurations reach an IRIX desktop. Others remain unfinished. Graphics,
 input, firmware and guest support vary by machine and revision. Expect broken
 things and frequent releases. The user guide records tested paths and limits.
 
-The frontend and build tooling use BSD-3-Clause. QEMU and bundled dependencies
+The frontend, build tooling and our original QEMU additions use BSD-3-Clause.
+The combined QEMU emulator is GPL. Upstream code and bundled dependencies
 retain their own licenses, included under `share/sgi/licenses`.
