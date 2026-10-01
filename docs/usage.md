@@ -58,9 +58,10 @@ below instead.
 The launch targets are Linux x86-64 with glibc 2.39 or newer, Windows 11
 x86-64, and macOS 15 or newer on Apple Silicon.
 
-Native Windows graphics and input remain untested. The macOS archive has not
-been built yet. Linux graphical checks used Xvfb, so physical keyboard and
-pointer input remain untested there too.
+Native Windows graphics and input remain untested. The macOS archive passed
+native startup and relocation checks on macOS 15.8. Guest graphics and input
+remain untested there. Linux graphical checks used Xvfb, so physical keyboard
+and pointer input remain untested there too.
 
 ## Current commands
 
