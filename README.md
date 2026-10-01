@@ -3,8 +3,8 @@
 An experimental SGI emulator built on QEMU. Vibe coded paper silicon.
 
 Inspired by [Iris](https://github.com/techomancer/iris), and nostalgia for the
-systems I cut my teeth on as a young fella. This became an adventure in burning
-tokens. Somehow, IRIX boots.
+SGI systems I cut my teeth on. This became an adventure in burning tokens.
+Somehow, IRIX boots.
 
 [A website also stuck in the late ’90s](https://origami.irix.fans) ·
 [User guide](docs/usage.md) ·
@@ -12,26 +12,21 @@ tokens. Somehow, IRIX boots.
 
 ![IRIX desktop with hinv on an emulated two-node Origin 200](docs/images/origin200-hinv.png)
 
-*Origin 200, two nodes, four CPUs. A moderately expensive way to run `hinv`.*
+*Origin 200, two chassis, four CPUs. An expensive way to run `hinv`.*
 
 ![IRIX desktop running an Inventor 3D demo on emulated SI graphics](docs/images/si-desktop-3d.png)
 
 *Origin 2000 with SI graphics. Some polygons escaped the serial console.*
 
-Development captures from different QEMU revisions.
-[Capture details](docs/images/README.md).
-
 ## Machines
 
+My personal SGI era is the post-Indy, Origin/Octane/Onyx systems. So that's what I built.
+
 - **SN0:** Origin 200, Origin 2000, Onyx2.
-- **SN1:** Origin 300; Fuel is a work in progress.
-- **Other:** Octane / Octane2 are a work in progress.
+- **SN1:** Origin 300, Fuel (WIP).
+- **Other:** Octane / Octane2 (WIP).
 
-## What's in here
-
-The Rust `origami` CLI manages machines, disks, consoles and network installs.
-QEMU does the emulation. [Instigator](https://github.com/jamesbraid/instigator)
-serves the installation media.
+Planning to implement Origin 350/Chimera (Tezro) as well as the Origin 3000 NUMAFlex "brick" based systems.
 
 | Hardware | Emulated bits |
 |---|---|
@@ -44,6 +39,12 @@ serves the installation media.
 | Networking | IOC3 Ethernet, Tigon, BCM570x and Neterion Xframe adapters |
 | Peripherals | Serial ports, PS/2 keyboard and mouse, OHCI USB, RAD1 audio |
 | Housekeeping | ELSC, module management, L1, flash, EEPROMs and clocks |
+
+## What's in here
+
+The Rust `origami` CLI manages machines, disks, consoles and network installs.
+QEMU does the emulation. [Instigator](https://github.com/jamesbraid/instigator)
+serves the installation media.
 
 The CLI has fewer presets than QEMU has configurations. The
 [user guide](docs/usage.md) covers those, and the
