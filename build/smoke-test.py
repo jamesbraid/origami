@@ -91,7 +91,9 @@ class ProductSmoke(unittest.TestCase):
             self.cli("create", machine, "--preset", "origin200-1", "--prom", prom)
             self.cli("install-init", machine, "--mac", "08:00:69:12:34:56")
             media = tomllib.loads((machine / "install/media.toml").read_text())
-            self.assertEqual(len(media["media"]), 8)
+            self.assertEqual(len(media["media"]), 10)
+            self.assertTrue({"devlibs", "devfoundation"}.issubset(media["media"]))
+            self.assertTrue(all(source.endswith(".iso") for source in media["media"].values()))
             self.assertEqual(media["media"]["overlays1"],
                              "https://origami-dist.irix.fans/irix/6.5.30/overlays1.iso")
             self.assertTrue(all(source.startswith("https://origami-dist.irix.fans/irix/")
