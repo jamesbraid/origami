@@ -99,6 +99,9 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
     def test_build_rechecks_components_and_configuration(self):
         self.configure()
         self.build()
+        commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        cargo_commands = [args for name, args in commands if name == "cargo"]
+        self.assertEqual(cargo_commands, [["build", "--locked", "--release"]])
         self.run_command("ctest", "--test-dir", str(self.binary), "-R", "^(frontend|instigator)$", "--output-on-failure")
         manifest = json.loads((self.binary / "product-build.json").read_text())
         self.assertEqual(manifest["qemu_source"], str(self.source / "qemu"))
@@ -121,6 +124,9 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
         self.assertTrue(any(name == "cargo" and "--locked" in args for name, args in commands))
         self.assertTrue(any(name == "go" and "-mod=readonly" in args for name, args in commands))
         self.run_command("cpack", "--config", str(self.binary / "CPackConfig.cmake"), "-B", str(self.binary / "archives"))
+        commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        cargo_commands = [args for name, args in commands if name == "cargo"]
+        self.assertEqual(cargo_commands[-1], ["fetch", "--locked"])
         import tarfile
         archive_name, archive_root = (("origami-macos-arm64-preview.tar.gz", "macos-arm64-dev")
                                       if sys.platform == "darwin" else

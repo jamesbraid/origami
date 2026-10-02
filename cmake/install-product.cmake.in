@@ -1,5 +1,13 @@
 # Installation stages only the release tree, never the build directory.
 execute_process(
+  COMMAND "@CMAKE_COMMAND@" -E env "CARGO_HOME=@cargo_home@"
+    "@PRODUCT_CARGO@" fetch --locked
+  WORKING_DIRECTORY "@CMAKE_SOURCE_DIR@"
+  RESULT_VARIABLE fetch_result)
+if(NOT fetch_result EQUAL 0)
+  message(FATAL_ERROR "Could not fetch locked Rust crate sources (${fetch_result})")
+endif()
+execute_process(
   COMMAND "@Python3_EXECUTABLE@" "@CMAKE_SOURCE_DIR@/build/stage-product.py"
     "@CMAKE_BINARY_DIR@/product-build.json" --release
     --output "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/@archive_root_name@"
