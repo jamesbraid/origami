@@ -482,6 +482,7 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
 const INSTALL_PROMPT: &[u8] = b"Inst> ";
 const SHELL_PROMPT: &[u8] = b"# ";
 const TFTP_PROMPT: &[u8] = b"tftp> ";
+const SERIAL_LOGIN_PROMPT_SUFFIX: &[u8] = b" console login: ";
 
 struct InstallConsole {
     stream: TcpStream,
@@ -868,7 +869,7 @@ pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
         b"Restart? { (y)es, (n)o, (sh)ell, (h)elp }: ",
         Duration::from_secs(900),
     )?;
-    console.command("y", b"IRIS console login: ", Duration::from_secs(600))?;
+    console.command("y", SERIAL_LOGIN_PROMPT_SUFFIX, Duration::from_secs(600))?;
     println!("RAD4 configured and installed IRIX reached serial login. Stop the machine before switching to user networking and SDL.");
     Ok(())
 }
@@ -979,6 +980,28 @@ mod tests {
             crc,
             size,
         ));
+    }
+
+    #[test]
+    fn install_finish_accepts_a_configured_hostname_login_prompt() {
+        let hostname = "origami-public-test";
+        let expected = format!("{hostname} console login: ");
+        let writer_expected = expected.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let writer = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(writer_expected.as_bytes()).unwrap();
+            stream.flush().unwrap();
+        });
+        let mut console = InstallConsole {
+            stream: TcpStream::connect(address).unwrap(),
+        };
+        let output = console
+            .wait_for(SERIAL_LOGIN_PROMPT_SUFFIX, Duration::from_secs(5))
+            .unwrap();
+        writer.join().unwrap();
+        assert_eq!(output, expected);
     }
 
     #[test]
