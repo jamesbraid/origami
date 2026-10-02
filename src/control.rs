@@ -94,17 +94,33 @@ pub fn verified_qmp(record: &Record) -> Result<(TcpStream, BufReader<TcpStream>)
     Ok((stream, reader))
 }
 
-pub fn lock_for_edit(dir: &Path, action: &str) -> Result<std::fs::File> {
+pub struct EditLock {
+    file: std::fs::File,
+}
+
+impl Drop for EditLock {
+    fn drop(&mut self) {
+        // A concurrent process spawn can inherit the open description until exec.
+        // Unlock explicitly so a duplicate descriptor cannot extend this edit.
+        let _ = FileExt::unlock(&self.file);
+    }
+}
+
+pub fn lock_for_edit(dir: &Path, action: &str) -> Result<EditLock> {
     fs::create_dir_all(dir.join("state"))?;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .open(dir.join("state/machine.lock"))?;
-    if file.try_lock_exclusive().is_err() || is_running(dir)? {
+    if file.try_lock_exclusive().is_err() {
         return Err(format!("stop the machine before {action}").into());
     }
-    Ok(file)
+    let lock = EditLock { file };
+    if is_running(dir)? {
+        return Err(format!("stop the machine before {action}").into());
+    }
+    Ok(lock)
 }
 
 pub fn is_locked(dir: &Path) -> Result<bool> {
@@ -162,6 +178,27 @@ pub fn console(dir: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    #[cfg(unix)]
+    fn edit_lock_releases_with_a_duplicate_descriptor() {
+        let dir = std::env::temp_dir().join(format!(
+            "origami-duplicate-lock-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let lock = lock_for_edit(&dir, "editing").unwrap();
+        let duplicate = lock.file.try_clone().unwrap();
+        assert!(is_locked(&dir).unwrap());
+        drop(lock);
+        assert!(!is_locked(&dir).unwrap());
+        drop(duplicate);
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn edit_lock_excludes_another_writer() {
