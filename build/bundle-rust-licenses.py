@@ -7,6 +7,26 @@ import tomllib
 from pathlib import Path
 
 
+def license_files(source_root, name, version):
+    source = list(source_root.glob(f'*/{name}-{version}'))
+    if not source:
+        raise RuntimeError(f'missing crate source: {name} {version}')
+    files = sorted(path for path in source[0].iterdir()
+                   if path.name.lower().startswith('license'))
+    import_libraries = {
+        ('winapi-i686-pc-windows-gnu', '0.4.0'),
+        ('winapi-x86_64-pc-windows-gnu', '0.4.0'),
+    }
+    if not files and (name, version) in import_libraries:
+        parent = list(source_root.glob('*/winapi-0.3.9'))
+        if parent:
+            files = sorted(path for path in parent[0].iterdir()
+                           if path.name.lower().startswith('license'))
+    if not files:
+        raise RuntimeError(f'missing license file: {name} {version}')
+    return files
+
+
 def main():
     if len(sys.argv) != 3:
         raise SystemExit(f"usage: {sys.argv[0]} CARGO-HOME BUNDLE")
@@ -21,21 +41,7 @@ def main():
         if "source" not in package:
             continue
         name, version = package["name"], package["version"]
-        source = list(source_root.glob(f"*/{name}-{version}"))
-        if not source:
-            if name.startswith("winapi"):
-                continue  # Windows-only crates are absent from the Linux build.
-            raise RuntimeError(f"missing crate source: {name} {version}")
-        files = sorted(path for path in source[0].iterdir() if path.name.startswith("LICENSE"))
-        if not files and (name, version) == ("winapi-x86_64-pc-windows-gnu", "0.4.0"):
-            # This import-library crate omits license files but declares the same
-            # MIT/Apache-2.0 terms as its winapi parent repository.
-            parent = list(source_root.glob("*/winapi-0.3.9"))
-            if parent:
-                files = sorted(path for path in parent[0].iterdir()
-                               if path.name.startswith("LICENSE"))
-        if not files:
-            raise RuntimeError(f"missing license file: {name} {version}")
+        files = license_files(source_root, name, version)
         destination = notices / f"{name}-{version}"
         destination.mkdir()
         for path in files:
