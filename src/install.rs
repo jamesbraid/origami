@@ -91,7 +91,13 @@ fn recipe(profile: &str) -> Result<InstallRecipe> {
         "base" => ("base", Some(&["6.5.30", "foundations"])),
         "desktop" => (
             "desktop",
-            Some(&["6.5.30", "foundations", "applications", "complementary"]),
+            Some(&[
+                "6.5.30",
+                "foundations",
+                "development",
+                "applications",
+                "complementary",
+            ]),
         ),
         "development" => ("development", None),
         "legacy-development" => ("development", None),
@@ -1293,14 +1299,33 @@ mod tests {
         let mut file = crate::read_machine(&dir).unwrap();
         init_remote(&dir, "08:00:69:12:34:56", &mut file).unwrap();
         let mut media = read_media(&dir).unwrap();
-        assert_eq!(media.media.len(), 8);
+        assert_eq!(media.media.len(), 10);
         assert_eq!(
             media.media["overlays1"],
             "https://origami-dist.irix.fans/irix/6.5.30/overlays1.iso"
         );
         let document = config(&dir, &file, &media).unwrap();
-        assert_eq!(document["install_sets"].as_array().unwrap().len(), 4);
+        let sets = document["install_sets"].as_array().unwrap();
+        assert_eq!(sets.len(), 5);
         assert_eq!(document["install_sets"][0]["layers"][0]["boot"], true);
+        let development = sets
+            .iter()
+            .find(|set| set["name"] == "development")
+            .unwrap();
+        let runtime_layers: Vec<_> = development["layers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|layer| layer["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(runtime_layers, ["devlibs", "devfoundation"]);
+        assert!(development["replacements"].is_null());
+        assert!(development["collisions"].is_null());
+        assert!(sets
+            .iter()
+            .flat_map(|set| set["layers"].as_array().unwrap())
+            .all(|layer| !layer["source"].as_str().unwrap().ends_with(".tar.gz")));
+        assert!(media.media.values().all(|source| source.ends_with(".iso")));
         assert_eq!(document["install_scripts"][0]["install"], json!([]));
         assert_eq!(
             install_source_command(&media, None).unwrap(),
@@ -1324,7 +1349,7 @@ mod tests {
 
     #[test]
     fn base_and_desktop_profiles_use_discs_and_standard_selections() {
-        for (name, count) in [("base", 6), ("desktop", 8)] {
+        for (name, count) in [("base", 6), ("desktop", 10)] {
             let recipe = recipe(name).unwrap();
             assert_eq!(recipe.layers.len(), count);
             assert!(recipe.layers.iter().all(|layer| layer
