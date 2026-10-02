@@ -7,7 +7,7 @@ keep = []
 
 [package_selections.desktop]
 install = []
-keep = ["inventor_dev", "java2_plugin.sw32.mozilla_freeware"]
+keep = ["inventor_dev", "java2_plugin.sw32.mozilla_freeware", "java_dev.sw32.binaries"]
 
 [package_selections.development]
 install = ["c_fe.sw.c", "c_dev.sw.c", "compiler_dev.sw.base", "compiler_dev.sw.ld", "dev.sw.lib"]

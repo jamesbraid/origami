@@ -1370,7 +1370,11 @@ mod tests {
         assert_eq!(desktop.install, Vec::<String>::new());
         assert_eq!(
             desktop.keep,
-            ["inventor_dev", "java2_plugin.sw32.mozilla_freeware"]
+            [
+                "inventor_dev",
+                "java2_plugin.sw32.mozilla_freeware",
+                "java_dev.sw32.binaries"
+            ]
         );
 
         assert_eq!(recipe("base").unwrap().keep, Vec::<String>::new());
