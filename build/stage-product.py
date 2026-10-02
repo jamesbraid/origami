@@ -315,7 +315,8 @@ def collect_release_notices(manifest, bundle):
         copy_notice(source, notices / name)
     env = os.environ.copy()
     env.update(GOMODCACHE=manifest['go_mod_cache'], GOCACHE=manifest['go_build_cache'],
-               GOTOOLCHAIN='local', CGO_ENABLED='0')
+               GOTOOLCHAIN='local', CGO_ENABLED='0',
+               XDG_CONFIG_HOME=str(state_path(manifest, 'tool-config')))
     env['GOOS'] = {'linux': 'linux', 'macos': 'darwin', 'windows': 'windows'}[manifest['platform']]
     env['GOARCH'] = 'arm64' if manifest['platform'] == 'macos' else 'amd64'
     toolchain_notices(manifest, bundle, env)

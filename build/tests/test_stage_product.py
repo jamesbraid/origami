@@ -207,11 +207,14 @@ class ProductStageTests(unittest.TestCase):
         extra.write_text('libslirp additional notices')
         bundle = self.root / 'notice output'
         bundle.mkdir()
-        with patch.object(self.stage, 'toolchain_notices'), \
+        with patch.object(self.stage, 'toolchain_notices') as toolchain, \
                 patch.object(self.stage, 'helper'), \
                 patch.object(self.stage, 'output', return_value=''), \
                 patch.object(self.stage.shutil, 'which', return_value=None):
             self.stage.collect_release_notices(self.manifest, bundle)
+        config = Path(toolchain.call_args.args[2]['XDG_CONFIG_HOME'])
+        self.assertEqual(config, Path(self.manifest['qemu_build']).parent / 'tool-config')
+        self.assertFalse(config.is_relative_to(self.sources['product']))
         for name, original in {
             'qemu.origami.paths': qemu / 'LICENSE.origami.paths',
             'qemu.sgi-models.LICENSE': qemu / 'hw/mips/sgi/models/LICENSE',
