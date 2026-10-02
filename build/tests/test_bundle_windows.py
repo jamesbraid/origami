@@ -38,6 +38,10 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
                 self.assertEqual(command[-2:], [
                     "-P", str(BUNDLER.RUNTIME_DEPENDENCIES_SCRIPT),
                 ])
+                system_arg = next(
+                    argument for argument in command if argument.startswith("-DSYSTEM_DLLS=")
+                )
+                self.assertIn("combase.dll", system_arg.split("=", 1)[1].split(";"))
                 output_arg = next(
                     argument for argument in command if argument.startswith("-DOUTPUT=")
                 )

@@ -12,7 +12,7 @@ SYSROOT = Path("/usr/x86_64-w64-mingw32/sys-root/mingw/bin")
 RUNTIME_DEPENDENCIES_SCRIPT = Path(__file__).with_name("windows-runtime-dependencies.cmake")
 SYSTEM_DLLS = {
     "advapi32.dll", "bcrypt.dll", "bcryptprimitives.dll", "cfgmgr32.dll",
-    "comctl32.dll", "comdlg32.dll", "crypt32.dll", "d3d11.dll", "d3d9.dll",
+    "combase.dll", "comctl32.dll", "comdlg32.dll", "crypt32.dll", "d3d11.dll", "d3d9.dll",
     "dnsapi.dll", "dwmapi.dll", "dxgi.dll", "gdi32.dll", "imm32.dll", "iphlpapi.dll",
     "kernel32.dll", "msvcrt.dll", "ntdll.dll", "ole32.dll", "oleaut32.dll",
     "setupapi.dll", "shell32.dll", "shlwapi.dll", "user32.dll", "userenv.dll",
