@@ -206,7 +206,7 @@ fn valid_install_selection(item: &str) -> bool {
 pub fn add_addon(
     dir: &Path,
     name: &str,
-    source: &Path,
+    source: &str,
     base: Option<&str>,
     dist: Option<&str>,
     install: &[String],
@@ -217,21 +217,26 @@ pub fn add_addon(
     if install.is_empty() || install.iter().any(|item| !valid_install_selection(item)) {
         return Err("add-on needs one or more package names using letters, digits, dots, underscores, hyphens, or plus signs".into());
     }
-    let source = source.canonicalize()?;
-    if !source.is_file() && !source.is_dir() {
-        return Err(format!(
-            "add-on source is not a file or directory: {}",
-            source.display()
-        )
-        .into());
-    }
+    let source = if source.contains("://") {
+        media_source(dir, source)?
+    } else {
+        let source = Path::new(source).canonicalize()?;
+        if !source.is_file() && !source.is_dir() {
+            return Err(format!(
+                "add-on source is not a file or directory: {}",
+                source.display()
+            )
+            .into());
+        }
+        source.display().to_string()
+    };
     let mut media = read_media(dir)?;
     if media.addons.iter().any(|addon| addon.name == name) {
         return Err(format!("add-on already configured: {name}").into());
     }
     media.addons.push(InstallAddon {
         name: name.into(),
-        source: source.display().to_string(),
+        source,
         base: base.map(str::to_owned),
         dist: dist.map(str::to_owned),
         install: install.to_vec(),
@@ -322,10 +327,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         {
             return Err(format!("add-on {} has invalid install selections", addon.name).into());
         }
-        let source = resolve(dir, &addon.source);
-        if !source.is_file() && !source.is_dir() {
-            return Err(format!("missing add-on {}: {}", addon.name, source.display()).into());
-        }
+        let source = media_source(dir, &addon.source)?;
         let mut layer = json!({ "name": addon.name, "source": source });
         if let Some(base) = &addon.base {
             layer["base"] = json!(base);
@@ -968,6 +970,125 @@ mod tests {
         assert_eq!(layers.len(), 2);
         assert_eq!(layers[1]["name"], "sgi-rad4-finish");
         assert_eq!(layers[1]["dist"], "dist");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_addon_preserves_https_source_and_rejects_invalid_urls_without_writing() {
+        use crate::{Firmware, Machine, Network};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let dir = std::env::temp_dir().join(format!(
+            "sgi-remote-addon-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join("install")).unwrap();
+        let source = dir.join("tablet.tardist");
+        fs::write(&source, b"synthetic source").unwrap();
+        let media = InstallMedia {
+            format: 1,
+            profile: legacy_profile(),
+            media: recipe("development")
+                .unwrap()
+                .layers
+                .iter()
+                .map(|layer| (layer.name.clone(), source.display().to_string()))
+                .collect(),
+            addons: vec![],
+        };
+        let manifest_path = dir.join("install/media.toml");
+        fs::write(&manifest_path, toml::to_string_pretty(&media).unwrap()).unwrap();
+
+        let url = "https://origami-dist.irix.fans/irix/addons/tablet/tablet.tardist";
+        add_addon(
+            &dir,
+            "tablet",
+            url,
+            Some("tablet-disc"),
+            Some("dist"),
+            &["tablet.sw.helper".into()],
+        )
+        .unwrap();
+        let configured = read_media(&dir).unwrap();
+        assert_eq!(configured.addons[0].source, url);
+
+        let file = MachineFile {
+            format: 1,
+            machine: Machine {
+                model: "origin200".into(),
+                nodes: 1,
+                cpus_per_node: 1,
+                memory_per_node: "256MiB".into(),
+                graphics: "rad4".into(),
+                topology: None,
+                population: vec![],
+                inputs: Default::default(),
+            },
+            firmware: Firmware {
+                image: "prom.bin".into(),
+            },
+            identity: None,
+            network: Network {
+                mode: "private".into(),
+                endpoint: Some("install/network.sock".into()),
+                mac: Some("08:00:69:12:34:56".into()),
+                forward: vec![],
+            },
+            drive: vec![],
+        };
+        prepare_guest_scripts(&dir, &configured).unwrap();
+        let document = config(&dir, &file, &configured).unwrap();
+        let addon_index = recipe("legacy-development").unwrap().sets.len();
+        let addon_set = &document["install_sets"][addon_index];
+        assert_eq!(addon_set["layers"][0]["source"], url);
+        assert_eq!(addon_set["layers"][0]["base"], "tablet-disc");
+        let script = document["install_scripts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|script| script["name"] == "addon-tablet")
+            .unwrap();
+        assert!(script["install"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("tablet.sw.helper")));
+
+        add_addon(
+            &dir,
+            "local-tablet",
+            source.to_str().unwrap(),
+            None,
+            None,
+            &["tablet.sw.helper".into()],
+        )
+        .unwrap();
+        assert_eq!(
+            read_media(&dir).unwrap().addons[1].source,
+            source.canonicalize().unwrap().display().to_string()
+        );
+
+        let before = fs::read(&manifest_path).unwrap();
+        for invalid in [
+            "https://[",
+            "http://origami-dist.irix.fans/tablet.tardist",
+            "https://user@origami-dist.irix.fans/tablet.tardist",
+            "https://origami-dist.irix.fans/tablet.tardist?token=secret",
+        ] {
+            assert!(add_addon(
+                &dir,
+                "invalid",
+                invalid,
+                None,
+                None,
+                &["tablet.sw.helper".into()],
+            )
+            .is_err());
+            assert_eq!(fs::read(&manifest_path).unwrap(), before);
+        }
         fs::remove_dir_all(dir).unwrap();
     }
 

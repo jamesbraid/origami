@@ -442,7 +442,7 @@ fn command() -> Result<()> {
             let path = install::add_addon(
                 &dir,
                 name,
-                Path::new(value(&args, "--source")?),
+                value(&args, "--source")?,
                 optional(&args, "--base"),
                 optional(&args, "--dist"),
                 &install,

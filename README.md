@@ -31,7 +31,7 @@ Planning to implement Origin 350/Chimera (Tezro) as well as the Origin 3000 NUMA
 | Hardware | Emulated bits |
 |---|---|
 | Configurations | Deskside, rack and GIGAchannel; SMP, multiple nodes and NUMA |
-| CPUs | R10000 and R14000 |
+| CPUs | R10000, R12000 and R14000 |
 | Graphics | PsiTech RAD1 / RAD4, IMPACT / SI (MGRAS), InfiniteReality (Kona), VPro (Odyssey) |
 | Interconnect | Hub, Bedrock, Crossbow, Bridge, XBridge, routers and CrayLink |
 | I/O boards | BaseIO, BaseIO-G / MediaIO, IO-8, MENET, MSCSI, PCI carriers and shoehorns |
@@ -48,7 +48,7 @@ serves the installation media.
 
 The CLI has fewer presets than QEMU has configurations. The
 [user guide](docs/usage.md) covers those, and the
-[QEMU machine reference](https://github.com/jamesbraid/qemu/blob/f06422cfa1fc8f90e7ebdfe97f344ac35123823a/docs/specs/sgi-sn.rst) covers the rest.
+[QEMU machine reference](https://github.com/jamesbraid/qemu/blob/a61238a8eb5fb18feb425464045a9848dba3d0f7/docs/specs/sgi-sn.rst) covers the rest.
 
 Implemented does not mean finished. Some combinations boot to a desktop.
 Others are an opportunity to stare at a serial console. This is a hobby
@@ -57,7 +57,8 @@ experiment. Expect broken things and frequent changes.
 ## Trying it
 
 Preview builds target Linux x86-64, Windows x86-64 and macOS arm64.
-You'll need your own firmware and guest installation media. They aren't bundled.
+Pinned preset PROMs and default IRIX installation media download over HTTPS.
+Use `--prom` and `--media-root` for local inputs. Firmware and media aren't bundled.
 Start with `origami machines` and the [user guide](docs/usage.md).
 
 ## License

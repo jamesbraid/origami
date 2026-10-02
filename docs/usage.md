@@ -118,9 +118,22 @@ images live elsewhere.
 
 `install-addon` is optional. Stop the machine before changing add-ons.
 Replace `PRODUCT.SUBSYSTEM` with the package selection named by the add-on.
-It accepts a local SGI image, extracted tree,
-`.tar`, `.tar.gz`, `.tgz`, `.tardist`, or `.tardist.gz`. The add-on remains
-outside the emulator archive and is read from its configured path.
+A source can be a local SGI image, extracted tree, `.tar`, `.tar.gz`, `.tgz`,
+`.tardist`, or `.tardist.gz`, or a public HTTPS URL. HTTPS sources use
+Instigator's existing remote-media support. The add-on remains outside the
+emulator archive and is configured in the machine's media manifest.
+
+To add the optional RAD4 driver from its public archive, select package `rad4x`
+from distribution `dist_6.5`:
+
+```sh
+origami install-addon my-origin \
+  --name rad4 \
+  --source https://origami-dist.irix.fans/irix/addons/rad4/rad4x_65_13k.tar.gz \
+  --install rad4x \
+  --dist dist_6.5
+```
+
 `install-check` uses the packaged Instigator to open every named source,
 including selected development inputs and any add-on, and assemble the install tree without opening
 network ports. It catches invalid media and missing collision winners before
@@ -236,7 +249,7 @@ The full QEMU catalogue also validates additional topologies and processor
 populations configured in `machine.toml`. Use `topology` and `population` to
 identify those configurations. Support remains experimental: a selectable
 configuration does not imply that firmware, installation or graphics work.
-The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/02b87f9d3e2094f81224092709e7db20b9cf392c/docs/specs/sgi-sn.rst)
+The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/a61238a8eb5fb18feb425464045a9848dba3d0f7/docs/specs/sgi-sn.rst)
 describes topology and board options. Fuel requires explicit board inputs.
 Octane2 requires explicit R12000 CPU inputs. `origami --help` lists their options.
 
@@ -278,14 +291,13 @@ Choose `--profile base` for the six IRIX 6.5.30 overlay, foundation and NFS disc
 `--profile desktop` (the default) to add applications and complementary software,
 or `--profile development` to add development discs and the existing MIPSpro
 7.4.4 update and C compiler tarballs. Remote disc objects use `.iso` filenames
-and retain the original SGI disc bytes. The separate RAD4 driver is a local add-on.
+and retain the original SGI disc bytes. The RAD4 driver is a separate add-on
+that can use a local path or public HTTPS source.
 
 Use `--media-root /path/to/media` for local installation. Its disc paths retain
 `.image` filenames. Existing media configurations keep their original full
 recipe. `--profile legacy-development` is available for that local recipe.
 
-The public hosting endpoints and inputs still need publication. Until they are
-available, use explicit local PROMs and media. PROM downloads have pinned
-checksums. Instigator's remote installation sources do not verify a whole-image
-checksum before serving them. Remote installation has not been qualified with
-published media.
+PROM downloads have pinned checksums. Instigator's remote installation sources
+do not verify a whole-image checksum before serving them. Remote installation
+has not been qualified with published media.
