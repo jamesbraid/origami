@@ -28,7 +28,9 @@ def runtime_dependencies(executables):
         # Preserve DLL case for objdump and add lowercase aliases for case-folded lookup.
         for source in SYSROOT.glob("*.dll"):
             for name in {source.name, source.name.lower()}:
-                (dll_directory / name).symlink_to(source)
+                alias = dll_directory / name
+                if not alias.exists():
+                    alias.symlink_to(source)
         output_file = temporary / "dependencies.txt"
         command = [
             "cmake",

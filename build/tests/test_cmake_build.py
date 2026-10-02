@@ -3,8 +3,10 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sys
 import subprocess
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -110,6 +112,8 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
         self.build()
         for name in ("origami", "instigator", "qemu"):
             self.assertTrue((self.binary / "run" / name).read_text().startswith("edited"))
+        # Makefile timestamp checks have one-second resolution.
+        time.sleep(1.1)
         (self.source / "qemu/meson.build").write_text("changed configuration")
         self.build()
         commands = [json.loads(line) for line in self.log.read_text().splitlines()]
@@ -118,20 +122,24 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
         self.assertTrue(any(name == "go" and "-mod=readonly" in args for name, args in commands))
         self.run_command("cpack", "--config", str(self.binary / "CPackConfig.cmake"), "-B", str(self.binary / "archives"))
         import tarfile
-        with tarfile.open(self.binary / "archives/origami-linux-x86_64-preview.tar.gz") as archive:
-            self.assertEqual(archive.extractfile("linux-dev/policy").read(), b"release")
+        archive_name, archive_root = (("origami-macos-arm64-preview.tar.gz", "macos-arm64-dev")
+                                      if sys.platform == "darwin" else
+                                      ("origami-linux-x86_64-preview.tar.gz", "linux-dev"))
+        with tarfile.open(self.binary / "archives" / archive_name) as archive:
+            self.assertEqual(archive.extractfile(f"{archive_root}/policy").read(), b"release")
             self.assertNotIn("product-build.json", archive.getnames())
 
     def test_preset_uses_ignored_source_output_by_default(self):
         self.env.pop("SGI_BUILD_ROOT", None)
-        self.run_command("cmake", "--preset", "linux", "-S", str(self.source),
+        preset = "macos" if sys.platform == "darwin" else "linux"
+        self.run_command("cmake", "--preset", preset, "-S", str(self.source),
                          "-G", "Unix Makefiles", *[f"-D{name}={self.source / tool}" for name, tool in
                          [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"),
                           ("PRODUCT_GO", "go"), ("PRODUCT_NINJA", "ninja")]])
-        manifest_path = self.source / "out/linux/product-build.json"
+        manifest_path = self.source / f"out/{preset}/product-build.json"
         self.assertTrue(manifest_path.is_file())
         manifest = json.loads(manifest_path.read_text())
-        self.assertEqual(manifest["output_dir"], str(self.source / "out/linux/run"))
+        self.assertEqual(manifest["output_dir"], str(self.source / f"out/{preset}/run"))
 
     def test_missing_submodules_allow_initialization_target(self):
         (self.source / "qemu/configure").unlink()
