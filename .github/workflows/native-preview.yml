@@ -41,17 +41,17 @@ jobs:
         run: python3 -m unittest build.tests.test_ci_docker -v
       - name: Check Docker daemon
         run: docker info --format '{{.ServerVersion}}'
-      - name: Build archive
-        run: |
-          mkdir -p "$PWD/.ci-build"
-          export SGI_CONTAINER_ENGINE="$PWD/build/ci-docker.py"
-          sh build/linux-dev.sh "$PWD/qemu" "$PWD/instigator" "$PWD/.ci-build"
+      - uses: ./.github/actions/build-archive
+        with:
+          preset: linux
+          build-dir: ${{ github.workspace }}/.ci-build
+          engine: ${{ github.workspace }}/build/ci-docker.py
       - uses: actions/upload-artifact@v3
         with:
           name: origami-linux-x86_64-preview
           path: |
-            ${{ github.workspace }}/.ci-build/origami-linux-x86_64-preview.tar.gz
-            ${{ github.workspace }}/.ci-build/origami-linux-x86_64-preview.tar.gz.sha256
+            ${{ github.workspace }}/.ci-build/artifacts/origami-linux-x86_64-preview.tar.gz
+            ${{ github.workspace }}/.ci-build/artifacts/origami-linux-x86_64-preview.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -72,7 +72,7 @@ jobs:
           python-version: '3.12'
       - name: Install build dependencies
         run: |
-          brew install dylibbundler glib pixman sdl2 libslirp ninja pkg-config meson rust
+          brew install cmake dylibbundler glib pixman sdl2 libslirp ninja pkg-config meson rust
           test "$(brew list --versions dylibbundler)" = "dylibbundler 1.0.5"
       - name: Test macOS bundle
         run: python3 -m unittest build.tests.test_macos_homebrew_notices -v
@@ -81,19 +81,21 @@ jobs:
           go-version-file: instigator/go.mod
       - name: Build archive
         run: |
-          mkdir -p "$RUNNER_TEMP/build"
-          time sh build/macos-dev.sh "$PWD/qemu" "$PWD/instigator" "$RUNNER_TEMP/build"
+          cmake --preset macos -B "$RUNNER_TEMP/build"
+          time cmake --build "$RUNNER_TEMP/build" --parallel 4
+          ctest --test-dir "$RUNNER_TEMP/build" --output-on-failure
+          cpack --config "$RUNNER_TEMP/build/CPackConfig.cmake" -B "$RUNNER_TEMP/build/artifacts"
       - name: Smoke test extracted archive
         run: |
           mkdir -p "$RUNNER_TEMP/smoke/package with spaces"
-          tar -xzf "$RUNNER_TEMP/build/origami-macos-arm64-preview.tar.gz" -C "$RUNNER_TEMP/smoke/package with spaces"
+          tar -xzf "$RUNNER_TEMP/build/artifacts/origami-macos-arm64-preview.tar.gz" -C "$RUNNER_TEMP/smoke/package with spaces"
           python3 build/smoke-test.py "$RUNNER_TEMP/smoke/package with spaces/macos-arm64-dev" --scratch "$RUNNER_TEMP/smoke"
       - uses: actions/upload-artifact@v4
         with:
           name: origami-macos-arm64-preview
           path: |
-            ${{ runner.temp }}/build/origami-macos-arm64-preview.tar.gz
-            ${{ runner.temp }}/build/origami-macos-arm64-preview.tar.gz.sha256
+            ${{ runner.temp }}/build/artifacts/origami-macos-arm64-preview.tar.gz
+            ${{ runner.temp }}/build/artifacts/origami-macos-arm64-preview.tar.gz.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -120,17 +122,17 @@ jobs:
         run: python3 -m unittest build.tests.test_ci_docker -v
       - name: Check Docker daemon
         run: docker info --format '{{.ServerVersion}}'
-      - name: Build archive
-        run: |
-          mkdir -p "$PWD/.ci-build"
-          export SGI_CONTAINER_ENGINE="$PWD/build/ci-docker.py"
-          sh build/windows-dev.sh "$PWD/qemu" "$PWD/instigator" "$PWD/.ci-build"
+      - uses: ./.github/actions/build-archive
+        with:
+          preset: windows-cross
+          build-dir: ${{ github.workspace }}/.ci-build
+          engine: ${{ github.workspace }}/build/ci-docker.py
       - uses: actions/upload-artifact@v3
         with:
           name: origami-windows-x86_64-preview
           path: |
-            ${{ github.workspace }}/.ci-build/origami-windows-x86_64-preview.zip
-            ${{ github.workspace }}/.ci-build/origami-windows-x86_64-preview.zip.sha256
+            ${{ github.workspace }}/.ci-build/artifacts/origami-windows-x86_64-preview.zip
+            ${{ github.workspace }}/.ci-build/artifacts/origami-windows-x86_64-preview.zip.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -150,24 +152,22 @@ jobs:
         with:
           persist-credentials: false
           submodules: true
-      - name: Build archive
+      - uses: ./.github/actions/build-archive
         if: github.event_name != 'workflow_dispatch' || inputs.platform == matrix.platform
-        env:
-          SGI_CONTAINER_ENGINE: docker
-        run: |
-          mkdir -p "$RUNNER_TEMP/build"
-          time sh "build/${{ matrix.platform == 'linux-x86_64' && 'linux-dev.sh' || 'windows-dev.sh' }}" "$PWD/qemu" "$PWD/instigator" "$RUNNER_TEMP/build"
+        with:
+          preset: ${{ matrix.platform == 'linux-x86_64' && 'linux' || 'windows-cross' }}
+          build-dir: ${{ runner.temp }}/build
       - name: Smoke test Linux archive
         if: matrix.platform == 'linux-x86_64' && (github.event_name != 'workflow_dispatch' || inputs.platform == matrix.platform)
         run: |
           mkdir -p "$RUNNER_TEMP/smoke/package with spaces"
-          tar -xzf "$RUNNER_TEMP/build/origami-linux-x86_64-preview.tar.gz" -C "$RUNNER_TEMP/smoke/package with spaces"
+          tar -xzf "$RUNNER_TEMP/build/artifacts/origami-linux-x86_64-preview.tar.gz" -C "$RUNNER_TEMP/smoke/package with spaces"
           python3 build/smoke-test.py "$RUNNER_TEMP/smoke/package with spaces/linux-dev" --scratch "$RUNNER_TEMP/smoke"
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'workflow_dispatch' || inputs.platform == matrix.platform
         with:
           name: origami-${{ matrix.platform }}-preview
-          path: ${{ runner.temp }}/build/origami-${{ matrix.platform }}-preview.*
+          path: ${{ runner.temp }}/build/artifacts/origami-${{ matrix.platform }}-preview.*
           if-no-files-found: error
           retention-days: 14
 

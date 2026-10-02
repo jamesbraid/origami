@@ -30,7 +30,7 @@ def dependencies(binary):
     for line in run("ldd", str(binary)).splitlines():
         if "=> not found" in line:
             raise RuntimeError(f"unresolved dependency of {binary}: {line.strip()}")
-        match = re.match(r"\s*(\S+) => (/\S+) \(0x[0-9a-f]+\)", line)
+        match = re.match(r"\s*(\S+) => (/.+?) \(0x[0-9a-f]+\)\s*$", line)
         if match and match.group(1) not in SYSTEM_LIBRARIES:
             result[match.group(1)] = Path(match.group(2))
     return result

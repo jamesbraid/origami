@@ -1,0 +1,9 @@
+# Installation stages only the release tree, never the build directory.
+execute_process(
+  COMMAND "@Python3_EXECUTABLE@" "@CMAKE_SOURCE_DIR@/build/stage-product.py"
+    "@CMAKE_BINARY_DIR@/product-build.json" --release
+    --output "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/@archive_root_name@"
+  RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Product release staging failed (${result})")
+endif()

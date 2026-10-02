@@ -1,0 +1,50 @@
+name: Build product archive
+description: Build the product with its CMake preset in the selected toolchain container.
+inputs:
+  preset:
+    description: Linux or Windows cross preset
+    required: true
+  build-dir:
+    description: Host directory for build outputs
+    required: true
+  engine:
+    description: Container engine executable
+    default: docker
+runs:
+  using: composite
+  steps:
+    - name: Build toolchain image
+      shell: bash
+      env:
+        PRESET: ${{ inputs.preset }}
+        ENGINE: ${{ inputs.engine }}
+      run: |
+        case "$PRESET" in
+          linux)
+            "$ENGINE" build -t origami-product-builder:ci -f build/Product.Containerfile build
+            ;;
+          windows-cross)
+            "$ENGINE" build -t origami-qemu-windows-builder:ci \
+              -f qemu/tests/docker/dockerfiles/fedora-win64-cross.docker qemu/tests/docker/dockerfiles
+            "$ENGINE" build -t origami-product-builder:ci \
+              --build-arg QEMU_BUILDER=origami-qemu-windows-builder:ci \
+              -f build/ProductWindows.Containerfile build
+            ;;
+          *) printf 'unsupported container preset: %s\n' "$PRESET" >&2; exit 2 ;;
+        esac
+    - name: Configure, build, test and package
+      shell: bash
+      env:
+        PRESET: ${{ inputs.preset }}
+        ENGINE: ${{ inputs.engine }}
+        BUILD_DIR: ${{ inputs.build-dir }}
+      run: |
+        mkdir -p "$BUILD_DIR"
+        "$ENGINE" run --rm -v "$PWD:/source" -v "$BUILD_DIR:/build" -w /source \
+          -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e 'GIT_CONFIG_VALUE_0=*' \
+          -e PRESET="$PRESET" origami-product-builder:ci sh -ec '
+            cmake --preset "$PRESET" -B /build
+            cmake --build /build --parallel 4
+            ctest --test-dir /build --output-on-failure
+            cpack --config /build/CPackConfig.cmake -B /build/artifacts
+          '

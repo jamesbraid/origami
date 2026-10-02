@@ -35,3 +35,9 @@ jobs:
         run: rustc -Vv
       - name: Test CLI
         run: cargo test --locked
+      - name: Install build test tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake ninja-build
+      - name: Test build and packaging helpers
+        run: python3 -m unittest discover -s build/tests -p 'test_*.py' -v

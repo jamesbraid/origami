@@ -1,3 +1,7 @@
 target/
 .ci-build/
 __pycache__/
+
+# Local CMake settings and optional in-worktree build output.
+CMakeUserPresets.json
+out/
