@@ -1,7 +1,7 @@
 use origami::runtime::{self, Display};
 use origami::{
-    catalogue, catalogue_sha256, create, preset, presets, read_machine, resolve, validate, Drive,
-    Network, Origin300Create, PortForward, Result,
+    catalogue, catalogue_sha256, preset, presets, read_machine, resolve, validate,
+    validate_create_inputs, Drive, Network, Origin300Create, PortForward, Result,
 };
 use origami::{control, install};
 use std::env;
@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  origami machines\n  origami create DIR --preset PRESET --prom FILE [--memory-per-node MiB] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  origami validate DIR\n  origami show DIR\n  origami show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  origami run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  origami status DIR\n  origami console DIR\n  origami stop DIR\n  origami drive-create DIR SIZE-MiB\n  origami drive-attach DIR FILE --type disk|cdrom|tape --target N\n  origami drive-detach DIR NAME\n  origami network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  origami network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  origami network-forward-remove DIR NAME\n  origami install-init DIR --media-root PATH --mac MAC\n  origami install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  origami install-check DIR\n  origami install-serve DIR\n  origami install-apply DIR [--addon NAME]\n  origami install-finish DIR\n  origami version"
+    "usage:\n  origami machines\n  origami create DIR --preset PRESET [--prom FILE] [--memory-per-node MiB] [--graphics none|rad4|si|esi|infinite-reality|vpro] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  origami validate DIR\n  origami show DIR\n  origami show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  origami run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  origami status DIR\n  origami console DIR\n  origami stop DIR\n  origami drive-create DIR SIZE-MiB\n  origami drive-attach DIR FILE --type disk|cdrom|tape --target N\n  origami drive-detach DIR NAME\n  origami network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  origami network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  origami network-forward-remove DIR NAME\n  origami install-init DIR [--media-root PATH] --mac MAC [--profile base|desktop|development]\n  origami install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  origami install-check DIR\n  origami install-serve DIR\n  origami install-apply DIR [--addon NAME]\n  origami install-finish DIR\n  origami version\n\nFuel create inputs: --fuel-board-id-word N --fuel-bedrock-revision N --fuel-ioc3-subsystem-id N --fuel-l1-type-code N\nOctane2 create inputs: --r12000-prid N --r12000-fpu-id N --r12000-reset-mode N --r12000-scache-bytes N --r12000-scache-block-words N\nNumeric inputs accept decimal or 0x-prefixed hexadecimal."
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -60,20 +60,19 @@ fn command() -> Result<()> {
         return Err(usage().into());
     }
     let action = args.remove(0);
+    if matches!(action.as_str(), "--help" | "-h") {
+        println!("{}", usage());
+        return Ok(());
+    }
     let catalog = catalogue()?;
     match action.as_str() {
         "machines" => {
             for (name, offer) in presets(&catalog) {
-                let capability = if name == "origin200-1" {
-                    "RAD4 graphics"
-                } else if name == "origin300-2" {
-                    "experimental firmware"
-                } else {
-                    "serial console"
-                };
                 println!(
-                    "{name:18} {:10} {} CPUs, {} nodes, {capability}",
-                    offer.product, offer.smp, offer.nodes
+                    "{name:36} {} CPUs, {} nodes, graphics: {} (experimental)",
+                    offer.smp,
+                    offer.nodes,
+                    origami::profiles::graphics(offer).join("|")
                 );
             }
         }
@@ -87,7 +86,11 @@ fn command() -> Result<()> {
             {
                 return Err("SPD and identity inputs apply only to Origin 300".into());
             }
-            let identity = if offer.product == "origin300" {
+            let identity = if offer.product == "origin300"
+                && args
+                    .iter()
+                    .any(|arg| arg == "--spd-dimm2" || arg == "--spd-dimm3")
+            {
                 Some(Origin300Create {
                     spd_dimm2: Path::new(value(&args, "--spd-dimm2")?),
                     spd_dimm3: Path::new(value(&args, "--spd-dimm3")?),
@@ -96,17 +99,59 @@ fn command() -> Result<()> {
             } else {
                 None
             };
+            if identity.is_none() && args.iter().any(|arg| arg == "--mac") {
+                return Err(
+                    "--mac requires the explicit --spd-dimm2 and --spd-dimm3 identity inputs"
+                        .into(),
+                );
+            }
             let memory_per_node = if args.iter().any(|arg| arg == "--memory-per-node") {
                 Some(value(&args, "--memory-per-node")?.parse::<u32>()?)
             } else {
                 None
             };
-            create(
+            let graphics = optional(&args, "--graphics").or_else(|| {
+                value(&args, "--preset")
+                    .ok()
+                    .filter(|name| name.ends_with("-impact"))
+                    .map(|_| "si")
+            });
+            origami::profiles::validate_graphics(
+                offer,
+                graphics.unwrap_or(origami::profiles::default_graphics(offer)),
+            )?;
+            let mut inputs = std::collections::BTreeMap::new();
+            for flag in [
+                "fuel-board-id-word",
+                "fuel-bedrock-revision",
+                "fuel-ioc3-subsystem-id",
+                "fuel-l1-type-code",
+                "r12000-prid",
+                "r12000-fpu-id",
+                "r12000-reset-mode",
+                "r12000-scache-bytes",
+                "r12000-scache-block-words",
+            ] {
+                let option = format!("--{flag}");
+                if args.iter().any(|arg| arg == &option) {
+                    inputs.insert(flag.into(), value(&args, &option)?.into());
+                }
+            }
+            origami::profiles::validate_inputs(offer, &inputs)?;
+            validate_create_inputs(Path::new(path), offer, memory_per_node, identity.as_ref())?;
+            let prom = if args.iter().any(|arg| arg == "--prom") {
+                PathBuf::from(value(&args, "--prom")?)
+            } else {
+                origami::assets::acquire(value(&args, "--preset")?)?
+            };
+            origami::create_configured(
                 Path::new(path),
                 offer,
-                Path::new(value(&args, "--prom")?),
+                &prom,
                 memory_per_node,
                 identity,
+                graphics,
+                inputs,
             )?;
             println!("created {path}");
         }
@@ -363,12 +408,19 @@ fn command() -> Result<()> {
             let dir = directory(&args)?;
             let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
-            let path = install::init(
-                &dir,
-                Path::new(value(&args, "--media-root")?),
-                value(&args, "--mac")?,
-                &mut file,
-            )?;
+            let mac = value(&args, "--mac")?;
+            let profile = optional(&args, "--profile").unwrap_or("desktop");
+            let path = if args.iter().any(|arg| arg == "--media-root") {
+                install::init_profile(
+                    &dir,
+                    Path::new(value(&args, "--media-root")?),
+                    mac,
+                    &mut file,
+                    profile,
+                )?
+            } else {
+                install::init_remote_profile(&dir, mac, &mut file, profile)?
+            };
             println!("created {}", path.display());
         }
         "install-addon" => {

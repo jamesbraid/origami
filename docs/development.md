@@ -30,6 +30,13 @@ cmake --preset macos
 cmake --build --preset macos --target submodules
 ```
 
+After changing a QEMU pin that updates a Meson dependency patch, refresh the
+extracted dependency with Meson before rebuilding. For libslirp, from `qemu/`:
+
+```sh
+meson subprojects update --reset libslirp
+```
+
 Ordinary builds accept local edits and produce a runnable directory.
 Release packaging requires clean source and dependencies at their committed
 pins. It also verifies that the binaries match the completed build.

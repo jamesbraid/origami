@@ -4,9 +4,11 @@ use std::fs;
 use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 
+pub mod assets;
 pub mod control;
 pub mod install;
 pub mod origin300;
+pub mod profiles;
 pub mod runtime;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -136,6 +138,12 @@ impl Default for Network {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Machine {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topology: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub population: Vec<u32>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub inputs: std::collections::BTreeMap<String, String>,
     pub model: String,
     pub nodes: u32,
     pub cpus_per_node: u32,
@@ -180,32 +188,16 @@ pub fn catalogue() -> Result<Catalog> {
     ))?)
 }
 
-pub fn presets(catalog: &Catalog) -> Vec<(&'static str, &Offering)> {
-    const PRESETS: &[(&str, &str, u32, u32)] = &[
-        ("origin200-1", "origin200", 1, 1),
-        ("origin200-2", "origin200", 1, 2),
-        ("origin200-dual", "origin200", 2, 4),
-        ("origin2000-8", "origin2000", 4, 8),
-        ("origin300-2", "origin300", 1, 2),
-    ];
-    PRESETS
-        .iter()
-        .filter_map(|(name, product, nodes, smp)| {
-            catalog
-                .offerings
-                .iter()
-                .find(|o| o.product == *product && o.nodes == *nodes && o.smp == *smp)
-                .map(|offering| (*name, offering))
-        })
-        .collect()
+pub fn presets(catalog: &Catalog) -> Vec<(String, &Offering)> {
+    profiles::presets(catalog)
 }
 
 pub fn preset<'a>(catalog: &'a Catalog, name: &str) -> Result<&'a Offering> {
     presets(catalog)
         .into_iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, o)| o)
-        .ok_or_else(|| format!("unknown preset: {name}").into())
+        .find(|(n, _)| n == name)
+        .map(|(_, offering)| offering)
+        .ok_or_else(|| format!("unknown or unimplemented preset: {name}").into())
 }
 
 pub fn read_machine(dir: &Path) -> Result<MachineFile> {
@@ -251,10 +243,12 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         .find(|o| {
             o.product == file.machine.model
                 && o.nodes == file.machine.nodes
-                && o.smp == file.machine.nodes * file.machine.cpus_per_node
-                && o.cpus_per_node
-                    .iter()
-                    .all(|cpus| *cpus == file.machine.cpus_per_node)
+                && file.machine.topology.as_ref().map_or(
+                    o.topology
+                        == profiles::legacy_topology(&file.machine.model, file.machine.nodes),
+                    |topology| o.topology == *topology,
+                )
+                && o.cpus_per_node == profiles::population(&file.machine)
         })
         .ok_or("unsupported machine and processor population")?;
     if !offering.memory.accepted.contains(&memory) {
@@ -264,11 +258,8 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         )
         .into());
     }
-    if file.machine.graphics != "none"
-        && !(file.machine.graphics == "rad4" && offering.product == "origin200")
-    {
-        return Err(format!("unsupported graphics selection {}", file.machine.graphics).into());
-    }
+    profiles::validate_graphics(offering, &file.machine.graphics)?;
+    profiles::validate_inputs(offering, &file.machine.inputs)?;
     match file.network.mode.as_str() {
         "none" | "user" if file.network.endpoint.is_none() && file.network.mac.is_none() => (),
         "private" => {
@@ -338,7 +329,10 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
             return Err(format!("firmware {} has an unexpected SHA-256", prom.display()).into());
         }
     }
-    if offering.product == "origin300" {
+    if offering.product == "origin300" && file.identity.is_some() {
+        if offering.nodes != 1 || offering.smp != 2 {
+            return Err("explicit Origin 300 identity currently requires one two-CPU node".into());
+        }
         let identity = file
             .identity
             .as_ref()
@@ -393,7 +387,7 @@ pub fn qemu_path_option(path: &Path) -> String {
 }
 
 fn valid_firmware_size(offering: &Offering, size: u64) -> bool {
-    if offering.firmware.kind == "ip27-prom" {
+    if matches!(offering.firmware.kind.as_str(), "ip27-prom" | "ip30-prom") {
         size > 0 && size <= offering.firmware.size
     } else {
         size == offering.firmware.size
@@ -401,19 +395,18 @@ fn valid_firmware_size(offering: &Offering, size: u64) -> bool {
 }
 
 fn firmware_size_requirement(offering: &Offering) -> String {
-    if offering.firmware.kind == "ip27-prom" {
+    if matches!(offering.firmware.kind.as_str(), "ip27-prom" | "ip30-prom") {
         format!("fit in {} bytes and be nonempty", offering.firmware.size)
     } else {
         format!("be {} bytes", offering.firmware.size)
     }
 }
 
-pub fn create(
+pub fn validate_create_inputs(
     dir: &Path,
     offering: &Offering,
-    prom: &Path,
     memory_per_node: Option<u32>,
-    identity: Option<Origin300Create<'_>>,
+    identity: Option<&Origin300Create<'_>>,
 ) -> Result<()> {
     let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
     if !offering.memory.accepted.contains(&memory_per_node) {
@@ -423,9 +416,76 @@ pub fn create(
         )
         .into());
     }
-    if dir.exists() {
-        return Err(format!("destination already exists: {}", dir.display()).into());
+    match fs::symlink_metadata(dir) {
+        Ok(_) => return Err(format!("destination already exists: {}", dir.display()).into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
+    let mut parent = dir.parent();
+    while let Some(path) = parent.filter(|path| !path.as_os_str().is_empty()) {
+        match fs::symlink_metadata(path) {
+            Ok(_) => {
+                if !fs::metadata(path)?.is_dir() {
+                    return Err(format!(
+                        "destination parent is not a directory: {}",
+                        path.display()
+                    )
+                    .into());
+                }
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => parent = path.parent(),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    if offering.product == "origin300" && identity.is_some() {
+        if offering.nodes != 1 || offering.smp != 2 {
+            return Err("explicit SPD inputs and persistent IP35 flash currently require one two-CPU node; omit them to use native QEMU defaults".into());
+        }
+        let inputs = identity.ok_or("Origin 300 needs --spd-dimm2 and --spd-dimm3")?;
+        origin300::validate_spd_file(inputs.spd_dimm2, origin300::DIMM2_SHA256)?;
+        origin300::validate_spd_file(inputs.spd_dimm3, origin300::DIMM3_SHA256)?;
+        if !valid_mac(inputs.mac) {
+            return Err("Origin 300 MAC must contain six hexadecimal bytes".into());
+        }
+    } else if offering.product != "origin300" && identity.is_some() {
+        return Err("SPD inputs are only supported for Origin 300".into());
+    }
+    Ok(())
+}
+
+pub fn create(
+    dir: &Path,
+    offering: &Offering,
+    prom: &Path,
+    memory_per_node: Option<u32>,
+    identity: Option<Origin300Create<'_>>,
+) -> Result<()> {
+    create_configured(
+        dir,
+        offering,
+        prom,
+        memory_per_node,
+        identity,
+        None,
+        Default::default(),
+    )
+}
+
+pub fn create_configured(
+    dir: &Path,
+    offering: &Offering,
+    prom: &Path,
+    memory_per_node: Option<u32>,
+    identity: Option<Origin300Create<'_>>,
+    graphics: Option<&str>,
+    inputs: std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    validate_create_inputs(dir, offering, memory_per_node, identity.as_ref())?;
+    let graphics = graphics.unwrap_or(profiles::default_graphics(offering));
+    profiles::validate_graphics(offering, graphics)?;
+    profiles::validate_inputs(offering, &inputs)?;
+    let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
     if !valid_firmware_size(offering, fs::metadata(prom)?.len()) {
         return Err(format!("PROM must {}", firmware_size_requirement(offering)).into());
     }
@@ -433,18 +493,6 @@ pub fn create(
         if sha256_file(prom)? != *expected {
             return Err("PROM has an unexpected SHA-256".into());
         }
-    }
-    if offering.product == "origin300" {
-        let inputs = identity
-            .as_ref()
-            .ok_or("Origin 300 needs --spd-dimm2 and --spd-dimm3")?;
-        origin300::validate_spd_file(inputs.spd_dimm2, origin300::DIMM2_SHA256)?;
-        origin300::validate_spd_file(inputs.spd_dimm3, origin300::DIMM3_SHA256)?;
-        if !valid_mac(inputs.mac) {
-            return Err("Origin 300 MAC must contain six hexadecimal bytes".into());
-        }
-    } else if identity.is_some() {
-        return Err("SPD inputs are only supported for Origin 300".into());
     }
     if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
@@ -469,19 +517,14 @@ pub fn create(
         let file = MachineFile {
             format: 1,
             machine: Machine {
+                topology: Some(offering.topology.clone()),
+                population: offering.cpus_per_node.clone(),
+                inputs,
                 model: offering.product.clone(),
                 nodes: offering.nodes,
                 cpus_per_node: offering.cpus_per_node[0],
                 memory_per_node: format!("{memory_per_node}MiB"),
-                graphics: if offering.product == "origin200"
-                    && offering.nodes == 1
-                    && offering.smp == 1
-                {
-                    "rad4"
-                } else {
-                    "none"
-                }
-                .into(),
+                graphics: graphics.into(),
             },
             firmware: Firmware {
                 image: "firmware/prom.bin".into(),
@@ -517,7 +560,7 @@ mod tests {
             let matching: Vec<_> = qemu_offerings
                 .iter()
                 .filter(|candidate| {
-                    ["product", "topology", "nodes", "smp"]
+                    ["product", "topology", "nodes", "smp", "cpus-per-node"]
                         .iter()
                         .all(|key| candidate[key] == offering[*key])
                 })
@@ -593,9 +636,74 @@ mod tests {
     }
 
     #[test]
+    fn downloadable_proms_match_catalogue_requirements() {
+        let catalog = catalogue().unwrap();
+        let manifest = crate::assets::manifest().unwrap();
+        for (profile, _) in presets(&catalog) {
+            assert_eq!(
+                manifest
+                    .proms
+                    .iter()
+                    .filter(|prom| prom.profiles.contains(&profile))
+                    .count(),
+                1,
+                "missing or ambiguous PROM: {profile}"
+            );
+        }
+        for prom in manifest.proms {
+            for profile in &prom.profiles {
+                let offer = preset(&catalog, profile).unwrap();
+                assert!(valid_firmware_size(offer, prom.size), "{profile}");
+                if let Some(expected) = &offer.firmware.sha256 {
+                    assert_eq!(&prom.sha256, expected, "{profile}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn create_preflight_rejects_inputs_before_firmware_fetch() {
+        let catalog = catalogue().unwrap();
+        let offer = preset(&catalog, "origin200-1").unwrap();
+        let absent = std::env::temp_dir().join(format!("origami-absent-{}", std::process::id()));
+        assert!(validate_create_inputs(&absent, offer, Some(96), None).is_err());
+        assert!(validate_create_inputs(Path::new("."), offer, None, None).is_err());
+        let sn1 = preset(&catalog, "origin300-2").unwrap();
+        assert!(validate_create_inputs(&absent, sn1, None, None).is_ok());
+        assert!(!absent.exists());
+    }
+
+    #[test]
+    fn create_preflight_rejects_unusable_destination_paths() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "origami-create-path-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let catalog = catalogue().unwrap();
+        let offer = preset(&catalog, "origin200-1").unwrap();
+        let file = root.join("file");
+        fs::write(&file, b"existing").unwrap();
+        assert!(validate_create_inputs(&file.join("machine"), offer, None, None).is_err());
+        #[cfg(unix)]
+        {
+            let link = root.join("dangling");
+            std::os::unix::fs::symlink(root.join("absent"), &link).unwrap();
+            assert!(validate_create_inputs(&link, offer, None, None).is_err());
+            assert!(validate_create_inputs(&link.join("machine"), offer, None, None).is_err());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn selected_presets_match_compiled_machine_catalogue() {
         let catalog = catalogue().unwrap();
-        assert_eq!(presets(&catalog).len(), 5);
+        assert_eq!(presets(&catalog).len(), 12);
         for (_, offering) in presets(&catalog) {
             assert_eq!(offering.cpus_per_node.iter().sum::<u32>(), offering.smp);
         }

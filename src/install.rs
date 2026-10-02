@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 #[serde(deny_unknown_fields)]
 pub struct InstallMedia {
     pub format: u32,
+    #[serde(default = "legacy_profile")]
+    pub profile: String,
     pub media: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub addons: Vec<InstallAddon>,
@@ -30,139 +32,111 @@ pub struct InstallAddon {
     pub install: Vec<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Layer {
-    set: &'static str,
-    name: &'static str,
-    path: &'static str,
+    set: String,
+    name: String,
+    path: String,
+    remote_path: Option<String>,
+    #[serde(default)]
     boot: bool,
-    base: Option<&'static str>,
-    dist: Option<&'static str>,
+    base: Option<String>,
+    dist: Option<String>,
 }
 
-const LAYERS: &[Layer] = &[
-    Layer {
-        set: "6.5.30",
-        name: "overlays1",
-        path: "6.5.30/overlays1.image",
-        boot: true,
-        base: None,
-        dist: None,
-    },
-    Layer {
-        set: "6.5.30",
-        name: "overlays2",
-        path: "6.5.30/overlays2.image",
-        boot: false,
-        base: None,
-        dist: None,
-    },
-    Layer {
-        set: "6.5.30",
-        name: "overlays3",
-        path: "6.5.30/overlays3.image",
-        boot: false,
-        base: None,
-        dist: None,
-    },
-    Layer {
-        set: "foundations",
-        name: "foundation1",
-        path: "6.5-base/foundation1.image",
-        boot: false,
-        base: None,
-        dist: None,
-    },
-    Layer {
-        set: "foundations",
-        name: "foundation2",
-        path: "6.5-base/foundation2.image",
-        boot: false,
-        base: None,
-        dist: None,
-    },
-    Layer {
-        set: "foundations",
-        name: "onc3-nfs",
-        path: "6.5-base/nfs.image",
-        boot: false,
-        base: None,
-        dist: Some("dist6.5"),
-    },
-    Layer {
-        set: "development",
-        name: "devlibs",
-        path: "6.5-base/devlibs.image",
-        boot: false,
-        base: None,
-        dist: None,
-    },
-    Layer {
-        set: "development",
-        name: "devfoundation",
-        path: "6.5-base/devfoundation.image",
-        boot: false,
-        base: None,
-        dist: Some("dist/dist6.5"),
-    },
-    Layer {
-        set: "development",
-        name: "mipspro744update",
-        path: "mipspro/7.4.4/mipspro744update.tar.gz",
-        boot: false,
-        base: Some("MIPSPro7.4.4"),
-        dist: Some("."),
-    },
-    Layer {
-        set: "development",
-        name: "mipspro_c",
-        path: "mipspro/7.4.4/mipspro_c.tar.gz",
-        boot: false,
-        base: Some("mipspro_c"),
-        dist: Some("dist"),
-    },
-    Layer {
-        set: "applications",
-        name: "applications",
-        path: "6.5.30/applications.image",
-        boot: false,
-        base: None,
-        dist: None,
-    },
-    Layer {
-        set: "complementary",
-        name: "complementary",
-        path: "6.5.30/complementary.image",
-        boot: false,
-        base: None,
-        dist: None,
-    },
-];
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InstallRecipe {
+    format: u32,
+    base_url: String,
+    sets: Vec<String>,
+    install: Vec<String>,
+    keep: Vec<String>,
+    layers: Vec<Layer>,
+    collisions: BTreeMap<String, BTreeMap<String, String>>,
+    replacements: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+fn legacy_profile() -> String {
+    "legacy-development".into()
+}
+
+fn recipe(profile: &str) -> Result<InstallRecipe> {
+    let recipe: InstallRecipe =
+        toml::from_str(include_str!("../resources/instigator-irix-6.5.30.toml"))?;
+    if recipe.format != 1 || !recipe.base_url.ends_with('/') {
+        return Err("unsupported install recipe format or base URL".into());
+    }
+    crate::assets::validate_https_url(&recipe.base_url)?;
+    for layer in &recipe.layers {
+        crate::assets::validate_https_url(&format!(
+            "{}{}",
+            recipe.base_url,
+            layer.remote_path.as_deref().unwrap_or(&layer.path)
+        ))?;
+    }
+    let mut recipe = recipe;
+    let sets: &[&str] = match profile {
+        "base" => &["6.5.30", "foundations"],
+        "desktop" => &["6.5.30", "foundations", "applications", "complementary"],
+        "development" | "legacy-development" => return Ok(recipe),
+        _ => return Err(format!("unknown install profile: {profile}").into()),
+    };
+    recipe.sets.retain(|set| sets.contains(&set.as_str()));
+    recipe
+        .layers
+        .retain(|layer| sets.contains(&layer.set.as_str()) && !layer.path.ends_with(".tar.gz"));
+    recipe.install.clear();
+    recipe.keep.clear();
+    recipe.collisions.clear();
+    recipe.replacements.clear();
+    Ok(recipe)
+}
+
+const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
 
 const RAD4_FINISH_SCRIPT: &str = include_str!("../guest/irix/finish-rad4.sh");
 
-const MIPSPRO_INSTALL: &[&str] = &[
-    "c_fe.sw.c",
-    "c_dev.sw.c",
-    "compiler_dev.sw.base",
-    "compiler_dev.sw.ld",
-    "dev.sw.lib",
-];
-
-const MIPSPRO_KEEP: &[&str] = &[
-    "java2_plugin.sw32.mozilla_freeware",
-    "java_dev.sw32.binaries",
-];
-
-const SETS: &[&str] = &[
-    "6.5.30",
-    "foundations",
-    "development",
-    "applications",
-    "complementary",
-];
-
 pub fn init(dir: &Path, media_root: &Path, mac: &str, file: &mut MachineFile) -> Result<PathBuf> {
+    init_profile(dir, media_root, mac, file, "desktop")
+}
+
+pub fn init_remote(dir: &Path, mac: &str, file: &mut MachineFile) -> Result<PathBuf> {
+    init_remote_profile(dir, mac, file, "desktop")
+}
+
+pub fn init_profile(
+    dir: &Path,
+    media_root: &Path,
+    mac: &str,
+    file: &mut MachineFile,
+    profile: &str,
+) -> Result<PathBuf> {
     let root = media_root.canonicalize()?;
+    init_sources(dir, mac, file, Some(&root), profile)
+}
+
+pub fn init_remote_profile(
+    dir: &Path,
+    mac: &str,
+    file: &mut MachineFile,
+    profile: &str,
+) -> Result<PathBuf> {
+    if profile == "legacy-development" {
+        return Err("legacy-development requires a local --media-root".into());
+    }
+    init_sources(dir, mac, file, None, profile)
+}
+
+fn init_sources(
+    dir: &Path,
+    mac: &str,
+    file: &mut MachineFile,
+    root: Option<&Path>,
+    profile: &str,
+) -> Result<PathBuf> {
+    let recipe = recipe(profile)?;
     let install_dir = dir.join("install");
     let manifest_path = install_dir.join("media.toml");
     if manifest_path.exists() {
@@ -172,17 +146,26 @@ pub fn init(dir: &Path, media_root: &Path, mac: &str, file: &mut MachineFile) ->
         )
         .into());
     }
-    let media = LAYERS
+    let media = recipe
+        .layers
         .iter()
         .map(|layer| {
             (
-                layer.name.into(),
-                root.join(layer.path).display().to_string(),
+                layer.name.clone(),
+                root.map(|root| root.join(&layer.path).display().to_string())
+                    .unwrap_or_else(|| {
+                        format!(
+                            "{}{}",
+                            recipe.base_url,
+                            layer.remote_path.as_deref().unwrap_or(&layer.path)
+                        )
+                    }),
             )
         })
         .collect();
     let manifest = InstallMedia {
         format: 1,
+        profile: profile.into(),
         media,
         addons: vec![],
     };
@@ -266,7 +249,20 @@ pub fn read_media(dir: &Path) -> Result<InstallMedia> {
     Ok(file)
 }
 
+fn media_source(dir: &Path, value: &str) -> Result<String> {
+    if value.contains("://") {
+        crate::assets::validate_https_url(value)?;
+        return Ok(value.into());
+    }
+    let path = resolve(dir, value);
+    if !path.is_file() && !path.is_dir() {
+        return Err(format!("missing install media: {}", path.display()).into());
+    }
+    Ok(path.display().to_string())
+}
+
 pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Value> {
+    let recipe = recipe(&media.profile)?;
     if file.network.mode != "private" {
         return Err("installation requires a private network".into());
     }
@@ -276,42 +272,39 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         .as_deref()
         .ok_or("private network needs mac")?;
     let mut sets = Vec::new();
-    for name in SETS {
+    for name in &recipe.sets {
         let mut layers = Vec::new();
-        for layer in LAYERS.iter().filter(|layer| layer.set == *name) {
+        for layer in recipe.layers.iter().filter(|layer| layer.set == *name) {
             let path = media
                 .media
-                .get(layer.name)
+                .get(&layer.name)
                 .ok_or_else(|| format!("missing install media: {}", layer.name))?;
-            let source = resolve(dir, path);
-            if !source.is_file() && !source.is_dir() {
-                return Err(
-                    format!("missing install media {}: {}", layer.name, source.display()).into(),
-                );
-            }
+            let source = media_source(dir, path)?;
             let mut entry = json!({ "name": layer.name, "source": source });
             if layer.boot {
                 entry["boot"] = json!(true);
             }
-            if let Some(base) = layer.base {
+            if let Some(base) = &layer.base {
                 entry["base"] = json!(base);
             }
-            if let Some(dist) = layer.dist {
+            if let Some(dist) = &layer.dist {
                 entry["dist"] = json!(dist);
             }
             layers.push(entry);
         }
         let mut set = json!({ "name": name, "layers": layers });
-        if *name == "development" {
-            set["collisions"] = json!({ "development/dist/inst.README": "mipspro744update" });
-            set["replacements"] = json!({ "devfoundation": "mipspro744update" });
+        if let Some(collisions) = recipe.collisions.get(name) {
+            set["collisions"] = json!(collisions);
+        }
+        if let Some(replacements) = recipe.replacements.get(name) {
+            set["replacements"] = json!(replacements);
         }
         sets.push(set);
     }
     let mut scripts = vec![json!({
-        "name": "mipspro",
-        "install": MIPSPRO_INSTALL,
-        "keep": MIPSPRO_KEEP
+        "name": STANDARD_INSTALL_SCRIPT,
+        "install": recipe.install,
+        "keep": recipe.keep
     })];
     let mut addon_names = HashSet::new();
     for addon in &media.addons {
@@ -352,12 +345,12 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
             "name": format!("addon-{}", addon.name),
             "layers": layers,
         }));
-        let mut selected: Vec<&str> = MIPSPRO_INSTALL.to_vec();
-        selected.extend(addon.install.iter().map(String::as_str));
+        let mut selected = recipe.install.clone();
+        selected.extend(addon.install.iter().cloned());
         scripts.push(json!({
             "name": format!("addon-{}", addon.name),
             "install": selected,
-            "keep": MIPSPRO_KEEP,
+            "keep": recipe.keep,
         }));
     }
     Ok(json!({
@@ -642,25 +635,28 @@ impl InstallConsole {
     }
 }
 
-pub fn apply(dir: &Path, file: &MachineFile, addon: Option<&str>) -> Result<()> {
-    if file.network.mode != "private" {
-        return Err("package installation requires private installation networking".into());
-    }
-    let media = read_media(dir)?;
-    let script = if let Some(name) = addon {
+fn install_source_command(media: &InstallMedia, addon: Option<&str>) -> Result<String> {
+    let script: String = if let Some(name) = addon {
         if !valid_addon_name(name) || !media.addons.iter().any(|item| item.name == name) {
             return Err(format!("unknown install add-on: {name}").into());
         }
         format!("addon-{name}")
     } else {
-        "mipspro".into()
+        STANDARD_INSTALL_SCRIPT.into()
     };
+    Ok(format!("admin source 10.98.0.2:/{script}.cmds\n"))
+}
+
+pub fn apply(dir: &Path, file: &MachineFile, addon: Option<&str>) -> Result<()> {
+    if file.network.mode != "private" {
+        return Err("package installation requires private installation networking".into());
+    }
+    let media = read_media(dir)?;
+    let command = install_source_command(&media, addon)?;
     let mut console = InstallConsole::connect(dir)?;
     println!("Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.");
     console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
-    console
-        .stream
-        .write_all(format!("admin source 10.98.0.2:/{script}.cmds\n").as_bytes())?;
+    console.stream.write_all(command.as_bytes())?;
     console.wait_for_install(Duration::from_secs(4 * 60 * 60))?;
     println!("Package transfer returned to Inst>. Review the serial output for package errors before finishing the install.");
     Ok(())
@@ -875,9 +871,12 @@ mod tests {
         fs::write(&source, b"synthetic source").unwrap();
         let media = InstallMedia {
             format: 1,
-            media: LAYERS
+            profile: legacy_profile(),
+            media: recipe("development")
+                .unwrap()
+                .layers
                 .iter()
-                .map(|layer| (layer.name.into(), source.display().to_string()))
+                .map(|layer| (layer.name.clone(), source.display().to_string()))
                 .collect(),
             addons: vec![InstallAddon {
                 name: "tablet".into(),
@@ -895,6 +894,9 @@ mod tests {
                 cpus_per_node: 1,
                 memory_per_node: "256MiB".into(),
                 graphics: "rad4".into(),
+                topology: None,
+                population: vec![],
+                inputs: Default::default(),
             },
             firmware: Firmware {
                 image: "prom.bin".into(),
@@ -927,7 +929,7 @@ mod tests {
                 "java_dev.sw32.binaries"
             ])
         );
-        let addon_set = &document["install_sets"][SETS.len()];
+        let addon_set = &document["install_sets"][recipe("legacy-development").unwrap().sets.len()];
         assert_eq!(addon_set["name"], "addon-tablet");
         assert_eq!(
             addon_set["layers"][0]["source"],
@@ -959,7 +961,8 @@ mod tests {
         let script_path = dir.join("install/generated/rad4/dist/finish-rad4.sh");
         assert_eq!(fs::read_to_string(script_path).unwrap(), RAD4_FINISH_SCRIPT);
         let document = config(&dir, &file, &rad4).unwrap();
-        let layers = document["install_sets"][SETS.len()]["layers"]
+        let layers = document["install_sets"][recipe("legacy-development").unwrap().sets.len()]
+            ["layers"]
             .as_array()
             .unwrap();
         assert_eq!(layers.len(), 2);
@@ -995,7 +998,14 @@ mod tests {
         )
         .unwrap();
         let mut file = crate::read_machine(&machine).unwrap();
-        init(&machine, &media_root, "08:00:69:12:34:56", &mut file).unwrap();
+        init_profile(
+            &machine,
+            &media_root,
+            "08:00:69:12:34:56",
+            &mut file,
+            "development",
+        )
+        .unwrap();
         let manifest = read_media(&machine).unwrap();
         assert!(file
             .network
@@ -1022,17 +1032,88 @@ mod tests {
     }
 
     #[test]
-    fn standard_profile_contains_mipspro_media() {
+    fn remote_init_preserves_recipe_without_downloading() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "origami-remote-install-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let prom = root.join("synthetic-prom.bin");
+        fs::write(&prom, [0u8; 1]).unwrap();
+        let catalog = crate::catalogue().unwrap();
+        let offer = crate::preset(&catalog, "origin200-1").unwrap();
+        let dir = root.join("machine");
+        crate::create(&dir, offer, &prom, None, None).unwrap();
+        let mut file = crate::read_machine(&dir).unwrap();
+        init_remote(&dir, "08:00:69:12:34:56", &mut file).unwrap();
+        let mut media = read_media(&dir).unwrap();
+        assert_eq!(media.media.len(), 8);
         assert_eq!(
-            LAYERS
+            media.media["overlays1"],
+            "https://origami-dist.irix.fans/irix/6.5.30/overlays1.iso"
+        );
+        let document = config(&dir, &file, &media).unwrap();
+        assert_eq!(document["install_sets"].as_array().unwrap().len(), 4);
+        assert_eq!(document["install_sets"][0]["layers"][0]["boot"], true);
+        assert_eq!(document["install_scripts"][0]["install"], json!([]));
+        assert_eq!(
+            install_source_command(&media, None).unwrap(),
+            format!(
+                "admin source 10.98.0.2:/{}.cmds\n",
+                document["install_scripts"][0]["name"].as_str().unwrap()
+            )
+        );
+        assert!(media.media.values().all(|source| source.ends_with(".iso")));
+        for invalid in [
+            "http://example.invalid/media.image",
+            "https://user:password@example.invalid/media.image",
+            "https://example.invalid/media.image?token=secret",
+            "ftp://example.invalid/media.image",
+        ] {
+            media.media.insert("overlays1".into(), invalid.into());
+            assert!(config(&dir, &file, &media).is_err(), "{invalid}");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn base_and_desktop_profiles_use_discs_and_standard_selections() {
+        for (name, count) in [("base", 6), ("desktop", 8)] {
+            let recipe = recipe(name).unwrap();
+            assert_eq!(recipe.layers.len(), count);
+            assert!(recipe.layers.iter().all(|layer| layer
+                .remote_path
+                .as_deref()
+                .unwrap()
+                .ends_with(".iso")));
+            assert!(recipe.install.is_empty());
+            assert!(recipe.replacements.is_empty());
+            assert!(recipe.layers.iter().any(|layer| layer.boot));
+        }
+        assert!(recipe("missing").is_err());
+    }
+
+    #[test]
+    fn development_profile_contains_mipspro_media() {
+        assert_eq!(
+            recipe("development")
+                .unwrap()
+                .layers
                 .iter()
                 .filter(|layer| layer.set == "development" && layer.name.starts_with("mipspro"))
                 .count(),
             2
         );
-        assert!(LAYERS
+        assert!(recipe("development")
+            .unwrap()
+            .layers
             .iter()
             .any(|layer| layer.name == "overlays1" && layer.boot));
-        assert_eq!(SETS.len(), 5);
+        assert_eq!(recipe("development").unwrap().sets.len(), 5);
     }
 }

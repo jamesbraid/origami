@@ -16,6 +16,7 @@ import sys
 import subprocess
 import tempfile
 import time
+import tomllib
 import unittest
 
 
@@ -76,6 +77,26 @@ class ProductSmoke(unittest.TestCase):
         self.run_binary("libexec/sgi/qemu-system-mips64", "--version")
         self.assertIn("sdl", self.run_binary("libexec/sgi/qemu-system-mips64", "-display", "help"))
         self.run_binary("libexec/sgi/qemu-img", "--version")
+
+    def test_remote_install_configuration(self):
+        with machine_directory(self.scratch) as root:
+            rejected = root / "invalid machine"
+            self.cli("create", rejected, "--preset", "origin200-1",
+                     "--memory-per-node", "96", success=False)
+            self.assertIn("not offered", self.commands[-1]["stderr"])
+            self.assertFalse(rejected.exists())
+            prom = root / "synthetic prom.bin"
+            prom.write_bytes(struct.pack(">II", 0x1000FFFF, 0) + bytes(1024 * 1024 - 8))
+            machine = root / "remote install machine"
+            self.cli("create", machine, "--preset", "origin200-1", "--prom", prom)
+            self.cli("install-init", machine, "--mac", "08:00:69:12:34:56")
+            media = tomllib.loads((machine / "install/media.toml").read_text())
+            self.assertEqual(len(media["media"]), 8)
+            self.assertEqual(media["media"]["overlays1"],
+                             "https://origami-dist.irix.fans/irix/6.5.30/overlays1.iso")
+            self.assertTrue(all(source.startswith("https://origami-dist.irix.fans/irix/")
+                                for source in media["media"].values()))
+            self.assertFalse((machine / "install/cache").exists())
 
     def test_machine_lifecycle_and_drive_lock(self):
         with machine_directory(self.scratch) as root:

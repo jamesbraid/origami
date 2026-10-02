@@ -87,14 +87,27 @@ pub fn prepare_state(
         .filter(|resource| resource.kind == "nvram")
         .map(|resource| resource.count)
         .sum();
+    let nvram_size = offering
+        .resources
+        .iter()
+        .find(|r| r.kind == "nvram")
+        .map_or(32768, |r| r.size);
+    let clock_size = offering
+        .resources
+        .iter()
+        .find(|r| r.kind == "rtc-clock")
+        .map_or(16, |r| r.size);
     for node in 0..nvram_count {
-        ensure_size(&dir.join(format!("state/nvram{node}.raw")), 32768)?;
-        ensure_size(&dir.join(format!("state/nvram{node}.raw.clock")), 16)?;
+        ensure_size(&dir.join(format!("state/nvram{node}.raw")), nvram_size)?;
+        ensure_size(
+            &dir.join(format!("state/nvram{node}.raw.clock")),
+            clock_size,
+        )?;
     }
-    if offering.product == "origin300" {
+    if offering.product == "origin300" && file.identity.is_some() {
         origin300::prepare_state(dir, file, prom)?;
     }
-    if offering.product == "origin2000" {
+    if matches!(offering.product.as_str(), "origin2000" | "onyx2") {
         let firmware = fs::read(prom)?;
         if firmware.is_empty() || firmware.len() > 1048576 {
             return Err("Origin 2000 PROM must fit one MiB".into());
@@ -158,13 +171,36 @@ pub fn arguments(
     offering: &Offering,
     display: Display,
 ) -> Result<Vec<String>> {
-    let mut machine = if offering.product == "origin300" {
+    let mut machine = if offering.product == "origin300" && file.identity.is_some() {
         origin300::machine_options(dir, file)?
     } else {
         offering.product.clone()
     };
     if offering.topology != offering.product {
         machine.push_str(&format!(",topology={}", offering.topology));
+    }
+    if !matches!(offering.product.as_str(), "octane" | "octane2") {
+        let population = offering
+            .cpus_per_node
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(":");
+        machine.push_str(&format!(
+            ",nodes={},population={population}",
+            offering.nodes
+        ));
+    } else {
+        machine.push_str(&format!(",graphics-board={}", file.machine.graphics));
+    }
+    crate::profiles::validate_inputs(offering, &file.machine.inputs)?;
+    let mut cpu = offering.cpu.clone();
+    for (key, value) in &file.machine.inputs {
+        if offering.product == "octane2" {
+            cpu.push_str(&format!(",{key}={value}"));
+        } else {
+            machine.push_str(&format!(",{key}={value}"));
+        }
     }
     if offering.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");
@@ -189,13 +225,13 @@ pub fn arguments(
         "-M".into(),
         machine,
         "-cpu".into(),
-        offering.cpu.clone(),
+        cpu,
         "-smp".into(),
         offering.smp.to_string(),
         "-m".into(),
         (memory * offering.nodes).to_string(),
     ];
-    if offering.product == "origin2000" {
+    if matches!(offering.product.as_str(), "origin2000" | "onyx2") {
         for node in 0..offering.nodes {
             args.extend([
                 "-drive".into(),
@@ -210,7 +246,7 @@ pub fn arguments(
             "-bios".into(),
             resolve(dir, &file.firmware.image).display().to_string(),
         ]);
-        if offering.product == "origin300" {
+        if offering.product == "origin300" && file.identity.is_some() {
             args.extend([
                 "-drive".into(),
                 format!(
@@ -251,13 +287,15 @@ pub fn arguments(
         Display::None => args.extend(["-display".into(), "none".into()]),
     }
     args.extend(["-audio".into(), "none".into()]);
-    if file.machine.graphics == "rad4" {
-        args.extend(["-device".into(), "psitech-rad4,addr=5".into()]);
-    }
+    crate::profiles::add_graphics(&mut args, offering, &file.machine.graphics)?;
     for (index, drive) in file.drive.iter().enumerate() {
         add_drive(&mut args, dir, drive, index);
     }
-    // The first serial line is IOC3 A. Origin 200 has a system controller on line 2.
+    // Fuel reserves line 0 for L1; its guest IOC3 A is line 1.
+    // sn-machine.c binds chardev-a with sgi_sn1_serial_line(node, 1).
+    if offering.product == "fuel" {
+        args.extend(["-serial".into(), "null".into()]);
+    }
     args.extend(["-serial".into(), "stdio".into()]);
     if offering.product == "origin200" {
         args.extend([
@@ -290,7 +328,7 @@ pub fn arguments(
             args.extend([
                 "-net".into(),
                 format!(
-                    "nic,netdev=net0,macaddr={}",
+                    "nic,model=sgi-ioc3-eth,netdev=net0,macaddr={}",
                     file.network
                         .mac
                         .as_deref()
@@ -298,7 +336,7 @@ pub fn arguments(
                 ),
             ]);
         }
-        "user" if offering.product == "origin300" => {
+        "user" if offering.product == "origin300" && file.identity.is_some() => {
             let mac = &file
                 .identity
                 .as_ref()
@@ -308,9 +346,15 @@ pub fn arguments(
                 "-netdev".into(),
                 user_network(&file.network.forward),
                 "-net".into(),
-                format!("nic,netdev=net0,macaddr={mac}"),
+                format!("nic,model=sgi-ioc3-eth,netdev=net0,macaddr={mac}"),
             ]);
         }
+        "user" if matches!(offering.product.as_str(), "octane" | "octane2") => args.extend([
+            "-netdev".into(),
+            user_network(&file.network.forward),
+            "-net".into(),
+            "nic,model=sgi-ioc3-eth,netdev=net0".into(),
+        ]),
         "user" => args.extend(["-nic".into(), user_network(&file.network.forward)]),
         _ => return Err("network mode must be user, none, or private".into()),
     }
@@ -546,6 +590,9 @@ mod tests {
         MachineFile {
             format: 1,
             machine: Machine {
+                topology: None,
+                population: vec![],
+                inputs: Default::default(),
                 model: offering.product.clone(),
                 nodes: offering.nodes,
                 cpus_per_node: offering.cpus_per_node[0],
@@ -579,6 +626,37 @@ mod tests {
             .windows(2)
             .any(|pair| pair == ["-device", "psitech-rad4,addr=5"]));
         assert!(args.windows(2).any(|pair| pair == ["-serial", "stdio"]));
+    }
+
+    #[test]
+    fn fuel_guest_console_uses_ioc3_a_in_foreground_and_background() {
+        let catalog = catalogue().unwrap();
+        let offer = preset(&catalog, "fuel-1").unwrap();
+        let mut file = machine(offer, "none");
+        file.machine.inputs = [
+            ("fuel-board-id-word", "0x4000"),
+            ("fuel-bedrock-revision", "0"),
+            ("fuel-ioc3-subsystem-id", "0"),
+            ("fuel-l1-type-code", "1"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.into(), v.into()))
+        .collect();
+        let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
+        let serial: Vec<_> = args
+            .windows(2)
+            .filter(|p| p[0] == "-serial")
+            .map(|p| p[1].as_str())
+            .collect();
+        assert_eq!(serial, ["null", "stdio"]);
+        for chardev in ["stdio,id=serial0,logfile=logs/serial.log,logappend=on",
+            "socket,id=serial0,host=127.0.0.1,port=12345,server=on,wait=off,logfile=logs/serial.log,logappend=on"] {
+            let mut routed = args.clone();
+            log_primary_serial(&mut routed, chardev.into()).unwrap();
+            let serial: Vec<_> = routed.windows(2).filter(|p| p[0] == "-serial").map(|p| p[1].as_str()).collect();
+            assert_eq!(serial, ["null", "chardev:serial0"]);
+            assert!(routed.windows(2).any(|p| p == ["-chardev", chardev]));
+        }
     }
 
     #[test]
@@ -693,9 +771,11 @@ mod tests {
             .count();
         assert_eq!(flashes, 4);
         assert!(!args.iter().any(|arg| arg == "-bios"));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["-M", "origin2000,topology=origin2000-rack"]));
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                "-M",
+                "origin2000,topology=origin2000-rack,nodes=4,population=2:2:2:2"
+            ]));
     }
 
     #[test]
@@ -726,7 +806,7 @@ mod tests {
         }
         assert!(args
             .iter()
-            .any(|arg| arg == "nic,netdev=net0,macaddr=08:00:69:12:34:56"));
+            .any(|arg| arg == "nic,model=sgi-ioc3-eth,netdev=net0,macaddr=08:00:69:12:34:56"));
         file.identity.as_mut().unwrap().spd_dimm2 = "firmware/dimm,2.bin".into();
         let escaped = arguments(Path::new("/machine,one"), &file, offer, Display::None).unwrap();
         assert!(escaped
@@ -758,9 +838,11 @@ mod tests {
                 "-netdev",
                 "stream,id=net0,server=off,addr.type=unix,addr.path=/machine/install,,one.sock"
             ]));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["-net", "nic,netdev=net0,macaddr=08:00:69:12:34:56"]));
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                "-net",
+                "nic,model=sgi-ioc3-eth,netdev=net0,macaddr=08:00:69:12:34:56"
+            ]));
     }
 
     #[test]

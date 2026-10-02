@@ -270,6 +270,9 @@ mod tests {
         let file = MachineFile {
             format: 1,
             machine: crate::Machine {
+                topology: None,
+                population: vec![],
+                inputs: Default::default(),
                 model: "origin300".into(),
                 nodes: 1,
                 cpus_per_node: 2,

@@ -40,8 +40,8 @@ extract its archive into a separate directory. Keep your machine directories,
 firmware and disks outside the extracted package.
 
 Use the full CLI path above in place of `origami` in the examples below, or
-add the package's `bin` directory to your PATH. Firmware and guest media are
-user supplied. The first `create` example prepares a machine using your PROM.
+add the package's `bin` directory to your PATH. The first `create` example
+prepares a machine using your PROM.
 To use an existing guest disk after `create`, attach a copy as the system disk:
 
 ```sh
@@ -112,8 +112,9 @@ origami install-serve my-origin
 ```
 
 `--media-root` names the directory containing `6.5.30/`, `6.5-base/`, and
-`mipspro/`. `install-init` writes their twelve source paths to
-`my-origin/install/media.toml`. Edit those paths if your images live elsewhere.
+`mipspro/` when using `--profile development`. `install-init` writes the
+selected source paths to `my-origin/install/media.toml`. Edit them if your
+images live elsewhere.
 
 `install-addon` is optional. Stop the machine before changing add-ons.
 Replace `PRODUCT.SUBSYSTEM` with the package selection named by the add-on.
@@ -121,7 +122,7 @@ It accepts a local SGI image, extracted tree,
 `.tar`, `.tar.gz`, `.tgz`, `.tardist`, or `.tardist.gz`. The add-on remains
 outside the emulator archive and is read from its configured path.
 `install-check` uses the packaged Instigator to open every named source,
-including MIPSpro and any add-on, and assemble the install tree without opening
+including selected development inputs and any add-on, and assemble the install tree without opening
 network ports. It catches invalid media and missing collision winners before
 `install-serve`. It also checks that each named script's selected products have
 `.sw` or `.man` files in an enabled distribution. Local images stay in place.
@@ -225,37 +226,66 @@ port 2222 to guest port 22 while user networking is active. Use
 selected, and become active again with `network-set --mode user`. Stop the
 machine before changing its network or forwards.
 
-`origami machines` lists five managed presets. The Origin 200 one-processor preset enables RAD4 graphics. Origin 2000 uses four independent node PROM images under the machine's `state/` directory.
-`create --memory-per-node MiB` selects one of the values accepted by the chosen preset. Without it, `create` uses that preset's default. `origami show` prints the selected amount.
+`origami machines` lists 12 starter presets for Origin 200, Origin 2000,
+Onyx2, Origin 300, Octane, Octane2 and Fuel. The IMPACT shortcuts select SI.
+Onyx2 selects InfiniteReality. Origin 300 has direct V12 and V-brick choices.
+Fuel currently has a serial console. Octane VPro and Fuel VPro are unavailable.
 
-The package also contains the full QEMU implementation, including Origin 200,
-Origin 2000, Origin 300 and Onyx2 machines and the implemented RAD4, SI,
-InfiniteReality and VPro graphics devices. Many configurations have no managed
-`origami create` preset. To inspect the QEMU machine and device options in an
-extracted archive, run `libexec/sgi/qemu-system-mips64 -machine help` and
-`libexec/sgi/qemu-system-mips64 -device help` (use `.exe` on Windows). Invoke
-that bundled QEMU binary directly for configurations outside the five presets.
-The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/f06422cfa1fc8f90e7ebdfe97f344ac35123823a/docs/specs/sgi-sn.rst) describes its
-topologies and board options. These options are experimental and do not imply
-that firmware, installation or graphics work for every combination.
+`create --memory-per-node MiB` selects one of the values accepted by the preset.
+The full QEMU catalogue also validates additional topologies and processor
+populations configured in `machine.toml`. Use `topology` and `population` to
+identify those configurations. Support remains experimental: a selectable
+configuration does not imply that firmware, installation or graphics work.
+The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/02b87f9d3e2094f81224092709e7db20b9cf392c/docs/specs/sgi-sn.rst)
+describes topology and board options. Fuel requires explicit board inputs.
+Octane2 requires explicit R12000 CPU inputs. `origami --help` lists their options.
 
-Origin 300 creation takes the two 128-byte SPD records for the reviewed 512 MiB
-kit as separate inputs. The command checks their SHA-256 values, copies them
-beside the user-supplied PROM, and creates a persistent 16 MiB boot flash on
-first run. It also creates synthetic IO8 identity records using the configured
-MAC address (`--mac`, default `08:00:69:12:34:56`). Use that same address for
-`install-init --mac` or a private network attachment. The SPD records and PROM
-are user supplied. Their redistribution rights have not been settled. Origin
-300 reached the firmware System Maintenance Menu from an earlier Linux package
-at an older QEMU revision.
-An earlier Windows package reached it under Wine. IRIX boot on Origin 300 still
-needs package-level qualification.
+Origin 2000 and Onyx2 keep independent node PROM images under `state/`.
+Origin 300 can use QEMU's native defaults. Its optional `--spd-dimm2` and
+`--spd-dimm3` inputs select the existing reviewed 512 MiB kit for a single
+node with two CPUs. That path checks both 128-byte records, copies them into
+the machine directory, creates persistent boot flash, and uses `--mac` for
+synthetic IO8 identity. Use the same MAC for private installation networking.
+Native-default firmware memory discovery remains unverified.
 
-The firmware and IRIX media are supplied by the user. They are copied or
-referenced only in the machine directory and never enter this repository. IP27
-accepts a nonempty PROM payload up to 1 MiB. Origin 300 requires its exact
-reviewed IP35 PROM size and hash.
+PROMs and media stay outside the repository. Explicit local PROMs remain
+supported. IP27 accepts a nonempty payload up to 1 MiB. IP30 accepts up to
+2 MiB. IP35 requires the catalogue's exact size and hash.
 
 The CLI starts an existing disk or CD-ROM image and prepares the Instigator server. The PROM, disk formatter, and first-run questions remain interactive. `install-apply` runs the generated `inst` package-selection script, and `install-finish` automates the RAD4 installer handoff.
 
-The standard media manifest keeps MIPSpro and development packages in the install source.
+The development media profile includes MIPSpro and development packages.
+
+## Firmware and remote installation media
+
+Omit `--prom` to fetch the preset's pinned PROM over HTTPS. Origami checks its
+size and SHA-256 before creating the machine. Verified files are cached in the
+host's user cache directory, and each machine gets its own firmware copy.
+A warm cache supports offline creation. `--prom FILE` keeps the local-file
+workflow, including custom IP27 PROMs. Running an existing machine never fetches
+firmware. Presets without a pinned download require an explicit `--prom FILE`.
+
+```sh
+origami create my-origin --preset origin200-1
+origami install-init my-origin --mac 08:00:69:12:34:56
+```
+
+Without `--media-root`, install initialization configures remote sources.
+Instigator fetches disc ranges and archive entries as needed during installation.
+Initialization itself downloads nothing.
+
+Choose `--profile base` for the six IRIX 6.5.30 overlay, foundation and NFS discs,
+`--profile desktop` (the default) to add applications and complementary software,
+or `--profile development` to add development discs and the existing MIPSpro
+7.4.4 update and C compiler tarballs. Remote disc objects use `.iso` filenames
+and retain the original SGI disc bytes. The separate RAD4 driver is a local add-on.
+
+Use `--media-root /path/to/media` for local installation. Its disc paths retain
+`.image` filenames. Existing media configurations keep their original full
+recipe. `--profile legacy-development` is available for that local recipe.
+
+The public hosting endpoints and inputs still need publication. Until they are
+available, use explicit local PROMs and media. PROM downloads have pinned
+checksums. Instigator's remote installation sources do not verify a whole-image
+checksum before serving them. Remote installation has not been qualified with
+published media.
