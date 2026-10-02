@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import hashlib
 import importlib.util
+import os
 import subprocess
 import tempfile
 import unittest
@@ -77,6 +78,16 @@ class ProductStageTests(unittest.TestCase):
             self.assertEqual(notices.call_count, int(release))
             runtime.assert_called_once()
             return result
+
+    def test_source_checks_preserve_git_index(self):
+        product = self.sources['product']
+        index = product / '.git/index'
+        before = index.read_bytes()
+        tracked = product / 'LICENSE'
+        stat = tracked.stat()
+        os.utime(tracked, ns=(stat.st_atime_ns, stat.st_mtime_ns + 2_000_000_000))
+        self.stage.record_inputs(self.manifest)
+        self.assertEqual(index.read_bytes(), before)
 
     def test_release_rejects_clean_commit_after_build(self):
         self.record_build()

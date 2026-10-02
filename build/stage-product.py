@@ -19,7 +19,7 @@ def output(*command, **kwargs):
 
 
 def git(source, *args):
-    return output('git', '-C', str(source), *args)
+    return output('git', '--no-optional-locks', '-C', str(source), *args)
 
 
 def revisions(manifest, release):
@@ -54,7 +54,8 @@ def source_identity(manifest):
     identity = {}
     for component in ('product', 'qemu', 'instigator'):
         source = Path(manifest[component + '_source']).resolve()
-        command = ['git', '-C', str(source)]
+        command = ['git', '--no-optional-locks', '-c', 'diff.autoRefreshIndex=false',
+                   '-C', str(source)]
         diff = subprocess.check_output(command + ['diff', '--binary',
                                                  '--ignore-submodules=all', 'HEAD'])
         status = subprocess.check_output(command + ['status', '--porcelain=v1', '-z',
