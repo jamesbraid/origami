@@ -34,6 +34,13 @@ pub struct InstallAddon {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct PackageSelection {
+    install: Vec<String>,
+    keep: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Layer {
     set: String,
     name: String,
@@ -51,8 +58,11 @@ struct InstallRecipe {
     format: u32,
     base_url: String,
     sets: Vec<String>,
+    #[serde(skip)]
     install: Vec<String>,
+    #[serde(skip)]
     keep: Vec<String>,
+    package_selections: BTreeMap<String, PackageSelection>,
     layers: Vec<Layer>,
     collisions: BTreeMap<String, BTreeMap<String, String>>,
     replacements: BTreeMap<String, BTreeMap<String, String>>,
@@ -77,18 +87,29 @@ fn recipe(profile: &str) -> Result<InstallRecipe> {
         ))?;
     }
     let mut recipe = recipe;
-    let sets: &[&str] = match profile {
-        "base" => &["6.5.30", "foundations"],
-        "desktop" => &["6.5.30", "foundations", "applications", "complementary"],
-        "development" | "legacy-development" => return Ok(recipe),
+    let (selection_profile, sets): (&str, Option<&[&str]>) = match profile {
+        "base" => ("base", Some(&["6.5.30", "foundations"])),
+        "desktop" => (
+            "desktop",
+            Some(&["6.5.30", "foundations", "applications", "complementary"]),
+        ),
+        "development" => ("development", None),
+        "legacy-development" => ("development", None),
         _ => return Err(format!("unknown install profile: {profile}").into()),
+    };
+    let selection = recipe
+        .package_selections
+        .remove(selection_profile)
+        .ok_or_else(|| format!("missing package selections for profile: {selection_profile}"))?;
+    recipe.install = selection.install;
+    recipe.keep = selection.keep;
+    let Some(sets) = sets else {
+        return Ok(recipe);
     };
     recipe.sets.retain(|set| sets.contains(&set.as_str()));
     recipe
         .layers
         .retain(|layer| sets.contains(&layer.set.as_str()) && !layer.path.ends_with(".tar.gz"));
-    recipe.install.clear();
-    recipe.keep.clear();
     recipe.collisions.clear();
     recipe.replacements.clear();
     Ok(recipe)
@@ -533,6 +554,9 @@ struct InstallProgress {
     pending: Vec<u8>,
     menu_pending: Vec<u8>,
     menu_answered: bool,
+    conflict_pending: Vec<u8>,
+    conflict_seen: bool,
+    conflict_prompt_pending: Vec<u8>,
 }
 
 impl InstallProgress {
@@ -542,6 +566,9 @@ impl InstallProgress {
             pending: Vec::new(),
             menu_pending: Vec::new(),
             menu_answered: false,
+            conflict_pending: Vec::new(),
+            conflict_seen: false,
+            conflict_prompt_pending: Vec::new(),
         }
     }
 
@@ -567,6 +594,40 @@ impl InstallProgress {
         Some(choice)
     }
 
+    fn observe_conflicts(&mut self, bytes: &[u8]) -> bool {
+        const MARKER: &[u8] = b"ERROR: Conflicts must be resolved.";
+        if self.conflict_seen {
+            self.conflict_prompt_pending.extend_from_slice(bytes);
+        } else {
+            self.conflict_pending.extend_from_slice(bytes);
+            if let Some(position) = self
+                .conflict_pending
+                .windows(MARKER.len())
+                .position(|window| window == MARKER)
+            {
+                self.conflict_seen = true;
+                self.conflict_prompt_pending
+                    .extend_from_slice(&self.conflict_pending[position + MARKER.len()..]);
+                self.conflict_pending.clear();
+            } else {
+                let keep = MARKER.len().saturating_sub(1);
+                if self.conflict_pending.len() > keep {
+                    self.conflict_pending
+                        .drain(..self.conflict_pending.len() - keep);
+                }
+                return false;
+            }
+        }
+        if self.conflict_prompt_pending.ends_with(INSTALL_PROMPT) {
+            return true;
+        }
+        let keep = INSTALL_PROMPT.len().saturating_sub(1);
+        if self.conflict_prompt_pending.len() > keep {
+            self.conflict_prompt_pending
+                .drain(..self.conflict_prompt_pending.len() - keep);
+        }
+        false
+    }
     fn observe(&mut self, bytes: &[u8]) -> bool {
         self.pending.extend_from_slice(bytes);
         loop {
@@ -615,8 +676,12 @@ impl InstallConsole {
                 Ok(count) => {
                     io::stdout().write_all(&chunk[..count])?;
                     io::stdout().flush()?;
+                    let conflict_prompt = progress.observe_conflicts(&chunk[..count]);
                     if let Some(choice) = progress.distribution_choice(&chunk[..count]) {
                         self.stream.write_all(format!("{choice}\n").as_bytes())?;
+                    }
+                    if conflict_prompt {
+                        return Err("IRIX reported unresolved installation conflicts; guest remains running".into());
                     }
                     if progress.observe(&chunk[..count]) {
                         return Ok(());
@@ -805,6 +870,61 @@ pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_apply_returns_on_explicit_conflict_from_inst_output() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let writer = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            for chunk in [
+                b"No matches for \"java_dev.sw.base\" were found\r\nInst> ".as_slice(),
+                b"ERROR: Conflicts must be",
+                b" resolved.\r\n\ninventor_dev.sw.base cannot be installed because of missing prerequisites\r\njava2_plugin.sw32.mozilla_freeware cannot be installed because of missing prerequisites\r\nInst> ",
+            ] {
+                stream.write_all(chunk).unwrap();
+                stream.flush().unwrap();
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            std::thread::sleep(Duration::from_millis(150));
+        });
+        let mut console = InstallConsole {
+            stream: TcpStream::connect(address).unwrap(),
+        };
+        let error = console
+            .wait_for_install(Duration::from_secs(1))
+            .unwrap_err()
+            .to_string();
+        writer.join().unwrap();
+        assert!(error.contains("guest remains running"), "{error}");
+    }
+
+    #[test]
+    fn install_conflict_is_reported_at_prompt_after_diagnostics() {
+        let mut progress = InstallProgress::new();
+        assert!(!progress.observe_conflicts(b"Inst> "));
+
+        assert!(!progress.observe_conflicts(b"ERROR: Conflicts must be"));
+        assert!(!progress
+            .observe_conflicts(b" resolved.\r\ninventor_dev.sw.base missing prerequisites\r\n"));
+        assert!(progress.conflict_seen);
+        assert!(!progress
+            .observe_conflicts(b"java2_plugin.sw32.mozilla_freeware missing prerequisites\r\nIns"));
+        assert!(progress.observe_conflicts(b"t> "));
+    }
+
+    #[test]
+    fn install_conflict_marker_is_detected_across_every_split() {
+        let marker = b"ERROR: Conflicts must be resolved.";
+        for split in 0..=marker.len() {
+            let mut progress = InstallProgress::new();
+            let first = progress.observe_conflicts(&marker[..split]);
+            assert!(!first, "split {split}");
+            let second = progress.observe_conflicts(&marker[split..]);
+            assert!(!second, "split {split}");
+            assert!(progress.conflict_seen, "split {split}");
+        }
+    }
 
     #[test]
     fn install_progress_selects_distribution_menu_once() {
@@ -1217,6 +1337,39 @@ mod tests {
             assert!(recipe.layers.iter().any(|layer| layer.boot));
         }
         assert!(recipe("missing").is_err());
+    }
+
+    #[test]
+    fn desktop_profile_deselects_conflicting_products() {
+        let desktop = recipe("desktop").unwrap();
+        assert_eq!(desktop.install, Vec::<String>::new());
+        assert_eq!(
+            desktop.keep,
+            ["inventor_dev", "java2_plugin.sw32.mozilla_freeware"]
+        );
+
+        assert_eq!(recipe("base").unwrap().keep, Vec::<String>::new());
+        assert_eq!(
+            recipe("development").unwrap().install,
+            [
+                "c_fe.sw.c",
+                "c_dev.sw.c",
+                "compiler_dev.sw.base",
+                "compiler_dev.sw.ld",
+                "dev.sw.lib"
+            ]
+        );
+        assert_eq!(
+            recipe("development").unwrap().keep,
+            [
+                "java2_plugin.sw32.mozilla_freeware",
+                "java_dev.sw32.binaries"
+            ]
+        );
+        assert_eq!(
+            recipe("legacy-development").unwrap().install,
+            recipe("development").unwrap().install
+        );
     }
 
     #[test]

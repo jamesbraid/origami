@@ -1,6 +1,15 @@
 format = 1
 base_url = "https://origami-dist.irix.fans/irix/"
 sets = ["6.5.30", "foundations", "development", "applications", "complementary"]
+[package_selections.base]
+install = []
+keep = []
+
+[package_selections.desktop]
+install = []
+keep = ["inventor_dev", "java2_plugin.sw32.mozilla_freeware"]
+
+[package_selections.development]
 install = ["c_fe.sw.c", "c_dev.sw.c", "compiler_dev.sw.base", "compiler_dev.sw.ld", "dev.sw.lib"]
 keep = ["java2_plugin.sw32.mozilla_freeware", "java_dev.sw32.binaries"]
 
