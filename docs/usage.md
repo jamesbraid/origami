@@ -41,7 +41,8 @@ firmware and disks outside the extracted package.
 
 Use the full CLI path above in place of `origami` in the examples below, or
 add the package's `bin` directory to your PATH. The first `create` example
-prepares a machine using your PROM.
+downloads and verifies its preset's PROM. Use `--prom FILE` to supply a local
+PROM instead.
 To use an existing guest disk after `create`, attach a copy as the system disk:
 
 ```sh
@@ -58,17 +59,16 @@ below instead.
 The launch targets are Linux x86-64 with glibc 2.39 or newer, Windows 11
 x86-64, and macOS 15 or newer on Apple Silicon.
 
-Native Windows graphics and input remain untested. The macOS archive passed
-native startup and relocation checks on macOS 15.8. Guest graphics and input
-remain untested there. Linux graphical checks used Xvfb, so physical keyboard
-and pointer input remain untested there too.
+Native Windows execution and the current macOS archive remain unverified.
+Linux graphical checks used Xvfb, so physical keyboard and pointer input
+remain untested there too.
 
 ## Current commands
 
 ```text
 origami machines
-origami create my-origin --preset origin200-1 --prom /path/to/ip27-prom.bin --memory-per-node 128
-origami create my-o300 --preset origin300-2 --prom /path/to/ip35-prom.bin --spd-dimm2 /path/to/dimm2-spd.bin --spd-dimm3 /path/to/dimm3-spd.bin
+origami create my-origin --preset origin200-1 --memory-per-node 128
+origami create my-o300 --preset origin300-2
 origami drive-create my-origin 4096
 origami drive-attach my-origin /path/to/irix-install.iso --type cdrom --target 4
 origami drive-attach my-origin /path/to/tape.image --type tape --target 5
@@ -105,16 +105,17 @@ output and appends the raw primary serial output to `logs/serial.log`.
 For an IRIX 6.5.30 network install, prepare the media manifest and private network:
 
 ```sh
-origami install-init my-origin --media-root /path/to/media --mac 08:00:69:12:34:56
+origami install-init my-origin --mac 08:00:69:12:34:56 --profile desktop
 origami install-addon my-origin --name tablet --source /path/to/tablet.tardist --install PRODUCT.SUBSYSTEM
 origami install-check my-origin
 origami install-serve my-origin
 ```
 
-`--media-root` names the directory containing `6.5.30/`, `6.5-base/`, and
-`mipspro/` when using `--profile development`. `install-init` writes the
-selected source paths to `my-origin/install/media.toml`. Edit them if your
-images live elsewhere.
+This configures the public IRIX 6.5.30 desktop media. Use `--profile base`
+for a smaller installation or `--profile development` to include MIPSpro.
+For local media, add `--media-root /path/to/media`, naming the directory
+containing `6.5.30/`, `6.5-base/`, and `mipspro/` for the development profile.
+`install-init` writes sources to `my-origin/install/media.toml`.
 
 `install-addon` is optional. Stop the machine before changing add-ons.
 Replace `PRODUCT.SUBSYSTEM` with the package selection named by the add-on.
@@ -182,10 +183,10 @@ origami install-apply my-origin --addon rad4
 The command streams the installer output and waits through package transfer,
 the dependency check, and the final `Inst>` prompt. It leaves the guest running
 if those steps do not complete. Inspect the output for package errors before
-finishing the installation. Omit `--addon` for the base release and MIPSpro.
-Use `--addon tablet` when that add-on is configured. Its script selects MIPSpro
-and the add-on together. `--addon rad4` selects MIPSpro and RAD4. The generated
-RAD4 helper below is required after package transfer to build the guest kernel
+finishing the installation. Omit `--addon` to install the selected profile
+alone. Use `--addon tablet` or `--addon rad4` when that add-on is configured.
+The script combines the selected profile with the add-on. MIPSpro is included
+only with a development profile. The generated RAD4 helper below is required after package transfer to build the guest kernel
 and enable graphical login. The same scripts can be loaded manually with
 `admin source 10.98.0.2:/mipspro.cmds` or
 `admin source 10.98.0.2:/addon-NAME.cmds`.
@@ -220,17 +221,9 @@ Restart? y
 ```
 
 The current script's `cksum` is `2973792095 2550`. Stop if the guest reports
-a different value. This TFTP fetch, first kernel build, and repeat script run
-passed at the first miniroot handoff on a blank-disk install. The RAD4 package's
-own miniroot exit command reports a missing `/usr/sbin/lboot`. The helper
-builds the kernel from the installed target. The PROM boot, disk preparation,
-and first-run questions still use the interactive guest installer. Packaged
-`install-finish` passed at the first `Inst>` handoff on a blank-disk installation
-and reached serial login with RAD4 attached. A candidate CLI completed
-`install-apply` on a blank-disk guest. An earlier clean archive completed
-`install-finish` and SDL desktop login on that guest without repeating the
-package stage from a blank disk. Those
-guest checks have not been repeated with the current QEMU pin.
+a different value. The RAD4 package's miniroot exit command reports a missing
+`/usr/sbin/lboot`. The helper builds the kernel from the installed target.
+The PROM boot, disk preparation and first-run questions remain interactive.
 
 A forward binds only to the host loopback address. The example sends host TCP
 port 2222 to guest port 22 while user networking is active. Use
@@ -249,7 +242,7 @@ The full QEMU catalogue also validates additional topologies and processor
 populations configured in `machine.toml`. Use `topology` and `population` to
 identify those configurations. Support remains experimental: a selectable
 configuration does not imply that firmware, installation or graphics work.
-The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/a61238a8eb5fb18feb425464045a9848dba3d0f7/docs/specs/sgi-sn.rst)
+The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/sgi-origami/docs/specs/sgi-sn.rst)
 describes topology and board options. Fuel requires explicit board inputs.
 Octane2 requires explicit R12000 CPU inputs. `origami --help` lists their options.
 
@@ -285,12 +278,14 @@ origami install-init my-origin --mac 08:00:69:12:34:56
 
 Without `--media-root`, install initialization configures remote sources.
 Instigator fetches disc ranges and archive entries as needed during installation.
+If the server refuses range requests, it can download a whole disc instead.
 Initialization itself downloads nothing.
 
 Choose `--profile base` for the six IRIX 6.5.30 overlay, foundation and NFS discs,
-`--profile desktop` (the default) to add applications and complementary software,
-or `--profile development` to add development discs and the existing MIPSpro
-7.4.4 update and C compiler tarballs. Remote disc objects use `.iso` filenames
+`--profile desktop` (the default) for ten discs including applications,
+complementary software and their development-library dependencies, or
+`--profile development` to add the existing MIPSpro 7.4.4 update and C compiler
+tarballs. Remote disc objects use `.iso` filenames
 and retain the original SGI disc bytes. The RAD4 driver is a separate add-on
 that can use a local path or public HTTPS source.
 
@@ -299,5 +294,7 @@ Use `--media-root /path/to/media` for local installation. Its disc paths retain
 recipe. `--profile legacy-development` is available for that local recipe.
 
 PROM downloads have pinned checksums. Instigator's remote installation sources
-do not verify a whole-image checksum before serving them. Remote installation
-has not been qualified with published media.
+do not verify a whole-image checksum before serving them. The public desktop
+media with RAD4 completed a fresh Linux Origin 200 installation and reached
+an IRIX 6.5.30 serial root shell. Other profiles and machines remain
+experimental. Desktop responsiveness was not established by that check.
