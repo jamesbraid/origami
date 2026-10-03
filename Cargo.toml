@@ -14,3 +14,6 @@ sha2 = "0.10"
 toml = "0.8"
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
 url = "2"
+
+[build-dependencies]
+vergen-gitcl = "=1.0.8"

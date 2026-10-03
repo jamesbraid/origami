@@ -50,6 +50,24 @@ def file_hash(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
+def build_instigator(manifest):
+    source = Path(manifest['instigator_source']).resolve()
+    revision = git(source, 'rev-parse', 'HEAD')
+    modified = bool(git(source, 'status', '--porcelain', '--untracked-files=all'))
+    try:
+        version = git(source, 'describe', '--tags', '--match', 'v[0-9]*', '--abbrev=0')[1:]
+    except subprocess.CalledProcessError:
+        version = 'devel'
+    prefix = 'github.com/jamesbraid/instigator/internal/version.'
+    flags = ' '.join(f'-X {prefix}{key}={value}' for key, value in (
+        ('Version', version), ('Revision', revision),
+        ('Modified', 'true' if modified else 'false')))
+    # Go 1.26 ignores submodule gitfiles when choosing its VCS root.
+    subprocess.check_call([manifest['go'], 'build', '-mod=readonly', '-trimpath',
+                           '-buildvcs=false', '-ldflags', flags,
+                           '-o', manifest['instigator_binary'], './cmd/instigator'], cwd=source)
+
+
 def source_identity(manifest):
     identity = {}
     for component in ('product', 'qemu', 'instigator'):
@@ -392,10 +410,14 @@ def main():
     modes.add_argument('--release', action='store_true')
     modes.add_argument('--record-inputs', action='store_true')
     modes.add_argument('--record-build', action='store_true')
+    modes.add_argument('--build-instigator', action='store_true')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     try:
         manifest = json.loads(args.manifest.read_text())
+        if args.build_instigator:
+            build_instigator(manifest)
+            return
         if args.record_inputs:
             record_inputs(manifest)
             print('recorded product build inputs')

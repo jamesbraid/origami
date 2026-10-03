@@ -1,7 +1,7 @@
 use origami::runtime::{self, Display};
 use origami::{
-    catalogue, catalogue_sha256, preset, presets, read_machine, resolve, validate,
-    validate_create_inputs, Drive, Network, Origin300Create, PortForward, Result,
+    catalogue, preset, presets, read_machine, resolve, validate, validate_create_inputs, Drive,
+    Network, Origin300Create, PortForward, Result,
 };
 use origami::{control, install};
 use std::env;
@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  origami machines\n  origami create DIR --preset PRESET [--prom FILE] [--memory-per-node MiB] [--graphics none|rad4|si|esi|infinite-reality|vpro] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  origami validate DIR\n  origami show DIR\n  origami show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  origami run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  origami status DIR\n  origami console DIR\n  origami stop DIR\n  origami drive-create DIR SIZE-MiB\n  origami drive-attach DIR FILE --type disk|cdrom|tape --target N\n  origami drive-detach DIR NAME\n  origami network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  origami network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  origami network-forward-remove DIR NAME\n  origami install-init DIR [--media-root PATH] --mac MAC [--profile base|desktop|development]\n  origami install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  origami install-check DIR\n  origami install-serve DIR\n  origami install-apply DIR [--addon NAME]\n  origami install-finish DIR\n  origami version\n\nFuel create inputs: --fuel-board-id-word N --fuel-bedrock-revision N --fuel-ioc3-subsystem-id N --fuel-l1-type-code N\nOctane2 create inputs: --r12000-prid N --r12000-fpu-id N --r12000-reset-mode N --r12000-scache-bytes N --r12000-scache-block-words N\nNumeric inputs accept decimal or 0x-prefixed hexadecimal."
+    "usage:\n  origami machines\n  origami create DIR --preset PRESET [--prom FILE] [--memory-per-node MiB] [--graphics none|rad4|si|esi|infinite-reality|vpro] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  origami validate DIR\n  origami show DIR\n  origami show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  origami run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  origami status DIR\n  origami console DIR\n  origami stop DIR\n  origami drive-create DIR SIZE-MiB\n  origami drive-attach DIR FILE --type disk|cdrom|tape --target N\n  origami drive-detach DIR NAME\n  origami network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  origami network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  origami network-forward-remove DIR NAME\n  origami install-init DIR [--media-root PATH] --mac MAC [--profile base|desktop|development]\n  origami install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  origami install-check DIR\n  origami install-serve DIR\n  origami install-apply DIR [--addon NAME]\n  origami install-finish DIR\n  origami --version\n\nFuel create inputs: --fuel-board-id-word N --fuel-bedrock-revision N --fuel-ioc3-subsystem-id N --fuel-l1-type-code N\nOctane2 create inputs: --r12000-prid N --r12000-fpu-id N --r12000-reset-mode N --r12000-scache-bytes N --r12000-scache-block-words N\nNumeric inputs accept decimal or 0x-prefixed hexadecimal."
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -56,6 +56,49 @@ fn display(args: &[String], graphics: &str) -> Result<Display> {
         .with_vnc_port(optional(args, "--vnc-port"))
 }
 
+fn version_report() {
+    let revision = env!("VERGEN_GIT_SHA");
+    let revision = if revision == "VERGEN_IDEMPOTENT_OUTPUT" {
+        "unknown"
+    } else {
+        revision
+    };
+    let dirty = if env!("VERGEN_GIT_DIRTY") == "true" {
+        "-dirty"
+    } else {
+        ""
+    };
+    println!("origami {} ({revision}{dirty})", env!("CARGO_PKG_VERSION"));
+    for (name, path, prefix) in [
+        ("qemu", runtime::qemu_path(), "QEMU emulator version "),
+        ("instigator", install::instigator_path(), "instigator "),
+    ] {
+        let version = path.ok().and_then(|path| {
+            let output = Command::new(path).arg("--version").output().ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let text = String::from_utf8(output.stdout).ok()?;
+            let line = text.lines().next()?;
+            let line = if name == "instigator" {
+                line.strip_prefix("instigator version ")
+                    .or_else(|| line.strip_prefix(prefix))?
+            } else {
+                line.strip_prefix(prefix)?
+            };
+            let number = line.strip_prefix('v').unwrap_or(line);
+            if !number.starts_with(|c: char| c.is_ascii_digit())
+                && !line.starts_with("devel")
+                && !line.starts_with("(devel)")
+            {
+                return None;
+            }
+            Some(line.trim().to_owned())
+        });
+        println!("{name} {}", version.as_deref().unwrap_or("unavailable"));
+    }
+}
+
 fn command() -> Result<()> {
     let mut args: Vec<String> = env::args().skip(1).collect();
     if args.is_empty() {
@@ -64,6 +107,10 @@ fn command() -> Result<()> {
     let action = args.remove(0);
     if matches!(action.as_str(), "--help" | "-h") {
         println!("{}", usage());
+        return Ok(());
+    }
+    if matches!(action.as_str(), "--version" | "version") {
+        version_report();
         return Ok(());
     }
     let catalog = catalogue()?;
@@ -480,22 +527,6 @@ fn command() -> Result<()> {
                 if !status.success() {
                     return Err(format!("Instigator exited with {status}").into());
                 }
-            }
-        }
-        "version" => {
-            println!("origami {}", env!("CARGO_PKG_VERSION"));
-            println!("catalogue=sha256:{}", catalogue_sha256());
-            let executable = env::current_exe()?;
-            let manifest = executable
-                .parent()
-                .ok_or("cannot locate origami executable directory")?
-                .join("../share/sgi/source-revisions.txt");
-            if manifest.is_file() {
-                print!("{}", fs::read_to_string(manifest)?);
-            } else {
-                println!("product=unpackaged");
-                println!("qemu={}", env!("SGI_QEMU_REVISION"));
-                println!("instigator={}", env!("SGI_INSTIGATOR_REVISION"));
             }
         }
         _ => return Err(usage().into()),

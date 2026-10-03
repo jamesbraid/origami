@@ -64,9 +64,12 @@ elif name == "go" and "build" in args:
         for name in ("cargo", "rustc", "go", "ninja"):
             (self.source / name).symlink_to(self.tool)
         (self.source / "qemu/configure").symlink_to(self.tool)
-        (self.source / "build/stage-product.py").write_text('''import json, pathlib, shutil, sys
+        (self.source / "build/stage-product.py").write_text('''import json, pathlib, shutil, subprocess, sys
 m = json.loads(pathlib.Path(sys.argv[1]).read_text())
 record = pathlib.Path(m["output_dir"]).parent
+if "--build-instigator" in sys.argv:
+    subprocess.check_call([m["go"], "build", "-mod=readonly", "-trimpath", "-o", m["instigator_binary"], "./cmd/instigator"])
+    sys.exit(0)
 if "--record-inputs" in sys.argv:
     (record / "inputs-recorded").write_text("inputs")
     sys.exit(0)

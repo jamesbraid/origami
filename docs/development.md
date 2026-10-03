@@ -123,6 +123,19 @@ command with `-B /path/to/build` to select external storage, then use
 The runnable tree contains `origami` and `instigator` under `bin/`, QEMU
 and `qemu-img` under `libexec/sgi/`, runtime libraries and QEMU keymaps.
 `share/sgi/source-revisions.txt` records actual revisions and checkout state.
+`origami --version` (also `origami version`) prints the version and Git identity
+carried by each executable. QEMU and Instigator are queried at their launch
+paths, including `SGI_RUNTIME_DIR` for QEMU. Replacing a binary changes its
+reported identity. Local edits are marked `-dirty`, and unavailable components
+are reported on their own lines.
+
+The frontend uses `vergen-gitcl` with Cargo's package version. QEMU uses its
+native Git description. The product build passes Instigator's own checkout
+identity through Go linker variables because Go 1.26's automatic VCS discovery
+skips submodule `.git` files. Instigator's release builds stamp the same fields
+through GoReleaser, with native Go build information as the fallback for other
+builds.
+
 Release archives add toolchain and dependency notices and manifests.
 `SHA256SUMS` covers each packaged file, and CPack writes an archive SHA-256
 file alongside the archive. Archives are assembled from the installed

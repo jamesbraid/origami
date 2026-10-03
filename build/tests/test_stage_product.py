@@ -79,6 +79,32 @@ class ProductStageTests(unittest.TestCase):
             runtime.assert_called_once()
             return result
 
+    def test_instigator_build_stamps_its_own_submodule_checkout(self):
+        product = self.sources['product']
+        source = product / 'instigator'
+        git(product, '-c', 'protocol.file.allow=always', 'submodule', 'add',
+            '--force', str(self.sources['instigator']), 'instigator')
+        git(source, 'tag', 'v0.3.1')
+        self.manifest['instigator_source'] = str(source)
+        (source / 'LICENSE').write_text('local changes')
+        revision = git(source, 'rev-parse', 'HEAD')
+        with patch.object(self.stage.subprocess, 'check_call') as build:
+            self.stage.build_instigator(self.manifest)
+        command = build.call_args.args[0]
+        self.assertEqual(build.call_args.kwargs['cwd'], source)
+        self.assertIn('-buildvcs=false', command)
+        flags = command[command.index('-ldflags') + 1]
+        prefix = 'github.com/jamesbraid/instigator/internal/version.'
+        self.assertIn(prefix + 'Version=0.3.1', flags)
+        self.assertIn(prefix + 'Revision=' + revision, flags)
+        self.assertIn(prefix + 'Modified=true', flags)
+        self.assertNotIn(git(product, 'rev-parse', 'HEAD'), flags)
+        git(source, 'checkout', '--', 'LICENSE')
+        with patch.object(self.stage.subprocess, 'check_call') as build:
+            self.stage.build_instigator(self.manifest)
+        self.assertIn(prefix + 'Modified=false', build.call_args.args[0][
+            build.call_args.args[0].index('-ldflags') + 1])
+
     def test_source_checks_preserve_git_index(self):
         product = self.sources['product']
         index = product / '.git/index'

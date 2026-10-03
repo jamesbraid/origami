@@ -413,7 +413,7 @@ fn prepare_guest_scripts(dir: &Path, media: &InstallMedia) -> Result<()> {
     Ok(())
 }
 
-fn instigator_path() -> Result<PathBuf> {
+pub fn instigator_path() -> Result<PathBuf> {
     let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
         "instigator.exe"
     } else {
