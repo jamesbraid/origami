@@ -274,7 +274,12 @@ pub fn add_addon(
 }
 
 pub fn read_media(dir: &Path) -> Result<InstallMedia> {
-    let file: InstallMedia = toml::from_str(&fs::read_to_string(dir.join("install/media.toml"))?)?;
+    let path = dir.join("install/media.toml");
+    let text = fs::read_to_string(&path).map_err(|error| {
+        format!("cannot read {}: {error}. Configure installation first with origami install-init {} --mac MAC --profile desktop", path.display(), dir.display())
+    })?;
+    let file: InstallMedia = toml::from_str(&text)
+        .map_err(|error| format!("invalid install configuration {}: {error}", path.display()))?;
     if file.format != 1 {
         return Err(format!("unsupported install media format {}", file.format).into());
     }

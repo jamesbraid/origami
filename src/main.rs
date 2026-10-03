@@ -42,7 +42,9 @@ fn optional<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
 
 fn directory(args: &[String]) -> Result<PathBuf> {
     let name = args.first().ok_or("missing machine directory")?;
-    Ok(PathBuf::from(name).canonicalize()?)
+    PathBuf::from(name).canonicalize().map_err(|error| {
+        format!("cannot open machine directory '{name}': {error}. Use the directory you created with origami create").into()
+    })
 }
 
 fn display(args: &[String], graphics: &str) -> Result<Display> {

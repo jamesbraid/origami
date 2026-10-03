@@ -201,9 +201,16 @@ pub fn preset<'a>(catalog: &'a Catalog, name: &str) -> Result<&'a Offering> {
 }
 
 pub fn read_machine(dir: &Path) -> Result<MachineFile> {
-    Ok(toml::from_str(&fs::read_to_string(
-        dir.join("machine.toml"),
-    )?)?)
+    let path = dir.join("machine.toml");
+    let text = fs::read_to_string(&path).map_err(|error| {
+        format!(
+            "cannot read {}: {error}. Use a machine directory created with origami create",
+            path.display()
+        )
+    })?;
+    toml::from_str(&text).map_err(|error| {
+        format!("invalid machine configuration {}: {error}", path.display()).into()
+    })
 }
 
 pub fn tcp_endpoint(endpoint: &str) -> Result<Option<SocketAddrV4>> {
