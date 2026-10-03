@@ -7,7 +7,7 @@ use std::io::{self, Read, Write};
 use std::net::{SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -467,7 +467,33 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     } else {
         command.arg("--network-socket").arg(resolve(dir, endpoint));
     }
-    command.arg(config_path).current_dir(dir);
+    let capture_parent = install_dir.join("instigator");
+    fs::create_dir_all(&capture_parent)?;
+    let capture_dir = capture_parent.join(format!(
+        "run-{}-{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
+        std::process::id()
+    ));
+    // Each server attempt keeps its own output and native timing records.
+    fs::create_dir(&capture_dir)?;
+    let log_path = capture_dir.join("server.log");
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let log = options.open(&log_path)?;
+    eprintln!("Instigator log: {}", log_path.display());
+    eprintln!("Instigator timing capture: {}", capture_dir.display());
+    command
+        .arg("--capture-dir")
+        .arg(&capture_dir)
+        .arg(config_path)
+        .current_dir(dir)
+        .stdout(Stdio::from(log.try_clone()?))
+        .stderr(Stdio::from(log));
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
