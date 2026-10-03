@@ -164,6 +164,29 @@ repositories. GitHub's automatic source ZIP omits submodule contents. Use the
 Git clone when building from source. The platform build commands above use
 these exact checkouts.
 
+CI build checkouts use `fetch-depth: 0` so native version descriptions can
+reach release tags in the product and its submodules. A normal initial
+`git submodule update --init` creates full dependency clones, but existing
+shallow clones need their history fetched explicitly.
+
+To refresh an existing macOS checkout, finish any active install first, then
+run these commands from the product repository. Fetching history and tags
+does not change the dependency commits selected by the product pin.
+
+```sh
+git pull --recurse-submodules
+git submodule update --init -- qemu instigator
+for component in qemu instigator; do
+  if [ "$(git -C "$component" rev-parse --is-shallow-repository)" = true ]; then
+    git -C "$component" fetch --unshallow --tags origin
+  else
+    git -C "$component" fetch --tags origin
+  fi
+done
+cmake --build --preset macos
+./out/macos/run/bin/origami --version
+```
+
 ## Licenses and dependency sources
 
 The Origami CLI, Instigator and original Origami additions to QEMU use

@@ -82,9 +82,13 @@ class ProductStageTests(unittest.TestCase):
     def test_instigator_build_stamps_its_own_submodule_checkout(self):
         product = self.sources['product']
         source = product / 'instigator'
+        upstream = self.sources['instigator']
+        git(upstream, 'tag', 'v0.3.1')
+        (upstream / 'LICENSE').write_text('version support after release')
+        git(upstream, 'add', 'LICENSE')
+        git(upstream, 'commit', '-qm', 'test: advance beyond release tag')
         git(product, '-c', 'protocol.file.allow=always', 'submodule', 'add',
-            '--force', str(self.sources['instigator']), 'instigator')
-        git(source, 'tag', 'v0.3.1')
+            '--force', str(upstream), 'instigator')
         self.manifest['instigator_source'] = str(source)
         (source / 'LICENSE').write_text('local changes')
         revision = git(source, 'rev-parse', 'HEAD')

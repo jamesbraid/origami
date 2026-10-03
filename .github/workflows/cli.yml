@@ -24,6 +24,7 @@ jobs:
         with:
           token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
           persist-credentials: false
+          fetch-depth: 0
           submodules: true
       - name: Install Rust
         run: |
