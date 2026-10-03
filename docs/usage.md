@@ -144,7 +144,7 @@ Instigator extracts archive sources into `install/cache/`. A successful check
 does not prove that IRIX will install from those sources.
 
 `install-serve` prints the path to its log and records each launch in a fresh
-`install/instigator/run-*/` directory inside the machine. `server.log` keeps
+`install/instigator-*/` directory inside the machine. `server.log` keeps
 Instigator's stdout and stderr. Follow it with `tail -f PATH/server.log`.
 Instigator's native capture records timestamped events, request timings and
 build/media details in `events.jsonl` and `run.json`. A clean shutdown also
@@ -152,7 +152,7 @@ writes `summary.json`. If shutdown leaves that summary missing, reconstruct
 it from the retained events with the packaged server:
 
 ```sh
-/path/to/package/bin/instigator trace summary my-origin/install/instigator/run-ID
+/path/to/package/bin/instigator trace summary my-origin/install/instigator-TIMESTAMP
 ```
 
 An incomplete capture covers only the events recorded before the server

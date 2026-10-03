@@ -79,9 +79,18 @@ exit 7
         assert!(!output.status.success());
         assert!(String::from_utf8_lossy(&output.stderr).contains("server.log"));
     }
-    let captures: Vec<_> = fs::read_dir(machine.join("install/instigator"))
+    let captures: Vec<_> = fs::read_dir(machine.join("install"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.is_dir()
+                && path
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with("instigator-")
+        })
         .collect();
     assert_eq!(captures.len(), 2, "each attempt must keep its own evidence");
     for capture in captures {

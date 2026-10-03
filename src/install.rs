@@ -467,12 +467,9 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     } else {
         command.arg("--network-socket").arg(resolve(dir, endpoint));
     }
-    let capture_parent = install_dir.join("instigator");
-    fs::create_dir_all(&capture_parent)?;
-    let capture_dir = capture_parent.join(format!(
-        "run-{}-{}",
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
-        std::process::id()
+    let capture_dir = install_dir.join(format!(
+        "instigator-{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     ));
     // Each server attempt keeps its own output and native timing records.
     fs::create_dir(&capture_dir)?;
