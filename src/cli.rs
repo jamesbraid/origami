@@ -185,47 +185,31 @@ pub struct CreateOptions {
 #[derive(Debug, Default, Args)]
 #[command(next_help_heading = "Hardware options")]
 pub struct HardwareArgs {
-    /// Fuel board ID (decimal or hexadecimal)
+    /// Override the board identification word
     #[arg(long)]
-    pub fuel_board_id_word: Option<String>,
-    /// Fuel Bedrock revision (decimal or hexadecimal)
+    pub board_id_word: Option<String>,
+    /// Override the IOC3 PCI subsystem ID
     #[arg(long)]
-    pub fuel_bedrock_revision: Option<String>,
-    /// Fuel IOC3 subsystem ID (decimal or hexadecimal)
+    pub ioc3_subsystem_id: Option<String>,
+    /// Override the L1 identity reply byte
     #[arg(long)]
-    pub fuel_ioc3_subsystem_id: Option<String>,
-    /// Fuel L1 type code (decimal or hexadecimal)
+    pub l1_type_code: Option<String>,
+    /// Override the L1 firmware revision (major.minor.patch)
     #[arg(long)]
-    pub fuel_l1_type_code: Option<String>,
-    /// R12000 processor ID (decimal or hexadecimal)
+    pub l1_revision: Option<String>,
+    /// Override the Bedrock revision
     #[arg(long)]
-    pub r12000_prid: Option<String>,
-    /// R12000 FPU ID (decimal or hexadecimal)
-    #[arg(long)]
-    pub r12000_fpu_id: Option<String>,
-    /// R12000 reset mode (decimal or hexadecimal)
-    #[arg(long)]
-    pub r12000_reset_mode: Option<String>,
-    /// R12000 secondary cache size in bytes
-    #[arg(long)]
-    pub r12000_scache_bytes: Option<String>,
-    /// R12000 cache block size in words
-    #[arg(long)]
-    pub r12000_scache_block_words: Option<String>,
+    pub bedrock_revision: Option<String>,
 }
 
 impl HardwareArgs {
     pub fn inputs(&self) -> BTreeMap<String, String> {
         [
-            ("fuel-board-id-word", &self.fuel_board_id_word),
-            ("fuel-bedrock-revision", &self.fuel_bedrock_revision),
-            ("fuel-ioc3-subsystem-id", &self.fuel_ioc3_subsystem_id),
-            ("fuel-l1-type-code", &self.fuel_l1_type_code),
-            ("r12000-prid", &self.r12000_prid),
-            ("r12000-fpu-id", &self.r12000_fpu_id),
-            ("r12000-reset-mode", &self.r12000_reset_mode),
-            ("r12000-scache-bytes", &self.r12000_scache_bytes),
-            ("r12000-scache-block-words", &self.r12000_scache_block_words),
+            ("board-id-word", &self.board_id_word),
+            ("ioc3-subsystem-id", &self.ioc3_subsystem_id),
+            ("l1-type-code", &self.l1_type_code),
+            ("l1-revision", &self.l1_revision),
+            ("bedrock-revision", &self.bedrock_revision),
         ]
         .into_iter()
         .filter_map(|(name, value)| value.as_ref().map(|value| (name.into(), value.clone())))

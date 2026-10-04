@@ -155,67 +155,29 @@ pub fn validate_graphics(offering: &Offering, graphics: &str) -> Result<()> {
     Ok(())
 }
 
-pub const OCTANE2_CPU_INPUTS: &[&str] = &[
-    "r12000-prid",
-    "r12000-fpu-id",
-    "r12000-reset-mode",
-    "r12000-scache-bytes",
-    "r12000-scache-block-words",
+/// Board values QEMU accepts as optional machine-property overrides of its
+/// catalogue defaults. QEMU checks each value and the machines it applies to.
+pub const BOARD_OVERRIDES: &[&str] = &[
+    "board-id-word",
+    "ioc3-subsystem-id",
+    "l1-type-code",
+    "l1-revision",
+    "bedrock-revision",
 ];
 
-fn number(value: &str) -> Result<u64> {
-    Ok(if let Some(hex) = value.strip_prefix("0x") {
-        u64::from_str_radix(hex, 16)?
-    } else {
-        value.parse()?
-    })
-}
-
-// QEMU's R12000 CPU model owns the meaning and validity of these values.
-fn validate_octane2_cpu(inputs: &BTreeMap<String, String>) -> Result<()> {
-    for key in OCTANE2_CPU_INPUTS {
-        if !inputs.contains_key(*key) {
-            return Err(
-                format!("Octane2 requires --{key}; no measured CPU default is available").into(),
-            );
-        }
-    }
-    if inputs.len() != OCTANE2_CPU_INPUTS.len() {
-        return Err("unknown Octane2 CPU input".into());
-    }
-    Ok(())
-}
-
 pub fn validate_inputs(offering: &Offering, inputs: &BTreeMap<String, String>) -> Result<()> {
-    const REQUIRED: &[(&str, u64)] = &[
-        ("fuel-board-id-word", u64::MAX),
-        ("fuel-bedrock-revision", 15),
-        ("fuel-ioc3-subsystem-id", 65535),
-        ("fuel-l1-type-code", 255),
-    ];
-    if offering.product == "octane2" {
-        return validate_octane2_cpu(inputs);
-    }
-    if offering.product != "fuel" {
-        if !inputs.is_empty() {
-            return Err("launch inputs are only supported for Fuel and Octane2".into());
+    for (key, value) in inputs {
+        if !BOARD_OVERRIDES.contains(&key.as_str()) {
+            return Err(format!("{} does not take --{key}", offering.topology).into());
         }
-        return Ok(());
-    }
-    for (key, maximum) in REQUIRED {
-        let value = inputs.get(*key).ok_or_else(|| {
-            format!("Fuel requires --{key}; this experimental board input has no product default")
-        })?;
-        let number = number(value)?;
-        if number > *maximum
-            || (*key == "fuel-l1-type-code" && number == 0)
-            || (*key == "fuel-board-id-word" && number & 61440 != 16384)
+        // Values are QEMU's to judge, but must stay one option value.
+        if value.is_empty()
+            || value
+                .chars()
+                .any(|c| c == ',' || c == '=' || c.is_whitespace())
         {
-            return Err(format!("invalid {key}: {value}").into());
+            return Err(format!("invalid --{key} value: {value:?}").into());
         }
-    }
-    if inputs.len() != REQUIRED.len() {
-        return Err("unknown Fuel launch input".into());
     }
     Ok(())
 }
@@ -307,11 +269,7 @@ mod tests {
     #[test]
     fn heterogeneous_cpu_populations_are_explicit() {
         let catalog = crate::test_catalogue();
-        for o in catalog
-            .offerings
-            .iter()
-            .filter(|o| !matches!(o.product.as_str(), "fuel" | "octane2"))
-        {
+        for o in catalog.offerings.iter() {
             let graphics = default_graphics(o);
             let f = file(o, graphics);
             let args =
@@ -337,23 +295,27 @@ mod tests {
     }
 
     #[test]
-    fn fuel_requires_explicit_inputs_and_rejects_vpro() {
+    fn fuel_board_values_are_optional_machine_overrides() {
         let catalog = crate::test_catalogue();
         let o = preset(&catalog, "fuel-1").unwrap();
         let mut f = file(o, "none");
-        assert!(runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).is_err());
-        f.machine.inputs = [
-            ("fuel-board-id-word", "0x4000"),
-            ("fuel-bedrock-revision", "0"),
-            ("fuel-ioc3-subsystem-id", "0"),
-            ("fuel-l1-type-code", "1"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.into(), v.into()))
-        .collect();
         let args =
             runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
-        assert!(args.iter().any(|a| a.contains("fuel-board-id-word=0x4000")));
+        let machine = &args.windows(2).find(|p| p[0] == "-M").unwrap()[1];
+        assert!(!BOARD_OVERRIDES.iter().any(|key| machine.contains(key)));
+        f.machine.inputs = [("board-id-word", "0x4000"), ("l1-revision", "1.2.3")]
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
+        let args =
+            runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
+        let machine = &args.windows(2).find(|p| p[0] == "-M").unwrap()[1];
+        assert!(machine.contains(",board-id-word=0x4000"), "{machine}");
+        assert!(machine.contains(",l1-revision=1.2.3"), "{machine}");
+        f.machine
+            .inputs
+            .insert("fuel-board-id-word".into(), "0x4000".into());
+        assert!(validate_inputs(o, &f.machine.inputs).is_err());
         assert!(validate_graphics(o, "vpro").is_err());
         assert!(preset(&catalog, "origin350-2").is_err());
         assert!(preset(&catalog, "tezro-4").is_err());
