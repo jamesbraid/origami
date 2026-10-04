@@ -70,6 +70,15 @@ pub enum Command {
         dir: PathBuf,
         name: String,
     },
+    /// Choose the serial port a stopped guest's console uses
+    ConsoleSet {
+        #[arg(value_name = "DIR")]
+        dir: PathBuf,
+        /// Serial line to connect, named as in QEMU's catalogue (such as l1
+        /// or ioc3_a); omit to use the machine's default console
+        #[arg(long)]
+        port: Option<String>,
+    },
     /// Change networking on a stopped guest
     NetworkSet {
         #[arg(value_name = "DIR")]

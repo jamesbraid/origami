@@ -105,6 +105,11 @@ fn command(action: Action) -> Result<()> {
                 file.machine.graphics
             );
             println!("state: {}", dir.join("state").display());
+            let console = match &file.machine.console {
+                Some(port) => port.as_str(),
+                None => runtime::default_console(offer)?,
+            };
+            println!("console: {console}");
             println!("network: {}", file.network.mode);
             for forward in &file.network.forward {
                 let status = if file.network.mode == "user" {
@@ -225,6 +230,19 @@ fn command(action: Action) -> Result<()> {
             validate(catalog()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("detached {name}");
+        }
+        Action::ConsoleSet { dir, port } => {
+            let dir = directory(&dir)?;
+            let _lock = control::lock_for_edit(&dir, "changing its console")?;
+            let mut file = read_machine(&dir)?;
+            file.machine.console = port;
+            let offer = validate(catalog()?, &dir, &file)?;
+            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+            let console = match &file.machine.console {
+                Some(port) => port.as_str(),
+                None => runtime::default_console(offer)?,
+            };
+            println!("console: {console}");
         }
         Action::NetworkSet {
             dir,
