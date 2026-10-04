@@ -216,6 +216,7 @@ mod tests {
                 cpus_per_node: o.cpus_per_node[0],
                 memory_per_node: format!("{}MiB", o.memory.default),
                 graphics: graphics.into(),
+                console: None,
             },
             identity: None,
             network: Network::default(),

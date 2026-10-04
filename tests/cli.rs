@@ -45,6 +45,7 @@ fn each_public_command_has_help_without_opening_a_machine() {
         "status",
         "console",
         "stop",
+        "console-set",
         "drive-create",
         "drive-attach",
         "drive-detach",

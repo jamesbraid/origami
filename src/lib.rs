@@ -44,6 +44,17 @@ pub struct Offering {
     pub scsi_adapters: Vec<ScsiAdapter>,
     #[serde(rename = "needs-debug-leds-off", default)]
     pub needs_debug_leds_off: bool,
+    /// Serial lines in -serial order; the line of kind `console` is the
+    /// primary console.
+    pub consoles: Vec<Console>,
+}
+
+/// A serial line the machine offers, named by the chardev its argument uses.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Console {
+    pub kind: String,
+    pub node: u32,
+    pub argument: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -159,6 +170,10 @@ pub struct Machine {
     pub memory_per_node: String,
     #[serde(default = "default_graphics")]
     pub graphics: String,
+    /// The chardev name of the console line, such as `ioc3_a`, when it
+    /// differs from the catalogue's primary console.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console: Option<String>,
 }
 
 fn default_graphics() -> String {
@@ -293,6 +308,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
     }
     profiles::validate_graphics(offering, &file.machine.graphics)?;
     profiles::validate_inputs(offering, &file.machine.inputs)?;
+    runtime::console_line(offering, file.machine.console.as_deref())?;
     match file.network.mode.as_str() {
         "none" | "user" if file.network.endpoint.is_none() => (),
         "private" => {
@@ -455,6 +471,7 @@ pub fn create_configured(
                 cpus_per_node: offering.cpus_per_node[0],
                 memory_per_node: format!("{memory_per_node}MiB"),
                 graphics: graphics.into(),
+                console: None,
             },
             identity: mac.map(|mac| Identity {
                 mac: mac.to_ascii_lowercase(),

@@ -108,6 +108,50 @@ pub fn create_state(tool: &Path, arguments: &[OsString]) -> Result<()> {
     Ok(())
 }
 
+/// The serial lines a console can use, as (-serial index, chardev name,
+/// whether it is the primary console). The catalogue lists the lines in
+/// -serial order, node 0 first; lines of other nodes are not offered.
+fn console_ports(offering: &Offering) -> impl Iterator<Item = (usize, &str, bool)> {
+    offering
+        .consoles
+        .iter()
+        .enumerate()
+        .take_while(|(_, line)| line.node == 0)
+        .filter(|(_, line)| matches!(line.kind.as_str(), "console" | "second-port"))
+        .filter_map(|(index, line)| {
+            let name = line.argument.strip_prefix("-serial chardev:")?;
+            Some((index, name, line.kind == "console"))
+        })
+}
+
+/// The machine's default console: the catalogue's line of kind console.
+pub fn default_console(offering: &Offering) -> Result<&str> {
+    console_ports(offering)
+        .find(|(_, _, primary)| *primary)
+        .map(|(_, name, _)| name)
+        .ok_or_else(|| format!("{} lists no node 0 console", offering.topology).into())
+}
+
+/// The -serial index of a console port, by default the catalogue's.
+pub fn console_line(offering: &Offering, port: Option<&str>) -> Result<usize> {
+    let port = match port {
+        Some(port) => port,
+        None => default_console(offering)?,
+    };
+    console_ports(offering)
+        .find(|(_, name, _)| *name == port)
+        .map(|(index, _, _)| index)
+        .ok_or_else(|| {
+            let names: Vec<_> = console_ports(offering).map(|(_, name, _)| name).collect();
+            format!(
+                "{} has no {port} console; choose {}",
+                offering.topology,
+                names.join(" or ")
+            )
+            .into()
+        })
+}
+
 fn state_path(dir: &Path, item: &StorageItem) -> PathBuf {
     dir.join("state").join(format!("{}.raw", item.name))
 }
@@ -223,20 +267,12 @@ pub fn arguments(
     for (index, drive) in file.drive.iter().enumerate() {
         add_drive(&mut args, dir, drive, index);
     }
-    // Fuel reserves line 0 for L1; its guest IOC3 A is line 1.
-    // sn-machine.c binds chardev-a with sgi_sn1_serial_line(node, 1).
-    if offering.product == "fuel" {
-        args.extend(["-serial".into(), "null".into()]);
+    // Lines before the console get no backend, so each device can tell it
+    // has none. Later lines are left off.
+    for _ in 0..console_line(offering, file.machine.console.as_deref())? {
+        args.extend(["-serial".into(), "none".into()]);
     }
     args.extend(["-serial".into(), "stdio".into()]);
-    if offering.product == "origin200" {
-        args.extend([
-            "-serial".into(),
-            "none".into(),
-            "-serial".into(),
-            "null".into(),
-        ]);
-    }
     match file.network.mode.as_str() {
         "none" => args.extend(["-nic".into(), "none".into()]),
         "private" => {
@@ -436,7 +472,7 @@ fn run_inner(
         fs::create_dir_all(dir.join("logs"))?;
         log_primary_serial(
             &mut args,
-            "stdio,id=serial0,logfile=logs/serial.log,logappend=on".into(),
+            "stdio,id=origami-console,logfile=logs/serial.log,logappend=on".into(),
         )?;
         let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
         return Ok(child.wait()?);
@@ -453,7 +489,7 @@ fn run_inner(
     );
     log_primary_serial(
         &mut args,
-        format!("socket,id=serial0,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
+        format!("socket,id=origami-console,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
     )?;
     args.extend([
         "-qmp".into(),
@@ -499,7 +535,9 @@ fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
         .windows(2)
         .position(|pair| pair == ["-serial", "stdio"])
         .ok_or("primary serial argument missing")?;
-    args[serial + 1] = "chardev:serial0".into();
+    // QEMU labels the chardev it makes for each other -serial line serialN,
+    // so a console chardev with one of those ids would collide.
+    args[serial + 1] = "chardev:origami-console".into();
     args.extend(["-chardev".into(), chardev]);
     Ok(())
 }
@@ -521,6 +559,7 @@ mod tests {
                 cpus_per_node: offering.cpus_per_node[0],
                 memory_per_node: format!("{}MiB", offering.memory.default),
                 graphics: graphics.into(),
+                console: None,
             },
             identity: None,
             network: Network::default(),
@@ -549,25 +588,58 @@ mod tests {
     }
 
     #[test]
-    fn fuel_guest_console_uses_ioc3_a_in_foreground_and_background() {
+    fn console_line_follows_the_catalogue_and_machine_choice() {
         let catalog = crate::test_catalogue();
-        let offer = preset(&catalog, "fuel-1").unwrap();
-        let file = machine(offer, "none");
-        let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
-        let serial: Vec<_> = args
-            .windows(2)
-            .filter(|p| p[0] == "-serial")
-            .map(|p| p[1].as_str())
-            .collect();
-        assert_eq!(serial, ["null", "stdio"]);
-        for chardev in ["stdio,id=serial0,logfile=logs/serial.log,logappend=on",
-            "socket,id=serial0,host=127.0.0.1,port=12345,server=on,wait=off,logfile=logs/serial.log,logappend=on"] {
+        let serial = |args: &[String]| -> Vec<String> {
+            args.windows(2)
+                .filter(|p| p[0] == "-serial")
+                .map(|p| p[1].clone())
+                .collect()
+        };
+        // Fuel's catalogue lists l1 (its console), then IOC3 ports A and B.
+        let fuel = preset(&catalog, "fuel-1").unwrap();
+        assert_eq!(default_console(fuel).unwrap(), "l1");
+        assert_eq!(
+            console_ports(fuel).collect::<Vec<_>>(),
+            [(0, "l1", true), (1, "ioc3_a", false), (2, "ioc3_b", false)]
+        );
+        let mut file = machine(fuel, "none");
+        let args = arguments(Path::new("/machine"), &file, fuel, Display::None).unwrap();
+        assert_eq!(serial(&args), ["stdio"]);
+        file.machine.console = Some("ioc3_a".into());
+        let args = arguments(Path::new("/machine"), &file, fuel, Display::None).unwrap();
+        assert_eq!(serial(&args), ["none", "stdio"]);
+        for chardev in [
+            "stdio,id=origami-console,logfile=logs/serial.log,logappend=on",
+            "socket,id=origami-console,host=127.0.0.1,port=12345,server=on,wait=off,\
+             logfile=logs/serial.log,logappend=on",
+        ] {
             let mut routed = args.clone();
             log_primary_serial(&mut routed, chardev.into()).unwrap();
-            let serial: Vec<_> = routed.windows(2).filter(|p| p[0] == "-serial").map(|p| p[1].as_str()).collect();
-            assert_eq!(serial, ["null", "chardev:serial0"]);
+            assert_eq!(serial(&routed), ["none", "chardev:origami-console"]);
             assert!(routed.windows(2).any(|p| p == ["-chardev", chardev]));
         }
+
+        // Only node 0 lines of console kinds are offered.
+        let mut origin2000 = preset(&catalog, "origin2000-8").unwrap().clone();
+        origin2000.consoles.push(crate::Console {
+            kind: "second-port".into(),
+            node: 1,
+            argument: "-serial chardev:node1_ioc3_a".into(),
+        });
+        let origin2000 = &origin2000;
+        assert_eq!(
+            console_ports(origin2000).collect::<Vec<_>>(),
+            [(0, "ioc3_a", true), (1, "ioc3_b", false)]
+        );
+        let mut file = machine(origin2000, "none");
+        let args = arguments(Path::new("/machine"), &file, origin2000, Display::None).unwrap();
+        assert_eq!(serial(&args), ["stdio"]);
+        file.machine.console = Some("elsc".into());
+        let error = arguments(Path::new("/machine"), &file, origin2000, Display::None)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("ioc3_a or ioc3_b"), "{error}");
     }
 
     #[test]
@@ -583,16 +655,16 @@ mod tests {
         .unwrap();
         log_primary_serial(
             &mut args,
-            "stdio,id=serial0,logfile=logs/serial.log,logappend=on".into(),
+            "stdio,id=origami-console,logfile=logs/serial.log,logappend=on".into(),
         )
         .unwrap();
         assert!(args
             .windows(2)
-            .any(|pair| pair == ["-serial", "chardev:serial0"]));
+            .any(|pair| pair == ["-serial", "chardev:origami-console"]));
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-chardev",
-                "stdio,id=serial0,logfile=logs/serial.log,logappend=on"
+                "stdio,id=origami-console,logfile=logs/serial.log,logappend=on"
             ]));
     }
 
