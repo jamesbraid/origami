@@ -58,12 +58,20 @@ fn every_preset_creates_the_catalogue_storage_and_reopens() {
     fs::create_dir(&root.0).unwrap();
     let catalog = origami::catalogue().unwrap();
     let mut failures = Vec::new();
-    // Every starter must name an offering of this QEMU.
-    let presets = origami::presets(&catalog);
-    if presets.len() != 12 {
-        failures.push(format!("{} of 12 presets found", presets.len()));
+    // Each starter must name an offering of this QEMU, with the PROMs that
+    // offering needs.
+    for profile in origami::profiles::STARTERS {
+        match origami::preset(&catalog, profile.id) {
+            Ok(offering) => {
+                let io_prom = offering.init_inputs.iter().any(|i| i.name == "io-prom");
+                if io_prom != profile.io_prom.is_some() {
+                    failures.push(format!("{}: IO PROM selection", profile.id));
+                }
+            }
+            Err(error) => failures.push(format!("{}: {error}", profile.id)),
+        }
     }
-    for (name, offering) in presets {
+    for (name, offering) in origami::presets(&catalog) {
         let machine = root.0.join(format!("{name}, with comma"));
         let mut args: Vec<OsString> = vec![
             "create".into(),

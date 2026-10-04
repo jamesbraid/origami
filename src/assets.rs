@@ -11,16 +11,25 @@ pub struct Manifest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Prom {
+    pub id: String,
     pub path: String,
     pub size: u64,
     pub sha256: String,
-    pub profiles: Vec<String>,
     #[serde(default)]
     pub version: String,
 }
 
 pub fn manifest() -> Result<Manifest> {
     Ok(toml::from_str(include_str!("../resources/proms.toml"))?)
+}
+
+impl Manifest {
+    pub fn get(&self, id: &str) -> Result<&Prom> {
+        self.proms
+            .iter()
+            .find(|prom| prom.id == id)
+            .ok_or_else(|| format!("no PROM {id} in the registry").into())
+    }
 }
 
 pub fn validate_https_url(value: &str) -> Result<()> {
@@ -69,29 +78,30 @@ fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn acquire(profile_id: &str) -> Result<PathBuf> {
+/// Download the registry's PROM `id`, or reuse a verified cached copy.
+pub fn acquire(id: &str) -> Result<PathBuf> {
     use std::io::{Read, Write};
     let manifest = manifest()?;
-    let prom = manifest
-        .proms
-        .iter()
-        .find(|prom| prom.profiles.iter().any(|p| p == profile_id))
-        .ok_or_else(|| {
-            format!("no downloadable PROM for preset {profile_id}; supply --prom FILE")
-        })?;
+    let prom = manifest.get(id)?;
+    let name = prom.path.rsplit('/').next().unwrap_or(&prom.path);
+    // Each image keeps SGI's file name, under a directory named by its digest.
     let cache = dirs::cache_dir()
-        .ok_or("cannot determine user cache directory; supply --prom FILE")?
+        .ok_or("cannot determine user cache directory; supply local PROM files")?
         .join("origami")
-        .join("proms");
+        .join("proms")
+        .join(&prom.sha256);
     let fetch = || -> Result<PathBuf> {
         std::fs::create_dir_all(&cache)?;
-        let path = cache.join(format!("{}.bin", prom.sha256));
+        let path = cache.join(name);
         if std::fs::metadata(&path).is_ok_and(|m| m.len() == prom.size)
             && crate::sha256_file(&path)? == prom.sha256
         {
             return Ok(path);
         }
-        eprintln!("Downloading PROM {} ({} bytes)", prom.path, prom.size);
+        eprintln!(
+            "Downloading PROM {name} (version {}, {} bytes)",
+            prom.version, prom.size
+        );
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .https_only(true)
             .max_redirects(0)
@@ -118,7 +128,7 @@ pub fn acquire(profile_id: &str) -> Result<PathBuf> {
         temp.persist(&path).map_err(|e| e.error)?;
         Ok(path)
     };
-    fetch().map_err(|e| format!("cannot acquire PROM {}: {e}; offline creation requires a verified cache entry or --prom FILE", prom.path).into())
+    fetch().map_err(|e| format!("cannot acquire PROM {name}: {e}; offline creation requires a verified cache entry or a local PROM file").into())
 }
 
 #[cfg(test)]
@@ -141,27 +151,15 @@ mod tests {
         validate_https_url("https://origami-dist.irix.fans/prom/test.bin").unwrap();
     }
     #[test]
-    fn embedded_manifest_covers_supported_presets() {
+    fn embedded_registry_resolves_every_preset_selection() {
         let manifest = manifest().unwrap();
         for prom in &manifest.proms {
             validate_https_url(&format!("{}{}", manifest.base_url, prom.path)).unwrap();
         }
-        for name in [
-            "origin200-1",
-            "origin200-2",
-            "origin200-dual",
-            "origin2000-8",
-            "origin300-2",
-        ] {
-            assert_eq!(
-                manifest
-                    .proms
-                    .iter()
-                    .filter(|prom| prom.profiles.iter().any(|p| p == name))
-                    .count(),
-                1,
-                "{name}"
-            );
+        for profile in crate::profiles::STARTERS {
+            for id in std::iter::once(profile.boot_prom).chain(profile.io_prom) {
+                assert!(manifest.get(id).is_ok(), "{}", profile.id);
+            }
         }
     }
 }

@@ -2,22 +2,29 @@ format = 1
 base_url = "https://origami-dist.irix.fans/"
 
 [[proms]]
-profiles = ["onyx2-infinite-reality", "origin200-1", "origin200-2", "origin200-dual", "origin200-impact", "origin2000-8"]
+id = "ip27prom-6.156"
 version = "6.156"
-path = "prom/ip27-6.156-c2c69bf33c375b43ec7ac511fab41ddf595be1b6838ae717e58a9a1273437fdd.bin"
-size = 908752
-sha256 = "c2c69bf33c375b43ec7ac511fab41ddf595be1b6838ae717e58a9a1273437fdd"
+path = "prom/ip27prom-6.156.img"
+size = 912848
+sha256 = "0dbd5d5f7027e380383ce81523e1f614d58343ca82e07ec48bb4740b287eba0e"
 
 [[proms]]
-profiles = ["fuel-1", "origin300-2", "origin300-v12-direct-2", "origin300-vbrick-2"]
+id = "ip35prom-6.210"
 version = "6.210"
-path = "prom/ip35-6.210-554924380189a03a512156af2faa38344902f251b49fd5c80c253c23ecaff27b.bin"
-size = 1476264
-sha256 = "554924380189a03a512156af2faa38344902f251b49fd5c80c253c23ecaff27b"
+path = "prom/ip35prom-6.210.img"
+size = 1480360
+sha256 = "d74b4b7ef9c11c66692019db9af698104595be7a0573a86feae8a83441921318"
 
 [[proms]]
-profiles = ["octane-impact", "octane2-impact"]
-version = "irix-6.5.30"
-path = "prom/ip30-irix-6.5.30-ee4722ca6f9b821ffadf156346c4d69bf5be71fc4b911cee75e36a1f51a49972.bin"
+id = "IP30prom-4.17"
+version = "4.17"
+path = "prom/IP30prom-4.17.bin"
 size = 879312
 sha256 = "ee4722ca6f9b821ffadf156346c4d69bf5be71fc4b911cee75e36a1f51a49972"
+
+[[proms]]
+id = "io6prom-6.156"
+version = "6.156"
+path = "prom/io6prom-6.156.img"
+size = 365328
+sha256 = "024d2f28b526933e8f00d964fefdfcd9b0e873d504a43d9307099579e2b59ae9"

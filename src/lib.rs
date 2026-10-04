@@ -614,23 +614,6 @@ mod tests {
     }
 
     #[test]
-    fn downloadable_proms_name_catalogue_presets() {
-        let catalog = test_catalogue();
-        let manifest = crate::assets::manifest().unwrap();
-        for (profile, _) in presets(&catalog) {
-            assert_eq!(
-                manifest
-                    .proms
-                    .iter()
-                    .filter(|prom| prom.profiles.contains(&profile))
-                    .count(),
-                1,
-                "missing or ambiguous PROM: {profile}"
-            );
-        }
-    }
-
-    #[test]
     fn create_preflight_rejects_inputs_before_firmware_fetch() {
         let catalog = test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
