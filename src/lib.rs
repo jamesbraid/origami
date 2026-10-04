@@ -8,7 +8,6 @@ pub mod assets;
 pub mod catalogue;
 pub mod control;
 pub mod install;
-pub mod origin300;
 pub mod profiles;
 pub mod runtime;
 
@@ -86,25 +85,19 @@ pub struct MachineFile {
     pub format: u32,
     pub machine: Machine,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub identity: Option<Origin300Identity>,
+    pub identity: Option<Identity>,
     #[serde(default)]
     pub network: Network,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drive: Vec<Drive>,
 }
 
+/// Identity QEMU builds into the machine's own records. An SN1 machine's L1
+/// serves `mac` to its firmware and gives it to the IOC3.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Origin300Identity {
+pub struct Identity {
     pub mac: String,
-    pub spd_dimm2: String,
-    pub spd_dimm3: String,
-}
-
-pub struct Origin300Create<'a> {
-    pub spd_dimm2: &'a Path,
-    pub spd_dimm3: &'a Path,
-    pub mac: &'a str,
 }
 
 pub fn sha256_hex(data: &[u8]) -> String {
@@ -125,8 +118,6 @@ pub struct Network {
     pub mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mac: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forward: Vec<PortForward>,
 }
@@ -149,7 +140,6 @@ impl Default for Network {
         Self {
             mode: default_network_mode(),
             endpoint: None,
-            mac: None,
             forward: vec![],
         }
     }
@@ -255,6 +245,28 @@ pub fn tcp_endpoint(endpoint: &str) -> Result<Option<SocketAddrV4>> {
     Ok(Some(address))
 }
 
+/// Give the machine `mac`, the one Ethernet address QEMU uses for its
+/// identity records and onboard adapter. A machine keeps the address it has:
+/// changing it would change the identity an installed guest knows.
+pub fn set_machine_mac(file: &mut MachineFile, mac: Option<&str>) -> Result<()> {
+    let Some(mac) = mac else { return Ok(()) };
+    if !valid_mac(mac) {
+        return Err("--mac must contain six hexadecimal bytes".into());
+    }
+    let mac = mac.to_ascii_lowercase();
+    match &file.identity {
+        Some(identity) if !identity.mac.eq_ignore_ascii_case(&mac) => Err(format!(
+            "this machine's MAC is {}; omit --mac or pass that address",
+            identity.mac
+        )
+        .into()),
+        _ => {
+            file.identity = Some(Identity { mac });
+            Ok(())
+        }
+    }
+}
+
 pub fn valid_mac(mac: &str) -> bool {
     let parts: Vec<_> = mac.split(':').collect();
     parts.len() == 6
@@ -293,7 +305,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
     profiles::validate_graphics(offering, &file.machine.graphics)?;
     profiles::validate_inputs(offering, &file.machine.inputs)?;
     match file.network.mode.as_str() {
-        "none" | "user" if file.network.endpoint.is_none() && file.network.mac.is_none() => (),
+        "none" | "user" if file.network.endpoint.is_none() => (),
         "private" => {
             let endpoint = file
                 .network
@@ -307,13 +319,10 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
             if cfg!(windows) && tcp.is_none() {
                 return Err("Windows private network requires a loopback TCP endpoint".into());
             }
-            let mac = file
-                .network
-                .mac
-                .as_deref()
-                .ok_or("private network needs mac")?;
-            if !valid_mac(mac) {
-                return Err("network MAC must contain six hexadecimal bytes".into());
+            // Installation serves the guest by its Ethernet address, which
+            // QEMU takes from the machine's identity.
+            if file.identity.is_none() {
+                return Err("private networking needs the machine's MAC; supply --mac".into());
             }
         }
         _ => return Err("network mode must be user, none, or private".into()),
@@ -347,19 +356,10 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         }
     }
     runtime::check_state(dir, offering)?;
-    if let (true, Some(identity)) = (offering.product == "origin300", &file.identity) {
-        if offering.nodes != 1 || offering.smp != 2 {
-            return Err("explicit Origin 300 identity currently requires one two-CPU node".into());
-        }
+    if let Some(identity) = &file.identity {
         if !valid_mac(&identity.mac) {
-            return Err("Origin 300 identity MAC must contain six hexadecimal bytes".into());
+            return Err("identity MAC must contain six hexadecimal bytes".into());
         }
-        if file.network.mode == "private" && file.network.mac.as_deref() != Some(&identity.mac) {
-            return Err("private network MAC must match Origin 300 board identity".into());
-        }
-        origin300::validate_spd(dir, identity)?;
-    } else if file.identity.is_some() {
-        return Err("identity inputs are only supported for Origin 300".into());
     }
     let mut occupied = std::collections::HashSet::new();
     for drive in &file.drive {
@@ -404,7 +404,7 @@ pub fn validate_create_inputs(
     dir: &Path,
     offering: &Offering,
     memory_per_node: Option<u32>,
-    identity: Option<&Origin300Create<'_>>,
+    mac: Option<&str>,
 ) -> Result<()> {
     let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
     if !offering.memory.accepted.contains(&memory_per_node) {
@@ -419,18 +419,8 @@ pub fn validate_create_inputs(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    if let Some(inputs) = identity {
-        if offering.product != "origin300" {
-            return Err("SPD inputs are only supported for Origin 300".into());
-        }
-        if offering.nodes != 1 || offering.smp != 2 {
-            return Err("explicit SPD inputs and persistent IP35 flash currently require one two-CPU node; omit them to use native QEMU defaults".into());
-        }
-        origin300::validate_spd_file(inputs.spd_dimm2, origin300::DIMM2_SHA256)?;
-        origin300::validate_spd_file(inputs.spd_dimm3, origin300::DIMM3_SHA256)?;
-        if !valid_mac(inputs.mac) {
-            return Err("Origin 300 MAC must contain six hexadecimal bytes".into());
-        }
+    if mac.is_some_and(|mac| !valid_mac(mac)) {
+        return Err("--mac must contain six hexadecimal bytes".into());
     }
     Ok(())
 }
@@ -448,7 +438,7 @@ pub fn create_configured(
     offering: &Offering,
     init: &MachineInit<'_>,
     memory_per_node: Option<u32>,
-    identity: Option<Origin300Create<'_>>,
+    mac: Option<&str>,
     graphics: Option<&str>,
     inputs: std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
@@ -474,18 +464,6 @@ pub fn create_configured(
             fs::create_dir(dir.join(name))?;
         }
         runtime::create_state(init.tool, &arguments)?;
-        let identity = if let Some(inputs) = identity {
-            fs::create_dir(dir.join("firmware"))?;
-            fs::copy(inputs.spd_dimm2, dir.join("firmware/spd-dimm2.bin"))?;
-            fs::copy(inputs.spd_dimm3, dir.join("firmware/spd-dimm3.bin"))?;
-            Some(Origin300Identity {
-                mac: inputs.mac.into(),
-                spd_dimm2: "firmware/spd-dimm2.bin".into(),
-                spd_dimm3: "firmware/spd-dimm3.bin".into(),
-            })
-        } else {
-            None
-        };
         let file = MachineFile {
             format: MACHINE_FORMAT,
             machine: Machine {
@@ -498,7 +476,9 @@ pub fn create_configured(
                 memory_per_node: format!("{memory_per_node}MiB"),
                 graphics: graphics.into(),
             },
-            identity,
+            identity: mac.map(|mac| Identity {
+                mac: mac.to_ascii_lowercase(),
+            }),
             network: Network::default(),
             drive: vec![],
         };
@@ -723,6 +703,54 @@ mod tests {
         let error = validate(&catalog, &machine, &file).unwrap_err().to_string();
         assert!(error.contains("node3-flash.raw"), "{error}");
         assert!(error.contains("origami create"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_networking_uses_the_machine_mac() {
+        let root = std::env::temp_dir().join(format!("origami-identity-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir(&root).unwrap();
+        let catalog = test_catalogue();
+        let offer = preset(&catalog, "origin300-2").unwrap();
+        let tool = fake_init_tool(&root, offer);
+        let prom = root.join("prom.img");
+        let init = MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: None,
+        };
+        let machine = root.join("machine");
+        assert!(validate_create_inputs(&machine, offer, None, Some("08:00:69:zz:34:56")).is_err());
+        create_configured(
+            &machine,
+            offer,
+            &init,
+            None,
+            Some("02:00:5d:aa:bb:cc"),
+            None,
+            Default::default(),
+        )
+        .unwrap();
+        let mut file = read_machine(&machine).unwrap();
+        assert_eq!(file.identity.as_ref().unwrap().mac, "02:00:5d:aa:bb:cc");
+        file.network = Network {
+            mode: "private".into(),
+            endpoint: Some("tcp:127.0.0.1:4242".into()),
+            forward: vec![],
+        };
+        validate(&catalog, &machine, &file).unwrap();
+        let error = set_machine_mac(&mut file, Some("08:00:69:12:34:56"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("02:00:5d:aa:bb:cc"), "{error}");
+        set_machine_mac(&mut file, Some("02:00:5D:AA:BB:CC")).unwrap();
+        file.identity = None;
+        let error = validate(&catalog, &machine, &file).unwrap_err().to_string();
+        assert!(error.contains("--mac"), "{error}");
+        set_machine_mac(&mut file, Some("08:00:69:12:34:56")).unwrap();
+        validate(&catalog, &machine, &file).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 

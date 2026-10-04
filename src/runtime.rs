@@ -1,6 +1,6 @@
 use crate::{
-    control, origin300, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering,
-    PortForward, Result, StorageItem,
+    control, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering, PortForward,
+    Result, StorageItem,
 };
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
@@ -148,9 +148,6 @@ pub fn arguments(
     display: Display,
 ) -> Result<Vec<String>> {
     let mut machine = offering.machine_options.clone();
-    if offering.product == "origin300" && file.identity.is_some() {
-        machine.push_str(&origin300::machine_options(dir, file)?);
-    }
     if !matches!(offering.product.as_str(), "octane" | "octane2") {
         let population = offering
             .cpus_per_node
@@ -170,6 +167,9 @@ pub fn arguments(
         } else {
             machine.push_str(&format!(",{key}={value}"));
         }
+    }
+    if let Some(identity) = &file.identity {
+        machine.push_str(&format!(",mac={}", identity.mac));
     }
     if offering.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");
@@ -262,25 +262,8 @@ pub fn arguments(
                 )
             };
             args.extend(["-netdev".into(), address]);
-            args.extend([
-                "-net".into(),
-                format!(
-                    "nic,model=sgi-ioc3-eth,netdev=net0,macaddr={}",
-                    file.network
-                        .mac
-                        .as_deref()
-                        .ok_or("private network needs mac")?,
-                ),
-            ]);
-        }
-        "user" if offering.product == "origin300" && file.identity.is_some() => {
-            let mac = &file.identity.as_ref().unwrap().mac;
-            args.extend([
-                "-netdev".into(),
-                user_network(&file.network.forward),
-                "-net".into(),
-                format!("nic,model=sgi-ioc3-eth,netdev=net0,macaddr={mac}"),
-            ]);
+            // The adapter takes the machine's mac= from QEMU.
+            args.extend(["-net".into(), "nic,model=sgi-ioc3-eth,netdev=net0".into()]);
         }
         "user" if matches!(offering.product.as_str(), "octane" | "octane2") => args.extend([
             "-netdev".into(),
@@ -459,9 +442,6 @@ fn run_inner(
             #[cfg(not(unix))]
             let _ = metadata;
         }
-    }
-    if offering.product == "origin300" && file.identity.is_some() {
-        origin300::prepare_state(dir, file)?;
     }
     if !background {
         fs::create_dir_all(dir.join("logs"))?;
@@ -680,13 +660,11 @@ mod tests {
         let origin300 = preset(&catalog, "origin300-2").unwrap();
         let mut file = machine(origin300, "none");
         file.network.forward = rules;
-        file.identity = Some(crate::Origin300Identity {
+        file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
-            spd_dimm2: "firmware/spd-dimm2.bin".into(),
-            spd_dimm3: "firmware/spd-dimm3.bin".into(),
         });
         let args = arguments(Path::new("/machine"), &file, origin300, Display::None).unwrap();
-        assert!(args.windows(2).any(|pair| pair == ["-netdev", expected]));
+        assert!(args.windows(2).any(|pair| pair == ["-nic", expected]));
     }
 
     #[test]
@@ -770,40 +748,18 @@ mod tests {
     }
 
     #[test]
-    fn origin300_identity_uses_record_and_spd_inputs() {
+    fn identity_mac_is_a_machine_property() {
         let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin300-2").unwrap();
-        let dir = Path::new("/machine");
         let mut file = machine(offer, "none");
-        file.identity = Some(crate::Origin300Identity {
-            mac: "08:00:69:12:34:56".into(),
-            spd_dimm2: "firmware/spd-dimm2.bin".into(),
-            spd_dimm3: "firmware/spd-dimm3.bin".into(),
+        file.identity = Some(crate::Identity {
+            mac: "02:00:5d:aa:bb:cc".into(),
         });
-        let args = arguments(dir, &file, offer, Display::None).unwrap();
-        assert!(args.windows(2).any(|pair| pair[0] == "-M"
-            && pair[1].starts_with("origin300,topology=origin300,nodes=1,chassis-eeprom.0=,")));
-        for (slot, name) in [(3, "spd-dimm2.bin"), (5, "spd-dimm3.bin")] {
-            let expected = format!(
-                "spd-eeprom.{slot}={}",
-                resolve(dir, &format!("firmware/{name}")).display()
-            );
-            assert!(args.iter().any(|arg| arg.contains(&expected)));
-        }
-        assert!(args
-            .iter()
-            .any(|arg| arg == "nic,model=sgi-ioc3-eth,netdev=net0,macaddr=08:00:69:12:34:56"));
-        file.identity.as_mut().unwrap().spd_dimm2 = "firmware/dimm,2.bin".into();
-        let escaped = arguments(Path::new("/machine,one"), &file, offer, Display::None).unwrap();
-        assert!(escaped
-            .iter()
-            .any(|arg| arg.contains("chassis-eeprom.1=") && arg.contains("machine,,one")));
-        assert!(escaped
-            .iter()
-            .any(|arg| arg.contains("spd-eeprom.3=") && arg.contains("dimm,,2.bin")));
-        assert!(escaped
-            .iter()
-            .any(|arg| arg.contains("node-name=node0-flash,") && arg.contains("machine,,one")));
+        let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
+        let machine = &args.windows(2).find(|pair| pair[0] == "-M").unwrap()[1];
+        assert!(machine.contains(",mac=02:00:5d:aa:bb:cc"), "{machine}");
+        assert!(!args.iter().any(|arg| arg.contains("eeprom")));
+        assert!(!args.iter().any(|arg| arg.contains("macaddr")));
     }
 
     #[cfg(unix)]
@@ -815,20 +771,23 @@ mod tests {
         file.network = Network {
             mode: "private".into(),
             endpoint: Some("install,one.sock".into()),
-            mac: Some("08:00:69:12:34:56".into()),
             forward: vec![],
         };
+        file.identity = Some(crate::Identity {
+            mac: "08:00:69:12:34:56".into(),
+        });
         let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-netdev",
                 "stream,id=net0,server=off,addr.type=unix,addr.path=/machine/install,,one.sock"
             ]));
-        assert!(args.windows(2).any(|pair| pair
-            == [
-                "-net",
-                "nic,model=sgi-ioc3-eth,netdev=net0,macaddr=08:00:69:12:34:56"
-            ]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-net", "nic,model=sgi-ioc3-eth,netdev=net0"]));
+        assert!(args
+            .windows(2)
+            .any(|pair| pair[0] == "-M" && pair[1].contains(",mac=08:00:69:12:34:56")));
     }
 
     #[test]
@@ -839,9 +798,11 @@ mod tests {
         file.network = Network {
             mode: "private".into(),
             endpoint: Some("tcp:127.0.0.1:49173".into()),
-            mac: Some("08:00:69:12:34:56".into()),
             forward: vec![],
         };
+        file.identity = Some(crate::Identity {
+            mac: "08:00:69:12:34:56".into(),
+        });
         let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
         assert!(args.windows(2).any(|pair| pair
             == [

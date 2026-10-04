@@ -5,8 +5,7 @@ use clap::Parser;
 use cli::{Command as Action, DriveKind, NetworkMode};
 use origami::runtime;
 use origami::{
-    catalogue, presets, read_machine, resolve, validate, Catalog, Drive, Network, PortForward,
-    Result,
+    catalogue, presets, read_machine, validate, Catalog, Drive, Network, PortForward, Result,
 };
 use origami::{control, install};
 use std::fs;
@@ -119,15 +118,7 @@ fn command(action: Action) -> Result<()> {
                 );
             }
             if let Some(identity) = &file.identity {
-                println!("IO8 MAC: {}", identity.mac);
-                println!(
-                    "SPD DIMM 2: {}",
-                    resolve(&dir, &identity.spd_dimm2).display()
-                );
-                println!(
-                    "SPD DIMM 3: {}",
-                    resolve(&dir, &identity.spd_dimm3).display()
-                );
+                println!("identity MAC: {}", identity.mac);
             }
             for drive in &file.drive {
                 println!(
@@ -250,9 +241,9 @@ fn command(action: Action) -> Result<()> {
             file.network = Network {
                 mode: mode.as_str().into(),
                 endpoint,
-                mac,
                 forward: file.network.forward.clone(),
             };
+            origami::set_machine_mac(&mut file, mac.as_deref())?;
             validate(catalog()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("network: {}", mode.as_str());
@@ -300,9 +291,22 @@ fn command(action: Action) -> Result<()> {
             let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
             let path = if let Some(root) = media_root {
-                install::init_profile(catalog()?, &dir, &root, &mac, &mut file, profile.as_str())?
+                install::init_profile(
+                    catalog()?,
+                    &dir,
+                    &root,
+                    mac.as_deref(),
+                    &mut file,
+                    profile.as_str(),
+                )?
             } else {
-                install::init_remote_profile(catalog()?, &dir, &mac, &mut file, profile.as_str())?
+                install::init_remote_profile(
+                    catalog()?,
+                    &dir,
+                    mac.as_deref(),
+                    &mut file,
+                    profile.as_str(),
+                )?
             };
             println!("created {}", path.display());
         }

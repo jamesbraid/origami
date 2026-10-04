@@ -76,9 +76,10 @@ pub enum Command {
         dir: PathBuf,
         #[arg(long, value_enum)]
         mode: NetworkMode,
-        #[arg(long, required_if_eq("mode", "private"), requires = "mac")]
+        #[arg(long, required_if_eq("mode", "private"))]
         endpoint: Option<String>,
-        #[arg(long, required_if_eq("mode", "private"), requires = "endpoint")]
+        /// Machine MAC, when it has none yet
+        #[arg(long, requires = "endpoint")]
         mac: Option<String>,
     },
     /// Forward a host loopback port to a guest port
@@ -105,8 +106,9 @@ pub enum Command {
         dir: PathBuf,
         #[arg(long, value_name = "DIR")]
         media_root: Option<PathBuf>,
+        /// Machine MAC, when it has none yet
         #[arg(long)]
-        mac: String,
+        mac: Option<String>,
         #[arg(long, value_enum, default_value = "desktop")]
         profile: Profile,
     },
@@ -173,24 +175,8 @@ pub struct CreateOptions {
     /// Graphics device supported by the preset
     #[arg(long)]
     pub graphics: Option<String>,
-    /// Origin 300 DIMM 2 SPD file
-    #[arg(
-        long,
-        value_name = "FILE",
-        requires = "spd_dimm3",
-        help_heading = "Hardware options"
-    )]
-    pub spd_dimm2: Option<PathBuf>,
-    /// Origin 300 DIMM 3 SPD file
-    #[arg(
-        long,
-        value_name = "FILE",
-        requires = "spd_dimm2",
-        help_heading = "Hardware options"
-    )]
-    pub spd_dimm3: Option<PathBuf>,
-    /// Origin 300 identity MAC with explicit SPD files
-    #[arg(long, requires = "spd_dimm2", help_heading = "Hardware options")]
+    /// Ethernet address an Origin 300 or Fuel serves as its identity
+    #[arg(long, help_heading = "Hardware options")]
     pub mac: Option<String>,
     #[command(flatten)]
     pub hardware: HardwareArgs,
@@ -422,30 +408,6 @@ mod tests {
     }
 
     #[test]
-    fn explicit_identity_requires_both_spd_files() {
-        for flags in [
-            vec!["--spd-dimm2", "dimm2"],
-            vec!["--mac", "08:00:69:12:34:56"],
-        ] {
-            let mut args = vec!["origami", "create", "machine", "--preset", "origin300-2"];
-            args.extend(flags);
-            assert!(Cli::try_parse_from(args).is_err());
-        }
-        assert!(Cli::try_parse_from([
-            "origami",
-            "create",
-            "machine",
-            "--preset",
-            "origin300-2",
-            "--spd-dimm2",
-            "dimm2",
-            "--spd-dimm3",
-            "dimm3"
-        ])
-        .is_ok());
-    }
-
-    #[test]
     fn repeated_package_selections_are_preserved() {
         let cli = Cli::try_parse_from([
             "origami",
@@ -468,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn private_network_requires_both_endpoint_and_mac() {
+    fn private_network_requires_an_endpoint() {
         for args in [
             vec!["origami", "network-set", "machine", "--mode", "private"],
             vec![
@@ -477,30 +439,31 @@ mod tests {
                 "machine",
                 "--mode",
                 "private",
-                "--endpoint",
-                "tcp:127.0.0.1:4242",
+                "--mac",
+                "08:00:69:12:34:56",
             ],
         ] {
             assert!(Cli::try_parse_from(args).is_err());
         }
-        let cli = Cli::try_parse_from([
-            "origami",
-            "network-set",
-            "machine",
-            "--mode",
-            "private",
-            "--endpoint",
-            "tcp:127.0.0.1:4242",
-            "--mac",
-            "08:00:69:12:34:56",
-        ])
-        .unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Command::NetworkSet {
-                mode: NetworkMode::Private,
-                ..
-            })
-        ));
+        for extra in [&[][..], &["--mac", "08:00:69:12:34:56"][..]] {
+            let mut args = vec![
+                "origami",
+                "network-set",
+                "machine",
+                "--mode",
+                "private",
+                "--endpoint",
+                "tcp:127.0.0.1:4242",
+            ];
+            args.extend(extra);
+            let cli = Cli::try_parse_from(args).unwrap();
+            assert!(matches!(
+                cli.command,
+                Some(Command::NetworkSet {
+                    mode: NetworkMode::Private,
+                    ..
+                })
+            ));
+        }
     }
 }
