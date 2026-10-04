@@ -1,14 +1,6 @@
 use crate::{Catalog, Machine, Offering, Result};
 use std::collections::BTreeMap;
 
-pub fn legacy_topology(model: &str, nodes: u32) -> &str {
-    match (model, nodes) {
-        ("origin200", 2) => "origin200-dual",
-        ("origin2000", _) => "origin2000-rack",
-        _ => model,
-    }
-}
-
 pub fn population(machine: &Machine) -> Vec<u32> {
     if machine.population.is_empty() {
         vec![machine.cpus_per_node; machine.nodes as usize]
@@ -162,12 +154,12 @@ pub fn add_graphics(args: &mut Vec<String>, offering: &Offering, graphics: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{preset, runtime, Firmware, MachineFile, Network};
+    use crate::{preset, runtime, MachineFile, Network};
     use std::path::Path;
 
     fn file(o: &Offering, graphics: &str) -> MachineFile {
         MachineFile {
-            format: 1,
+            format: crate::MACHINE_FORMAT,
             machine: Machine {
                 model: o.product.clone(),
                 topology: Some(o.topology.clone()),
@@ -177,9 +169,6 @@ mod tests {
                 cpus_per_node: o.cpus_per_node[0],
                 memory_per_node: format!("{}MiB", o.memory.default),
                 graphics: graphics.into(),
-            },
-            firmware: Firmware {
-                image: "firmware/prom.bin".into(),
             },
             identity: None,
             network: Network::default(),
@@ -224,9 +213,8 @@ mod tests {
             runtime::Display::Vnc { port: 5901 },
         )
         .unwrap();
-        assert!(args
-            .windows(2)
-            .any(|p| p == ["-M", "octane,graphics-board=si"]));
+        assert!(args.windows(2).any(|p| p[0] == "-M"
+            && p[1].starts_with("octane,topology=octane,nodes=1,graphics-board=si,")));
         assert!(args.contains(&"nic,model=sgi-ioc3-eth,netdev=net0".into()));
         assert!(validate_graphics(o, "vpro").is_err());
     }

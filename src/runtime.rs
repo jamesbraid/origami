@@ -2,8 +2,8 @@ use crate::{
     control, origin300, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering,
     PortForward, Result, StorageItem,
 };
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 #[cfg(windows)]
@@ -50,78 +50,81 @@ fn qemu_data_path() -> Result<PathBuf> {
         .join("../../share/origami/qemu"))
 }
 
-pub fn prepare_state(
-    dir: &Path,
-    file: &MachineFile,
+pub fn machine_init_path() -> Result<PathBuf> {
+    Ok(qemu_path()?.with_file_name(binary_name("qemu-sgi-machine-init")))
+}
+
+/// The init tool's command line for a new machine whose storage goes in
+/// `state`. Each catalogue init input is the tool option of the same name.
+pub fn init_arguments(
     offering: &Offering,
-    prom: &Path,
-) -> Result<()> {
-    fs::create_dir_all(dir.join("state"))?;
-    for (node, nvram, clock) in nvram_stores(offering) {
-        ensure_size(&dir.join(format!("state/nvram{node}.raw")), nvram.size)?;
-        ensure_size(
-            &dir.join(format!("state/nvram{node}.raw.clock")),
-            clock.size,
-        )?;
-    }
-    if offering.product == "origin300" && file.identity.is_some() {
-        origin300::prepare_state(dir, file, prom)?;
-    }
-    if matches!(offering.product.as_str(), "origin2000" | "onyx2") {
-        let firmware = fs::read(prom)?;
-        if firmware.is_empty() || firmware.len() > 1048576 {
-            return Err("Origin 2000 PROM must fit one MiB".into());
-        }
-        let flash_dir = dir.join("state/node-proms");
-        fs::create_dir_all(&flash_dir)?;
-        for node in 1..=offering.nodes {
-            let store = flash_dir.join(format!("node{node}.bin"));
-            if !store.exists() {
-                let mut image = vec![0xff; 1048576];
-                image[..firmware.len()].copy_from_slice(&firmware);
-                // A newly erased pair needs a formatted PROM log before stock firmware can assign module IDs.
-                let log = 14 * 65536 + 0x10;
-                if image[14 * 65536..].iter().all(|byte| *byte == 0xff) {
-                    image[log..log + 12]
-                        .copy_from_slice(&[0x50, 0x4c, 0x4f, 0x47, 0, 0, 0, 1, 0, 0, 0, 1]);
-                }
-                OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&store)?
-                    .write_all(&image)?;
-            } else if fs::metadata(&store)?.len() != 1048576 {
-                return Err(format!("invalid node PROM size: {}", store.display()).into());
+    boot_prom: &Path,
+    io_prom: Option<&Path>,
+    state: &Path,
+) -> Result<Vec<OsString>> {
+    let mut args = vec!["--machine".into(), offering.machine_options.clone().into()];
+    for input in &offering.init_inputs {
+        let image = match input.name.as_str() {
+            "boot-prom" => Some(boot_prom),
+            "io-prom" => io_prom,
+            other => {
+                return Err(format!("{} needs unsupported input {other}", offering.topology).into())
             }
+        };
+        match image {
+            Some(image) => args.extend([format!("--{}", input.name).into(), image.into()]),
+            None if input.required => {
+                return Err(format!(
+                    "{} needs its {} image; supply --{} FILE",
+                    offering.topology, input.kind, input.name
+                )
+                .into())
+            }
+            None => (),
         }
+    }
+    if io_prom.is_some() && !offering.init_inputs.iter().any(|i| i.name == "io-prom") {
+        return Err(format!("{} has no IO PROM", offering.topology).into());
+    }
+    args.push(state.into());
+    Ok(args)
+}
+
+/// Run QEMU's init tool, which writes every storage file or nothing.
+pub fn create_state(tool: &Path, arguments: &[OsString]) -> Result<()> {
+    let output = Command::new(tool)
+        .args(arguments)
+        .output()
+        .map_err(|error| format!("cannot run {}: {error}", tool.display()))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{} failed ({}): {}",
+            tool.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )
+        .into());
     }
     Ok(())
 }
 
-fn nvram_stores(offering: &Offering) -> Vec<(usize, &StorageItem, &StorageItem)> {
-    let item = |name: String| offering.storage.iter().find(|item| item.name == name);
-    (0..)
-        .map_while(|index| {
-            Some((
-                index,
-                item(format!("nvram{index}"))?,
-                item(format!("nvram{index}-clock"))?,
-            ))
-        })
-        .collect()
+fn state_path(dir: &Path, item: &StorageItem) -> PathBuf {
+    dir.join("state").join(format!("{}.raw", item.name))
 }
 
-fn ensure_size(path: &Path, bytes: u64) -> Result<()> {
-    if path.exists() {
-        if fs::metadata(path)?.len() != bytes {
-            return Err(format!("invalid state file size: {}", path.display()).into());
+/// Origami never rebuilds missing storage: a flash file holds the guest's
+/// own PROM updates and settings, which the original images cannot restore.
+pub fn check_state(dir: &Path, offering: &Offering) -> Result<()> {
+    for item in &offering.storage {
+        let path = state_path(dir, item);
+        if !path.is_file() {
+            return Err(format!(
+                "missing machine state {}. Restore it from a backup, or create a new machine \
+                 with origami create and attach this machine's disks",
+                path.display()
+            )
+            .into());
         }
-    } else {
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?
-            .set_len(bytes)?;
     }
     Ok(())
 }
@@ -144,13 +147,9 @@ pub fn arguments(
     offering: &Offering,
     display: Display,
 ) -> Result<Vec<String>> {
-    let mut machine = if offering.product == "origin300" && file.identity.is_some() {
-        origin300::machine_options(dir, file)?
-    } else {
-        offering.product.clone()
-    };
-    if offering.topology != offering.product {
-        machine.push_str(&format!(",topology={}", offering.topology));
+    let mut machine = offering.machine_options.clone();
+    if offering.product == "origin300" && file.identity.is_some() {
+        machine.push_str(&origin300::machine_options(dir, file)?);
     }
     if !matches!(offering.product.as_str(), "octane" | "octane2") {
         let population = offering
@@ -159,10 +158,7 @@ pub fn arguments(
             .map(u32::to_string)
             .collect::<Vec<_>>()
             .join(":");
-        machine.push_str(&format!(
-            ",nodes={},population={population}",
-            offering.nodes
-        ));
+        machine.push_str(&format!(",population={population}"));
     } else {
         machine.push_str(&format!(",graphics-board={}", file.machine.graphics));
     }
@@ -177,6 +173,21 @@ pub fn arguments(
     }
     if offering.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");
+    }
+    // Each store is a block node bound through the machine property of the
+    // same name.
+    let mut storage = Vec::new();
+    for item in &offering.storage {
+        machine.push_str(&format!(",{0}={0}", item.name));
+        storage.extend([
+            "-blockdev".into(),
+            format!(
+                "driver=raw,node-name={},file.driver=file,file.filename={}{}",
+                item.name,
+                qemu_path_option(&state_path(dir, item)),
+                if item.read_only { ",read-only=on" } else { "" }
+            ),
+        ]);
     }
     let memory: u32 = file
         .machine
@@ -204,48 +215,7 @@ pub fn arguments(
         "-m".into(),
         (memory * offering.nodes).to_string(),
     ];
-    if matches!(offering.product.as_str(), "origin2000" | "onyx2") {
-        for node in 0..offering.nodes {
-            args.extend([
-                "-drive".into(),
-                format!(
-                    "if=pflash,index={node},file={},format=raw",
-                    qemu_path_option(&dir.join(format!("state/node-proms/node{}.bin", node + 1))),
-                ),
-            ]);
-        }
-    } else {
-        args.extend([
-            "-bios".into(),
-            resolve(dir, &file.firmware.image).display().to_string(),
-        ]);
-        if offering.product == "origin300" && file.identity.is_some() {
-            args.extend([
-                "-drive".into(),
-                format!(
-                    "if=pflash,index=0,file={},format=raw",
-                    qemu_path_option(&origin300::flash_path(dir))
-                ),
-            ]);
-        }
-    }
-    for (node, _, _) in nvram_stores(offering) {
-        let path = dir.join(format!("state/nvram{node}.raw"));
-        args.extend([
-            "-drive".into(),
-            format!(
-                "if=none,id=sgi-nvram{node},file={},format=raw",
-                qemu_path_option(&path)
-            ),
-        ]);
-        args.extend([
-            "-drive".into(),
-            format!(
-                "if=none,id=sgi-nvram{node}-clock,file={},format=raw",
-                qemu_path_option(&dir.join(format!("state/nvram{node}.raw.clock")))
-            ),
-        ]);
-    }
+    args.extend(storage);
     match display {
         Display::Local => args.extend(["-display".into(), "sdl,window-close=off".into()]),
         Display::Vnc { port } => {
@@ -458,6 +428,8 @@ fn run_inner(
     if !keymap.is_file() {
         return Err(format!("packaged QEMU keymap missing: {}", keymap.display()).into());
     }
+    // A machine without its storage is not started, and gains nothing.
+    check_state(dir, offering)?;
     let _lock = control::lock_for_edit(dir, "starting it again")?;
     let mut args = arguments(dir, file, offering, display)?;
     if file.network.mode == "private" {
@@ -482,7 +454,9 @@ fn run_inner(
             let _ = metadata;
         }
     }
-    prepare_state(dir, file, offering, &resolve(dir, &file.firmware.image))?;
+    if offering.product == "origin300" && file.identity.is_some() {
+        origin300::prepare_state(dir, file)?;
+    }
     if !background {
         fs::create_dir_all(dir.join("logs"))?;
         log_primary_serial(
@@ -558,11 +532,11 @@ fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{preset, Firmware, Machine, Network};
+    use crate::{preset, Machine, Network};
 
     fn machine(offering: &Offering, graphics: &str) -> MachineFile {
         MachineFile {
-            format: 1,
+            format: crate::MACHINE_FORMAT,
             machine: Machine {
                 topology: None,
                 population: vec![],
@@ -572,9 +546,6 @@ mod tests {
                 cpus_per_node: offering.cpus_per_node[0],
                 memory_per_node: format!("{}MiB", offering.memory.default),
                 graphics: graphics.into(),
-            },
-            firmware: Firmware {
-                image: "firmware/prom.bin".into(),
             },
             identity: None,
             network: Network::default(),
@@ -702,27 +673,83 @@ mod tests {
     }
 
     #[test]
-    fn origin2000_uses_independent_node_flash_images() {
+    fn storage_attaches_as_named_block_nodes() {
         let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin2000-8").unwrap();
         let args = arguments(
-            Path::new("/machine"),
+            Path::new("/machine,one"),
             &machine(offer, "none"),
             offer,
             Display::None,
         )
         .unwrap();
-        let flashes = args
+        let blockdevs: Vec<_> = args
             .windows(2)
-            .filter(|pair| pair[0] == "-drive" && pair[1].starts_with("if=pflash,"))
-            .count();
-        assert_eq!(flashes, 4);
-        assert!(!args.iter().any(|arg| arg == "-bios"));
+            .filter(|pair| pair[0] == "-blockdev")
+            .map(|pair| pair[1].as_str())
+            .collect();
+        assert_eq!(blockdevs.len(), offer.storage.len());
+        assert_eq!(
+            blockdevs[0],
+            "driver=raw,node-name=node0-flash,file.driver=file,\
+             file.filename=/machine,,one/state/node0-flash.raw"
+        );
+        assert!(blockdevs.contains(
+            &"driver=raw,node-name=io0-flash,file.driver=file,\
+              file.filename=/machine,,one/state/io0-flash.raw"
+        ));
+        assert!(!args.iter().any(|arg| arg == "-bios" || arg == "-drive"));
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-M",
-                "origin2000,topology=origin2000-rack,nodes=4,population=2:2:2:2"
+                "origin2000,topology=origin2000-rack,nodes=4,population=2:2:2:2,\
+                 node0-flash=node0-flash,node1-flash=node1-flash,node2-flash=node2-flash,\
+                 node3-flash=node3-flash,io0-flash=io0-flash,nvram0=nvram0,\
+                 nvram0-clock=nvram0-clock"
             ]));
+    }
+
+    #[test]
+    fn init_arguments_follow_the_catalogue_inputs() {
+        let catalog = crate::test_catalogue();
+        let origin200 = preset(&catalog, "origin200-1").unwrap();
+        let args = init_arguments(
+            origin200,
+            Path::new("boot,prom.img"),
+            None,
+            Path::new("/machine/state"),
+        )
+        .unwrap();
+        assert_eq!(
+            args,
+            [
+                "--machine",
+                "origin200,topology=origin200,nodes=1",
+                "--boot-prom",
+                "boot,prom.img",
+                "/machine/state"
+            ]
+        );
+        let error = init_arguments(
+            origin200,
+            Path::new("boot.img"),
+            Some(Path::new("io.img")),
+            Path::new("state"),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("no IO PROM"), "{error}");
+        let origin2000 = preset(&catalog, "origin2000-8").unwrap();
+        let error = init_arguments(origin2000, Path::new("boot.img"), None, Path::new("state"))
+            .unwrap_err();
+        assert!(error.to_string().contains("--io-prom FILE"), "{error}");
+        let args = init_arguments(
+            origin2000,
+            Path::new("boot.img"),
+            Some(Path::new("io.img")),
+            Path::new("state"),
+        )
+        .unwrap();
+        assert_eq!(&args[4..], ["--io-prom", "io.img", "state"]);
     }
 
     #[cfg(unix)]

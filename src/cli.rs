@@ -164,6 +164,9 @@ pub struct CreateOptions {
     /// Local boot PROM instead of a download
     #[arg(long, value_name = "FILE")]
     pub prom: Option<PathBuf>,
+    /// Local IO PROM for presets with a BASEIO or GIGAchannel board
+    #[arg(long, value_name = "FILE")]
+    pub io_prom: Option<PathBuf>,
     /// Memory per node in MiB
     #[arg(long, value_name = "MiB")]
     pub memory_per_node: Option<u32>,

@@ -1,11 +1,9 @@
 use crate::{qemu_path_option, resolve, sha256_file, MachineFile, Origin300Identity, Result};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
 
 pub const DIMM2_SHA256: &str = "a8bb5857941fefae8e11037fe98b01d199199bd34eb059b269a8c4b6875ca0d3";
 pub const DIMM3_SHA256: &str = "9e60c3400772d227b91c5d61cea8de7f89777d41377516de072944c26cef4aa7";
-const FLASH_BYTES: usize = 16 * 1024 * 1024;
 
 pub fn validate_spd_file(path: &Path, expected: &str) -> Result<()> {
     if fs::metadata(path)?.len() != 128 || sha256_file(path)? != expected {
@@ -24,17 +22,13 @@ pub fn validate_spd(dir: &Path, identity: &Origin300Identity) -> Result<()> {
     Ok(())
 }
 
-pub fn flash_path(dir: &Path) -> PathBuf {
-    dir.join("state/ip35-boot-flash.raw")
-}
-
 pub fn machine_options(dir: &Path, file: &MachineFile) -> Result<String> {
     let identity = file
         .identity
         .as_ref()
         .ok_or("Origin 300 needs an identity section")?;
     Ok(format!(
-        "origin300,chassis-eeprom.0=,chassis-eeprom.1={},board-eeprom.0=,board-eeprom.1={},spd-eeprom.0=,spd-eeprom.1=,spd-eeprom.2=,spd-eeprom.3={},spd-eeprom.4=,spd-eeprom.5={}",
+        ",chassis-eeprom.0=,chassis-eeprom.1={},board-eeprom.0=,board-eeprom.1={},spd-eeprom.0=,spd-eeprom.1=,spd-eeprom.2=,spd-eeprom.3={},spd-eeprom.4=,spd-eeprom.5={}",
         qemu_path_option(&dir.join("state/io8-chassis.bin")),
         qemu_path_option(&dir.join("state/io8-board.bin")),
         qemu_path_option(&resolve(dir, &identity.spd_dimm2)),
@@ -82,27 +76,7 @@ fn board_record(mac: &str) -> Result<[u8; 80]> {
     Ok(record)
 }
 
-fn seed_flash(prom: &[u8]) -> Result<Vec<u8>> {
-    if prom.len() > 0x9e0000 {
-        return Err("Origin 300 PROM overlaps the boot flash label".into());
-    }
-    let mut image = vec![0xff; FLASH_BYTES];
-    image[..prom.len()].copy_from_slice(prom);
-    image[0x9e0010..0x9e001c].copy_from_slice(b"PLOI\0\0\0\x01\0\0\0\x01");
-    for (offset, name) in [
-        (0x9e0100, b"DisableB".as_slice()),
-        (0x9e0140, b"DisableD".as_slice()),
-    ] {
-        let record = &mut image[offset..offset + 64];
-        record.fill(0);
-        record[0] = 0x10;
-        record[1..1 + name.len()].copy_from_slice(name);
-        record[16..42].copy_from_slice(b"32: CPU failed early init.");
-    }
-    Ok(image)
-}
-
-pub fn prepare_state(dir: &Path, file: &MachineFile, prom: &Path) -> Result<()> {
+pub fn prepare_state(dir: &Path, file: &MachineFile) -> Result<()> {
     let identity = file
         .identity
         .as_ref()
@@ -110,20 +84,6 @@ pub fn prepare_state(dir: &Path, file: &MachineFile, prom: &Path) -> Result<()> 
     let board = board_record(&identity.mac)?;
     fs::write(dir.join("state/io8-chassis.bin"), chassis_record())?;
     fs::write(dir.join("state/io8-board.bin"), board)?;
-    let target = flash_path(dir);
-    if target.exists() {
-        let info = fs::symlink_metadata(&target)?;
-        if !info.file_type().is_file() || info.len() != FLASH_BYTES as u64 {
-            return Err(format!("invalid Origin 300 boot flash: {}", target.display()).into());
-        }
-        return Ok(());
-    }
-    let image = seed_flash(&fs::read(prom)?)?;
-    OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&target)?
-        .write_all(&image)?;
     Ok(())
 }
 
@@ -153,19 +113,6 @@ mod tests {
                 .iter()
                 .fold(0u8, |sum, byte| sum.wrapping_add(*byte)),
             0
-        );
-    }
-
-    #[test]
-    fn two_cpu_seed_marks_only_empty_slots() {
-        let image = seed_flash(&vec![0x42; 1476264]).unwrap();
-        assert_eq!(&image[0x9e0010..0x9e0014], b"PLOI");
-        assert_eq!(&image[0x9e0101..0x9e0109], b"DisableB");
-        assert_eq!(&image[0x9e0141..0x9e0149], b"DisableD");
-        assert_eq!(image[0x9e0180], 0xff);
-        assert_eq!(
-            crate::sha256_hex(&image),
-            "ca02338573f873c8717b7a81ea5e28d148b0162da84e839e04747afe54617f50"
         );
     }
 }

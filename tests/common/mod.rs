@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Write a QEMU that answers `query-sgi-machines` from the test catalogue
-/// and return the directory to select with `ORIGAMI_RUNTIME_DIR`.
+/// and an init tool that creates Origin 200 storage. Returns the directory
+/// to select with `ORIGAMI_RUNTIME_DIR`.
 fn fake_runtime(root: &Path) -> PathBuf {
     let runtime = root.join("runtime");
     if runtime.join("qemu-system-mips64").exists() {
@@ -29,6 +30,16 @@ while IFS= read -r line; do
 done"#,
             catalogue.display()
         ),
+    );
+    // Only the Origin 200 storage the command tests create is known here.
+    script(
+        &runtime.join("qemu-sgi-machine-init"),
+        r#"[ "$1 $2" = "--machine origin200,topology=origin200,nodes=1" ] || exit 9
+for dir; do :; done
+mkdir "$dir" || exit 1
+for item in node0-flash:1048576 nvram0:32768 nvram0-clock:16; do
+    dd if=/dev/zero of="$dir/${item%%:*}.raw" bs=1 count=0 seek="${item#*:}" 2>/dev/null || exit 1
+done"#,
     );
     runtime
 }
