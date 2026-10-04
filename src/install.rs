@@ -55,6 +55,7 @@ struct Layer {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InstallRecipe {
+    #[cfg_attr(not(test), allow(dead_code))]
     format: u32,
     base_url: String,
     sets: Vec<String>,
@@ -73,20 +74,8 @@ fn legacy_profile() -> String {
 }
 
 fn recipe(profile: &str) -> Result<InstallRecipe> {
-    let recipe: InstallRecipe =
+    let mut recipe: InstallRecipe =
         toml::from_str(include_str!("../resources/instigator-irix-6.5.30.toml"))?;
-    if recipe.format != 1 || !recipe.base_url.ends_with('/') {
-        return Err("unsupported install recipe format or base URL".into());
-    }
-    crate::assets::validate_https_url(&recipe.base_url)?;
-    for layer in &recipe.layers {
-        crate::assets::validate_https_url(&format!(
-            "{}{}",
-            recipe.base_url,
-            layer.remote_path.as_deref().unwrap_or(&layer.path)
-        ))?;
-    }
-    let mut recipe = recipe;
     let (selection_profile, sets): (&str, Option<&[&str]>) = match profile {
         "base" => ("base", Some(&["6.5.30", "foundations"])),
         "desktop" => (
@@ -825,6 +814,22 @@ pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_recipe_has_https_layer_urls() {
+        let recipe = recipe("legacy-development").unwrap();
+        assert_eq!(recipe.format, 1);
+        assert!(recipe.base_url.ends_with('/'));
+        crate::assets::validate_https_url(&recipe.base_url).unwrap();
+        for layer in &recipe.layers {
+            crate::assets::validate_https_url(&format!(
+                "{}{}",
+                recipe.base_url,
+                layer.remote_path.as_deref().unwrap_or(&layer.path)
+            ))
+            .unwrap();
+        }
+    }
 
     #[test]
     fn install_apply_returns_on_explicit_conflict_from_inst_output() {

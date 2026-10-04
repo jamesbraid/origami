@@ -1,5 +1,6 @@
 use crate::Result;
 use serde::Deserialize;
+use sha2::Digest;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
@@ -21,31 +22,8 @@ pub struct Prom {
     pub version: String,
 }
 
-impl Manifest {
-    pub fn parse(text: &str) -> Result<Self> {
-        let manifest: Self = toml::from_str(text)?;
-        if manifest.format != 1 {
-            return Err(format!("unsupported PROM manifest format {}", manifest.format).into());
-        }
-        validate_https_url(&manifest.base_url)?;
-        if !manifest.base_url.ends_with('/') {
-            return Err("PROM base URL must end with /".into());
-        }
-        let mut profiles = std::collections::HashSet::new();
-        for prom in &manifest.proms {
-            validate_prom(prom)?;
-            for profile in &prom.profiles {
-                if profile.is_empty() || !profiles.insert(profile) {
-                    return Err(format!("empty or duplicate PROM profile: {profile}").into());
-                }
-            }
-        }
-        Ok(manifest)
-    }
-}
-
 pub fn manifest() -> Result<Manifest> {
-    Manifest::parse(include_str!("../resources/proms.toml"))
+    Ok(toml::from_str(include_str!("../resources/proms.toml"))?)
 }
 
 pub fn validate_https_url(value: &str) -> Result<()> {
@@ -94,21 +72,6 @@ fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_prom(prom: &Prom) -> Result<()> {
-    validate_path(&prom.path)?;
-    if prom.size == 0
-        || prom.sha256.len() != 64
-        || !prom
-            .sha256
-            .bytes()
-            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-        || prom.profiles.is_empty()
-    {
-        return Err(format!("invalid size, SHA-256 or profiles for PROM {}", prom.path).into());
-    }
-    Ok(())
-}
-
 pub fn acquire(profile_id: &str) -> Result<PathBuf> {
     let manifest = manifest()?;
     let prom = manifest
@@ -132,108 +95,47 @@ pub fn acquire(profile_id: &str) -> Result<PathBuf> {
         .map_err(|e| format!("cannot acquire PROM {}: {e}; offline creation requires a verified cache entry or --prom FILE", prom.path).into())
 }
 
-fn verified(path: &Path, prom: &Prom) -> Result<bool> {
-    use sha2::{Digest, Sha256};
-    use std::io::Read;
-    let mut file = match std::fs::File::open(path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(e.into()),
-    };
-    if file.metadata()?.len() != prom.size {
-        return Ok(false);
-    }
-    let mut hash = Sha256::new();
-    let mut bytes = [0; 16384];
-    let mut size = 0;
-    loop {
-        let count = file.read(&mut bytes)?;
-        if count == 0 {
-            break;
-        }
-        size += count as u64;
-        if size > prom.size {
-            return Ok(false);
-        }
-        hash.update(&bytes[..count]);
-    }
-    Ok(size == prom.size && format!("{:x}", hash.finalize()) == prom.sha256)
-}
-
 fn acquire_from(prom: &Prom, base: &str, cache: &Path, client: &ureq::Agent) -> Result<PathBuf> {
-    use fs2::FileExt;
-    use sha2::{Digest, Sha256};
-    use std::fs::{self, OpenOptions};
-    use std::io::{Read, Write};
-    validate_prom(prom)?;
-    fs::create_dir_all(cache)?;
+    use std::io::Read;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    std::fs::create_dir_all(cache)?;
     let final_path = cache.join(format!("{}.bin", prom.sha256));
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(cache.join(format!("{}.lock", prom.sha256)))?;
-    lock.lock_exclusive()?;
-    if verified(&final_path, prom)? {
+    if std::fs::metadata(&final_path).is_ok_and(|m| m.len() == prom.size)
+        && crate::sha256_file(&final_path)? == prom.sha256
+    {
         return Ok(final_path);
     }
-    let partial = cache.join(format!("{}.part", prom.sha256));
-    for path in [&final_path, &partial] {
-        match fs::remove_file(path) {
-            Ok(()) => (),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-            Err(e) => return Err(e.into()),
-        }
-    }
     eprintln!("Downloading PROM {} ({} bytes)", prom.path, prom.size);
-    let result = (|| -> Result<()> {
-        let response = client.get(&format!("{base}{}", prom.path)).call()?;
-        if response.status() != 200 {
-            return Err(format!("PROM download returned HTTP {}", response.status()).into());
-        }
-        if let Some(length) = response.header("Content-Length") {
-            if length.parse::<u64>()? != prom.size {
-                return Err("PROM download byte size does not match manifest".into());
-            }
-        }
-        let mut reader = response.into_reader();
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&partial)?;
-        let mut hash = Sha256::new();
-        let mut total = 0;
-        let mut bytes = [0; 16384];
-        loop {
-            let limit = (prom.size.saturating_sub(total).saturating_add(1)).min(bytes.len() as u64)
-                as usize;
-            let count = reader.read(&mut bytes[..limit])?;
-            if count == 0 {
-                break;
-            }
-            total += count as u64;
-            if total > prom.size {
-                return Err("PROM download exceeds manifest byte size".into());
-            }
-            file.write_all(&bytes[..count])?;
-            hash.update(&bytes[..count]);
-        }
-        if total != prom.size {
-            return Err("PROM download is truncated".into());
-        }
-        if format!("{:x}", hash.finalize()) != prom.sha256 {
-            return Err("PROM download SHA-256 does not match manifest".into());
-        }
-        file.sync_all()?;
-        drop(file);
-        fs::rename(&partial, &final_path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&partial);
+    let response = client.get(&format!("{base}{}", prom.path)).call()?;
+    if response.status() != 200 {
+        return Err(format!("PROM download returned HTTP {}", response.status()).into());
     }
-    result?;
+    // One byte past the expected size is enough to detect an oversized body.
+    let mut body = Vec::new();
+    response
+        .into_reader()
+        .take(prom.size + 1)
+        .read_to_end(&mut body)?;
+    if body.len() as u64 != prom.size {
+        return Err("PROM download byte size does not match manifest".into());
+    }
+    if format!("{:x}", sha2::Sha256::digest(&body)) != prom.sha256 {
+        return Err("PROM download SHA-256 does not match manifest".into());
+    }
+    // Concurrent creates may both download; identical verified bytes make the
+    // rename race harmless.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let temp = cache.join(format!(
+        "{}.{}.{}.tmp",
+        prom.sha256,
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&temp, &body)?;
+    if let Err(e) = std::fs::rename(&temp, &final_path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e.into());
+    }
     Ok(final_path)
 }
 
@@ -244,7 +146,6 @@ mod tests {
     use std::fs;
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -331,41 +232,29 @@ mod tests {
         validate_https_url("https://origami-dist.irix.fans/prom/test.bin").unwrap();
     }
     #[test]
-    fn manifest_rejects_unsafe_paths_and_invalid_pins() {
-        for path in [
-            "/prom.bin",
-            "../prom.bin",
-            "prom/../test.bin",
-            "prom//test.bin",
-            "prom/./test.bin",
-            "prom/test%2ebin",
-            "https://host/prom.bin",
-            "prom/test\\bin",
-            "prom/test bin",
-            "prom/test.bin?x=1",
-        ] {
-            let mut entry = prom();
-            entry.path = path.into();
-            assert!(validate_prom(&entry).is_err(), "{path}");
-        }
-        let valid = format!("format = 1\nbase_url = \"https://origami-dist.irix.fans/\"\n[[proms]]\npath = \"prom/test.bin\"\nsize = 4\nsha256 = \"{}\"\nprofiles = [\"test-profile\"]\n", prom().sha256);
-        for invalid in [
-            valid.replace("format = 1", "format = 2"),
-            valid.replace("size = 4", "size = 0"),
-            valid.replace(&prom().sha256, "not-a-hash"),
-            valid.replace(
-                "profiles = [\"test-profile\"]",
-                "profiles = [\"test-profile\", \"test-profile\"]",
-            ),
-            valid.replace("https://", "http://"),
-            format!("{valid}unknown = true\n"),
-        ] {
-            assert!(Manifest::parse(&invalid).is_err(), "{invalid}");
-        }
-    }
-    #[test]
     fn embedded_manifest_covers_supported_presets() {
         let manifest = manifest().unwrap();
+        // The manifest is compile-time data, so check it here rather than at runtime.
+        assert_eq!(manifest.format, 1);
+        validate_https_url(&manifest.base_url).unwrap();
+        assert!(manifest.base_url.ends_with('/'));
+        let mut seen = std::collections::HashSet::new();
+        for prom in &manifest.proms {
+            validate_https_url(&format!("{}{}", manifest.base_url, prom.path)).unwrap();
+            assert!(prom.size > 0 && !prom.profiles.is_empty(), "{}", prom.path);
+            assert!(
+                prom.sha256.len() == 64
+                    && prom
+                        .sha256
+                        .bytes()
+                        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
+                "{}",
+                prom.path
+            );
+            for profile in &prom.profiles {
+                assert!(!profile.is_empty() && seen.insert(profile), "{profile}");
+            }
+        }
         for name in [
             "origin200-1",
             "origin200-2",
@@ -383,52 +272,6 @@ mod tests {
                 "{name}"
             );
         }
-    }
-    #[test]
-    fn failed_download_can_retry_after_stale_partial() {
-        let cache = Scratch::new();
-        fs::write(cache.0.join(format!("{}.part", prom().sha256)), b"stale").unwrap();
-        let (base, handle) =
-            server(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest");
-        let path = acquire_from(&prom(), &base, &cache.0, &client()).unwrap();
-        handle.join().unwrap();
-        assert_eq!(fs::read(path).unwrap(), b"test");
-    }
-    #[test]
-    fn process_cache_worker() {
-        let Ok(cache) = std::env::var("ORIGAMI_TEST_PROM_CACHE") else {
-            return;
-        };
-        let base = std::env::var("ORIGAMI_TEST_PROM_BASE").unwrap();
-        let path = acquire_from(&prom(), &base, Path::new(&cache), &client()).unwrap();
-        assert_eq!(fs::read(path).unwrap(), b"test");
-    }
-    #[test]
-    fn separate_processes_share_verified_cache() {
-        let cache = Scratch::new();
-        let (base, handle) =
-            server(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest");
-        let mut children: Vec<_> = (0..2)
-            .map(|_| {
-                std::process::Command::new(std::env::current_exe().unwrap())
-                    .args(["--exact", "assets::tests::process_cache_worker"])
-                    .env("ORIGAMI_TEST_PROM_CACHE", &cache.0)
-                    .env("ORIGAMI_TEST_PROM_BASE", &base)
-                    .stdout(std::process::Stdio::null())
-                    .spawn()
-                    .unwrap()
-            })
-            .collect();
-        for child in &mut children {
-            assert!(child.wait().unwrap().success());
-        }
-        handle.join().unwrap();
-    }
-    #[test]
-    fn parses_profile_mapping() {
-        let text = format!("format = 1\nbase_url = \"https://origami-dist.irix.fans/\"\n[[proms]]\npath = \"prom/test.bin\"\nsize = 4\nsha256 = \"{}\"\nprofiles = [\"test-profile\"]\n", prom().sha256);
-        let manifest = Manifest::parse(&text).unwrap();
-        assert_eq!(manifest.proms[0].profiles, ["test-profile"]);
     }
     #[test]
     fn downloads_and_reuses_verified_cache_offline() {
@@ -454,7 +297,7 @@ mod tests {
         assert_eq!(fs::read(path).unwrap(), b"test");
     }
     #[test]
-    fn rejects_invalid_downloads_and_removes_partial_files() {
+    fn rejects_invalid_downloads_and_leaves_nothing_cached() {
         for response in [
             b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nte".as_slice(),
             b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\ntestextra".as_slice(),
@@ -466,31 +309,7 @@ mod tests {
             assert!(acquire_from(&prom(), &base, &cache.0, &client()).is_err());
             handle.join().unwrap();
             assert!(!cache.0.join(format!("{}.bin", prom().sha256)).exists());
-            assert!(!cache.0.join(format!("{}.part", prom().sha256)).exists());
+            assert_eq!(fs::read_dir(&cache.0).unwrap().count(), 0);
         }
-    }
-    #[test]
-    fn concurrent_acquisitions_share_one_download() {
-        let cache = Scratch::new();
-        let (base, handle) =
-            server(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest");
-        let barrier = Arc::new(Barrier::new(2));
-        let workers: Vec<_> = (0..2)
-            .map(|_| {
-                let cache = cache.0.clone();
-                let base = base.clone();
-                let barrier = barrier.clone();
-                thread::spawn(move || {
-                    barrier.wait();
-                    acquire_from(&prom(), &base, &cache, &client()).map_err(|e| e.to_string())
-                })
-            })
-            .collect();
-        let paths: Vec<_> = workers
-            .into_iter()
-            .map(|w| w.join().unwrap().unwrap())
-            .collect();
-        handle.join().unwrap();
-        assert_eq!(paths[0], paths[1]);
     }
 }
