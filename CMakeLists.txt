@@ -21,7 +21,7 @@ endif()
 include(ExternalProject)
 include(CTest)
 find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
-find_program(PRODUCT_NINJA ninja REQUIRED)
+find_program(PRODUCT_MAKE NAMES gmake make REQUIRED)
 find_program(PRODUCT_CARGO cargo REQUIRED)
 find_program(PRODUCT_RUSTC rustc REQUIRED)
 find_program(PRODUCT_GO go REQUIRED)
@@ -107,8 +107,16 @@ ExternalProject_Add(qemu-product
       "${CMAKE_BINARY_DIR}/product-build.json" --build-qemu
   BUILD_ALWAYS TRUE USES_TERMINAL_BUILD TRUE INSTALL_COMMAND ""
   BUILD_BYPRODUCTS "${qemu_build}/qemu-system-mips64${exe}" "${qemu_build}/qemu-img${exe}")
-ExternalProject_Add_StepDependencies(qemu-product configure
-  "${CMAKE_SOURCE_DIR}/qemu/configure" "${CMAKE_SOURCE_DIR}/qemu/meson.build")
+# Meson keeps extracted subprojects until explicitly updated.
+file(GLOB libslirp_patches CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/qemu/subprojects/packagefiles/libslirp*.patch")
+ExternalProject_Add_Step(qemu-product refresh-libslirp
+  COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
+    "${qemu_build}/pyvenv/bin/meson" subprojects update --reset
+    --sourcedir "${CMAKE_SOURCE_DIR}/qemu" libslirp
+  WORKING_DIRECTORY "${qemu_build}"
+  DEPENDEES configure DEPENDERS build
+  DEPENDS "${CMAKE_SOURCE_DIR}/qemu/subprojects/libslirp.wrap" ${libslirp_patches})
 add_custom_target(frontend
   COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment} ${cargo_environment}
     "${PRODUCT_CARGO}" build --locked ${cargo_flags}
@@ -138,13 +146,13 @@ foreach(key product_source qemu_source instigator_source)
 endforeach()
 set(rustc "${PRODUCT_RUSTC}")
 set(go "${PRODUCT_GO}")
-set(ninja "${PRODUCT_NINJA}")
+set(make "${PRODUCT_MAKE}")
 set(jobs "${PRODUCT_JOBS}")
 set(python "${Python3_EXECUTABLE}")
 set(platform "${PRODUCT_PLATFORM}")
 set(rust_target "${PRODUCT_RUST_TARGET}")
 set(manifest "{}")
-foreach(key product_source qemu_source instigator_source qemu_build cargo_target_dir cargo_home go_mod_cache go_build_cache instigator_binary rustc go ninja jobs python platform rust_target build_type output_dir archive_root_name)
+foreach(key product_source qemu_source instigator_source qemu_build cargo_target_dir cargo_home go_mod_cache go_build_cache instigator_binary rustc go make jobs python platform rust_target build_type output_dir archive_root_name)
   string(REPLACE "\\" "\\\\" value "${${key}}")
   string(REPLACE "\"" "\\\"" value "${value}")
   string(JSON manifest SET "${manifest}" "${key}" "\"${value}\"")

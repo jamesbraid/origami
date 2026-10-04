@@ -106,9 +106,9 @@ else:
 """)
         tool.chmod(0o755)
         meson.symlink_to(tool)
-        ninja = self.root / 'ninja'
-        ninja.symlink_to(tool)
-        self.manifest.update(ninja=str(ninja), jobs='2')
+        make = self.root / 'make'
+        make.symlink_to(tool)
+        self.manifest.update(make=str(make), jobs='2')
         artifact = build / 'qemu-system-mips64'
         self.stage.build_qemu(self.manifest)
         self.assertEqual(artifact.read_text(), 'sgi-origami v11.1.0')

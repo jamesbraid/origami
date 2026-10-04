@@ -11,9 +11,10 @@ reports itself as unpackaged and prints the pinned QEMU and Instigator revisions
 
 ## Build the product
 
-CMake 3.25 or newer coordinates QEMU, Cargo and Go. Ninja performs the
-build, CTest runs the product checks and CPack creates release archives.
-QEMU retains its own configure and Meson build. Submodules own the exact
+CMake 3.25 or newer coordinates QEMU, Cargo and Go. The presets use Ninja
+for product orchestration. CMake invokes QEMU's GNU Make entry point, which
+owns reconfiguration and its Meson/Ninja build. CTest runs the product checks
+and CPack creates release archives. Submodules own the exact
 QEMU and Instigator revisions. Builds never fetch or switch their commits.
 
 Initialize them once:
@@ -30,12 +31,9 @@ cmake --preset macos
 cmake --build --preset macos --target submodules
 ```
 
-After changing a QEMU pin that updates a Meson dependency patch, refresh the
-extracted dependency with Meson before rebuilding. For libslirp, from `qemu/`:
-
-```sh
-meson subprojects update --reset libslirp
-```
+When libslirp's wrap or patch files change, the product build runs
+`meson subprojects update --reset libslirp` through QEMU's build environment
+before compilation. Unchanged builds reuse the extracted dependency.
 
 Ordinary builds accept local edits and produce a runnable directory.
 Release packaging requires clean source and dependencies at their committed

@@ -63,7 +63,7 @@ def build_qemu(manifest):
     if current != package:
         subprocess.check_call([str(meson), 'configure', '-Dpkgversion=' + package, str(build)])
     suffix = '.exe' if manifest['platform'] == 'windows' else ''
-    subprocess.check_call([manifest['ninja'], '-j', str(manifest['jobs']),
+    subprocess.check_call([manifest['make'], '-j', str(manifest['jobs']),
                            'qemu-system-mips64' + suffix, 'qemu-img' + suffix], cwd=build)
 
 

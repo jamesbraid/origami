@@ -31,7 +31,13 @@ class ProductBuild(unittest.TestCase):
         (self.source / "instigator/main.go").write_text("first go")
         (self.source / "instigator/go.mod").write_text("module fixture")
         (self.source / "qemu/source.c").write_text("first qemu")
+        (self.source / "qemu/VERSION").write_text("first version")
         (self.source / "qemu/meson.build").write_text("first configuration")
+        (self.source / "qemu/subprojects/packagefiles").mkdir(parents=True)
+        self.slirp_wrap = self.source / "qemu/subprojects/libslirp.wrap"
+        self.slirp_wrap.write_text("[wrap-file]\ndiff_files = libslirp-test.patch\n")
+        self.slirp_patch = self.source / "qemu/subprojects/packagefiles/libslirp-test.patch"
+        self.slirp_patch.write_text("first slirp")
         self.log = Path(self.temp.name) / "commands.jsonl"
         self.env = dict(os.environ, FIXTURE_LOG=str(self.log), FIXTURE_BUILD_DIR=str(self.binary))
         self.tool = self.source / "tool"
@@ -44,13 +50,40 @@ name = pathlib.Path(sys.argv[0]).name
 if name == "configure" or (name in ("cargo", "go") and "build" in args):
     assert (pathlib.Path(os.environ["FIXTURE_BUILD_DIR"]) / "inputs-recorded").is_file(), "compilation started before inputs were recorded"
 if name == "configure":
+    pathlib.Path("pyvenv/bin").mkdir(parents=True, exist_ok=True)
+    if not pathlib.Path("pyvenv/bin/meson").exists():
+        pathlib.Path("pyvenv/bin/meson").symlink_to(pathlib.Path(sys.argv[0]).parent.parent / "tool")
+    root = pathlib.Path(sys.argv[0]).parent
+    if not pathlib.Path("slirp-source").exists():
+        pathlib.Path("slirp-source").write_text((root / "subprojects/packagefiles/libslirp-test.patch").read_text())
+    pathlib.Path("configuration-version").write_text((root / "VERSION").read_text())
     pathlib.Path("build.ninja").write_text("configured")
     pathlib.Path("configuration-source").write_text(str(pathlib.Path(sys.argv[0]).parent))
+elif name == "meson":
+    import configparser
+    root = pathlib.Path(args[args.index("--sourcedir") + 1])
+    wrap = configparser.ConfigParser()
+    wrap.read(root / "subprojects/libslirp.wrap")
+    contents = [(root / "subprojects/packagefiles" / patch.strip()).read_text()
+                for patch in wrap["wrap-file"]["diff_files"].split(",")]
+    if "INVALID" in contents:
+        sys.exit("libslirp patch failed")
+    pathlib.Path("slirp-source").write_text("\\n".join(contents))
+elif name == "qemu-make":
+    import subprocess
+    root = pathlib.Path(pathlib.Path("configuration-source").read_text())
+    if pathlib.Path("configuration-version").read_text() != (root / "VERSION").read_text():
+        subprocess.run([str(root / "configure")], check=True)
+    subprocess.run([str(root.parent / "ninja"), *args], check=True)
 elif name == "ninja":
     root = pathlib.Path(pathlib.Path("configuration-source").read_text())
+    pathlib.Path("configuration-meson").write_text((root / "meson.build").read_text())
     for target in args:
         if target.startswith("qemu-"):
-            pathlib.Path(target).write_text((root / "source.c").read_text())
+            content = (root / "source.c").read_text()
+            if os.environ.get("FIXTURE_SLIRP_TEST"):
+                content += "\\n" + pathlib.Path("slirp-source").read_text()
+            pathlib.Path(target).write_text(content)
 elif name == "cargo" and "build" in args:
     root = pathlib.Path(os.environ["CARGO_TARGET_DIR"])
     if "--target" in args: root /= args[args.index("--target") + 1]
@@ -61,14 +94,14 @@ elif name == "go" and "build" in args:
     pathlib.Path(args[args.index("-o") + 1]).write_text(pathlib.Path("main.go").read_text())
 ''')
         self.tool.chmod(0o755)
-        for name in ("cargo", "rustc", "go", "ninja"):
+        for name in ("cargo", "rustc", "go", "ninja", "qemu-make"):
             (self.source / name).symlink_to(self.tool)
         (self.source / "qemu/configure").symlink_to(self.tool)
         (self.source / "build/stage-product.py").write_text('''import json, pathlib, shutil, subprocess, sys
 m = json.loads(pathlib.Path(sys.argv[1]).read_text())
 record = pathlib.Path(m["output_dir"]).parent
 if "--build-qemu" in sys.argv:
-    subprocess.check_call([m["ninja"], "-j", m["jobs"], "qemu-system-mips64", "qemu-img"], cwd=m["qemu_build"])
+    subprocess.check_call([m["make"], "-j", m["jobs"], "qemu-system-mips64", "qemu-img"], cwd=m["qemu_build"])
     sys.exit(0)
 if "--build-instigator" in sys.argv:
     subprocess.check_call([m["go"], "build", "-mod=readonly", "-trimpath", "-o", m["instigator_binary"], "./cmd/instigator"])
@@ -97,7 +130,7 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
         return result.stdout
 
     def configure(self):
-        return self.run_command("cmake", "-S", str(self.source), "-B", str(self.binary), "-G", os.environ.get("PRODUCT_TEST_GENERATOR", "Unix Makefiles"), *[f"-D{name}={self.source / tool}" for name, tool in [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"), ("PRODUCT_GO", "go"), ("PRODUCT_NINJA", "ninja")]])
+        return self.run_command("cmake", "-S", str(self.source), "-B", str(self.binary), "-G", os.environ.get("PRODUCT_TEST_GENERATOR", "Unix Makefiles"), *[f"-D{name}={self.source / tool}" for name, tool in [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"), ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
 
     def build(self):
         self.run_command("cmake", "--build", str(self.binary), "--parallel", "2")
@@ -126,7 +159,8 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
         (self.source / "qemu/meson.build").write_text("changed configuration")
         self.build()
         commands = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(sum(name == "configure" for name, _ in commands), 2)
+        self.assertEqual(sum(name == "configure" for name, _ in commands), 1)
+        self.assertEqual((self.binary / "qemu-build/configuration-meson").read_text(), "changed configuration")
         self.assertTrue(any(name == "cargo" and "--locked" in args for name, args in commands))
         self.assertTrue(any(name == "go" and "-mod=readonly" in args for name, args in commands))
         self.run_command("cpack", "--config", str(self.binary / "CPackConfig.cmake"), "-B", str(self.binary / "archives"))
@@ -141,13 +175,56 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
             self.assertEqual(archive.extractfile(f"{archive_root}/policy").read(), b"release")
             self.assertNotIn("product-build.json", archive.getnames())
 
+    def test_qemu_make_owns_configuration_updates(self):
+        self.configure()
+        self.build()
+        (self.source / "qemu/VERSION").write_text("changed version")
+        self.build()
+        self.assertEqual((self.binary / "qemu-build/configuration-version").read_text(), "changed version")
+        commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual(sum(name == "qemu-make" for name, _ in commands), 2)
+        self.assertEqual(sum(name == "configure" for name, _ in commands), 2)
+
+    def test_libslirp_patch_updates_existing_build(self):
+        self.env["FIXTURE_SLIRP_TEST"] = "1"
+        self.configure()
+        self.build()
+        self.assertEqual((self.binary / "run/qemu").read_text(), "first qemu\nfirst slirp")
+        self.build()
+        commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual(sum(name == "meson" for name, _ in commands), 1)
+        time.sleep(1.1)
+        self.slirp_patch.write_text("changed slirp")
+        self.build()
+        self.assertEqual((self.binary / "run/qemu").read_text(), "first qemu\nchanged slirp")
+        time.sleep(1.1)
+        (self.slirp_patch.parent / "libslirp-new.patch").write_text("new patch")
+        self.slirp_wrap.write_text("[wrap-file]\ndiff_files = libslirp-test.patch, libslirp-new.patch\n")
+        self.build()
+        self.assertEqual((self.binary / "run/qemu").read_text(), "first qemu\nchanged slirp\nnew patch")
+        commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual(sum(name == "configure" for name, _ in commands), 1)
+        self.assertEqual(sum(name == "meson" for name, _ in commands), 3)
+
+    def test_libslirp_patch_failure_stops_qemu_build(self):
+        self.configure()
+        self.build()
+        commands_before = [json.loads(line) for line in self.log.read_text().splitlines()]
+        time.sleep(1.1)
+        self.slirp_patch.write_text("INVALID")
+        output = self.run_command("cmake", "--build", str(self.binary), success=False)
+        self.assertIn("libslirp patch failed", output)
+        commands_after = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual(sum(name == "ninja" for name, _ in commands_after),
+                         sum(name == "ninja" for name, _ in commands_before))
+
     def test_preset_uses_ignored_source_output_by_default(self):
         self.env.pop("SGI_BUILD_ROOT", None)
         preset = "macos" if sys.platform == "darwin" else "linux"
         self.run_command("cmake", "--preset", preset, "-S", str(self.source),
                          "-G", "Unix Makefiles", *[f"-D{name}={self.source / tool}" for name, tool in
                          [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"),
-                          ("PRODUCT_GO", "go"), ("PRODUCT_NINJA", "ninja")]])
+                          ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
         manifest_path = self.source / f"out/{preset}/product-build.json"
         self.assertTrue(manifest_path.is_file())
         manifest = json.loads(manifest_path.read_text())
