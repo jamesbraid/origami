@@ -367,7 +367,7 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, drive: &Drive, index: usize) {
 }
 
 pub fn start_background(dir: &Path, display: Display) -> Result<()> {
-    if control::is_running(dir)? || control::is_locked(dir)? {
+    if control::is_locked(dir)? {
         return Err("machine is already running".into());
     }
     fs::create_dir_all(dir.join("logs"))?;
