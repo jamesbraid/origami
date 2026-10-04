@@ -118,6 +118,12 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
 (out / "policy").write_text("release" if "--release" in sys.argv else "development")
 ''')
 
+        self.run_command("git", "-C", str(self.source), "init", "-q")
+        self.run_command("git", "-C", str(self.source), "-c", "user.name=Build Test",
+                         "-c", "user.email=build@example.invalid", "add", ".")
+        self.run_command("git", "-C", str(self.source), "-c", "user.name=Build Test",
+                         "-c", "user.email=build@example.invalid", "commit", "-qm", "test: initialize source")
+
     def run_command(self, *args, success=True):
         result = subprocess.run(args, env=self.env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         if success:
@@ -171,6 +177,17 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
         with tarfile.open(self.binary / "archives" / archive_name) as archive:
             self.assertEqual(archive.extractfile(f"{archive_root}/policy").read(), b"release")
             self.assertNotIn("product-build.json", archive.getnames())
+
+    def test_package_version_reads_tags_after_configure(self):
+        self.configure()
+        self.run_command("git", "-C", str(self.source), "-c", "user.name=Build Test",
+                         "-c", "user.email=build@example.invalid", "tag", "-a", "v0.2.0", "-m", "test release")
+        script = self.binary / "read-package-version.cmake"
+        script.write_text('include("' + str(self.binary / "CPackConfig.cmake") + '")\n'
+                          'if(CPACK_PROJECT_CONFIG_FILE)\n'
+                          '  include("${CPACK_PROJECT_CONFIG_FILE}")\n'
+                          'endif()\nmessage(STATUS "package-version=${CPACK_PACKAGE_VERSION}")\n')
+        self.assertIn("package-version=0.2.0", self.run_command("cmake", "-P", str(script)))
 
     def test_qemu_make_owns_configuration_updates(self):
         self.configure()

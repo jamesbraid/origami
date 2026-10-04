@@ -5,9 +5,17 @@ The [user guide](usage.md) covers running downloaded archives.
 
 ## Build identity
 
-`origami version` prints the compiled catalogue SHA-256 and the product, QEMU, and
-Instigator revisions recorded in an extracted package. A source-tree build
-reports itself as unpackaged and prints the pinned QEMU and Instigator revisions.
+`origami --version` (also `origami version`) prints three lines: Origami,
+QEMU and Instigator. Each executable carries its own build identity.
+Origami uses Git tags: `v0.2.0` at a release, `v0.2.0-5-gabc1234` after it,
+and a `-dirty` suffix for tracked local edits. Without a version tag it uses
+the commit ID. Builds without Git metadata report `unknown`.
+
+Create an annotated `vX.Y.Z` tag on the product commit to select a release.
+That commit also selects the QEMU and Instigator pins. Build from the tag.
+Adding or deleting tags after a build requires rebuilding before packaging.
+Cargo's `0.0.0` is a package placeholder. The Git tag owns the release version,
+including CPack's package version.
 
 ## Build the product
 
@@ -127,7 +135,7 @@ paths, including `SGI_RUNTIME_DIR` for QEMU. Replacing a binary changes its
 reported identity. Local edits are marked dirty, and unavailable components
 are reported on their own lines.
 
-The frontend uses `vergen-gitcl` with Cargo's package version. QEMU uses its
+The frontend embeds its Git description through `vergen-gitcl`. QEMU uses its
 native package version option with `sgi-origami` and its Git description.
 Every build checks the QEMU checkout and refreshes that option when its
 identity changes, including local edits. Instigator uses Go's native module
@@ -174,7 +182,6 @@ does not change the dependency commits selected by the product pin.
 
 ```sh
 git pull --recurse-submodules
-git submodule update --init -- qemu instigator
 for component in qemu instigator; do
   if [ "$(git -C "$component" rev-parse --is-shallow-repository)" = true ]; then
     git -C "$component" fetch --unshallow --tags origin

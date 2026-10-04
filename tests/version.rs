@@ -80,7 +80,7 @@ fn version_reports_the_selected_binaries_after_relocation() {
     let report = fixture.report("--version", None);
     let lines: Vec<_> = report.lines().collect();
     assert_eq!(lines.len(), 3, "{report}");
-    assert!(lines[0].starts_with("origami 0.1.0 ("), "{report}");
+    assert_eq!(lines[0], format!("origami {}", embedded_version()));
     assert_eq!(lines[1], "qemu 11.1.50 (v11.0.0-123-g1234567)");
     assert_eq!(lines[2], "instigator 0.3.1 (abcdef1-dirty)");
     assert_eq!(fixture.report("version", None), report);
@@ -121,11 +121,10 @@ fn version_reports_missing_or_uncooperative_binaries_without_hiding_origami() {
     let _guard = EXECUTABLES.lock().unwrap();
     let fixture = Fixture::new();
     let report = fixture.report("--version", None);
-    assert!(report
-        .lines()
-        .next()
-        .unwrap()
-        .starts_with("origami 0.1.0 ("));
+    assert_eq!(
+        report.lines().next().unwrap(),
+        format!("origami {}", embedded_version())
+    );
     assert!(report.contains("qemu unavailable"), "{report}");
     assert!(report.contains("instigator unavailable"), "{report}");
     fixture.script(
@@ -140,4 +139,11 @@ fn version_reports_missing_or_uncooperative_binaries_without_hiding_origami() {
     assert!(report.contains("instigator unavailable"), "{report}");
     assert!(report.contains("qemu unavailable"), "{report}");
     assert!(!report.contains("Usage:"), "{report}");
+}
+
+fn embedded_version() -> &'static str {
+    match env!("VERGEN_GIT_DESCRIBE") {
+        "VERGEN_IDEMPOTENT_OUTPUT" => "unknown",
+        version => version,
+    }
 }

@@ -96,6 +96,8 @@ def source_identity(manifest):
             'status_sha256': hashlib.sha256(status).hexdigest(),
             'untracked': content,
         }
+    identity['product']['version'] = git(
+        Path(manifest['product_source']), 'describe', '--tags', '--always', '--match', 'v[0-9]*')
     return {'sources': identity, 'configuration': manifest}
 
 

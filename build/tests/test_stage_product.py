@@ -145,6 +145,12 @@ else:
         with self.assertRaisesRegex(RuntimeError, 'source.*build|build.*source'):
             self.stage.stage_product(self.manifest, release=True)
 
+    def test_release_rejects_version_tag_added_after_build(self):
+        self.record_build()
+        git(self.sources['product'], 'tag', '-a', 'v0.2.0', '-m', 'test release')
+        with self.assertRaisesRegex(RuntimeError, 'source.*build|build.*source'):
+            self.stage.verify_build(self.manifest)
+
     def test_release_rejects_changed_built_executable(self):
         self.record_build()
         Path(self.manifest['instigator_binary']).write_text('replaced executable')

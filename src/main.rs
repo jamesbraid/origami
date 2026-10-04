@@ -57,18 +57,13 @@ fn display(args: &[String], graphics: &str) -> Result<Display> {
 }
 
 fn version_report() {
-    let revision = env!("VERGEN_GIT_SHA");
-    let revision = if revision == "VERGEN_IDEMPOTENT_OUTPUT" {
+    let version = env!("VERGEN_GIT_DESCRIBE");
+    let version = if version == "VERGEN_IDEMPOTENT_OUTPUT" {
         "unknown"
     } else {
-        revision
+        version
     };
-    let dirty = if env!("VERGEN_GIT_DIRTY") == "true" {
-        "-dirty"
-    } else {
-        ""
-    };
-    println!("origami {} ({revision}{dirty})", env!("CARGO_PKG_VERSION"));
+    println!("origami {version}");
     for (name, path, prefix) in [
         ("qemu", runtime::qemu_path(), "QEMU emulator version "),
         ("instigator", install::instigator_path(), "instigator "),
