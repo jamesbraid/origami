@@ -50,6 +50,23 @@ def file_hash(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
+def build_qemu(manifest):
+    source = Path(manifest['qemu_source']).resolve()
+    build = Path(manifest['qemu_build']).resolve()
+    description = git(source, 'describe', '--match', 'v*', '--always')
+    if git(source, 'status', '--porcelain', '--untracked-files=no'):
+        description += '-dirty'
+    package = 'sgi-origami ' + description
+    meson = build / 'pyvenv/bin/meson'
+    options = json.loads(output(str(meson), 'introspect', '--buildoptions', str(build)))
+    current = next(option['value'] for option in options if option['name'] == 'pkgversion')
+    if current != package:
+        subprocess.check_call([str(meson), 'configure', '-Dpkgversion=' + package, str(build)])
+    suffix = '.exe' if manifest['platform'] == 'windows' else ''
+    subprocess.check_call([manifest['ninja'], '-j', str(manifest['jobs']),
+                           'qemu-system-mips64' + suffix, 'qemu-img' + suffix], cwd=build)
+
+
 def build_instigator(manifest):
     source = Path(manifest['instigator_source']).resolve()
     revision = git(source, 'rev-parse', 'HEAD')
@@ -411,10 +428,14 @@ def main():
     modes.add_argument('--record-inputs', action='store_true')
     modes.add_argument('--record-build', action='store_true')
     modes.add_argument('--build-instigator', action='store_true')
+    modes.add_argument('--build-qemu', action='store_true')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     try:
         manifest = json.loads(args.manifest.read_text())
+        if args.build_qemu:
+            build_qemu(manifest)
+            return
         if args.build_instigator:
             build_instigator(manifest)
             return

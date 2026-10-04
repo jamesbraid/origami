@@ -102,7 +102,9 @@ ExternalProject_Add(qemu-product
   SOURCE_DIR "${CMAKE_SOURCE_DIR}/qemu" BINARY_DIR "${qemu_build}"
   DOWNLOAD_COMMAND "" UPDATE_COMMAND "" PATCH_COMMAND ""
   CONFIGURE_COMMAND ${qemu_configure}
-  BUILD_COMMAND "${PRODUCT_NINJA}" -j "${PRODUCT_JOBS}" "qemu-system-mips64${exe}" "qemu-img${exe}"
+  BUILD_COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
+    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
+      "${CMAKE_BINARY_DIR}/product-build.json" --build-qemu
   BUILD_ALWAYS TRUE USES_TERMINAL_BUILD TRUE INSTALL_COMMAND ""
   BUILD_BYPRODUCTS "${qemu_build}/qemu-system-mips64${exe}" "${qemu_build}/qemu-img${exe}")
 ExternalProject_Add_StepDependencies(qemu-product configure
@@ -136,11 +138,13 @@ foreach(key product_source qemu_source instigator_source)
 endforeach()
 set(rustc "${PRODUCT_RUSTC}")
 set(go "${PRODUCT_GO}")
+set(ninja "${PRODUCT_NINJA}")
+set(jobs "${PRODUCT_JOBS}")
 set(python "${Python3_EXECUTABLE}")
 set(platform "${PRODUCT_PLATFORM}")
 set(rust_target "${PRODUCT_RUST_TARGET}")
 set(manifest "{}")
-foreach(key product_source qemu_source instigator_source qemu_build cargo_target_dir cargo_home go_mod_cache go_build_cache instigator_binary rustc go python platform rust_target build_type output_dir archive_root_name)
+foreach(key product_source qemu_source instigator_source qemu_build cargo_target_dir cargo_home go_mod_cache go_build_cache instigator_binary rustc go ninja jobs python platform rust_target build_type output_dir archive_root_name)
   string(REPLACE "\\" "\\\\" value "${${key}}")
   string(REPLACE "\"" "\\\"" value "${value}")
   string(JSON manifest SET "${manifest}" "${key}" "\"${value}\"")

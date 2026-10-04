@@ -130,8 +130,10 @@ reported identity. Local edits are marked `-dirty`, and unavailable components
 are reported on their own lines.
 
 The frontend uses `vergen-gitcl` with Cargo's package version. QEMU uses its
-native Git description. The product build passes Instigator's own checkout
-identity through Go linker variables because Go 1.26's automatic VCS discovery
+native package version option with `sgi-origami` and its Git description.
+Every build checks the QEMU checkout and refreshes that option when its
+identity changes, including local edits. The product build passes Instigator's
+own checkout identity through Go linker variables because Go 1.26's automatic VCS discovery
 skips submodule `.git` files. Instigator's release builds stamp the same fields
 through GoReleaser, with native Go build information as the fallback for other
 builds.

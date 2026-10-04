@@ -67,6 +67,9 @@ elif name == "go" and "build" in args:
         (self.source / "build/stage-product.py").write_text('''import json, pathlib, shutil, subprocess, sys
 m = json.loads(pathlib.Path(sys.argv[1]).read_text())
 record = pathlib.Path(m["output_dir"]).parent
+if "--build-qemu" in sys.argv:
+    subprocess.check_call([m["ninja"], "-j", m["jobs"], "qemu-system-mips64", "qemu-img"], cwd=m["qemu_build"])
+    sys.exit(0)
 if "--build-instigator" in sys.argv:
     subprocess.check_call([m["go"], "build", "-mod=readonly", "-trimpath", "-o", m["instigator_binary"], "./cmd/instigator"])
     sys.exit(0)

@@ -79,6 +79,53 @@ class ProductStageTests(unittest.TestCase):
             runtime.assert_called_once()
             return result
 
+    def test_qemu_build_refreshes_the_package_identity(self):
+        source = self.sources['qemu']
+        git(source, 'tag', '-a', 'v11.1.0', '-m', 'test release')
+        build = Path(self.manifest['qemu_build'])
+        meson = build / 'pyvenv/bin/meson'
+        meson.parent.mkdir(parents=True)
+        tool = self.root / 'qemu-tool'
+        tool.write_text("""#!/usr/bin/env python3
+import json, pathlib, sys
+build = pathlib.Path.cwd()
+args = sys.argv[1:]
+if pathlib.Path(sys.argv[0]).name == 'meson':
+    build = pathlib.Path(args[-1])
+    state = build / 'package-option.json'
+    if args[0] == 'introspect':
+        print(json.dumps([{'name': 'pkgversion', 'value': state.read_text() if state.exists() else ''}]))
+    else:
+        value = next(arg.split('=', 1)[1] for arg in args if arg.startswith('-Dpkgversion='))
+        state.write_text(value)
+        with (build / 'configurations').open('a') as log: log.write(value + '\\n')
+else:
+    value = (build / 'package-option.json').read_text()
+    for arg in args:
+        if arg.startswith('qemu-'): (build / arg).write_text(value)
+""")
+        tool.chmod(0o755)
+        meson.symlink_to(tool)
+        ninja = self.root / 'ninja'
+        ninja.symlink_to(tool)
+        self.manifest.update(ninja=str(ninja), jobs='2')
+        artifact = build / 'qemu-system-mips64'
+        self.stage.build_qemu(self.manifest)
+        self.assertEqual(artifact.read_text(), 'sgi-origami v11.1.0')
+        self.stage.build_qemu(self.manifest)
+        self.assertEqual(len((build / 'configurations').read_text().splitlines()), 1)
+        index = source / '.git/index'
+        original_index = index.read_bytes()
+        (source / 'LICENSE').write_text('local QEMU changes')
+        self.stage.build_qemu(self.manifest)
+        self.assertEqual(artifact.read_text(), 'sgi-origami v11.1.0-dirty')
+        self.assertEqual(index.read_bytes(), original_index)
+        git(source, 'add', 'LICENSE')
+        git(source, 'commit', '-qm', 'test: advance QEMU checkout')
+        self.stage.build_qemu(self.manifest)
+        self.assertEqual(artifact.read_text(), 'sgi-origami ' + git(source, 'describe', '--match', 'v*'))
+        self.assertEqual(len((build / 'configurations').read_text().splitlines()), 3)
+
     def test_instigator_build_stamps_its_own_submodule_checkout(self):
         product = self.sources['product']
         source = product / 'instigator'
