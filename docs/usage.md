@@ -65,6 +65,10 @@ remain untested there too.
 
 ## Current commands
 
+Run `origami --help` to list commands and `origami COMMAND --help` for
+arguments and examples, such as `origami create --help` or `origami run --help`.
+Unknown options and invalid argument values are rejected before the command runs.
+
 ```text
 origami machines
 origami create my-origin --preset origin200-1 --memory-per-node 128
@@ -260,7 +264,7 @@ identify those configurations. Support remains experimental: a selectable
 configuration does not imply that firmware, installation or graphics work.
 The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/sgi-origami/docs/specs/sgi-sn.rst)
 describes topology and board options. Fuel requires explicit board inputs.
-Octane2 requires explicit R12000 CPU inputs. `origami --help` lists their options.
+Octane2 requires explicit R12000 CPU inputs. `origami create --help` lists their options.
 
 Origin 2000 and Onyx2 keep independent node PROM images under `state/`.
 Origin 300 can use QEMU's native defaults. Its optional `--spd-dimm2` and
