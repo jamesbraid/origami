@@ -220,6 +220,7 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
     def test_windows_configuration_supplies_target_paths_and_environment(self):
         self.run_command("cmake", "-S", str(self.source), "-B", str(self.binary),
                          "-DPRODUCT_PLATFORM=windows", "-DPRODUCT_RUST_TARGET=x86_64-pc-windows-gnu",
+                         f"-DPRODUCT_MESON={self.tool}",
                          *[f"-D{name}={self.source / tool}" for name, tool in
                            [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"),
                             ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
