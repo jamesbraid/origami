@@ -9,29 +9,114 @@ pub fn population(machine: &Machine) -> Vec<u32> {
     }
 }
 
+pub struct Profile {
+    pub id: &'static str,
+    pub topology: &'static str,
+    pub population: &'static [u32],
+    pub boot_prom: &'static str,
+    pub io_prom: Option<&'static str>,
+}
+
+pub const STARTERS: &[Profile] = &[
+    Profile {
+        id: "origin200-1",
+        topology: "origin200",
+        population: &[1],
+        boot_prom: "ip27prom-6.156",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin200-2",
+        topology: "origin200",
+        population: &[2],
+        boot_prom: "ip27prom-6.156",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin200-dual",
+        topology: "origin200-dual",
+        population: &[2, 2],
+        boot_prom: "ip27prom-6.156",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin2000-8",
+        topology: "origin2000-rack",
+        population: &[2, 2, 2, 2],
+        boot_prom: "ip27prom-6.156",
+        io_prom: Some("io6prom-6.156"),
+    },
+    Profile {
+        id: "origin300-2",
+        topology: "origin300",
+        population: &[2],
+        boot_prom: "ip35prom-6.210",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin200-impact",
+        topology: "origin200-gigachannel",
+        population: &[1],
+        boot_prom: "ip27prom-6.156",
+        io_prom: Some("io6prom-6.156"),
+    },
+    Profile {
+        id: "octane-impact",
+        topology: "octane",
+        population: &[1],
+        boot_prom: "IP30prom-4.17",
+        io_prom: None,
+    },
+    Profile {
+        id: "octane2-impact",
+        topology: "octane2",
+        population: &[1],
+        boot_prom: "IP30prom-4.17",
+        io_prom: None,
+    },
+    Profile {
+        id: "onyx2-infinite-reality",
+        topology: "onyx2-deskside",
+        population: &[2, 2],
+        boot_prom: "ip27prom-6.156",
+        io_prom: Some("io6prom-6.156"),
+    },
+    Profile {
+        id: "fuel-1",
+        topology: "fuel",
+        population: &[1],
+        boot_prom: "ip35prom-6.210",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin300-v12-direct-2",
+        topology: "origin300-v12-direct",
+        population: &[2],
+        boot_prom: "ip35prom-6.210",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin300-vbrick-2",
+        topology: "origin300-vbrick",
+        population: &[2],
+        boot_prom: "ip35prom-6.210",
+        io_prom: None,
+    },
+];
+
+pub fn profile(id: &str) -> Option<&'static Profile> {
+    STARTERS.iter().find(|profile| profile.id == id)
+}
+
 pub fn presets(catalog: &Catalog) -> Vec<(String, &Offering)> {
-    const STARTERS: &[(&str, &str, &[u32])] = &[
-        ("origin200-1", "origin200", &[1]),
-        ("origin200-2", "origin200", &[2]),
-        ("origin200-dual", "origin200-dual", &[2, 2]),
-        ("origin2000-8", "origin2000-rack", &[2, 2, 2, 2]),
-        ("origin300-2", "origin300", &[2]),
-        ("origin200-impact", "origin200-gigachannel", &[1]),
-        ("octane-impact", "octane", &[1]),
-        ("octane2-impact", "octane2", &[1]),
-        ("onyx2-infinite-reality", "onyx2-deskside", &[2, 2]),
-        ("fuel-1", "fuel", &[1]),
-        ("origin300-v12-direct-2", "origin300-v12-direct", &[2]),
-        ("origin300-vbrick-2", "origin300-vbrick", &[2]),
-    ];
     STARTERS
         .iter()
-        .filter_map(|(name, topology, population)| {
+        .filter_map(|profile| {
             catalog
                 .offerings
                 .iter()
-                .find(|o| o.topology == *topology && o.cpus_per_node == *population)
-                .map(|o| ((*name).to_string(), o))
+                .find(|o| o.topology == profile.topology && o.cpus_per_node == profile.population)
+                .map(|o| (profile.id.to_string(), o))
         })
         .collect()
 }

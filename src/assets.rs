@@ -11,16 +11,32 @@ pub struct Manifest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Prom {
+    pub id: String,
+    /// `boot` for a node PROM, `io` for a BASEIO or GIGAchannel PROM.
+    #[serde(default = "boot_role")]
+    pub role: String,
     pub path: String,
     pub size: u64,
     pub sha256: String,
-    pub profiles: Vec<String>,
     #[serde(default)]
     pub version: String,
 }
 
+fn boot_role() -> String {
+    "boot".into()
+}
+
 pub fn manifest() -> Result<Manifest> {
     Ok(toml::from_str(include_str!("../resources/proms.toml"))?)
+}
+
+impl Manifest {
+    pub fn get(&self, id: &str, role: &str) -> Result<&Prom> {
+        self.proms
+            .iter()
+            .find(|prom| prom.id == id && prom.role == role)
+            .ok_or_else(|| format!("no {role} PROM {id} in the registry").into())
+    }
 }
 
 pub fn validate_https_url(value: &str) -> Result<()> {
@@ -69,29 +85,50 @@ fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// The boot PROM a preset downloads.
 pub fn acquire(profile_id: &str) -> Result<PathBuf> {
+    acquire_role(profile_id, "boot")?.ok_or_else(|| {
+        format!("no downloadable boot PROM for preset {profile_id}; supply --prom FILE").into()
+    })
+}
+
+/// The IO PROM a preset with a BASEIO or GIGAchannel board downloads.
+pub fn acquire_io(profile_id: &str) -> Result<Option<PathBuf>> {
+    acquire_role(profile_id, "io")
+}
+
+fn acquire_role(profile_id: &str, role: &str) -> Result<Option<PathBuf>> {
     use std::io::Write;
+    let Some(profile) = crate::profiles::profile(profile_id) else {
+        return Ok(None);
+    };
+    let id = if role == "io" {
+        profile.io_prom
+    } else {
+        Some(profile.boot_prom)
+    };
+    let Some(id) = id else { return Ok(None) };
     let manifest = manifest()?;
-    let prom = manifest
-        .proms
-        .iter()
-        .find(|prom| prom.profiles.iter().any(|p| p == profile_id))
-        .ok_or_else(|| {
-            format!("no downloadable PROM for preset {profile_id}; supply --prom FILE")
-        })?;
+    let prom = manifest.get(id, role)?;
+    let name = prom.path.rsplit('/').next().unwrap_or(&prom.path);
+    // Each image keeps SGI's file name, under a directory named by its digest.
     let cache = dirs::cache_dir()
-        .ok_or("cannot determine user cache directory; supply --prom FILE")?
+        .ok_or("cannot determine user cache directory; supply local PROM files")?
         .join("origami")
-        .join("proms");
+        .join("proms")
+        .join(&prom.sha256);
     let fetch = || -> Result<PathBuf> {
         std::fs::create_dir_all(&cache)?;
-        let path = cache.join(format!("{}.bin", prom.sha256));
+        let path = cache.join(name);
         if std::fs::metadata(&path).is_ok_and(|m| m.len() == prom.size)
             && crate::sha256_file(&path)? == prom.sha256
         {
             return Ok(path);
         }
-        eprintln!("Downloading PROM {} ({} bytes)", prom.path, prom.size);
+        eprintln!(
+            "Downloading {role} PROM {name} (version {}, {} bytes)",
+            prom.version, prom.size
+        );
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .https_only(true)
             .max_redirects(0)
@@ -121,7 +158,7 @@ pub fn acquire(profile_id: &str) -> Result<PathBuf> {
         temp.persist(&path).map_err(|e| e.error)?;
         Ok(path)
     };
-    fetch().map_err(|e| format!("cannot acquire PROM {}: {e}; offline creation requires a verified cache entry or --prom FILE", prom.path).into())
+    fetch().map(Some).map_err(|e| format!("cannot acquire {role} PROM {name}: {e}; offline creation requires a verified cache entry or a local PROM file").into())
 }
 
 #[cfg(test)]
@@ -144,27 +181,21 @@ mod tests {
         validate_https_url("https://origami-dist.irix.fans/prom/test.bin").unwrap();
     }
     #[test]
-    fn embedded_manifest_covers_supported_presets() {
+    fn embedded_registry_resolves_every_preset_selection() {
         let manifest = manifest().unwrap();
         for prom in &manifest.proms {
             validate_https_url(&format!("{}{}", manifest.base_url, prom.path)).unwrap();
         }
-        for name in [
-            "origin200-1",
-            "origin200-2",
-            "origin200-dual",
-            "origin2000-8",
-            "origin300-2",
-        ] {
-            assert_eq!(
-                manifest
-                    .proms
-                    .iter()
-                    .filter(|prom| prom.profiles.iter().any(|p| p == name))
-                    .count(),
-                1,
-                "{name}"
+        for profile in crate::profiles::STARTERS {
+            assert!(
+                manifest.get(profile.boot_prom, "boot").is_ok(),
+                "{}",
+                profile.id
             );
+            if let Some(id) = profile.io_prom {
+                assert!(manifest.get(id, "io").is_ok(), "{}", profile.id);
+            }
         }
+        assert!(manifest.get("io6prom-6.156", "boot").is_err());
     }
 }

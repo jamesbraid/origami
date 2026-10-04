@@ -633,24 +633,19 @@ mod tests {
     }
 
     #[test]
-    fn downloadable_proms_name_catalogue_presets() {
+    fn preset_proms_cover_each_catalogue_init_input() {
         let catalog = test_catalogue();
-        let manifest = crate::assets::manifest().unwrap();
-        for (profile, _) in presets(&catalog) {
-            assert_eq!(
-                manifest
-                    .proms
-                    .iter()
-                    .filter(|prom| prom.profiles.contains(&profile))
-                    .count(),
-                1,
-                "missing or ambiguous PROM: {profile}"
-            );
-        }
-        for prom in manifest.proms {
-            for profile in &prom.profiles {
-                assert!(preset(&catalog, profile).is_ok(), "{profile}");
-            }
+        for profile in profiles::STARTERS {
+            let offer = preset(&catalog, profile.id).unwrap();
+            let needs_io = offer
+                .init_inputs
+                .iter()
+                .any(|input| input.name == "io-prom");
+            assert_eq!(profile.io_prom.is_some(), needs_io, "{}", profile.id);
+            assert!(offer
+                .init_inputs
+                .iter()
+                .any(|input| input.name == "boot-prom"));
         }
     }
 

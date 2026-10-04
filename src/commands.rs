@@ -31,13 +31,6 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
     let inputs = options.hardware.inputs();
     origami::profiles::validate_inputs(offer, &inputs)?;
     validate_create_inputs(&args.dir, offer, options.memory_per_node, identity.as_ref())?;
-    let needs_io_prom = offer
-        .init_inputs
-        .iter()
-        .any(|input| input.name == "io-prom" && input.required);
-    if needs_io_prom && options.io_prom.is_none() {
-        return Err(format!("{} needs an IO PROM; supply --io-prom FILE", args.preset).into());
-    }
     let tool = runtime::machine_init_path()?;
     // Check the tool before any download that it would consume.
     if !tool.is_file() {
@@ -47,13 +40,17 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
         Some(path) => path.clone(),
         None => origami::assets::acquire(&args.preset)?,
     };
+    let io_prom = match &options.io_prom {
+        Some(path) => Some(path.clone()),
+        None => origami::assets::acquire_io(&args.preset)?,
+    };
     origami::create_configured(
         &args.dir,
         offer,
         &MachineInit {
             tool: &tool,
             boot_prom: &prom,
-            io_prom: options.io_prom.as_deref(),
+            io_prom: io_prom.as_deref(),
         },
         options.memory_per_node,
         identity,
