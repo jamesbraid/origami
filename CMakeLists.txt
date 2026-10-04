@@ -72,8 +72,13 @@ set(go_mod_cache "${CMAKE_BINARY_DIR}/go-mod")
 set(go_build_cache "${CMAKE_BINARY_DIR}/go-build")
 set(instigator_binary "${CMAKE_BINARY_DIR}/instigator${exe}")
 set(output_dir "${CMAKE_BINARY_DIR}/run")
+set(frontend_binary "${cargo_target_dir}")
+if(PRODUCT_RUST_TARGET)
+  string(APPEND frontend_binary "/${PRODUCT_RUST_TARGET}")
+endif()
+string(APPEND frontend_binary "/${build_type}/origami${exe}")
 set(cargo_environment "CARGO_TARGET_DIR=${cargo_target_dir}" "CARGO_HOME=${cargo_home}")
-set(go_environment "GOMODCACHE=${go_mod_cache}" "GOCACHE=${go_build_cache}" CGO_ENABLED=0 "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/tool-config")
+set(go_environment "GOPATH=${CMAKE_BINARY_DIR}/go" "GOMODCACHE=${go_mod_cache}" "GOCACHE=${go_build_cache}" CGO_ENABLED=0 "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/tool-config")
 set(qemu_flags --target-list=mips64-softmmu --disable-docs --disable-gtk --disable-cocoa --enable-sdl --enable-vnc --enable-slirp)
 if(PRODUCT_CROSS_PREFIX)
   list(APPEND qemu_flags "--cross-prefix=${PRODUCT_CROSS_PREFIX}")
@@ -104,7 +109,9 @@ ExternalProject_Add(qemu-product
   CONFIGURE_COMMAND ${qemu_configure}
   BUILD_COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
-      "${CMAKE_BINARY_DIR}/product-build.json" --build-qemu
+      "${CMAKE_BINARY_DIR}/product-build.json" --prepare-qemu
+    COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
+      "${PRODUCT_MAKE}" -j "${PRODUCT_JOBS}" "qemu-system-mips64${exe}" "qemu-img${exe}"
   BUILD_ALWAYS TRUE USES_TERMINAL_BUILD TRUE INSTALL_COMMAND ""
   BUILD_BYPRODUCTS "${qemu_build}/qemu-system-mips64${exe}" "${qemu_build}/qemu-img${exe}")
 # Meson keeps extracted subprojects until explicitly updated.
@@ -133,39 +140,58 @@ else()
   set(archive_root_name "${PRODUCT_PLATFORM}-dev")
   set(archive_name "origami-${PRODUCT_PLATFORM}-x86_64-preview")
 endif()
-# Escape paths before inserting them into the staging manifest.
-foreach(key product_source qemu_source instigator_source)
-  if(key STREQUAL "product_source")
-    set(${key} "${CMAKE_SOURCE_DIR}")
-  elseif(key STREQUAL "qemu_source")
-    set(${key} "${CMAKE_SOURCE_DIR}/qemu")
-  else()
-    set(${key} "${CMAKE_SOURCE_DIR}/instigator")
-  endif()
-endforeach()
+# Source roots shared by compilation and packaging.
+set(product_source "${CMAKE_SOURCE_DIR}")
+set(qemu_source "${CMAKE_SOURCE_DIR}/qemu")
+set(instigator_source "${CMAKE_SOURCE_DIR}/instigator")
 set(rustc "${PRODUCT_RUSTC}")
 set(go "${PRODUCT_GO}")
-set(make "${PRODUCT_MAKE}")
-set(jobs "${PRODUCT_JOBS}")
 set(python "${Python3_EXECUTABLE}")
 set(platform "${PRODUCT_PLATFORM}")
 set(rust_target "${PRODUCT_RUST_TARGET}")
-set(manifest "{}")
-foreach(key product_source qemu_source instigator_source qemu_build cargo_target_dir cargo_home go_mod_cache go_build_cache instigator_binary rustc go make jobs python platform rust_target build_type output_dir archive_root_name)
-  string(REPLACE "\\" "\\\\" value "${${key}}")
+# The generated manifest supplies packaging with the actual build inputs.
+function(json_string result value)
+  string(REPLACE "\\" "\\\\" value "${value}")
   string(REPLACE "\"" "\\\"" value "${value}")
-  string(JSON manifest SET "${manifest}" "${key}" "\"${value}\"")
+  set(${result} "\"${value}\"" PARENT_SCOPE)
+endfunction()
+set(manifest "{}")
+foreach(key product_source qemu_source instigator_source qemu_build cargo_target_dir cargo_home go_mod_cache go_build_cache rustc go python platform rust_target output_dir)
+  json_string(value "${${key}}")
+  string(JSON manifest SET "${manifest}" "${key}" "${value}")
 endforeach()
+set(environment "[]")
+foreach(entry IN LISTS go_environment go_platform)
+  json_string(value "${entry}")
+  string(JSON length LENGTH "${environment}")
+  string(JSON environment SET "${environment}" ${length} "${value}")
+endforeach()
+string(JSON manifest SET "${manifest}" go_environment "${environment}")
+set(files "{}")
+function(product_artifact destination source)
+  json_string(value "${source}")
+  string(JSON files SET "${files}" "${destination}" "${value}")
+  set(files "${files}" PARENT_SCOPE)
+endfunction()
+product_artifact("bin/origami${exe}" "${frontend_binary}")
+product_artifact("bin/instigator${exe}" "${instigator_binary}")
+product_artifact("libexec/sgi/qemu-system-mips64${exe}" "${qemu_build}/qemu-system-mips64${exe}")
+product_artifact("libexec/sgi/qemu-img${exe}" "${qemu_build}/qemu-img${exe}")
+if(NOT IS_DIRECTORY "${qemu_source}/pc-bios/keymaps")
+  message(FATAL_ERROR "Missing QEMU keymaps: ${qemu_source}/pc-bios/keymaps")
+endif()
+file(GLOB keymaps CONFIGURE_DEPENDS "${qemu_source}/pc-bios/keymaps/*")
+foreach(source IN LISTS keymaps)
+  get_filename_component(name "${source}" NAME)
+  if(NOT IS_DIRECTORY "${source}" AND NOT name STREQUAL "meson.build")
+    product_artifact("share/sgi/qemu/keymaps/${name}" "${source}")
+  endif()
+endforeach()
+string(JSON manifest SET "${manifest}" files "${files}")
 file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/product-build.json" CONTENT "${manifest}\n" @ONLY)
-add_custom_target(build-inputs
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
-    "${CMAKE_BINARY_DIR}/product-build.json" --record-inputs
-  COMMENT "Record source inputs before compilation" VERBATIM)
-add_dependencies(qemu-product build-inputs)
-add_dependencies(frontend build-inputs)
-add_dependencies(instigator-product build-inputs)
 add_custom_target(product ALL
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py" "${CMAKE_BINARY_DIR}/product-build.json" --record-build
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
+    "${CMAKE_BINARY_DIR}/product-build.json"
   DEPENDS qemu-product frontend instigator-product VERBATIM)
 
 if(BUILD_TESTING)

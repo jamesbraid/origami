@@ -60,17 +60,25 @@ class ProductStageTests(unittest.TestCase):
                      Path(self.manifest['instigator_binary'])):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(path.name + '\n')
+        self.manifest['files'] = {
+            'bin/origami': str(Path(self.manifest['cargo_target_dir']) / 'release/origami'),
+            'bin/instigator': self.manifest['instigator_binary'],
+            'libexec/sgi/qemu-system-mips64': str(Path(self.manifest['qemu_build']) / 'qemu-system-mips64'),
+            'libexec/sgi/qemu-img': str(Path(self.manifest['qemu_build']) / 'qemu-img'),
+            'share/sgi/qemu/keymaps/en-us': str(self.sources['qemu'] / 'pc-bios/keymaps/en-us'),
+            'share/sgi/qemu/keymaps/common': str(self.sources['qemu'] / 'pc-bios/keymaps/common'),
+        }
+        self.manifest['go_environment'] = [
+            'GOMODCACHE=' + self.manifest['go_mod_cache'],
+            'GOCACHE=' + self.manifest['go_build_cache'], 'CGO_ENABLED=0',
+            'XDG_CONFIG_HOME=' + str(Path(self.manifest['qemu_build']).parent / 'tool-config'),
+        ]
         self.assertTrue(SCRIPT.is_file(), 'shared staging entry point is missing')
         spec = importlib.util.spec_from_file_location('stage_product', SCRIPT)
         self.stage = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.stage)
 
-    def record_build(self):
-        self.stage.record_inputs(self.manifest)
-        self.stage.record_build(self.manifest)
-
     def run_stage(self, release=False):
-        self.record_build()
         # Fixture files are text, so platform linkage is tested by the existing bundler tests.
         with patch.object(self.stage, 'bundle_runtime') as runtime, \
                 patch.object(self.stage, 'collect_release_notices') as notices:
@@ -79,7 +87,7 @@ class ProductStageTests(unittest.TestCase):
             runtime.assert_called_once()
             return result
 
-    def test_qemu_build_refreshes_the_package_identity(self):
+    def test_qemu_preparation_refreshes_the_package_identity(self):
         source = self.sources['qemu']
         git(source, 'tag', '-a', 'v11.1.0', '-m', 'test release')
         build = Path(self.manifest['qemu_build'])
@@ -99,30 +107,23 @@ if pathlib.Path(sys.argv[0]).name == 'meson':
         value = next(arg.split('=', 1)[1] for arg in args if arg.startswith('-Dpkgversion='))
         state.write_text(value)
         with (build / 'configurations').open('a') as log: log.write(value + '\\n')
-else:
-    value = (build / 'package-option.json').read_text()
-    for arg in args:
-        if arg.startswith('qemu-'): (build / arg).write_text(value)
 """)
         tool.chmod(0o755)
         meson.symlink_to(tool)
-        make = self.root / 'make'
-        make.symlink_to(tool)
-        self.manifest.update(make=str(make), jobs='2')
-        artifact = build / 'qemu-system-mips64'
-        self.stage.build_qemu(self.manifest)
+        artifact = build / 'package-option.json'
+        self.stage.prepare_qemu(self.manifest)
         self.assertEqual(artifact.read_text(), 'sgi-origami v11.1.0')
-        self.stage.build_qemu(self.manifest)
+        self.stage.prepare_qemu(self.manifest)
         self.assertEqual(len((build / 'configurations').read_text().splitlines()), 1)
         index = source / '.git/index'
         original_index = index.read_bytes()
         (source / 'LICENSE').write_text('local QEMU changes')
-        self.stage.build_qemu(self.manifest)
+        self.stage.prepare_qemu(self.manifest)
         self.assertEqual(artifact.read_text(), 'sgi-origami v11.1.0-dirty')
         self.assertEqual(index.read_bytes(), original_index)
         git(source, 'add', 'LICENSE')
         git(source, 'commit', '-qm', 'test: advance QEMU checkout')
-        self.stage.build_qemu(self.manifest)
+        self.stage.prepare_qemu(self.manifest)
         self.assertEqual(artifact.read_text(), 'sgi-origami ' + git(source, 'describe', '--match', 'v*'))
         self.assertEqual(len((build / 'configurations').read_text().splitlines()), 3)
 
@@ -133,47 +134,8 @@ else:
         tracked = product / 'LICENSE'
         stat = tracked.stat()
         os.utime(tracked, ns=(stat.st_atime_ns, stat.st_mtime_ns + 2_000_000_000))
-        self.stage.record_inputs(self.manifest)
+        self.stage.revisions(self.manifest, release=False)
         self.assertEqual(index.read_bytes(), before)
-
-    def test_release_rejects_clean_commit_after_build(self):
-        self.record_build()
-        product = self.sources['product']
-        (product / 'LICENSE').write_text('new clean commit')
-        git(product, 'add', 'LICENSE')
-        git(product, 'commit', '-qm', 'test: change product')
-        with self.assertRaisesRegex(RuntimeError, 'source.*build|build.*source'):
-            self.stage.stage_product(self.manifest, release=True)
-
-    def test_release_rejects_version_tag_added_after_build(self):
-        self.record_build()
-        git(self.sources['product'], 'tag', '-a', 'v0.2.0', '-m', 'test release')
-        with self.assertRaisesRegex(RuntimeError, 'source.*build|build.*source'):
-            self.stage.verify_build(self.manifest)
-
-    def test_release_rejects_changed_built_executable(self):
-        self.record_build()
-        Path(self.manifest['instigator_binary']).write_text('replaced executable')
-        with self.assertRaisesRegex(RuntimeError, 'artifact|executable'):
-            self.stage.stage_product(self.manifest, release=True)
-
-    def test_build_record_rejects_source_change_during_compile(self):
-        self.stage.record_inputs(self.manifest)
-        (self.sources['qemu'] / 'LICENSE').write_text('source edit during compilation')
-        with self.assertRaisesRegex(RuntimeError, 'source.*changed|changed.*source'):
-            self.stage.record_build(self.manifest)
-
-    def test_build_record_rejects_untracked_content_change_during_compile(self):
-        edit = self.sources['qemu'] / 'local.c'
-        edit.write_text('first edit')
-        self.stage.record_inputs(self.manifest)
-        edit.write_text('second edit')
-        with self.assertRaisesRegex(RuntimeError, 'source.*changed|changed.*source'):
-            self.stage.record_build(self.manifest)
-
-    def test_release_requires_completed_build_record(self):
-        with self.assertRaisesRegex(RuntimeError, 'completed build'):
-            self.stage.stage_product(self.manifest, release=True)
 
     def test_dirty_development_layout_is_curated_and_checksums_match(self):
         (self.sources['qemu'] / 'untracked.txt').write_text('local edit')
@@ -189,6 +151,23 @@ else:
         for line in (output / 'SHA256SUMS').read_text().splitlines():
             digest, name = line.split('  ', 1)
             self.assertEqual(digest, hashlib.sha256((output / name).read_bytes()).hexdigest())
+
+    def test_stage_uses_configured_artifact_paths(self):
+        configured = self.root / 'custom frontend output'
+        configured.write_text("configured frontend")
+        self.manifest['files'] = {
+            'bin/origami': str(configured),
+            'bin/instigator': self.manifest['instigator_binary'],
+        }
+        output = self.run_stage()
+        self.assertEqual((output / 'bin/origami').read_bytes(), configured.read_bytes())
+
+    def test_configured_destination_cannot_escape_bundle(self):
+        for name in ('../outside', '/outside'):
+            with self.subTest(destination=name):
+                self.manifest['files'] = {name: self.manifest['instigator_binary']}
+                with self.assertRaisesRegex(RuntimeError, 'invalid staging path'):
+                    self.run_stage()
 
     def test_refresh_removes_stale_files(self):
         output = self.run_stage()
@@ -277,6 +256,36 @@ else:
             self.assertEqual((bundle / 'share/sgi/licenses' / name).read_bytes(),
                              original.read_bytes())
 
+    def test_go_notices_use_configured_build_environment(self):
+        qemu = self.sources['qemu']
+        wrap = qemu / 'subprojects/libslirp.wrap'
+        wrap.parent.mkdir()
+        wrap.write_text('[wrap-file]\ndirectory = libslirp-test\n')
+        notice = Path(self.manifest['qemu_build']) / 'subprojects/libslirp-test/COPYRIGHT'
+        notice.parent.mkdir(parents=True)
+        notice.write_text('notice')
+        extra = self.sources['product'] / 'build/licenses/libslirp-test.copyright'
+        extra.parent.mkdir(parents=True)
+        extra.write_text('notice')
+        self.manifest['go_environment'] = [
+            'GOMODCACHE=' + str(self.root / 'configured modules'),
+            'GOCACHE=' + str(self.root / 'configured compilation'),
+            'CGO_ENABLED=0', 'GOOS=windows', 'GOARCH=amd64',
+            'XDG_CONFIG_HOME=' + str(self.root / 'configured settings'),
+        ]
+        bundle = self.root / 'notice output'
+        bundle.mkdir()
+        with patch.object(self.stage, 'toolchain_notices') as toolchain, \
+                patch.object(self.stage, 'helper'), \
+                patch.object(self.stage, 'output', return_value=''), \
+                patch.object(self.stage.shutil, 'which', return_value=None):
+            self.stage.collect_release_notices(self.manifest, bundle)
+        environment = toolchain.call_args.args[2]
+        self.assertEqual(environment['GOMODCACHE'], str(self.root / 'configured modules'))
+        self.assertEqual(environment['GOCACHE'], str(self.root / 'configured compilation'))
+        self.assertEqual(environment['GOOS'], 'windows')
+        self.assertEqual(environment['XDG_CONFIG_HOME'], str(self.root / 'configured settings'))
+
     def test_installed_toolchain_notices_include_go_standard_library(self):
         sysroot = self.root / 'rust sysroot'
         docs = sysroot / 'share/doc/rust'
@@ -295,6 +304,7 @@ else:
             if command == ('rustc', '--print', 'sysroot'):
                 return str(sysroot)
             if command == ('go', 'env', 'GOROOT'):
+                self.assertEqual(kwargs.get('cwd'), self.manifest['instigator_source'])
                 return str(goroot)
             if command == ('go', 'version'):
                 return 'go version go1.27.1 linux/amd64'
@@ -309,7 +319,7 @@ else:
         self.assertEqual((notices / 'rust/COPYRIGHT-library.html').read_text(),
                          'Rust standard library copyrights')
 
-    def test_windows_layout_uses_exe_and_rust_target(self):
+    def test_stage_uses_configured_windows_artifacts(self):
         self.manifest.update(platform='windows', rust_target='x86_64-pc-windows-gnu')
         for directory, names in ((Path(self.manifest['qemu_build']),
                                   ('qemu-system-mips64.exe', 'qemu-img.exe')),
@@ -318,6 +328,12 @@ else:
             directory.mkdir(parents=True, exist_ok=True)
             for name in names:
                 (directory / name).write_text(name)
+        self.manifest['files'] = {
+            'bin/origami.exe': str(Path(self.manifest['cargo_target_dir']) / 'x86_64-pc-windows-gnu/release/origami.exe'),
+            'bin/instigator.exe': self.manifest['instigator_binary'],
+            'libexec/sgi/qemu-system-mips64.exe': str(Path(self.manifest['qemu_build']) / 'qemu-system-mips64.exe'),
+            'libexec/sgi/qemu-img.exe': str(Path(self.manifest['qemu_build']) / 'qemu-img.exe'),
+        }
         output = self.run_stage()
         self.assertTrue((output / 'bin/origami.exe').is_file())
         self.assertTrue((output / 'libexec/sgi/qemu-img.exe').is_file())

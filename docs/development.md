@@ -13,7 +13,8 @@ the commit ID. Builds without Git metadata report `unknown`.
 
 Create an annotated `vX.Y.Z` tag on the product commit to select a release.
 That commit also selects the QEMU and Instigator pins. Build from the tag.
-Adding or deleting tags after a build requires rebuilding before packaging.
+Packaging invokes the native builds again so tag changes reach the archived
+binaries.
 Cargo's `0.0.0` is a package placeholder. The Git tag owns the release version,
 including CPack's package version.
 
@@ -24,6 +25,18 @@ for product orchestration. CMake invokes QEMU's GNU Make entry point, which
 owns reconfiguration and its Meson/Ninja build. CTest runs the product checks
 and CPack creates release archives. Submodules own the exact
 QEMU and Instigator revisions. Builds never fetch or switch their commits.
+
+CMake defines the compiler commands, target paths and Go environment once.
+The staging helper consumes that generated configuration to assemble the
+runnable tree, bundle libraries and collect notices. Cargo, Go and QEMU
+own incremental rebuilds.
+
+Instigator's `go.mod` owns its required Go version. The container images
+install the distribution's Go as a bootstrap toolchain. Go automatically
+selects and downloads the required toolchain from the pinned Instigator
+checkout for builds, tests and license collection. A Go version bump belongs
+in Instigator. The product picks it up through its submodule pin. macOS CI
+also reads `instigator/go.mod` through `setup-go`.
 
 Initialize them once:
 
@@ -44,14 +57,14 @@ When libslirp's wrap or patch files change, the product build runs
 before compilation. Unchanged builds reuse the extracted dependency.
 
 Ordinary builds accept local edits and produce a runnable directory.
-Release packaging requires clean source and dependencies at their committed
-pins. It also verifies that the binaries match the completed build.
+Release packaging refreshes the binaries through CMake and requires clean
+source and dependencies at their committed pins.
 
 ## macOS
 
 Use an Apple Silicon Mac running macOS 15 or newer, with Xcode command-line
-tools, Rust, Go 1.27.1 or newer, and Python 3.11 or newer. Install the native
-libraries and build tools:
+tools, Rust, Go with automatic toolchain selection, and Python 3.12 or newer.
+Install the native libraries and build tools:
 
 ```sh
 brew install cmake ninja meson pkg-config glib pixman sdl2 dylibbundler
@@ -139,9 +152,7 @@ The frontend embeds its Git description through `vergen-gitcl`. QEMU uses its
 native package version option with `sgi-origami` and its Git description.
 Every build checks the QEMU checkout and refreshes that option when its
 identity changes, including local edits. Instigator uses Go's native module
-version and VCS build information. Go 1.27 recognizes the `.git` files used
-by submodules and worktrees, so its version and captures identify the
-Instigator checkout.
+version and VCS build information from its own checkout.
 
 Release archives add toolchain and dependency notices and manifests.
 `SHA256SUMS` covers each packaged file, and CPack writes an archive SHA-256

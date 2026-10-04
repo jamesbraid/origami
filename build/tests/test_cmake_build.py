@@ -24,7 +24,9 @@ class ProductBuild(unittest.TestCase):
             shutil.copy(ROOT / "CMakePresets.json", self.source)
             shutil.copytree(ROOT / "cmake", self.source / "cmake")
         (self.source / "build/tests").mkdir(parents=True)
-        (self.source / "qemu").mkdir()
+        (self.source / "qemu/pc-bios/keymaps").mkdir(parents=True)
+        (self.source / "qemu/pc-bios/keymaps/en-us").write_text("keymap")
+        (self.source / "qemu/pc-bios/keymaps/meson.build").write_text("keymap build")
         (self.source / "instigator").mkdir()
         (self.source / "src").mkdir()
         (self.source / "src/main.rs").write_text("first rust")
@@ -47,8 +49,6 @@ args = sys.argv[1:]
 with open(os.environ["FIXTURE_LOG"], "a") as f:
     f.write(json.dumps([pathlib.Path(sys.argv[0]).name, args]) + "\\n")
 name = pathlib.Path(sys.argv[0]).name
-if name == "configure" or (name in ("cargo", "go") and "build" in args):
-    assert (pathlib.Path(os.environ["FIXTURE_BUILD_DIR"]) / "inputs-recorded").is_file(), "compilation started before inputs were recorded"
 if name == "configure":
     pathlib.Path("pyvenv/bin").mkdir(parents=True, exist_ok=True)
     if not pathlib.Path("pyvenv/bin/meson").exists():
@@ -92,6 +92,7 @@ elif name == "cargo" and "build" in args:
     (root / "origami").write_text(pathlib.Path("src/main.rs").read_text())
 elif name == "go" and "build" in args:
     pathlib.Path(args[args.index("-o") + 1]).write_text(pathlib.Path("main.go").read_text())
+    (pathlib.Path(os.environ["FIXTURE_BUILD_DIR"]) / "go-environment.json").write_text(json.dumps({key: os.environ[key] for key in ("GOPATH", "GOMODCACHE", "GOCACHE", "CGO_ENABLED", "XDG_CONFIG_HOME") if key in os.environ}))
 ''')
         self.tool.chmod(0o755)
         for name in ("cargo", "rustc", "go", "ninja", "qemu-make"):
@@ -99,21 +100,11 @@ elif name == "go" and "build" in args:
         (self.source / "qemu/configure").symlink_to(self.tool)
         (self.source / "build/stage-product.py").write_text('''import json, pathlib, shutil, subprocess, sys
 m = json.loads(pathlib.Path(sys.argv[1]).read_text())
-record = pathlib.Path(m["output_dir"]).parent
-if "--build-qemu" in sys.argv:
-    subprocess.check_call([m["make"], "-j", m["jobs"], "qemu-system-mips64", "qemu-img"], cwd=m["qemu_build"])
+if "--prepare-qemu" in sys.argv:
     sys.exit(0)
-if "--record-inputs" in sys.argv:
-    (record / "inputs-recorded").write_text("inputs")
-    sys.exit(0)
-if "--record-build" in sys.argv:
-    assert (record / "inputs-recorded").is_file()
-    (record / "build-recorded").write_text("outputs")
-if "--release" in sys.argv:
-    assert (record / "build-recorded").is_file(), "missing build provenance"
 out = pathlib.Path(sys.argv[sys.argv.index("--output")+1] if "--output" in sys.argv else m["output_dir"])
 out.mkdir(parents=True, exist_ok=True)
-for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_type"] / "origami"), ("instigator", pathlib.Path(m["instigator_binary"])), ("qemu", pathlib.Path(m["qemu_build"]) / "qemu-system-mips64")]:
+for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("instigator", pathlib.Path(m["files"]["bin/instigator"])), ("qemu", pathlib.Path(m["files"]["libexec/sgi/qemu-system-mips64"]))]:
     shutil.copy(origin, out / name)
 (out / "policy").write_text("release" if "--release" in sys.argv else "development")
 ''')
@@ -148,7 +139,6 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
         manifest = json.loads((self.binary / "product-build.json").read_text())
         self.assertEqual(manifest["qemu_source"], str(self.source / "qemu"))
         self.assertEqual((self.binary / "run/qemu").read_text(), "first qemu")
-        self.assertTrue((self.binary / "build-recorded").is_file())
         self.build()
         commands = [json.loads(line) for line in self.log.read_text().splitlines()]
         self.assertEqual(sum(name == "configure" for name, _ in commands), 1)
@@ -177,6 +167,49 @@ for name, origin in [("origami", pathlib.Path(m["cargo_target_dir"]) / m["build_
         with tarfile.open(self.binary / "archives" / archive_name) as archive:
             self.assertEqual(archive.extractfile(f"{archive_root}/policy").read(), b"release")
             self.assertNotIn("product-build.json", archive.getnames())
+
+    def test_package_rebuilds_changed_sources_before_collection(self):
+        self.env["PRODUCT_TEST_GENERATOR"] = "Ninja"
+        self.configure()
+        self.build()
+        (self.source / "src/main.rs").write_text("updated frontend for package")
+        (self.source / "instigator/main.go").write_text("updated installer for package")
+        self.run_command("cpack", "--config", str(self.binary / "CPackConfig.cmake"),
+                         "-B", str(self.binary / "archives"))
+        import tarfile
+        archive_name, archive_root = (("origami-macos-arm64-preview.tar.gz", "macos-arm64-dev")
+                                      if sys.platform == "darwin" else
+                                      ("origami-linux-x86_64-preview.tar.gz", "linux-dev"))
+        with tarfile.open(self.binary / "archives" / archive_name) as archive:
+            self.assertEqual(archive.extractfile(f"{archive_root}/origami").read(),
+                             b"updated frontend for package")
+            self.assertEqual(archive.extractfile(f"{archive_root}/instigator").read(),
+                             b"updated installer for package")
+
+    def test_packaging_consumes_the_build_environment_and_artifacts(self):
+        self.configure()
+        self.build()
+        manifest = json.loads((self.binary / "product-build.json").read_text())
+        environment = json.loads((self.binary / "go-environment.json").read_text())
+        configured = dict(entry.split("=", 1) for entry in manifest.get("go_environment", []))
+        self.assertEqual(configured, environment)
+        self.assertEqual(configured.get("GOPATH"), str(self.binary / "go"))
+        files = manifest.get("files", {})
+        self.assertEqual(files.get("bin/origami"), str(self.binary / "cargo-target/release/origami"))
+        self.assertEqual(files.get("libexec/sgi/qemu-img"), str(self.binary / "qemu-build/qemu-img"))
+
+    def test_windows_configuration_supplies_target_paths_and_environment(self):
+        self.run_command("cmake", "-S", str(self.source), "-B", str(self.binary),
+                         "-DPRODUCT_PLATFORM=windows", "-DPRODUCT_RUST_TARGET=x86_64-pc-windows-gnu",
+                         *[f"-D{name}={self.source / tool}" for name, tool in
+                           [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"),
+                            ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
+        manifest = json.loads((self.binary / "product-build.json").read_text())
+        self.assertEqual(manifest['files']['bin/origami.exe'],
+                         str(self.binary / "cargo-target/x86_64-pc-windows-gnu/release/origami.exe"))
+        environment = dict(entry.split("=", 1) for entry in manifest['go_environment'])
+        self.assertEqual(environment['GOOS'], 'windows')
+        self.assertEqual(environment['GOARCH'], 'amd64')
 
     def test_package_version_reads_tags_after_configure(self):
         self.configure()

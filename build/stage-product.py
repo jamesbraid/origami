@@ -45,12 +45,7 @@ def revisions(manifest, release):
 
 
 
-def file_hash(path):
-    with path.open('rb') as source:
-        return hashlib.file_digest(source, 'sha256').hexdigest()
-
-
-def build_qemu(manifest):
+def prepare_qemu(manifest):
     source = Path(manifest['qemu_source']).resolve()
     build = Path(manifest['qemu_build']).resolve()
     description = git(source, 'describe', '--match', 'v*', '--always')
@@ -62,122 +57,13 @@ def build_qemu(manifest):
     current = next(option['value'] for option in options if option['name'] == 'pkgversion')
     if current != package:
         subprocess.check_call([str(meson), 'configure', '-Dpkgversion=' + package, str(build)])
-    suffix = '.exe' if manifest['platform'] == 'windows' else ''
-    subprocess.check_call([manifest['make'], '-j', str(manifest['jobs']),
-                           'qemu-system-mips64' + suffix, 'qemu-img' + suffix], cwd=build)
-
-
-def source_identity(manifest):
-    identity = {}
-    for component in ('product', 'qemu', 'instigator'):
-        source = Path(manifest[component + '_source']).resolve()
-        command = ['git', '--no-optional-locks', '-c', 'diff.autoRefreshIndex=false',
-                   '-C', str(source)]
-        diff = subprocess.check_output(command + ['diff', '--binary',
-                                                 '--ignore-submodules=all', 'HEAD'])
-        status = subprocess.check_output(command + ['status', '--porcelain=v1', '-z',
-                                                    '--untracked-files=all',
-                                                    '--ignore-submodules=all'])
-        untracked = subprocess.check_output(command + ['ls-files', '-z', '--others',
-                                                        '--exclude-standard'])
-        content = {}
-        for encoded in sorted(name for name in untracked.split(b'\0') if name):
-            name = os.fsdecode(encoded)
-            path = source / name
-            if path.is_symlink():
-                content[name] = hashlib.sha256(os.fsencode(os.readlink(path))).hexdigest()
-            elif path.is_file():
-                content[name] = file_hash(path)
-            else:
-                raise RuntimeError(f'cannot record untracked source: {path}')
-        identity[component] = {
-            'revision': git(source, 'rev-parse', 'HEAD'),
-            'diff_sha256': hashlib.sha256(diff).hexdigest(),
-            'status_sha256': hashlib.sha256(status).hexdigest(),
-            'untracked': content,
-        }
-    identity['product']['version'] = git(
-        Path(manifest['product_source']), 'describe', '--tags', '--always', '--match', 'v[0-9]*')
-    return {'sources': identity, 'configuration': manifest}
-
-
-def state_path(manifest, name):
-    return Path(manifest['qemu_build']).resolve().parent / name
-
-
-def save_state(path, state):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(mode='w', prefix=path.name + '-',
-                                     dir=path.parent, delete=False) as stream:
-        temporary = Path(stream.name)
-        json.dump(state, stream, sort_keys=True, indent=2)
-        stream.write('\n')
-    try:
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def read_state(path, description):
-    if not path.is_file():
-        raise RuntimeError(f'missing {description}; rebuild the product through CMake')
-    return json.loads(path.read_text())
-
-
-def record_inputs(manifest):
-    revisions(manifest, release=False)
-    # Packaging must not consume an old completion record while a new build runs.
-    state_path(manifest, 'build-provenance.json').unlink(missing_ok=True)
-    save_state(state_path(manifest, 'build-inputs.json'), source_identity(manifest))
-
-
-def artifact_identity(manifest):
-    return {name: file_hash(path) for name, path in layout(manifest).items()}
-
-
-def record_build(manifest):
-    started = read_state(state_path(manifest, 'build-inputs.json'), 'build input record')
-    finished = source_identity(manifest)
-    if started != finished:
-        raise RuntimeError('source or configuration changed during the build; rebuild the product')
-    artifacts = artifact_identity(manifest)
-    if source_identity(manifest) != finished:
-        raise RuntimeError('source changed while recording build artifacts; rebuild the product')
-    save_state(state_path(manifest, 'build-provenance.json'),
-               {'inputs': finished, 'artifacts': artifacts})
-
-
-def verify_build(manifest):
-    completed = read_state(state_path(manifest, 'build-provenance.json'), 'completed build record')
-    if completed['inputs'] != source_identity(manifest):
-        raise RuntimeError('current source or configuration differs from the completed build; rebuild the product')
-    if completed['artifacts'] != artifact_identity(manifest):
-        raise RuntimeError('built artifacts differ from the completed build record; rebuild the product')
 
 
 def layout(manifest):
-    if manifest['platform'] not in ('linux', 'macos', 'windows'):
-        raise RuntimeError(f"unsupported platform: {manifest['platform']}")
-    if manifest['build_type'] not in ('debug', 'release'):
-        raise RuntimeError(f"unsupported build type: {manifest['build_type']}")
-    suffix = '.exe' if manifest['platform'] == 'windows' else ''
-    target = Path(manifest['cargo_target_dir'])
-    if manifest['rust_target']:
-        target /= manifest['rust_target']
-    target /= manifest['build_type']
-    qemu = Path(manifest['qemu_build'])
-    files = {
-        'bin/origami' + suffix: target / ('origami' + suffix),
-        'bin/instigator' + suffix: Path(manifest['instigator_binary']),
-        'libexec/sgi/qemu-system-mips64' + suffix: qemu / ('qemu-system-mips64' + suffix),
-        'libexec/sgi/qemu-img' + suffix: qemu / ('qemu-img' + suffix),
-    }
-    keymaps = Path(manifest['qemu_source']) / 'pc-bios/keymaps'
-    if not keymaps.is_dir():
-        raise RuntimeError(f'missing QEMU keymaps: {keymaps}')
-    for path in sorted(keymaps.iterdir()):
-        if path.name != 'meson.build' and path.is_file():
-            files['share/sgi/qemu/keymaps/' + path.name] = path
+    files = {name: Path(source) for name, source in manifest['files'].items()}
+    for name in files:
+        if Path(name).is_absolute() or '..' in Path(name).parts:
+            raise RuntimeError(f'invalid staging path: {name}')
     for source in files.values():
         if not source.is_file() or not source.stat().st_size:
             raise RuntimeError(f'missing or empty staging input: {source}')
@@ -287,8 +173,10 @@ def toolchain_notices(manifest, bundle, env):
         package_notices(paths, rust)
     go = root / 'go'
     go.mkdir()
-    goroot = Path(output(manifest['go'], 'env', 'GOROOT', env=env))
-    (go / 'toolchain.txt').write_text(output(manifest['go'], 'version', env=env) + '\n'
+    goroot = Path(output(manifest['go'], 'env', 'GOROOT', env=env,
+                         cwd=manifest['instigator_source']))
+    (go / 'toolchain.txt').write_text(output(manifest['go'], 'version', env=env,
+                                           cwd=manifest['instigator_source']) + '\n'
                                      + f'GOROOT={goroot}\n')
     license_file = next((path for path in (goroot / 'LICENSE', goroot.parent / 'LICENSE')
                          if path.is_file()), None)
@@ -333,11 +221,7 @@ def collect_release_notices(manifest, bundle):
     for name, source in sources.items():
         copy_notice(source, notices / name)
     env = os.environ.copy()
-    env.update(GOMODCACHE=manifest['go_mod_cache'], GOCACHE=manifest['go_build_cache'],
-               CGO_ENABLED='0',
-               XDG_CONFIG_HOME=str(state_path(manifest, 'tool-config')))
-    env['GOOS'] = {'linux': 'linux', 'macos': 'darwin', 'windows': 'windows'}[manifest['platform']]
-    env['GOARCH'] = 'arm64' if manifest['platform'] == 'macos' else 'amd64'
+    env.update(dict(entry.split('=', 1) for entry in manifest['go_environment']))
     toolchain_notices(manifest, bundle, env)
     dependencies = output(manifest['go'], 'list', '-mod=readonly', '-deps',
                           '-f', '{{if .Module}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}',
@@ -371,7 +255,6 @@ def stage_product(manifest, release=False, output_dir=None):
     files = layout(manifest)
     validate_destination(manifest, destination, files)
     records = revisions(manifest, release)
-    verify_build(manifest)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='product-stage-', dir=destination.parent) as scratch:
         bundle = Path(scratch) / 'payload'
@@ -380,6 +263,7 @@ def stage_product(manifest, release=False, output_dir=None):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
         revision_file = bundle / 'share/sgi/source-revisions.txt'
+        revision_file.parent.mkdir(parents=True, exist_ok=True)
         revision_file.write_text(''.join(f'{name}={revision} ({state})\n'
                                         for name, (revision, state) in records.items()))
         bundle_runtime(manifest, bundle)
@@ -391,7 +275,6 @@ def stage_product(manifest, release=False, output_dir=None):
                 if path.is_file() and path.stat().st_mtime < 315619200:
                     os.utime(path, (315619200, 315619200))
         checksums(bundle)
-        verify_build(manifest)
         previous = Path(scratch) / 'previous'
         if destination.exists():
             destination.rename(previous)
@@ -409,22 +292,14 @@ def main():
     parser.add_argument('manifest', type=Path)
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--release', action='store_true')
-    modes.add_argument('--record-inputs', action='store_true')
-    modes.add_argument('--record-build', action='store_true')
-    modes.add_argument('--build-qemu', action='store_true')
+    modes.add_argument('--prepare-qemu', action='store_true')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     try:
         manifest = json.loads(args.manifest.read_text())
-        if args.build_qemu:
-            build_qemu(manifest)
+        if args.prepare_qemu:
+            prepare_qemu(manifest)
             return
-        if args.record_inputs:
-            record_inputs(manifest)
-            print('recorded product build inputs')
-            return
-        if args.record_build:
-            record_build(manifest)
         destination = stage_product(manifest, release=args.release, output_dir=args.output)
     except (OSError, RuntimeError, ValueError, KeyError, configparser.Error, subprocess.CalledProcessError) as error:
         parser.exit(1, f'product staging failed: {error}\n')
