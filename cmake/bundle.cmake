@@ -4,7 +4,7 @@ set(root "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
 set(qemu "${root}/libexec/origami/qemu-system-mips64${exe}" "${root}/libexec/origami/qemu-img${exe}")
 # Each bundled library needs an entry in THIRD_PARTY_NOTICES before it ships.
 set(noticed "^(lib(glib|gio|gobject|gmodule)-2\\.0|libintl|(lib)?iconv|libpcre2|libffi|libpixman-1|\
-(lib)?sdl[23]|libepoxy|libdecor-0|libsamplerate|libxss|libatomic|\
+(lib)?sdl[23]|libepoxy|libdecor-0|libsamplerate|libxss|libx11|libxcb|libxau|libxdmcp|libatomic|\
 libgcc_s|libwinpthread|zlib1|libpng16|libjpeg|libtiff|libwebp|libsharpyuv|libnettle|libhogweed|libgmp)")
 
 function(check_noticed files)

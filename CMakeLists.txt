@@ -70,15 +70,21 @@ set(go_environment "GOPATH=${CMAKE_BINARY_DIR}/go" "GOMODCACHE=${CMAKE_BINARY_DI
 
 # Require the display, graphics and audio support the product relies on so a
 # missing dependency fails configuration instead of silently dropping it.
+# Disable optional features the product does not use, so what the archive
+# bundles does not depend on what else the build machine has installed.
 set(qemu_flags --target-list=mips64-softmmu --disable-docs --disable-gtk --disable-cocoa
-  --enable-sdl --enable-opengl --enable-vnc --enable-slirp)
+  --enable-sdl --enable-vnc --enable-slirp
+  --disable-curl --disable-gnutls --disable-gcrypt --disable-bzip2 --disable-zstd
+  --disable-libssh --disable-libnfs --disable-libiscsi --disable-rbd --disable-vde
+  --disable-spice --disable-virglrenderer --disable-libusb)
 if(PRODUCT_PLATFORM STREQUAL "linux")
   # sndio is rarely installed on Linux hosts, and QEMU links every enabled driver.
-  list(APPEND qemu_flags --enable-alsa --enable-pa --disable-sndio)
+  list(APPEND qemu_flags --enable-opengl --enable-alsa --enable-pa --disable-sndio)
 elseif(PRODUCT_PLATFORM STREQUAL "macos")
+  # QEMU's OpenGL support needs EGL, which macOS does not provide.
   list(APPEND qemu_flags --enable-coreaudio)
 else()
-  list(APPEND qemu_flags --enable-dsound)
+  list(APPEND qemu_flags --enable-opengl --enable-dsound --extra-cflags=-DBUILDING_LIBSLIRP)
 endif()
 if(PRODUCT_CROSS_PREFIX)
   list(APPEND qemu_flags "--cross-prefix=${PRODUCT_CROSS_PREFIX}")
@@ -95,13 +101,6 @@ if(PRODUCT_PLATFORM STREQUAL "macos")
 endif()
 set(qemu_configure COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
   "${CMAKE_SOURCE_DIR}/qemu/configure" ${qemu_flags})
-if(PRODUCT_PLATFORM STREQUAL "windows")
-  find_program(PRODUCT_MESON meson REQUIRED)
-  list(APPEND qemu_configure COMMAND "${PRODUCT_MESON}" configure
-    -Dc_args=-DBUILDING_LIBSLIRP -Dcurl=disabled -Dgnutls=disabled -Dgcrypt=disabled
-    -Dbzip2=disabled -Dlibssh=disabled -Dlibnfs=disabled -Dlibiscsi=disabled
-    -Drbd=disabled -Dvde=disabled -Dspice=disabled -Dvirglrenderer=disabled)
-endif()
 # Native tools own source dependency tracking and compiler caches.
 ExternalProject_Add(qemu-product
   SOURCE_DIR "${CMAKE_SOURCE_DIR}/qemu" BINARY_DIR "${qemu_build}"
