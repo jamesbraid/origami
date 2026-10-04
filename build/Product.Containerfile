@@ -1,4 +1,4 @@
-FROM docker.io/library/golang:1.26.3-trixie
+FROM docker.io/library/golang:1.27.1-trixie
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential git pkg-config python3 python3-venv cmake ninja-build \

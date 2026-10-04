@@ -126,36 +126,6 @@ else:
         self.assertEqual(artifact.read_text(), 'sgi-origami ' + git(source, 'describe', '--match', 'v*'))
         self.assertEqual(len((build / 'configurations').read_text().splitlines()), 3)
 
-    def test_instigator_build_stamps_its_own_submodule_checkout(self):
-        product = self.sources['product']
-        source = product / 'instigator'
-        upstream = self.sources['instigator']
-        git(upstream, 'tag', 'v0.3.1')
-        (upstream / 'LICENSE').write_text('version support after release')
-        git(upstream, 'add', 'LICENSE')
-        git(upstream, 'commit', '-qm', 'test: advance beyond release tag')
-        git(product, '-c', 'protocol.file.allow=always', 'submodule', 'add',
-            '--force', str(upstream), 'instigator')
-        self.manifest['instigator_source'] = str(source)
-        (source / 'LICENSE').write_text('local changes')
-        revision = git(source, 'rev-parse', 'HEAD')
-        with patch.object(self.stage.subprocess, 'check_call') as build:
-            self.stage.build_instigator(self.manifest)
-        command = build.call_args.args[0]
-        self.assertEqual(build.call_args.kwargs['cwd'], source)
-        self.assertIn('-buildvcs=false', command)
-        flags = command[command.index('-ldflags') + 1]
-        prefix = 'github.com/jamesbraid/instigator/internal/version.'
-        self.assertIn(prefix + 'Version=0.3.1', flags)
-        self.assertIn(prefix + 'Revision=' + revision, flags)
-        self.assertIn(prefix + 'Modified=true', flags)
-        self.assertNotIn(git(product, 'rev-parse', 'HEAD'), flags)
-        git(source, 'checkout', '--', 'LICENSE')
-        with patch.object(self.stage.subprocess, 'check_call') as build:
-            self.stage.build_instigator(self.manifest)
-        self.assertIn(prefix + 'Modified=false', build.call_args.args[0][
-            build.call_args.args[0].index('-ldflags') + 1])
-
     def test_source_checks_preserve_git_index(self):
         product = self.sources['product']
         index = product / '.git/index'
@@ -321,7 +291,7 @@ else:
             if command == ('go', 'env', 'GOROOT'):
                 return str(goroot)
             if command == ('go', 'version'):
-                return 'go version go1.26.3 linux/amd64'
+                return 'go version go1.27.1 linux/amd64'
             raise AssertionError(command)
 
         bundle = self.root / 'toolchain output'

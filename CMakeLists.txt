@@ -123,8 +123,7 @@ add_custom_target(frontend
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" VERBATIM)
 add_custom_target(instigator-product
   COMMAND "${CMAKE_COMMAND}" -E env ${go_environment} ${go_platform}
-    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
-      "${CMAKE_BINARY_DIR}/product-build.json" --build-instigator
+    "${PRODUCT_GO}" build -mod=readonly -trimpath -buildvcs=true -o "${instigator_binary}" ./cmd/instigator
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/instigator" VERBATIM)
 
 if(PRODUCT_PLATFORM STREQUAL "macos")

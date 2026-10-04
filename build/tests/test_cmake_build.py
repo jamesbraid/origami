@@ -103,9 +103,6 @@ record = pathlib.Path(m["output_dir"]).parent
 if "--build-qemu" in sys.argv:
     subprocess.check_call([m["make"], "-j", m["jobs"], "qemu-system-mips64", "qemu-img"], cwd=m["qemu_build"])
     sys.exit(0)
-if "--build-instigator" in sys.argv:
-    subprocess.check_call([m["go"], "build", "-mod=readonly", "-trimpath", "-o", m["instigator_binary"], "./cmd/instigator"])
-    sys.exit(0)
 if "--record-inputs" in sys.argv:
     (record / "inputs-recorded").write_text("inputs")
     sys.exit(0)

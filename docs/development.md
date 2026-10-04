@@ -42,7 +42,7 @@ pins. It also verifies that the binaries match the completed build.
 ## macOS
 
 Use an Apple Silicon Mac running macOS 15 or newer, with Xcode command-line
-tools, Rust, Go 1.26.3 or newer, and Python 3.11 or newer. Install the native
+tools, Rust, Go 1.27.1 or newer, and Python 3.11 or newer. Install the native
 libraries and build tools:
 
 ```sh
@@ -124,19 +124,16 @@ and `qemu-img` under `libexec/sgi/`, runtime libraries and QEMU keymaps.
 `origami --version` (also `origami version`) prints the version and Git identity
 carried by each executable. QEMU and Instigator are queried at their launch
 paths, including `SGI_RUNTIME_DIR` for QEMU. Replacing a binary changes its
-reported identity. Local edits are marked `-dirty`, and unavailable components
-are reported on their own lines. Instigator 0.3.1 does not yet support
-`--version`, so its line reports `unavailable` until a binary with version
-support is installed. Its captures also omit the source revision, while
-retaining the binary checksum and timing data.
+reported identity. Local edits are marked dirty, and unavailable components
+are reported on their own lines.
 
 The frontend uses `vergen-gitcl` with Cargo's package version. QEMU uses its
 native package version option with `sgi-origami` and its Git description.
 Every build checks the QEMU checkout and refreshes that option when its
-identity changes, including local edits. The product build passes Instigator's
-own checkout identity through Go linker variables for version-aware binaries.
-Go 1.26's automatic VCS discovery skips submodule `.git` files, so automatic
-stamping cannot reliably identify those builds.
+identity changes, including local edits. Instigator uses Go's native module
+version and VCS build information. Go 1.27 recognizes the `.git` files used
+by submodules and worktrees, so its version and captures identify the
+Instigator checkout.
 
 Release archives add toolchain and dependency notices and manifests.
 `SHA256SUMS` covers each packaged file, and CPack writes an archive SHA-256

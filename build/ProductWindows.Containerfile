@@ -1,5 +1,5 @@
 ARG QEMU_BUILDER=localhost/origami-qemu-windows-builder:dev
-FROM docker.io/library/golang:1.26.3-trixie AS go-toolchain
+FROM docker.io/library/golang:1.27.1-trixie AS go-toolchain
 FROM ${QEMU_BUILDER}
 
 RUN dnf --quiet install -y cargo cmake && dnf --quiet clean all
