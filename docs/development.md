@@ -57,7 +57,8 @@ When libslirp's wrap or patch files change, the product build runs
 before compilation. Unchanged builds reuse the extracted dependency.
 
 Ordinary builds accept local edits and produce a runnable directory.
-Release packaging refreshes the binaries through CMake and requires clean
+The install script builds CMake's `binaries` target before release staging,
+including when CPack uses Ninja. Release packaging requires clean
 source and dependencies at their committed pins.
 
 ## macOS

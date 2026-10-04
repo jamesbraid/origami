@@ -189,10 +189,11 @@ foreach(source IN LISTS keymaps)
 endforeach()
 string(JSON manifest SET "${manifest}" files "${files}")
 file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/product-build.json" CONTENT "${manifest}\n" @ONLY)
+add_custom_target(binaries DEPENDS qemu-product frontend instigator-product)
 add_custom_target(product ALL
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
     "${CMAKE_BINARY_DIR}/product-build.json"
-  DEPENDS qemu-product frontend instigator-product VERBATIM)
+  DEPENDS binaries VERBATIM)
 
 if(BUILD_TESTING)
   # Cross products are tested with native tools; target executables cannot run here.

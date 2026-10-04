@@ -124,7 +124,7 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
         return result.stdout
 
     def configure(self):
-        return self.run_command("cmake", "-S", str(self.source), "-B", str(self.binary), "-G", os.environ.get("PRODUCT_TEST_GENERATOR", "Unix Makefiles"), *[f"-D{name}={self.source / tool}" for name, tool in [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"), ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
+        return self.run_command("cmake", "-S", str(self.source), "-B", str(self.binary), "-G", self.env.get("PRODUCT_TEST_GENERATOR", "Unix Makefiles"), *[f"-D{name}={self.source / tool}" for name, tool in [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"), ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
 
     def build(self):
         self.run_command("cmake", "--build", str(self.binary), "--parallel", "2")
@@ -171,9 +171,12 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
     def test_package_rebuilds_changed_sources_before_collection(self):
         self.env["PRODUCT_TEST_GENERATOR"] = "Ninja"
         self.configure()
+        self.assertIn("CMAKE_GENERATOR:INTERNAL=Ninja",
+                      (self.binary / "CMakeCache.txt").read_text())
         self.build()
         (self.source / "src/main.rs").write_text("updated frontend for package")
         (self.source / "instigator/main.go").write_text("updated installer for package")
+        (self.source / "qemu/source.c").write_text("updated emulator for package")
         self.run_command("cpack", "--config", str(self.binary / "CPackConfig.cmake"),
                          "-B", str(self.binary / "archives"))
         import tarfile
@@ -185,6 +188,8 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
                              b"updated frontend for package")
             self.assertEqual(archive.extractfile(f"{archive_root}/instigator").read(),
                              b"updated installer for package")
+            self.assertEqual(archive.extractfile(f"{archive_root}/qemu").read(),
+                             b"updated emulator for package")
 
     def test_packaging_consumes_the_build_environment_and_artifacts(self):
         self.configure()
