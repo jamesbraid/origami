@@ -1,0 +1,8043 @@
+{
+ "offerings": [
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [
+    {
+     "option": "fuel-mac-eeprom",
+     "required": false
+    }
+   ],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "fuel,topology=fuel-vpro,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "fuel",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "fuel-vpro"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [
+    {
+     "option": "fuel-mac-eeprom",
+     "required": false
+    }
+   ],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "fuel,topology=fuel,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "fuel",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "fuel"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip30-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "octane,topology=octane",
+   "memory-per-node-mib": {
+    "accepted": [
+     128
+    ],
+    "default": 128
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "octane",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 512
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 24
+    }
+   ],
+   "topology": "octane"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R12000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip30-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "octane2,topology=octane2",
+   "memory-per-node-mib": {
+    "accepted": [
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "octane2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 512
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 24
+    }
+   ],
+   "topology": "octane2"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-deskside,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-deskside,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-deskside,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 3,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-deskside,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-deskside,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 8,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 5,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 6,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 7,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 6,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 3,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 5,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 3,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "onyx2",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "onyx2-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:junk",
+     "kind": "junk-uart",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin200,topology=origin200-dual,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     512,
+     256,
+     128,
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": true,
+   "nodes": 2,
+   "product": "origin200",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.2",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.3",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram1",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin200-dual"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:junk",
+     "kind": "junk-uart",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin200,topology=origin200-gigachannel-loopback,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512,
+     256,
+     128,
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": true,
+   "nodes": 1,
+   "product": "origin200",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin200-gigachannel-loopback"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:junk",
+     "kind": "junk-uart",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin200,topology=origin200-gigachannel-loopback,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512,
+     256,
+     128,
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": true,
+   "nodes": 1,
+   "product": "origin200",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin200-gigachannel-loopback"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:junk",
+     "kind": "junk-uart",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin200,topology=origin200-gigachannel,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512,
+     256,
+     128,
+     64
+    ],
+    "default": 128
+   },
+   "needs-debug-leds-off": true,
+   "nodes": 1,
+   "product": "origin200",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin200-gigachannel"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:junk",
+     "kind": "junk-uart",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin200,topology=origin200-gigachannel,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512,
+     256,
+     128,
+     64
+    ],
+    "default": 128
+   },
+   "needs-debug-leds-off": true,
+   "nodes": 1,
+   "product": "origin200",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin200-gigachannel"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:junk",
+     "kind": "junk-uart",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin200,topology=origin200,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512,
+     256,
+     128,
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": true,
+   "nodes": 1,
+   "product": "origin200",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin200"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:junk",
+     "kind": "junk-uart",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin200,topology=origin200,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512,
+     256,
+     128,
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": true,
+   "nodes": 1,
+   "product": "origin200",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin200"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 8,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 5,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 6,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 7,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 6,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 3,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 5,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 3,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-deskside,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     64,
+     256
+    ],
+    "default": 256
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-deskside"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 8,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 5,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 6,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=4",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 4,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 7,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node3-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 6,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 3,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=3",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 3,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 5,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node2-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 3,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:ioc3_a",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:ioc3_b",
+     "kind": "second-port",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:elsc",
+     "kind": "system-controller",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    1
+   ],
+   "default-cpu-model": "R10000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip27-prom",
+     "name": "boot-prom",
+     "required": true
+    },
+    {
+     "kind": "io6-prom",
+     "name": "io-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     64
+    ],
+    "default": 64
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin2000",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 1,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "io-prom",
+     "name": "io0-flash",
+     "read-only": false,
+     "size": 1048576
+    },
+    {
+     "initial": "ip27-nvram",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin2000-rack"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-pci-expansion-configuration-storage-experiment,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-pci-expansion-configuration-storage-experiment"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-pci-expansion-configuration-storage-experiment,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-pci-expansion-configuration-storage-experiment"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-pci-expansion-experiment,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-pci-expansion-experiment"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-pci-expansion-experiment,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-pci-expansion-experiment"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-pci-expansion-pending-register-experiment,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-pci-expansion-pending-register-experiment"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-pci-expansion-pending-register-experiment,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-pci-expansion-pending-register-experiment"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-pci-expansion-unconnected-uart-experiment,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-pci-expansion-unconnected-uart-experiment"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-pci-expansion-unconnected-uart-experiment,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-pci-expansion-unconnected-uart-experiment"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:l1_node1",
+     "kind": "system-controller",
+     "node": 1
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-two-chassis,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-two-chassis"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:l1_node1",
+     "kind": "system-controller",
+     "node": 1
+    }
+   ],
+   "cpus-per-node": [
+    4,
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-two-chassis,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 6,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-two-chassis"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:l1_node1",
+     "kind": "system-controller",
+     "node": 1
+    }
+   ],
+   "cpus-per-node": [
+    2,
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-two-chassis,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 6,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-two-chassis"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    },
+    {
+     "argument": "-serial chardev:l1_node1",
+     "kind": "system-controller",
+     "node": 1
+    }
+   ],
+   "cpus-per-node": [
+    4,
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-two-chassis,nodes=2",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 2,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    },
+    {
+     "bus": "scsi.1",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 8,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "boot-prom",
+     "name": "node1-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram1-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-two-chassis"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-v12-direct,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-v12-direct"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-v12-direct,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-v12-direct"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-vbrick,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-vbrick"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300-vbrick,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300-vbrick"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    2
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 2,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300"
+  },
+  {
+   "consoles": [
+    {
+     "argument": "-serial chardev:l1",
+     "kind": "console",
+     "node": 0
+    }
+   ],
+   "cpus-per-node": [
+    4
+   ],
+   "default-cpu-model": "R14000",
+   "hardware-inputs": [],
+   "init-inputs": [
+    {
+     "kind": "ip35-prom",
+     "name": "boot-prom",
+     "required": true
+    }
+   ],
+   "machine-options": "origin300,topology=origin300,nodes=1",
+   "memory-per-node-mib": {
+    "accepted": [
+     512
+    ],
+    "default": 512
+   },
+   "needs-debug-leds-off": false,
+   "nodes": 1,
+   "product": "origin300",
+   "scsi-adapters": [
+    {
+     "bus": "scsi.0",
+     "targets": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "type": "scsi"
+    }
+   ],
+   "smp": 4,
+   "storage": [
+    {
+     "initial": "boot-prom",
+     "name": "node0-flash",
+     "read-only": false,
+     "size": 16777216
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0",
+     "read-only": false,
+     "size": 32768
+    },
+    {
+     "initial": "zero",
+     "name": "nvram0-clock",
+     "read-only": false,
+     "size": 16
+    }
+   ],
+   "topology": "origin300"
+  }
+ ],
+ "schema": "sgi-machines",
+ "version": 1
+}

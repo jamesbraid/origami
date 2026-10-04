@@ -1,4 +1,4 @@
-use crate::{control, resolve, tcp_endpoint, MachineFile, Result};
+use crate::{control, resolve, tcp_endpoint, Catalog, MachineFile, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -112,6 +112,7 @@ const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
 const RAD4_FINISH_SCRIPT: &str = include_str!("../guest/irix/finish-rad4.sh");
 
 pub fn init_profile(
+    catalog: &Catalog,
     dir: &Path,
     media_root: &Path,
     mac: &str,
@@ -119,10 +120,11 @@ pub fn init_profile(
     profile: &str,
 ) -> Result<PathBuf> {
     let root = media_root.canonicalize()?;
-    init_sources(dir, mac, file, Some(&root), profile)
+    init_sources(catalog, dir, mac, file, Some(&root), profile)
 }
 
 pub fn init_remote_profile(
+    catalog: &Catalog,
     dir: &Path,
     mac: &str,
     file: &mut MachineFile,
@@ -131,10 +133,11 @@ pub fn init_remote_profile(
     if profile == "legacy-development" {
         return Err("legacy-development requires a local --media-root".into());
     }
-    init_sources(dir, mac, file, None, profile)
+    init_sources(catalog, dir, mac, file, None, profile)
 }
 
 fn init_sources(
+    catalog: &Catalog,
     dir: &Path,
     mac: &str,
     file: &mut MachineFile,
@@ -174,7 +177,6 @@ fn init_sources(
         media,
         addons: vec![],
     };
-    let catalog = crate::catalogue()?;
     let old_network = file.network.clone();
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let endpoint = format!("tcp:{}", listener.local_addr()?);
@@ -184,7 +186,7 @@ fn init_sources(
         mac: Some(mac.into()),
         forward: old_network.forward.clone(),
     };
-    if let Err(error) = crate::validate(&catalog, dir, file) {
+    if let Err(error) = crate::validate(catalog, dir, file) {
         file.network = old_network;
         return Err(error);
     }
@@ -1197,7 +1199,7 @@ mod tests {
         let prom = root.join("prom.bin");
         fs::write(&prom, vec![0; 1048576]).unwrap();
         let machine = root.join("machine");
-        let catalog = crate::catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         crate::create_configured(
             &machine,
             crate::preset(&catalog, "origin200-1").unwrap(),
@@ -1210,6 +1212,7 @@ mod tests {
         .unwrap();
         let mut file = crate::read_machine(&machine).unwrap();
         init_profile(
+            &catalog,
             &machine,
             &media_root,
             "08:00:69:12:34:56",
@@ -1256,12 +1259,12 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let prom = root.join("synthetic-prom.bin");
         fs::write(&prom, [0u8; 1]).unwrap();
-        let catalog = crate::catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = crate::preset(&catalog, "origin200-1").unwrap();
         let dir = root.join("machine");
         crate::create_configured(&dir, offer, &prom, None, None, None, Default::default()).unwrap();
         let mut file = crate::read_machine(&dir).unwrap();
-        init_remote_profile(&dir, "08:00:69:12:34:56", &mut file, "desktop").unwrap();
+        init_remote_profile(&catalog, &dir, "08:00:69:12:34:56", &mut file, "desktop").unwrap();
         let mut media = read_media(&dir).unwrap();
         assert_eq!(media.media.len(), 10);
         assert_eq!(

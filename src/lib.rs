@@ -5,6 +5,7 @@ use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 
 pub mod assets;
+pub mod catalogue;
 pub mod control;
 pub mod install;
 pub mod origin300;
@@ -15,6 +16,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Catalog {
+    pub schema: String,
     pub offerings: Vec<Offering>,
 }
 
@@ -30,11 +32,11 @@ pub struct Offering {
     pub cpu: String,
     #[serde(rename = "memory-per-node-mib")]
     pub memory: Memory,
-    pub firmware: FirmwareRequirement,
-    pub storage: Vec<Storage>,
+    pub storage: Vec<StorageItem>,
+    #[serde(rename = "scsi-adapters")]
+    pub scsi_adapters: Vec<ScsiAdapter>,
     #[serde(rename = "needs-debug-leds-off", default)]
     pub needs_debug_leds_off: bool,
-    pub resources: Vec<Resource>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -43,27 +45,21 @@ pub struct Memory {
     pub default: u32,
 }
 
+/// One writable store of a machine, named as QEMU names its file, block
+/// node and machine property.
 #[derive(Clone, Debug, Deserialize)]
-pub struct FirmwareRequirement {
+pub struct StorageItem {
+    pub name: String,
     pub size: u64,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub sha256: Option<String>,
+    #[serde(rename = "read-only")]
+    pub read_only: bool,
+    pub initial: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct Storage {
+pub struct ScsiAdapter {
     pub bus: String,
     pub targets: Vec<u32>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct Resource {
-    pub kind: String,
-    pub count: u32,
-    #[serde(default)]
-    pub size: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -182,14 +178,9 @@ pub struct Drive {
     pub read_only: bool,
 }
 
-pub fn catalogue_sha256() -> String {
-    sha256_hex(include_bytes!("../catalogue/sn-catalogue.json"))
-}
-
+/// The machine catalogue of the QEMU that launches guests.
 pub fn catalogue() -> Result<Catalog> {
-    Ok(serde_json::from_str(include_str!(
-        "../catalogue/sn-catalogue.json"
-    ))?)
+    catalogue::load(&runtime::qemu_path()?)
 }
 
 pub fn presets(catalog: &Catalog) -> Vec<(String, &Offering)> {
@@ -326,19 +317,8 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         }
     }
     let prom = resolve(dir, &file.firmware.image);
-    let prom_size = fs::metadata(&prom)?.len();
-    if !valid_firmware_size(offering, prom_size) {
-        return Err(format!(
-            "firmware {} must {}",
-            prom.display(),
-            firmware_size_requirement(offering)
-        )
-        .into());
-    }
-    if let Some(expected) = &offering.firmware.sha256 {
-        if sha256_file(&prom)? != *expected {
-            return Err(format!("firmware {} has an unexpected SHA-256", prom.display()).into());
-        }
+    if !prom.is_file() {
+        return Err(format!("missing firmware {}", prom.display()).into());
     }
     if let (true, Some(identity)) = (offering.product == "origin300", &file.identity) {
         if offering.nodes != 1 || offering.smp != 2 {
@@ -358,7 +338,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
     for drive in &file.drive {
         let bus = format!("scsi.{}", drive.bus);
         if !offering
-            .storage
+            .scsi_adapters
             .iter()
             .any(|s| s.bus == bus && s.targets.contains(&drive.target))
         {
@@ -391,22 +371,6 @@ pub fn resolve(dir: &Path, value: &str) -> PathBuf {
 
 pub fn qemu_path_option(path: &Path) -> String {
     path.display().to_string().replace(',', ",,")
-}
-
-fn valid_firmware_size(offering: &Offering, size: u64) -> bool {
-    if matches!(offering.firmware.kind.as_str(), "ip27-prom" | "ip30-prom") {
-        size > 0 && size <= offering.firmware.size
-    } else {
-        size == offering.firmware.size
-    }
-}
-
-fn firmware_size_requirement(offering: &Offering) -> String {
-    if matches!(offering.firmware.kind.as_str(), "ip27-prom" | "ip30-prom") {
-        format!("fit in {} bytes and be nonempty", offering.firmware.size)
-    } else {
-        format!("be {} bytes", offering.firmware.size)
-    }
 }
 
 pub fn validate_create_inputs(
@@ -455,13 +419,8 @@ pub fn create_configured(
 ) -> Result<()> {
     let graphics = graphics.unwrap_or(profiles::default_graphics(offering));
     let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
-    if !valid_firmware_size(offering, fs::metadata(prom)?.len()) {
-        return Err(format!("PROM must {}", firmware_size_requirement(offering)).into());
-    }
-    if let Some(expected) = &offering.firmware.sha256 {
-        if sha256_file(prom)? != *expected {
-            return Err("PROM has an unexpected SHA-256".into());
-        }
+    if !prom.is_file() {
+        return Err(format!("missing PROM {}", prom.display()).into());
     }
     if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
@@ -511,42 +470,39 @@ pub fn create_configured(
     result
 }
 
+/// An excerpt of a `query-sgi-machines` reply, trimmed to the fields Origami
+/// reads, for tests that need offerings without starting QEMU.
+#[cfg(test)]
+pub(crate) fn test_catalogue() -> Catalog {
+    catalogue::parse(include_str!("../tests/fixtures/sgi-machines.json")).unwrap()
+}
+
+/// Write an executable script without this process ever holding it open
+/// for writing. A child forked meanwhile by another test thread would
+/// inherit such a descriptor, and running the script would then fail with
+/// "Text file busy" until that child calls exec.
+#[cfg(all(test, unix))]
+pub(crate) fn write_script(path: &Path, script: &str) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut writer = Command::new("sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    writer
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(script.as_bytes())
+        .unwrap();
+    assert!(writer.wait().unwrap().success());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn embedded_offerings_match_pinned_qemu() {
-        let product: serde_json::Value =
-            serde_json::from_str(include_str!("../catalogue/sn-catalogue.json")).unwrap();
-        let qemu: serde_json::Value =
-            serde_json::from_str(include_str!("../qemu/hw/mips/sgi/sn-catalogue.json")).unwrap();
-        let qemu_offerings = qemu["offerings"].as_array().unwrap();
-        for offering in product["offerings"].as_array().unwrap() {
-            let matching: Vec<_> = qemu_offerings
-                .iter()
-                .filter(|candidate| {
-                    ["product", "topology", "nodes", "smp", "cpus-per-node"]
-                        .iter()
-                        .all(|key| candidate[key] == offering[*key])
-                })
-                .collect();
-            assert_eq!(matching.len(), 1, "no unique QEMU offering for {offering}");
-            for key in [
-                "cpus-per-node",
-                "default-cpu-model",
-                "memory-per-node-mib",
-                "firmware",
-                "storage",
-                "resources",
-            ] {
-                assert_eq!(
-                    offering[key], matching[0][key],
-                    "mismatched {key} for {offering}"
-                );
-            }
-        }
-    }
 
     #[test]
     fn private_tcp_endpoint_stays_on_loopback() {
@@ -558,20 +514,6 @@ mod tests {
         ] {
             assert!(tcp_endpoint(endpoint).is_err(), "{endpoint}");
         }
-    }
-
-    #[test]
-    fn ip27_payload_fits_flash_and_ip35_keeps_exact_size() {
-        let catalog = catalogue().unwrap();
-        let ip27 = preset(&catalog, "origin200-1").unwrap();
-        assert!(valid_firmware_size(ip27, 908752));
-        assert!(valid_firmware_size(ip27, 1048576));
-        assert!(!valid_firmware_size(ip27, 0));
-        assert!(!valid_firmware_size(ip27, 1048577));
-
-        let ip35 = preset(&catalog, "origin300-2").unwrap();
-        assert!(valid_firmware_size(ip35, 1476264));
-        assert!(!valid_firmware_size(ip35, 1476263));
     }
 
     #[test]
@@ -588,7 +530,7 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let prom = root.join("prom.bin");
         fs::write(&prom, [0u8; 1]).unwrap();
-        let catalog = catalogue().unwrap();
+        let catalog = test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let machine = root.join("nested/machine");
         create_configured(
@@ -608,8 +550,8 @@ mod tests {
     }
 
     #[test]
-    fn downloadable_proms_match_catalogue_requirements() {
-        let catalog = catalogue().unwrap();
+    fn downloadable_proms_name_catalogue_presets() {
+        let catalog = test_catalogue();
         let manifest = crate::assets::manifest().unwrap();
         for (profile, _) in presets(&catalog) {
             assert_eq!(
@@ -624,18 +566,14 @@ mod tests {
         }
         for prom in manifest.proms {
             for profile in &prom.profiles {
-                let offer = preset(&catalog, profile).unwrap();
-                assert!(valid_firmware_size(offer, prom.size), "{profile}");
-                if let Some(expected) = &offer.firmware.sha256 {
-                    assert_eq!(&prom.sha256, expected, "{profile}");
-                }
+                assert!(preset(&catalog, profile).is_ok(), "{profile}");
             }
         }
     }
 
     #[test]
     fn create_preflight_rejects_inputs_before_firmware_fetch() {
-        let catalog = catalogue().unwrap();
+        let catalog = test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let absent = std::env::temp_dir().join(format!("origami-absent-{}", std::process::id()));
         assert!(validate_create_inputs(&absent, offer, Some(96), None).is_err());
@@ -647,7 +585,7 @@ mod tests {
 
     #[test]
     fn selected_presets_match_compiled_machine_catalogue() {
-        let catalog = catalogue().unwrap();
+        let catalog = test_catalogue();
         assert_eq!(presets(&catalog).len(), 12);
         for (_, offering) in presets(&catalog) {
             assert_eq!(offering.cpus_per_node.iter().sum::<u32>(), offering.smp);

@@ -162,7 +162,7 @@ pub fn add_graphics(args: &mut Vec<String>, offering: &Offering, graphics: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{catalogue, preset, runtime, Firmware, MachineFile, Network};
+    use crate::{preset, runtime, Firmware, MachineFile, Network};
     use std::path::Path;
 
     fn file(o: &Offering, graphics: &str) -> MachineFile {
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn starter_profiles_are_unique_and_cover_implemented_families() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let profiles = presets(&catalog);
         let names: std::collections::HashSet<_> = profiles.iter().map(|(name, _)| name).collect();
         assert_eq!(names.len(), profiles.len());
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn origin200_impact_uses_the_gigachannel_slot() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let o = preset(&catalog, "origin200-impact").unwrap();
         let args = runtime::arguments(
             Path::new("/machine"),
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn octane_impact_uses_machine_graphics_and_embedded_network() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let o = preset(&catalog, "octane-impact").unwrap();
         let args = runtime::arguments(
             Path::new("/machine"),
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn onyx2_uses_its_fitted_infinite_reality_pipe() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let o = preset(&catalog, "onyx2-infinite-reality").unwrap();
         let args = runtime::arguments(
             Path::new("/machine"),
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn heterogeneous_cpu_populations_are_explicit() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         for o in catalog
             .offerings
             .iter()
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn octane2_requires_explicit_cpu_properties_on_cpu_option() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let o = preset(&catalog, "octane2-impact").unwrap();
         let mut f = file(o, "si");
         assert!(
@@ -354,7 +354,7 @@ mod tests {
 
     #[test]
     fn fuel_requires_explicit_inputs_and_rejects_vpro() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let o = preset(&catalog, "fuel-1").unwrap();
         let mut f = file(o, "none");
         assert!(runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).is_err());

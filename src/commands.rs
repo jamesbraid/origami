@@ -1,16 +1,14 @@
 use crate::cli::CreateArgs;
-use origami::{
-    catalogue, preset, read_machine, validate, validate_create_inputs, Drive, Origin300Create,
-    Result,
-};
 use origami::{control, runtime};
+use origami::{
+    preset, read_machine, validate, validate_create_inputs, Catalog, Drive, Origin300Create, Result,
+};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-pub fn create_machine(args: &CreateArgs) -> Result<()> {
-    let catalog = catalogue()?;
-    let offer = preset(&catalog, &args.preset)?;
+pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
+    let offer = preset(catalog, &args.preset)?;
     let options = &args.options;
     let identity = options
         .spd_dimm2
@@ -49,11 +47,10 @@ pub fn create_machine(args: &CreateArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn create_disk(dir: &Path, size: u64) -> Result<()> {
+pub fn create_disk(catalog: &Catalog, dir: &Path, size: u64) -> Result<()> {
     let _lock = control::lock_for_edit(dir, "changing drives")?;
     let mut file = read_machine(dir)?;
-    let catalog = catalogue()?;
-    let offer = validate(&catalog, dir, &file)?;
+    let offer = validate(catalog, dir, &file)?;
     if file.drive.iter().any(|d| d.name == "system") {
         return Err("system disk already attached".into());
     }
@@ -65,7 +62,7 @@ pub fn create_disk(dir: &Path, size: u64) -> Result<()> {
         return Err("system disk target 1 is occupied".into());
     }
     if !offer
-        .storage
+        .scsi_adapters
         .iter()
         .any(|s| s.bus == "scsi.0" && s.targets.contains(&1))
     {

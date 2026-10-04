@@ -1,6 +1,6 @@
 use crate::{
     control, origin300, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering,
-    PortForward, Result,
+    PortForward, Result, StorageItem,
 };
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -57,27 +57,11 @@ pub fn prepare_state(
     prom: &Path,
 ) -> Result<()> {
     fs::create_dir_all(dir.join("state"))?;
-    let nvram_count: u32 = offering
-        .resources
-        .iter()
-        .filter(|resource| resource.kind == "nvram")
-        .map(|resource| resource.count)
-        .sum();
-    let nvram_size = offering
-        .resources
-        .iter()
-        .find(|r| r.kind == "nvram")
-        .map_or(32768, |r| r.size);
-    let clock_size = offering
-        .resources
-        .iter()
-        .find(|r| r.kind == "rtc-clock")
-        .map_or(16, |r| r.size);
-    for node in 0..nvram_count {
-        ensure_size(&dir.join(format!("state/nvram{node}.raw")), nvram_size)?;
+    for (node, nvram, clock) in nvram_stores(offering) {
+        ensure_size(&dir.join(format!("state/nvram{node}.raw")), nvram.size)?;
         ensure_size(
             &dir.join(format!("state/nvram{node}.raw.clock")),
-            clock_size,
+            clock.size,
         )?;
     }
     if offering.product == "origin300" && file.identity.is_some() {
@@ -112,6 +96,19 @@ pub fn prepare_state(
         }
     }
     Ok(())
+}
+
+fn nvram_stores(offering: &Offering) -> Vec<(usize, &StorageItem, &StorageItem)> {
+    let item = |name: String| offering.storage.iter().find(|item| item.name == name);
+    (0..)
+        .map_while(|index| {
+            Some((
+                index,
+                item(format!("nvram{index}"))?,
+                item(format!("nvram{index}-clock"))?,
+            ))
+        })
+        .collect()
 }
 
 fn ensure_size(path: &Path, bytes: u64) -> Result<()> {
@@ -232,13 +229,7 @@ pub fn arguments(
             ]);
         }
     }
-    let nvram_count: u32 = offering
-        .resources
-        .iter()
-        .filter(|resource| resource.kind == "nvram")
-        .map(|resource| resource.count)
-        .sum();
-    for node in 0..nvram_count {
+    for (node, _, _) in nvram_stores(offering) {
         let path = dir.join(format!("state/nvram{node}.raw"));
         args.extend([
             "-drive".into(),
@@ -574,7 +565,7 @@ fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{catalogue, preset, Firmware, Machine, Network};
+    use crate::{preset, Firmware, Machine, Network};
 
     fn machine(offering: &Offering, graphics: &str) -> MachineFile {
         MachineFile {
@@ -600,7 +591,7 @@ mod tests {
 
     #[test]
     fn local_graphics_uses_sdl_and_rad4() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let args = arguments(
             Path::new("/machine"),
@@ -620,7 +611,7 @@ mod tests {
 
     #[test]
     fn fuel_guest_console_uses_ioc3_a_in_foreground_and_background() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "fuel-1").unwrap();
         let mut file = machine(offer, "none");
         file.machine.inputs = [
@@ -651,7 +642,7 @@ mod tests {
 
     #[test]
     fn foreground_serial_keeps_console_and_logs_output() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let mut args = arguments(
             Path::new("/machine"),
@@ -677,7 +668,7 @@ mod tests {
 
     #[test]
     fn vnc_port_maps_to_qemu_display_offset() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let display = Display::Vnc { port: 5991 };
         let args = arguments(
@@ -694,7 +685,7 @@ mod tests {
 
     #[test]
     fn user_network_forwards_bind_only_to_loopback() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let rules = vec![
             PortForward {
                 name: "ssh".into(),
@@ -730,7 +721,7 @@ mod tests {
 
     #[test]
     fn origin2000_uses_independent_node_flash_images() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin2000-8").unwrap();
         let args = arguments(
             Path::new("/machine"),
@@ -754,7 +745,7 @@ mod tests {
 
     #[test]
     fn origin300_uses_persistent_flash_and_spd_inputs() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin300-2").unwrap();
         let dir = Path::new("/machine");
         let mut file = machine(offer, "none");
@@ -797,7 +788,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn private_network_uses_qemu_stream_client() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let mut file = machine(offer, "rad4");
         file.network = Network {
@@ -821,7 +812,7 @@ mod tests {
 
     #[test]
     fn private_tcp_network_uses_loopback_stream_client() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let mut file = machine(offer, "rad4");
         file.network = Network {
