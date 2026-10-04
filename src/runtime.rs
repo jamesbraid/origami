@@ -18,31 +18,6 @@ pub enum Display {
     None,
 }
 
-impl Display {
-    pub fn parse(value: &str) -> Result<Self> {
-        Ok(match value {
-            "local" => Self::Local,
-            "vnc" => Self::Vnc { port: 5900 },
-            "none" => Self::None,
-            _ => return Err(format!("unknown display: {value}").into()),
-        })
-    }
-
-    pub fn with_vnc_port(self, value: Option<&str>) -> Result<Self> {
-        let Some(value) = value else {
-            return Ok(self);
-        };
-        if !matches!(self, Self::Vnc { .. }) {
-            return Err("--vnc-port requires --display vnc".into());
-        }
-        let port: u16 = value.parse().map_err(|_| "VNC port must be 5900..65535")?;
-        if port < 5900 {
-            return Err("VNC port must be 5900..65535".into());
-        }
-        Ok(Self::Vnc { port })
-    }
-}
-
 pub fn qemu_path() -> Result<PathBuf> {
     if let Some(root) = std::env::var_os("SGI_RUNTIME_DIR") {
         return Ok(PathBuf::from(root).join(binary_name("qemu-system-mips64")));
@@ -689,10 +664,7 @@ mod tests {
     fn vnc_port_maps_to_qemu_display_offset() {
         let catalog = catalogue().unwrap();
         let offer = preset(&catalog, "origin200-1").unwrap();
-        let display = Display::parse("vnc")
-            .unwrap()
-            .with_vnc_port(Some("5991"))
-            .unwrap();
+        let display = Display::Vnc { port: 5991 };
         let args = arguments(
             Path::new("/machine"),
             &machine(offer, "rad4"),
@@ -703,19 +675,6 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-display", "vnc=127.0.0.1:91"]));
-        assert_eq!(Display::parse("vnc").unwrap(), Display::Vnc { port: 5900 });
-        assert!(Display::parse("local")
-            .unwrap()
-            .with_vnc_port(Some("5991"))
-            .is_err());
-        assert!(Display::parse("vnc")
-            .unwrap()
-            .with_vnc_port(Some("5899"))
-            .is_err());
-        assert!(Display::parse("vnc")
-            .unwrap()
-            .with_vnc_port(Some("abc"))
-            .is_err());
     }
 
     #[test]
