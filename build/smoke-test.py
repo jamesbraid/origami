@@ -71,7 +71,7 @@ class ProductSmoke(unittest.TestCase):
         return self.run_binary("bin/origami", *args, **kwargs)
 
     def test_packaged_executables(self):
-        self.assertIn("qemu=", self.cli("version"))
+        self.assertIn("\nqemu ", self.cli("version"))
         self.assertIn("origin200-1", self.cli("machines"))
         self.run_binary("bin/instigator", "--help")
         self.run_binary("libexec/sgi/qemu-system-mips64", "--version")
