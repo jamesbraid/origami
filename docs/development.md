@@ -129,7 +129,8 @@ paths, including `SGI_RUNTIME_DIR` for QEMU. Replacing a binary changes its
 reported identity. Local edits are marked `-dirty`, and unavailable components
 are reported on their own lines. Instigator 0.3.1 does not yet support
 `--version`, so its line reports `unavailable` until a binary with version
-support is installed.
+support is installed. Its captures also omit the source revision, while
+retaining the binary checksum and timing data.
 
 The frontend uses `vergen-gitcl` with Cargo's package version. QEMU uses its
 native package version option with `sgi-origami` and its Git description.
