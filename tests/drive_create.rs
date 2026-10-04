@@ -41,7 +41,7 @@ fn run(args: &[&str]) -> Output {
 fn drive_create_rejects_an_occupied_system_target_before_writing() {
     let root = TempDir::new();
     let prom = root.path().join("synthetic-prom.bin");
-    fs::write(&prom, vec![0; 1024 * 1024]).unwrap();
+    fs::write(&prom, vec![0; 1024]).unwrap();
     let machine = root.path().join("machine");
     let create = run(&[
         "create",
@@ -94,4 +94,25 @@ fn drive_create_rejects_an_occupied_system_target_before_writing() {
     assert_eq!(fs::read(&machine_file).unwrap(), machine_before);
     assert_eq!(fs::read(&sentinel).unwrap(), sentinel_before);
     assert!(!machine.join("drives/system.qcow2").exists());
+}
+
+#[test]
+fn local_io_prom_is_rejected_for_a_machine_without_io_flash_before_creation() {
+    let root = TempDir::new();
+    let prom = root.path().join("prom.bin");
+    fs::write(&prom, [0; 64]).unwrap();
+    let destination = root.path().join("machine");
+    let output = run(&[
+        "create",
+        destination.to_str().unwrap(),
+        "--preset",
+        "origin200-1",
+        "--prom",
+        prom.to_str().unwrap(),
+        "--io-prom",
+        prom.to_str().unwrap(),
+    ]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no separate IO PROM"));
+    assert!(!destination.exists());
 }

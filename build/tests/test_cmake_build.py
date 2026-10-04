@@ -27,6 +27,17 @@ class ProductBuild(unittest.TestCase):
         (self.source / "qemu/pc-bios/keymaps").mkdir(parents=True)
         (self.source / "qemu/pc-bios/keymaps/en-us").write_text("keymap")
         (self.source / "qemu/pc-bios/keymaps/meson.build").write_text("keymap build")
+        (self.source / "qemu/util").mkdir(parents=True)
+        (self.source / "qemu/include/sgi").mkdir(parents=True)
+        (self.source / "qemu/include/sgi/flash-image.h").write_text("#define FIXTURE_VALUE 2\n")
+        (self.source / "qemu/include/sgi/prom-image.h").write_text("int fixture_prom(void);\n")
+        (self.source / "qemu/util/sgi-prom-image.c").write_text(
+            '#include <zlib.h>\nint fixture_prom(void) { return zlibVersion()[0] != 0; }\n')
+        (self.source / "qemu/util/sgi-flash-image.c").write_text(
+            '#include "sgi/flash-image.h"\n#include "sgi/prom-image.h"\n'
+            'int fixture_table(void);\nint firmware_fixture(void) { return fixture_prom() + FIXTURE_VALUE + fixture_table(); }\n')
+        (self.source / "qemu/util/sgi-flash-layouts.c").write_text(
+            'int fixture_table(void) { return 4; }\n')
         (self.source / "instigator").mkdir()
         (self.source / "src").mkdir()
         (self.source / "src/main.rs").write_text("first rust")
@@ -44,7 +55,7 @@ class ProductBuild(unittest.TestCase):
         self.env = dict(os.environ, FIXTURE_LOG=str(self.log), FIXTURE_BUILD_DIR=str(self.binary))
         self.tool = self.source / "tool"
         self.tool.write_text('''#!/usr/bin/env python3
-import json, os, pathlib, sys
+import json, os, pathlib, subprocess, sys
 args = sys.argv[1:]
 with open(os.environ["FIXTURE_LOG"], "a") as f:
     f.write(json.dumps([pathlib.Path(sys.argv[0]).name, args]) + "\\n")
@@ -56,6 +67,8 @@ if name == "configure":
     root = pathlib.Path(sys.argv[0]).parent
     if not pathlib.Path("slirp-source").exists():
         pathlib.Path("slirp-source").write_text((root / "subprojects/packagefiles/libslirp-test.patch").read_text())
+    prefix = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--cross-prefix=")), "")
+    pathlib.Path("cross-prefix").write_text(prefix)
     pathlib.Path("configuration-version").write_text((root / "VERSION").read_text())
     pathlib.Path("build.ninja").write_text("configured")
     pathlib.Path("configuration-source").write_text(str(pathlib.Path(sys.argv[0]).parent))
@@ -78,13 +91,36 @@ elif name == "qemu-make":
 elif name == "ninja":
     root = pathlib.Path(pathlib.Path("configuration-source").read_text())
     pathlib.Path("configuration-meson").write_text((root / "meson.build").read_text())
+    if "libsgi-firmware-core.a" in args:
+        prefix = pathlib.Path("cross-prefix").read_text()
+        objects = []
+        for name in ("sgi-prom-image", "sgi-flash-image", "sgi-flash-layouts"):
+            obj = pathlib.Path(name + ".o")
+            subprocess.check_call([prefix + "cc" if not prefix else prefix + "gcc", "-I", str(root / "include"),
+                                   "-c", str(root / "util" / (name + ".c")), "-o", str(obj)])
+            objects.append(str(obj))
+        subprocess.check_call([prefix + "ar", "rcs", "libsgi-firmware-core.a", *objects])
     for target in args:
         if target.startswith("qemu-"):
             content = (root / "source.c").read_text()
             if os.environ.get("FIXTURE_SLIRP_TEST"):
                 content += "\\n" + pathlib.Path("slirp-source").read_text()
             pathlib.Path(target).write_text(content)
-elif name == "cargo" and "build" in args:
+elif name == "cargo" and ("build" in args or "test" in args):
+    archive = pathlib.Path(os.environ["SGI_FIRMWARE_ARCHIVE"])
+    assert archive.is_file(), "Cargo started before the C archive was compiled"
+    compiler = "x86_64-w64-mingw32-gcc" if "--target" in args else "cc"
+    probe = pathlib.Path(os.environ["FIXTURE_BUILD_DIR"]) / ("firmware-probe.exe" if "--target" in args else "firmware-probe")
+    source = probe.with_suffix(".c")
+    source.write_text('#include <stdio.h>\\nint firmware_fixture(void);\\nint main(void) { printf("%d", firmware_fixture()); return 0; }\\n')
+    subprocess.check_call([compiler, str(source), str(archive), "-lz", "-o", str(probe)])
+    if "--target" in args:
+        assert "--no-run" in args or "build" in args
+        assert probe.read_bytes()[:2] == b"MZ"
+    else:
+        with (probe.parent / "firmware-results").open("a") as results:
+            results.write(subprocess.check_output([str(probe)], text=True) + "\\n")
+    if "test" in args: sys.exit(0)
     root = pathlib.Path(os.environ["CARGO_TARGET_DIR"])
     if "--target" in args: root /= args[args.index("--target") + 1]
     root /= "release" if "--release" in args else "debug"
@@ -123,8 +159,8 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
             self.assertNotEqual(result.returncode, 0, result.stdout)
         return result.stdout
 
-    def configure(self):
-        return self.run_command("cmake", "-S", str(self.source), "-B", str(self.binary), "-G", self.env.get("PRODUCT_TEST_GENERATOR", "Unix Makefiles"), *[f"-D{name}={self.source / tool}" for name, tool in [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"), ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
+    def configure(self, *flags):
+        return self.run_command("cmake", "-S", str(self.source), "-B", str(self.binary), "-G", self.env.get("PRODUCT_TEST_GENERATOR", "Unix Makefiles"), *[f"-D{name}={self.source / tool}" for name, tool in [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"), ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]], *flags)
 
     def build(self):
         self.run_command("cmake", "--build", str(self.binary), "--parallel", "2")
@@ -133,6 +169,7 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
         self.configure()
         self.build()
         commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual((self.binary / "firmware-results").read_text().splitlines()[-1], "7")
         cargo_commands = [args for name, args in commands if name == "cargo"]
         self.assertEqual(cargo_commands, [["build", "--locked", "--release"]])
         self.run_command("ctest", "--test-dir", str(self.binary), "-R", "^(frontend|instigator)$", "--output-on-failure")
@@ -158,6 +195,7 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
         self.assertTrue(any(name == "go" and "-mod=readonly" in args for name, args in commands))
         self.run_command("cpack", "--config", str(self.binary / "CPackConfig.cmake"), "-B", str(self.binary / "archives"))
         commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual((self.binary / "firmware-results").read_text().splitlines()[-1], "7")
         cargo_commands = [args for name, args in commands if name == "cargo"]
         self.assertEqual(cargo_commands[-1], ["fetch", "--locked"])
         import tarfile
@@ -208,7 +246,7 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
                          "-DPRODUCT_PLATFORM=windows", "-DPRODUCT_RUST_TARGET=x86_64-pc-windows-gnu",
                          *[f"-D{name}={self.source / tool}" for name, tool in
                            [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"),
-                            ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
+                            ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]], *flags)
         manifest = json.loads((self.binary / "product-build.json").read_text())
         self.assertEqual(manifest['files']['bin/origami.exe'],
                          str(self.binary / "cargo-target/x86_64-pc-windows-gnu/release/origami.exe"))
@@ -234,7 +272,7 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
         self.build()
         self.assertEqual((self.binary / "qemu-build/configuration-version").read_text(), "changed version")
         commands = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(sum(name == "qemu-make" for name, _ in commands), 2)
+        self.assertEqual(sum(name == "qemu-make" and any(arg.startswith("qemu-system-") for arg in args) for name, args in commands), 2)
         self.assertEqual(sum(name == "configure" for name, _ in commands), 2)
 
     def test_libslirp_patch_updates_existing_build(self):
@@ -270,13 +308,39 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
         self.assertEqual(sum(name == "ninja" for name, _ in commands_after),
                          sum(name == "ninja" for name, _ in commands_before))
 
+    def test_core_sources_and_headers_rebuild_before_cargo(self):
+        self.configure()
+        self.build()
+        for path, text, expected in [
+            ("qemu/util/sgi-flash-layouts.c", "int fixture_table(void) { return 6; }\n", "9"),
+            ("qemu/include/sgi/flash-image.h", "#define FIXTURE_VALUE 8\n", "15"),
+        ]:
+            time.sleep(1.1)
+            (self.source / path).write_text(text)
+            if path.endswith(".h"):
+                self.run_command("cmake", "--build", str(self.binary), "--target", "frontend")
+                self.run_command("ctest", "--test-dir", str(self.binary), "-R", "^frontend$", "--output-on-failure")
+            else:
+                self.build()
+            self.assertEqual((self.binary / "firmware-results").read_text().splitlines()[-1], expected)
+
+    @unittest.skipUnless(shutil.which("x86_64-w64-mingw32-gcc"), "MinGW cross compiler required")
+    def test_windows_frontend_tests_compile_the_target_archive(self):
+        self.configure("-DPRODUCT_PLATFORM=windows", "-DPRODUCT_RUST_TARGET=x86_64-pc-windows-gnu",
+                       "-DPRODUCT_CROSS_PREFIX=x86_64-w64-mingw32-")
+        self.run_command("cmake", "--build", str(self.binary), "--target", "frontend")
+        self.run_command("ctest", "--test-dir", str(self.binary), "-R", "^frontend$", "--output-on-failure")
+        commands = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertIn(["cargo", ["test", "--locked", "--target", "x86_64-pc-windows-gnu", "--no-run"]], commands)
+        self.assertFalse((self.binary / "firmware-results").exists())
+
     def test_preset_uses_ignored_source_output_by_default(self):
         self.env.pop("SGI_BUILD_ROOT", None)
         preset = "macos" if sys.platform == "darwin" else "linux"
         self.run_command("cmake", "--preset", preset, "-S", str(self.source),
                          "-G", "Unix Makefiles", *[f"-D{name}={self.source / tool}" for name, tool in
                          [("PRODUCT_CARGO", "cargo"), ("PRODUCT_RUSTC", "rustc"),
-                          ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]])
+                          ("PRODUCT_GO", "go"), ("PRODUCT_MAKE", "qemu-make")]], *flags)
         manifest_path = self.source / f"out/{preset}/product-build.json"
         self.assertTrue(manifest_path.is_file())
         manifest = json.loads(manifest_path.read_text())

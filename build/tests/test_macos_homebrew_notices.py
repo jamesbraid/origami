@@ -46,8 +46,8 @@ class HomebrewNoticeTests(unittest.TestCase):
 
             _, _, libraries = PACKAGER.bundle_dependencies(bundle, dylibbundler)
             self.assertEqual(len(calls), 2)
-            self.assertEqual([command.count("-x") for command in calls], [2, 2])
-            self.assertEqual(len(libraries), 4)
+            self.assertEqual([command.count("-x") for command in calls], [3, 2])
+            self.assertEqual(len(libraries), 5)
             self.assertEqual({path.parent for path in libraries},
                              {bundle / "lib/sgi/bin", bundle / "lib/sgi/qemu"})
             self.assertTrue(all(any("preview with spaces" in arg for arg in call)

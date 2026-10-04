@@ -7,6 +7,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -74,83 +76,180 @@ fn qemu_data_path() -> Result<PathBuf> {
         .join("../../share/sgi/qemu"))
 }
 
-pub fn prepare_state(
-    dir: &Path,
-    file: &MachineFile,
-    offering: &Offering,
-    prom: &Path,
-) -> Result<()> {
-    fs::create_dir_all(dir.join("state"))?;
+fn cpu_flash_paths(dir: &Path, _file: &MachineFile, offering: &Offering) -> Vec<PathBuf> {
+    crate::firmware::cpu_paths(dir, offering)
+}
+
+fn initialization_path(dir: &Path) -> PathBuf {
+    dir.join("state/firmware-initialization")
+}
+
+fn state_paths(dir: &Path, file: &MachineFile, offering: &Offering) -> Result<Vec<(PathBuf, u64)>> {
+    let cpu = crate::firmware::Layout::find(&offering.topology, "cpu")?;
+    let mut paths: Vec<_> = cpu_flash_paths(dir, file, offering)
+        .into_iter()
+        .map(|path| (path, cpu.size() as u64))
+        .collect();
+    let io_paths = crate::firmware::io_paths(dir, file, offering);
+    if !io_paths.is_empty() {
+        let io = crate::firmware::Layout::find(&offering.topology, "io")?;
+        paths.extend(io_paths.into_iter().map(|path| (path, io.size() as u64)));
+    }
     let nvram_count: u32 = offering
         .resources
         .iter()
-        .filter(|resource| resource.kind == "nvram")
-        .map(|resource| resource.count)
+        .filter(|r| r.kind == "nvram")
+        .map(|r| r.count)
         .sum();
     let nvram_size = offering
         .resources
         .iter()
         .find(|r| r.kind == "nvram")
-        .map_or(32768, |r| r.size);
-    let clock_size = offering
-        .resources
-        .iter()
-        .find(|r| r.kind == "rtc-clock")
-        .map_or(16, |r| r.size);
+        .map_or(0, |r| r.size);
+    let clock_size = match offering.resources.iter().find(|r| r.kind == "rtc-clock") {
+        Some(resource) => resource.size,
+        None if nvram_count == 0 => 0,
+        None => {
+            return Err(format!(
+                "catalogue lacks clock backend geometry for {}",
+                offering.topology
+            )
+            .into())
+        }
+    };
+    if nvram_count > 0 && (nvram_size == 0 || clock_size == 0) {
+        return Err(format!("invalid NVRAM or clock geometry for {}", offering.topology).into());
+    }
     for node in 0..nvram_count {
-        ensure_size(&dir.join(format!("state/nvram{node}.raw")), nvram_size)?;
-        ensure_size(
-            &dir.join(format!("state/nvram{node}.raw.clock")),
-            clock_size,
-        )?;
+        paths.push((dir.join(format!("state/nvram{node}.raw")), nvram_size));
+        paths.push((dir.join(format!("state/nvram{node}.raw.clock")), clock_size));
     }
-    if offering.product == "origin300" && file.identity.is_some() {
-        origin300::prepare_state(dir, file, prom)?;
+    Ok(paths)
+}
+
+pub fn validate_state(dir: &Path, file: &MachineFile, offering: &Offering) -> Result<()> {
+    let marker = initialization_path(dir);
+    match fs::read(&marker) {
+        Ok(bytes) if bytes == [1] => (),
+        Ok(bytes) if bytes == [0] => return Err(format!(
+            "unfinished firmware initialization at {}; create a new machine from original firmware or import complete prepared flash backends into a new directory",
+            marker.display()).into()),
+        Ok(_) => return Err(format!("invalid firmware initialization record {}; restore a complete machine backup or create a new machine", marker.display()).into()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
     }
-    if matches!(offering.product.as_str(), "origin2000" | "onyx2") {
-        let firmware = fs::read(prom)?;
-        if firmware.is_empty() || firmware.len() > 1048576 {
-            return Err("Origin 2000 PROM must fit one MiB".into());
-        }
-        let flash_dir = dir.join("state/node-proms");
-        fs::create_dir_all(&flash_dir)?;
-        for node in 1..=offering.nodes {
-            let store = flash_dir.join(format!("node{node}.bin"));
-            if !store.exists() {
-                let mut image = vec![0xff; 1048576];
-                image[..firmware.len()].copy_from_slice(&firmware);
-                // A newly erased pair needs a formatted PROM log before stock firmware can assign module IDs.
-                let log = 14 * 65536 + 0x10;
-                if image[14 * 65536..].iter().all(|byte| *byte == 0xff) {
-                    image[log..log + 12]
-                        .copy_from_slice(&[0x50, 0x4c, 0x4f, 0x47, 0, 0, 0, 1, 0, 0, 0, 1]);
-                }
-                OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&store)?
-                    .write_all(&image)?;
-            } else if fs::metadata(&store)?.len() != 1048576 {
-                return Err(format!("invalid node PROM size: {}", store.display()).into());
-            }
-        }
+    for (path, size) in state_paths(dir, file, offering)? {
+        validate_store(&path, size)?;
     }
     Ok(())
 }
 
-fn ensure_size(path: &Path, bytes: u64) -> Result<()> {
-    if path.exists() {
-        if fs::metadata(path)?.len() != bytes {
-            return Err(format!("invalid state file size: {}", path.display()).into());
+fn validate_store(path: &Path, bytes: u64) -> Result<()> {
+    let info = fs::symlink_metadata(path).map_err(|error| format!(
+        "cannot open persistent state {}: {error}; restore this file from a complete machine backup or create/import a new machine", path.display()))?;
+    if !info.file_type().is_file() || info.len() != bytes {
+        return Err(format!("invalid persistent state {}: expected a regular file of {bytes} bytes; restore this file from a complete machine backup", path.display()).into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if info.nlink() != 1 {
+            return Err(format!(
+                "persistent state {} must not share a hard link",
+                path.display()
+            )
+            .into());
         }
-    } else {
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?
-            .set_len(bytes)?;
+    }
+    #[cfg(windows)]
+    if file_link_count(path)? != 1 {
+        return Err(format!(
+            "persistent state {} must not share a hard link",
+            path.display()
+        )
+        .into());
     }
     Ok(())
+}
+
+pub fn prepare_state(dir: &Path, file: &MachineFile, offering: &Offering) -> Result<()> {
+    validate_state(dir, file, offering)?;
+    // A completed legacy marker is obsolete only after every backend was checked.
+    match fs::remove_file(initialization_path(dir)) {
+        Ok(()) => (),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+
+pub fn create_state(
+    dir: &Path,
+    file: &MachineFile,
+    offering: &Offering,
+    cpu_images: &[Vec<u8>],
+    io_images: &[Vec<u8>],
+) -> Result<()> {
+    let cpu_paths = cpu_flash_paths(dir, file, offering);
+    let io_paths = crate::firmware::io_paths(dir, file, offering);
+    if cpu_paths.len() != cpu_images.len() || io_paths.len() != io_images.len() {
+        return Err("prepared firmware count does not match machine topology".into());
+    }
+    for (path, image) in cpu_paths
+        .iter()
+        .zip(cpu_images)
+        .chain(io_paths.iter().zip(io_images))
+    {
+        fs::create_dir_all(path.parent().ok_or("invalid flash path")?)?;
+        let mut output = OpenOptions::new().write(true).create_new(true).open(path)?;
+        output.write_all(image)?;
+        output.sync_all()?;
+    }
+    for (path, size) in state_paths(dir, file, offering)? {
+        if !cpu_paths.contains(&path) && !io_paths.contains(&path) {
+            let output = OpenOptions::new().write(true).create_new(true).open(path)?;
+            output.set_len(size)?;
+            output.sync_all()?;
+        }
+    }
+    validate_state(dir, file, offering)
+}
+
+#[cfg(windows)]
+fn file_link_count(path: &Path) -> Result<u32> {
+    #[repr(C)]
+    struct FileTime {
+        low: u32,
+        high: u32,
+    }
+    #[repr(C)]
+    struct FileInformation {
+        attributes: u32,
+        created: FileTime,
+        accessed: FileTime,
+        modified: FileTime,
+        volume: u32,
+        size_high: u32,
+        size_low: u32,
+        links: u32,
+        index_high: u32,
+        index_low: u32,
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetFileInformationByHandle(
+            handle: *mut std::ffi::c_void,
+            info: *mut FileInformation,
+        ) -> i32;
+    }
+    let file = fs::File::open(path)?;
+    let mut info = std::mem::MaybeUninit::<FileInformation>::uninit();
+    // The Windows API writes the complete structure only on success.
+    let success = unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
+    if success == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(unsafe { info.assume_init().links })
 }
 
 fn user_network(forward: &[PortForward]) -> String {
@@ -171,6 +270,7 @@ pub fn arguments(
     offering: &Offering,
     display: Display,
 ) -> Result<Vec<String>> {
+    crate::profiles::validate_console(offering, file.machine.console.as_deref())?;
     let mut machine = if offering.product == "origin300" && file.identity.is_some() {
         origin300::machine_options(dir, file)?
     } else {
@@ -231,30 +331,27 @@ pub fn arguments(
         "-m".into(),
         (memory * offering.nodes).to_string(),
     ];
-    if matches!(offering.product.as_str(), "origin2000" | "onyx2") {
-        for node in 0..offering.nodes {
-            args.extend([
-                "-drive".into(),
-                format!(
-                    "if=pflash,index={node},file={},format=raw",
-                    qemu_path_option(&dir.join(format!("state/node-proms/node{}.bin", node + 1))),
-                ),
-            ]);
-        }
-    } else {
+    for (index, path) in cpu_flash_paths(dir, file, offering).iter().enumerate() {
+        let readonly = if offering.firmware.kind == "ip30-prom" {
+            ",readonly=on"
+        } else {
+            ""
+        };
         args.extend([
-            "-bios".into(),
-            resolve(dir, &file.firmware.image).display().to_string(),
+            "-drive".into(),
+            format!(
+                "if=pflash,index={index},file={},format=raw{readonly}",
+                qemu_path_option(path)
+            ),
         ]);
-        if offering.product == "origin300" && file.identity.is_some() {
-            args.extend([
-                "-drive".into(),
-                format!(
-                    "if=pflash,index=0,file={},format=raw",
-                    qemu_path_option(&origin300::flash_path(dir))
-                ),
-            ]);
-        }
+    }
+    let io_paths = crate::firmware::io_paths(dir, file, offering);
+    let io_backend_ids = crate::firmware::io_backend_ids(offering)?;
+    for (path, id) in io_paths.iter().zip(io_backend_ids) {
+        args.extend([
+            "-drive".into(),
+            format!("if=none,id={id},file={},format=raw", qemu_path_option(path)),
+        ]);
     }
     let nvram_count: u32 = offering
         .resources
@@ -291,9 +388,8 @@ pub fn arguments(
     for (index, drive) in file.drive.iter().enumerate() {
         add_drive(&mut args, dir, drive, index);
     }
-    // Fuel reserves line 0 for L1; its guest IOC3 A is line 1.
-    // sn-machine.c binds chardev-a with sgi_sn1_serial_line(node, 1).
-    if offering.product == "fuel" {
+    // Fresh Fuel firmware uses L1 on line 0. console=d uses IOC3-A on line 1.
+    if offering.product == "fuel" && file.machine.console.as_deref() == Some("ioc3-a") {
         args.extend(["-serial".into(), "null".into()]);
     }
     args.extend(["-serial".into(), "stdio".into()]);
@@ -477,7 +573,7 @@ fn run_inner(
     if !keymap.is_file() {
         return Err(format!("packaged QEMU keymap missing: {}", keymap.display()).into());
     }
-    fs::create_dir_all(dir.join("state"))?;
+    validate_state(dir, file, offering)?;
     let lock = OpenOptions::new()
         .read(true)
         .write(true)
@@ -485,6 +581,7 @@ fn run_inner(
         .open(dir.join("state/machine.lock"))?;
     lock.try_lock_exclusive()
         .map_err(|error| format!("cannot lock machine: {error}"))?;
+    prepare_state(dir, file, offering)?;
     let mut args = arguments(dir, file, offering, display)?;
     if file.network.mode == "private" {
         let endpoint = file
@@ -508,12 +605,11 @@ fn run_inner(
             let _ = metadata;
         }
     }
-    prepare_state(dir, file, offering, &resolve(dir, &file.firmware.image))?;
     if !background {
         fs::create_dir_all(dir.join("logs"))?;
         log_primary_serial(
             &mut args,
-            "stdio,id=serial0,logfile=logs/serial.log,logappend=on".into(),
+            "stdio,id=origami-console,logfile=logs/serial.log,logappend=on".into(),
         )?;
         let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
         return Ok(child.wait()?);
@@ -530,7 +626,7 @@ fn run_inner(
     );
     log_primary_serial(
         &mut args,
-        format!("socket,id=serial0,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
+        format!("socket,id=origami-console,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
     )?;
     args.extend([
         "-qmp".into(),
@@ -576,7 +672,7 @@ fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
         .windows(2)
         .position(|pair| pair == ["-serial", "stdio"])
         .ok_or("primary serial argument missing")?;
-    args[serial + 1] = "chardev:serial0".into();
+    args[serial + 1] = "chardev:origami-console".into();
     args.extend(["-chardev".into(), chardev]);
     Ok(())
 }
@@ -598,13 +694,141 @@ mod tests {
                 cpus_per_node: offering.cpus_per_node[0],
                 memory_per_node: format!("{}MiB", offering.memory.default),
                 graphics: graphics.into(),
+                console: None,
             },
             firmware: Firmware {
                 image: "firmware/prom.bin".into(),
+                io_image: None,
             },
             identity: None,
             network: Network::default(),
             drive: vec![],
+        }
+    }
+
+    fn state_fixture(name: &str, preset_name: &str, io: bool) -> (PathBuf, MachineFile, Offering) {
+        let dir = std::env::temp_dir().join(format!(
+            "origami-{name}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join("state")).unwrap();
+        let catalog = catalogue().unwrap();
+        let offering = preset(&catalog, preset_name).unwrap().clone();
+        let mut file = machine(&offering, "none");
+        if io {
+            file.firmware.io_image = Some("firmware/io.img".into());
+        }
+        let cpu_size = crate::firmware::Layout::find(&offering.topology, "cpu")
+            .unwrap()
+            .size();
+        let cpus = vec![vec![0xa5; cpu_size]; offering.nodes as usize];
+        let ios = if io {
+            vec![vec![
+                0x5a;
+                crate::firmware::Layout::find(&offering.topology, "io")
+                    .unwrap()
+                    .size()
+            ]]
+        } else {
+            vec![]
+        };
+        create_state(&dir, &file, &offering, &cpus, &ios).unwrap();
+        (dir, file, offering)
+    }
+
+    #[test]
+    fn completed_and_markerless_machines_preserve_all_state() {
+        for legacy_marker in [false, true] {
+            let (dir, file, offering) = state_fixture("reopen", "origin2000-8", true);
+            let paths = state_paths(&dir, &file, &offering).unwrap();
+            for (index, (path, _)) in paths.iter().enumerate() {
+                let mut bytes = fs::read(path).unwrap();
+                bytes[0] = index as u8 + 17;
+                fs::write(path, bytes).unwrap();
+            }
+            let before: Vec<_> = paths
+                .iter()
+                .map(|(path, _)| fs::read(path).unwrap())
+                .collect();
+            if legacy_marker {
+                fs::write(initialization_path(&dir), [1]).unwrap();
+            }
+            prepare_state(&dir, &file, &offering).unwrap();
+            assert!(!initialization_path(&dir).exists());
+            for ((path, _), bytes) in paths.iter().zip(before) {
+                assert_eq!(fs::read(path).unwrap(), bytes);
+            }
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn missing_store_never_reconstructs_cpu_io_nvram_or_clock() {
+        let (dir, file, offering) = state_fixture("missing", "origin2000-8", true);
+        for (path, _) in state_paths(&dir, &file, &offering).unwrap() {
+            let original = fs::read(&path).unwrap();
+            fs::remove_file(&path).unwrap();
+            let error = prepare_state(&dir, &file, &offering)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(&path.display().to_string()), "{error}");
+            assert!(!path.exists());
+            fs::write(&path, original).unwrap();
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn pending_initialization_requires_explicit_recovery_and_preserves_bytes() {
+        let (dir, file, offering) = state_fixture("pending", "origin2000-8", false);
+        let flash = cpu_flash_paths(&dir, &file, &offering)[0].clone();
+        let before = fs::read(&flash).unwrap();
+        fs::write(initialization_path(&dir), [0]).unwrap();
+        let error = prepare_state(&dir, &file, &offering)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("create a new machine") && error.contains("import"));
+        assert_eq!(fs::read(&flash).unwrap(), before);
+        assert_eq!(fs::read(initialization_path(&dir)).unwrap(), [0]);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn node_flash_stores_are_independent_and_hardlinks_are_rejected() {
+        let (dir, file, offering) = state_fixture("independent", "origin2000-8", false);
+        let paths = cpu_flash_paths(&dir, &file, &offering);
+        let mut bytes = fs::read(&paths[0]).unwrap();
+        bytes[0] = 42;
+        fs::write(&paths[0], bytes).unwrap();
+        assert_eq!(fs::read(&paths[1]).unwrap()[0], 0xa5);
+        fs::remove_file(&paths[1]).unwrap();
+        fs::hard_link(&paths[0], &paths[1]).unwrap();
+        assert!(prepare_state(&dir, &file, &offering)
+            .unwrap_err()
+            .to_string()
+            .contains("hard link"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn io_prom_uses_a_persistent_backend_with_path_escaping() {
+        let catalog = catalogue().unwrap();
+        for preset_name in ["origin200-impact", "origin2000-8", "onyx2-infinite-reality"] {
+            let offering = preset(&catalog, preset_name).unwrap();
+            let mut file = machine(offering, crate::profiles::default_graphics(offering));
+            file.firmware.io_image = Some("firmware/io,prom.img".into());
+            let args =
+                arguments(Path::new("/machine,one"), &file, offering, Display::None).unwrap();
+            assert!(
+                args.iter().any(|arg| arg.contains("if=none,id=sgi-")
+                    && arg.contains("-flash0,file=/machine,,one/state/io-proms/io0.bin")),
+                "{args:?}"
+            );
+            assert!(!args.iter().any(|arg| arg.contains("io-prom=")));
         }
     }
 
@@ -629,7 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn fuel_guest_console_uses_ioc3_a_in_foreground_and_background() {
+    fn fuel_guest_console_defaults_to_l1_in_foreground_and_background() {
         let catalog = catalogue().unwrap();
         let offer = preset(&catalog, "fuel-1").unwrap();
         let mut file = machine(offer, "none");
@@ -642,21 +866,35 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.into(), v.into()))
         .collect();
-        let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
-        let serial: Vec<_> = args
-            .windows(2)
-            .filter(|p| p[0] == "-serial")
-            .map(|p| p[1].as_str())
-            .collect();
-        assert_eq!(serial, ["null", "stdio"]);
-        for chardev in ["stdio,id=serial0,logfile=logs/serial.log,logappend=on",
-            "socket,id=serial0,host=127.0.0.1,port=12345,server=on,wait=off,logfile=logs/serial.log,logappend=on"] {
-            let mut routed = args.clone();
-            log_primary_serial(&mut routed, chardev.into()).unwrap();
-            let serial: Vec<_> = routed.windows(2).filter(|p| p[0] == "-serial").map(|p| p[1].as_str()).collect();
-            assert_eq!(serial, ["null", "chardev:serial0"]);
-            assert!(routed.windows(2).any(|p| p == ["-chardev", chardev]));
+        for (selection, expected) in [
+            (None, vec!["stdio"]),
+            (Some("l1"), vec!["stdio"]),
+            (Some("ioc3-a"), vec!["null", "stdio"]),
+        ] {
+            file.machine.console = selection.map(str::to_owned);
+            let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
+            let serial: Vec<_> = args
+                .windows(2)
+                .filter(|p| p[0] == "-serial")
+                .map(|p| p[1].as_str())
+                .collect();
+            assert_eq!(serial, expected);
+            for chardev in ["stdio,id=origami-console,logfile=logs/serial.log,logappend=on",
+                "socket,id=origami-console,host=127.0.0.1,port=12345,server=on,wait=off,logfile=logs/serial.log,logappend=on"] {
+                let mut routed = args.clone();
+                log_primary_serial(&mut routed, chardev.into()).unwrap();
+                let serial: Vec<_> = routed.windows(2).filter(|p| p[0] == "-serial").map(|p| p[1].as_str()).collect();
+                let managed: Vec<_> = expected.iter().map(|port| if *port == "stdio" { "chardev:origami-console" } else { port }).collect();
+                assert_eq!(serial, managed);
+                assert!(routed.windows(2).any(|p| p == ["-chardev", chardev]));
+                assert!(!routed.windows(2).any(|p| p[0] == "-chardev" && p[1].split(',').any(|field| field == "id=serial0")));
+            }
         }
+        file.machine.console = Some("unknown".into());
+        assert!(arguments(Path::new("/machine"), &file, offer, Display::None).is_err());
+        let other = preset(&catalog, "origin300-2").unwrap();
+        file.machine.console = Some("l1".into());
+        assert!(arguments(Path::new("/machine"), &file, other, Display::None).is_err());
     }
 
     #[test]
@@ -672,16 +910,16 @@ mod tests {
         .unwrap();
         log_primary_serial(
             &mut args,
-            "stdio,id=serial0,logfile=logs/serial.log,logappend=on".into(),
+            "stdio,id=origami-console,logfile=logs/serial.log,logappend=on".into(),
         )
         .unwrap();
         assert!(args
             .windows(2)
-            .any(|pair| pair == ["-serial", "chardev:serial0"]));
+            .any(|pair| pair == ["-serial", "chardev:origami-console"]));
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-chardev",
-                "stdio,id=serial0,logfile=logs/serial.log,logappend=on"
+                "stdio,id=origami-console,logfile=logs/serial.log,logappend=on"
             ]));
     }
 
@@ -749,6 +987,8 @@ mod tests {
             mac: "08:00:69:12:34:56".into(),
             spd_dimm2: "firmware/spd-dimm2.bin".into(),
             spd_dimm3: "firmware/spd-dimm3.bin".into(),
+            chassis_eeprom: None,
+            board_eeprom: None,
         });
         let args = arguments(Path::new("/machine"), &file, origin300, Display::None).unwrap();
         assert!(args.windows(2).any(|pair| pair == ["-netdev", expected]));
@@ -770,7 +1010,9 @@ mod tests {
             .filter(|pair| pair[0] == "-drive" && pair[1].starts_with("if=pflash,"))
             .count();
         assert_eq!(flashes, 4);
-        assert!(!args.iter().any(|arg| arg == "-bios"));
+        assert!(!args
+            .iter()
+            .any(|arg| arg == "-bios" || arg == "-S" || arg.contains("firmware-initialize")));
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-M",
@@ -788,6 +1030,8 @@ mod tests {
             mac: "08:00:69:12:34:56".into(),
             spd_dimm2: "firmware/spd-dimm2.bin".into(),
             spd_dimm3: "firmware/spd-dimm3.bin".into(),
+            chassis_eeprom: None,
+            board_eeprom: None,
         });
         let args = arguments(dir, &file, offer, Display::None).unwrap();
         let flash = format!(
@@ -797,9 +1041,9 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-drive", flash.as_str()]));
-        for (slot, name) in [(3, "spd-dimm2.bin"), (5, "spd-dimm3.bin")] {
+        for (slot, name) in [(2, "spd-dimm2.bin"), (3, "spd-dimm3.bin")] {
             let expected = format!(
-                "spd-eeprom.{slot}={}",
+                "spd-dimm{slot}={}",
                 resolve(dir, &format!("firmware/{name}")).display()
             );
             assert!(args.iter().any(|arg| arg.contains(&expected)));
@@ -811,10 +1055,10 @@ mod tests {
         let escaped = arguments(Path::new("/machine,one"), &file, offer, Display::None).unwrap();
         assert!(escaped
             .iter()
-            .any(|arg| arg.contains("chassis-eeprom.1=") && arg.contains("machine,,one")));
+            .any(|arg| arg.contains("io8-mac=08:00:69:12:34:56")));
         assert!(escaped
             .iter()
-            .any(|arg| arg.contains("spd-eeprom.3=") && arg.contains("dimm,,2.bin")));
+            .any(|arg| arg.contains("spd-dimm2=") && arg.contains("dimm,,2.bin")));
         assert!(escaped
             .iter()
             .any(|arg| arg.contains("if=pflash,index=0,file=") && arg.contains("machine,,one")));

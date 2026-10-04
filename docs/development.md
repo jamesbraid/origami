@@ -61,6 +61,49 @@ The install script builds CMake's `binaries` target before release staging,
 including when CPack uses Ninja. Release packaging requires clean
 source and dependencies at their committed pins.
 
+## Build or test the frontend directly
+
+QEMU owns the portable firmware parser library and the `qemu-sgi-firmware`
+utility. Cargo links the prebuilt `libsgi-firmware-core.a` and the target's
+standard zlib. It does not invoke CMake or compile the parser itself.
+
+With Rust, a C compiler, GNU Make, Ninja, pkg-config, Python with venv support,
+GLib development files and zlib development files installed, initialize the
+submodules and build only the native library:
+
+```sh
+qemu_source="$PWD/qemu"
+qemu_build="$PWD/out/firmware"
+mkdir -p "$qemu_build"
+(cd "$qemu_build" && "$qemu_source/configure" --disable-system --disable-user \
+  --enable-tools --disable-docs --without-default-features)
+make -C "$qemu_build" -j2 libsgi-firmware-core.a
+export SGI_FIRMWARE_ARCHIVE="$qemu_build/libsgi-firmware-core.a"
+export SGI_FIRMWARE_SOURCE_DIR="$qemu_source"
+cargo build --locked
+cargo test --locked
+```
+
+Run the Make target again after changing QEMU sources or headers. Native
+build tools refresh the archive before Cargo checks it, and Cargo watches the
+archive and sources before linking. The product CMake build invokes this same
+target before compiling the frontend. Product CTest checks consume the built
+archive.
+
+The helper is independently selectable with
+`make -C "$qemu_build" -j2 qemu-sgi-firmware`. Both targets use the same archive.
+A full emulator build is unnecessary for frontend tests.
+
+For MinGW, configure a separate QEMU build with
+`--cross-prefix=x86_64-w64-mingw32-`, use its archive, and set
+`SGI_FIRMWARE_RUST_TARGET=x86_64-pc-windows-gnu` and
+`CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc`.
+Then use `cargo build --locked --target x86_64-pc-windows-gnu` and
+`cargo test --locked --target x86_64-pc-windows-gnu --no-run`.
+Native tests use a separate native archive. The selected linker must find
+its target zlib. Use Cargo's standard target configuration or `RUSTFLAGS`
+to add a library search path when the toolchain requires one.
+
 ## macOS
 
 Use an Apple Silicon Mac running macOS 15 or newer, with Xcode command-line
@@ -130,8 +173,9 @@ podman run --rm --userns=keep-id -v "$PWD:$PWD" -w "$PWD" origami-windows-builde
 
 The archive is `origami-windows-x86_64-preview.zip`, containing
 `windows-dev/`. The runnable Windows CLI is `bin/origami.exe` inside that
-directory. Cross-build tests use native Linux test binaries. They do not
-replace launch, graphics or input checks on Windows 11.
+directory. Cross-build tests compile Windows Rust test executables with
+`--no-run`. Go and Python helper checks run natively on Linux. These checks do
+not replace launch, graphics or input checks on Windows 11.
 
 ## Build outputs
 
@@ -251,3 +295,46 @@ python3 build/smoke-test.py /path/to/linux-dev --scratch /path/to/scratch
 This checks product integration, not firmware or guest compatibility. Run
 artifacts contain archives and SHA-256 files. Firmware and guest media are
 not included.
+
+## Firmware registry
+
+[`resources/proms.toml`](../resources/proms.toml) records each downloadable PROM's
+ID, role, version, object path, size and SHA-256. Machine profiles in
+[`src/profiles.rs`](../src/profiles.rs) select registry IDs through `boot_prom`
+and optional `io_prom` references. Adding an image to the registry leaves the
+profile selections unchanged. Select a different version by updating its profile
+reference. Object names preserve the original SGI filename and extension, with
+the PROM version inserted before the extension, such as `ip27prom-6.156.img`.
+
+## Offline firmware preparation
+
+The frontend statically links QEMU's portable firmware library. Cargo consumes
+the prebuilt archive directly, and CMake coordinates product builds. `src/firmware.rs` borrows original input bytes, copies
+the successful prepared output into Rust ownership and clears C allocations
+on every return path. QEMU's generated layout table owns flash geometry and
+reserved regions. Rust does not rebuild those structures or hardware records.
+
+Original firmware creation, complete prepared backend import and existing
+machine reopen use distinct paths. Creation calls preparation once per input
+image. Import checks geometry and copies bytes. Reopen checks every persistent
+backend before launch and never writes missing flash, NVRAM or clock files.
+QEMU owns default identity record construction, SPD placement and processor
+register validation. The frontend stores user selections and passes supplied
+raw records through unchanged.
+
+The remaining Octane and Octane2 models read an exact 2 MiB ROM backend.
+The frontend marks that drive read-only. Prepared import preserves its bytes,
+but the model implements neither flash commands nor persistence of changes
+to the PROM's data area. Origin 200, Origin 2000, Onyx2, Origin 300 and Fuel
+retain writable flash backends. All imported backend copies remain independent files.
+
+New NVRAM and clock files contain zero bytes only. NVRAM capacity and saved
+clock record size come from generated catalogue resources. QEMU owns clock
+serialization. The frontend
+writes no clock fields or checksums. The `nvramN.raw.clock` filename follows
+QEMU's existing clock backend interface.
+
+Fuel's optional `[machine]` console selection names `l1` or `ioc3-a`. An omitted
+selection uses L1 for fresh PROMs. The `console-set` configuration
+command validates the selection under the machine edit lock. Runtime console
+logging and background control use that same persisted selection.

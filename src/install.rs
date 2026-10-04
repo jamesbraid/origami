@@ -1073,12 +1073,14 @@ mod tests {
                 cpus_per_node: 1,
                 memory_per_node: "256MiB".into(),
                 graphics: "rad4".into(),
+                console: None,
                 topology: None,
                 population: vec![],
                 inputs: Default::default(),
             },
             firmware: Firmware {
                 image: "prom.bin".into(),
+                io_image: None,
             },
             identity: None,
             network: Network {
@@ -1201,12 +1203,14 @@ mod tests {
                 cpus_per_node: 1,
                 memory_per_node: "256MiB".into(),
                 graphics: "rad4".into(),
+                console: None,
                 topology: None,
                 population: vec![],
                 inputs: Default::default(),
             },
             firmware: Firmware {
                 image: "prom.bin".into(),
+                io_image: None,
             },
             identity: None,
             network: Network {
@@ -1284,7 +1288,7 @@ mod tests {
         let media_root = root.join("media");
         fs::create_dir_all(&media_root).unwrap();
         let prom = root.join("prom.bin");
-        fs::write(&prom, vec![0; 1048576]).unwrap();
+        fs::write(&prom, vec![0; 1024]).unwrap();
         let machine = root.join("machine");
         let catalog = crate::catalogue().unwrap();
         crate::create(

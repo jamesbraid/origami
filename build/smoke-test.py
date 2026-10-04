@@ -71,7 +71,7 @@ class ProductSmoke(unittest.TestCase):
         return self.run_binary("bin/origami", *args, **kwargs)
 
     def test_packaged_executables(self):
-        self.assertIn("qemu=", self.cli("version"))
+        self.assertRegex(self.cli("version"), r"(?m)^qemu [0-9]+\.[0-9]+\.[0-9]+[^\r\n]*$")
         self.assertIn("origin200-1", self.cli("machines"))
         self.run_binary("bin/instigator", "--help")
         self.run_binary("libexec/sgi/qemu-system-mips64", "--version")
@@ -86,7 +86,7 @@ class ProductSmoke(unittest.TestCase):
             self.assertIn("not offered", self.commands[-1]["stderr"])
             self.assertFalse(rejected.exists())
             prom = root / "synthetic prom.bin"
-            prom.write_bytes(struct.pack(">II", 0x1000FFFF, 0) + bytes(1024 * 1024 - 8))
+            prom.write_bytes(struct.pack(">II", 0x1000FFFF, 0) + bytes(1024 - 8))
             machine = root / "remote install machine"
             self.cli("create", machine, "--preset", "origin200-1", "--prom", prom)
             self.cli("install-init", machine, "--mac", "08:00:69:12:34:56")
@@ -104,7 +104,7 @@ class ProductSmoke(unittest.TestCase):
         with machine_directory(self.scratch) as root:
             prom = root / "synthetic prom.bin"
             # MIPS branch-to-self and its delay slot. This is not SGI firmware.
-            prom.write_bytes(struct.pack(">II", 0x1000FFFF, 0) + bytes(1024 * 1024 - 8))
+            prom.write_bytes(struct.pack(">II", 0x1000FFFF, 0) + bytes(1024 - 8))
             machine = root / "machine with spaces"
             self.cli("create", machine, "--preset", "origin200-1", "--prom", prom,
                      "--memory-per-node", "128")

@@ -42,7 +42,11 @@ firmware and disks outside the extracted package.
 Use the full CLI path above in place of `origami` in the examples below, or
 add the package's `bin` directory to your PATH. The first `create` example
 downloads and verifies its preset's PROM. Use `--prom FILE` to supply a local
-PROM instead.
+PROM instead. Presets with BASEIO or GIGAchannel also download their original
+IO PROM automatically. Use `--io-prom FILE` to supply that image locally.
+Origami keeps the original files in the machine's `firmware` directory and
+prepares independent raw CPU and IO backends before starting QEMU.
+QEMU maps those backends into the appropriate flash chips.
 To use an existing guest disk after `create`, attach a copy as the system disk:
 
 ```sh
@@ -253,6 +257,20 @@ Onyx2, Origin 300, Octane, Octane2 and Fuel. The IMPACT shortcuts select SI.
 Onyx2 selects InfiniteReality. Origin 300 has direct V12 and V-brick choices.
 Fuel currently has a serial console. Octane VPro and Fuel VPro are unavailable.
 
+Fresh Fuel PROMs use the L1 console by default. Prepared flash configured with
+`console=d` uses IOC3-A instead. Select that port while the machine is stopped:
+
+```sh
+origami console-set restored-fuel --port ioc3-a
+origami run restored-fuel --background
+origami console restored-fuel
+```
+
+The choice is saved as `console = "ioc3-a"` under `[machine]` in `machine.toml`.
+Foreground and background runs use the same selection. Use `--port l1` to
+restore the default route. This selects the connected port without changing
+firmware environment variables or persistent backend bytes.
+
 `create --memory-per-node MiB` selects one of the values accepted by the preset.
 The full QEMU catalogue also validates additional topologies and processor
 populations configured in `machine.toml`. Use `topology` and `population` to
@@ -263,16 +281,21 @@ describes topology and board options. Fuel requires explicit board inputs.
 Octane2 requires explicit R12000 CPU inputs. `origami --help` lists their options.
 
 Origin 2000 and Onyx2 keep independent node PROM images under `state/`.
-Origin 300 can use QEMU's native defaults. Its optional `--spd-dimm2` and
-`--spd-dimm3` inputs select the existing reviewed 512 MiB kit for a single
-node with two CPUs. That path checks both 128-byte records, copies them into
-the machine directory, creates persistent boot flash, and uses `--mac` for
-synthetic IO8 identity. Use the same MAC for private installation networking.
-Native-default firmware memory discovery remains unverified.
+Origin 300 can use QEMU's native identity and memory defaults. Its optional
+`--spd-dimm2` and `--spd-dimm3` inputs pass supplied 128-byte SPD records to
+QEMU for a single two-CPU chassis. `--mac` selects the semantic IO8 identity
+address independently of the optional SPD files. Omit both SPD inputs to use
+QEMU's existing defaults. QEMU owns the record encoding and DIMM slot placement.
+Existing raw IO8 records are retained as read-only overrides. Optional `chassis_eeprom` and
+`board_eeprom` paths in `[identity]` select supplied raw records. Those files
+remain runtime inputs, and a missing selected record is an error. Use the same
+MAC for private installation networking. Native-default firmware memory discovery remains
+unverified.
 
 PROMs and media stay outside the repository. Explicit local PROMs remain
-supported. IP27 accepts a nonempty payload up to 1 MiB. IP30 accepts up to
-2 MiB. IP35 requires the catalogue's exact size and hash.
+supported. QEMU validates local firmware containers and payload sizes against
+the selected board's layout. Original payloads must leave reserved mutable
+regions intact. Complete raw backend images belong in `import`.
 
 The CLI starts an existing disk or CD-ROM image and prepares the Instigator server. The PROM, disk formatter, and first-run questions remain interactive. `install-apply` runs the generated `inst` package-selection script, and `install-finish` automates the RAD4 installer handoff.
 
@@ -314,3 +337,42 @@ do not verify a whole-image checksum before serving them. The public desktop
 media with RAD4 completed a fresh Linux Origin 200 installation and reached
 an IRIX 6.5.30 serial root shell. Other profiles and machines remain
 experimental. Desktop responsiveness was not established by that check.
+
+## Prepared flash and existing machines
+
+`create` accepts original firmware files or downloads the versions selected by
+its preset. The shared QEMU firmware library validates and prepares each image
+offline. Every CPU node and fitted IO board receives its own raw file.
+The first run launches QEMU once with those backends. Original firmware copies
+are retained for provenance and are not required to reopen a prepared machine.
+
+Octane and Octane2 currently map an exact 2 MiB backend as read-only ROM.
+Flash commands and persistence of guest changes to the PROM's data area are
+unsupported. Origin 200, Origin 2000, Onyx2, Origin 300 and Fuel use writable
+flash backends.
+
+Use `import` for complete prepared raw flash backends:
+
+```sh
+origami import restored --preset origin2000-8 \
+  --cpu-flash ./node1.bin --cpu-flash ./node2.bin \
+  --cpu-flash ./node3.bin --cpu-flash ./node4.bin \
+  --io-flash ./io0.bin
+origami drive-attach restored ./system.qcow2 --type disk --target 1
+```
+
+Supply CPU files in node order and IO files in board order. Import checks the
+board's supported geometry and copies every byte unchanged into independent
+files. It does not extract a PROM payload, pad the image, seed an environment,
+or copy attached disks. Keep external disk images and their backing files
+together when moving an existing machine.
+
+Reopening a machine checks its flash, NVRAM, clock and attached disk files.
+A missing or damaged backend is an error naming the path. Restore it from a
+complete backup, or create/import a new machine in another directory. Origami
+does not rebuild missing state from the retained originals.
+
+Completed older firmware initialization records are removed after all state
+files have been checked. Machines without such a record preserve existing
+bytes too. An unfinished record is rejected: recover complete prepared
+backends explicitly through `import`, or create a new machine from originals.

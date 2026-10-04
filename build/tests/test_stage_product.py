@@ -56,6 +56,7 @@ class ProductStageTests(unittest.TestCase):
                              python='python3', rustc='rustc', go='go')
         for path in (Path(self.manifest['qemu_build']) / 'qemu-system-mips64',
                      Path(self.manifest['qemu_build']) / 'qemu-img',
+                     Path(self.manifest['qemu_build']) / 'qemu-sgi-firmware',
                      Path(self.manifest['cargo_target_dir']) / 'release/origami',
                      Path(self.manifest['instigator_binary'])):
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -63,6 +64,7 @@ class ProductStageTests(unittest.TestCase):
         self.manifest['files'] = {
             'bin/origami': str(Path(self.manifest['cargo_target_dir']) / 'release/origami'),
             'bin/instigator': self.manifest['instigator_binary'],
+            'bin/qemu-sgi-firmware': str(Path(self.manifest['qemu_build']) / 'qemu-sgi-firmware'),
             'libexec/sgi/qemu-system-mips64': str(Path(self.manifest['qemu_build']) / 'qemu-system-mips64'),
             'libexec/sgi/qemu-img': str(Path(self.manifest['qemu_build']) / 'qemu-img'),
             'share/sgi/qemu/keymaps/en-us': str(self.sources['qemu'] / 'pc-bios/keymaps/en-us'),
@@ -140,7 +142,7 @@ if pathlib.Path(sys.argv[0]).name == 'meson':
     def test_dirty_development_layout_is_curated_and_checksums_match(self):
         (self.sources['qemu'] / 'untracked.txt').write_text('local edit')
         output = self.run_stage()
-        expected = {'bin/origami', 'bin/instigator', 'libexec/sgi/qemu-system-mips64',
+        expected = {'bin/origami', 'bin/instigator', 'bin/qemu-sgi-firmware', 'libexec/sgi/qemu-system-mips64',
                     'libexec/sgi/qemu-img', 'share/sgi/qemu/keymaps/en-us',
                     'share/sgi/qemu/keymaps/common', 'share/sgi/source-revisions.txt',
                     'SHA256SUMS'}
@@ -158,6 +160,7 @@ if pathlib.Path(sys.argv[0]).name == 'meson':
         self.manifest['files'] = {
             'bin/origami': str(configured),
             'bin/instigator': self.manifest['instigator_binary'],
+            'bin/qemu-sgi-firmware': str(Path(self.manifest['qemu_build']) / 'qemu-sgi-firmware'),
         }
         output = self.run_stage()
         self.assertEqual((output / 'bin/origami').read_bytes(), configured.read_bytes())
@@ -322,13 +325,14 @@ if pathlib.Path(sys.argv[0]).name == 'meson':
     def test_stage_uses_configured_windows_artifacts(self):
         self.manifest.update(platform='windows', rust_target='x86_64-pc-windows-gnu')
         for directory, names in ((Path(self.manifest['qemu_build']),
-                                  ('qemu-system-mips64.exe', 'qemu-img.exe')),
+                                  ('qemu-system-mips64.exe', 'qemu-img.exe', 'qemu-sgi-firmware.exe')),
                                  (Path(self.manifest['cargo_target_dir']) / 'x86_64-pc-windows-gnu/release',
                                   ('origami.exe',))):
             directory.mkdir(parents=True, exist_ok=True)
             for name in names:
                 (directory / name).write_text(name)
         self.manifest['files'] = {
+            'bin/qemu-sgi-firmware.exe': str(Path(self.manifest['qemu_build']) / 'qemu-sgi-firmware.exe'),
             'bin/origami.exe': str(Path(self.manifest['cargo_target_dir']) / 'x86_64-pc-windows-gnu/release/origami.exe'),
             'bin/instigator.exe': self.manifest['instigator_binary'],
             'libexec/sgi/qemu-system-mips64.exe': str(Path(self.manifest['qemu_build']) / 'qemu-system-mips64.exe'),

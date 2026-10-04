@@ -9,7 +9,7 @@ from pathlib import Path
 
 def bundle_groups(bundle):
     return [
-        ([bundle / "bin/origami", bundle / "bin/instigator"],
+        ([bundle / "bin/origami", bundle / "bin/instigator", bundle / "bin/qemu-sgi-firmware"],
          bundle / "lib/sgi/bin", "@executable_path/../lib/sgi/bin/"),
         ([bundle / "libexec/sgi/qemu-system-mips64", bundle / "libexec/sgi/qemu-img"],
          bundle / "lib/sgi/qemu", "@executable_path/../../lib/sgi/qemu/"),

@@ -60,7 +60,7 @@ def main():
         "directory\tdll\tfedora package\tlicense\t"
         "fedora package version\tsource RPM\n"
     ]
-    for directory, names in (("bin", ("origami.exe", "instigator.exe")),
+    for directory, names in (("bin", ("origami.exe", "instigator.exe", "qemu-sgi-firmware.exe")),
                              ("libexec/sgi", ("qemu-system-mips64.exe", "qemu-img.exe"))):
         destination = bundle / directory
         for stale in destination.iterdir():

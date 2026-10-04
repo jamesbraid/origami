@@ -54,6 +54,7 @@ def main():
     bundle = Path(sys.argv[1]).resolve()
     binaries = [
         bundle / "bin/origami",
+        bundle / "bin/qemu-sgi-firmware",
         bundle / "libexec/sgi/qemu-system-mips64",
         bundle / "libexec/sgi/qemu-img",
     ]

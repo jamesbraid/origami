@@ -13,12 +13,18 @@ pub struct Manifest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Prom {
+    pub id: String,
+    #[serde(default = "boot_role")]
+    pub role: String,
     pub path: String,
     pub size: u64,
     pub sha256: String,
-    pub profiles: Vec<String>,
     #[serde(default)]
     pub version: String,
+}
+
+fn boot_role() -> String {
+    "boot".into()
 }
 
 impl Manifest {
@@ -31,21 +37,38 @@ impl Manifest {
         if !manifest.base_url.ends_with('/') {
             return Err("PROM base URL must end with /".into());
         }
-        let mut profiles = std::collections::HashSet::new();
+        let mut ids = std::collections::HashSet::new();
         for prom in &manifest.proms {
             validate_prom(prom)?;
-            for profile in &prom.profiles {
-                if profile.is_empty() || !profiles.insert(profile) {
-                    return Err(format!("empty or duplicate PROM profile: {profile}").into());
-                }
+            if !ids.insert(&prom.id) {
+                return Err(format!("duplicate PROM registry ID: {}", prom.id).into());
             }
         }
         Ok(manifest)
     }
+
+    pub fn get(&self, id: &str, role: &str) -> Result<&Prom> {
+        let prom = self
+            .proms
+            .iter()
+            .find(|prom| prom.id == id)
+            .ok_or_else(|| format!("unknown PROM registry ID: {id}"))?;
+        if prom.role != role {
+            return Err(format!("PROM {id} has role {}, expected {role}", prom.role).into());
+        }
+        Ok(prom)
+    }
 }
 
 pub fn manifest() -> Result<Manifest> {
-    Manifest::parse(include_str!("../resources/proms.toml"))
+    let registry = Manifest::parse(include_str!("../resources/proms.toml"))?;
+    for profile in crate::profiles::STARTERS {
+        registry.get(profile.boot_prom, "boot")?;
+        if let Some(id) = profile.io_prom {
+            registry.get(id, "io")?;
+        }
+    }
+    Ok(registry)
 }
 
 pub fn validate_https_url(value: &str) -> Result<()> {
@@ -96,30 +119,44 @@ fn validate_path(path: &str) -> Result<()> {
 
 fn validate_prom(prom: &Prom) -> Result<()> {
     validate_path(&prom.path)?;
-    if prom.size == 0
+    validate_path(&prom.id)?;
+    if !matches!(prom.role.as_str(), "boot" | "io")
+        || prom.size == 0
         || prom.sha256.len() != 64
         || !prom
             .sha256
             .bytes()
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-        || prom.profiles.is_empty()
     {
-        return Err(format!("invalid size, SHA-256 or profiles for PROM {}", prom.path).into());
+        return Err(format!("invalid size or SHA-256 for PROM {}", prom.path).into());
     }
     Ok(())
 }
 
 pub fn acquire(profile_id: &str) -> Result<PathBuf> {
+    acquire_role(profile_id, "boot")?.ok_or_else(|| {
+        format!("no downloadable boot PROM for preset {profile_id}; supply --prom FILE").into()
+    })
+}
+
+pub fn acquire_io(profile_id: &str) -> Result<Option<PathBuf>> {
+    acquire_role(profile_id, "io")
+}
+
+fn acquire_role(profile_id: &str, role: &str) -> Result<Option<PathBuf>> {
     let manifest = manifest()?;
-    let prom = manifest
-        .proms
-        .iter()
-        .find(|prom| prom.profiles.iter().any(|p| p == profile_id))
-        .ok_or_else(|| {
-            format!("no downloadable PROM for preset {profile_id}; supply --prom FILE")
-        })?;
+    let Some(profile) = crate::profiles::profile(profile_id) else {
+        return Ok(None);
+    };
+    let id = match role {
+        "boot" => Some(profile.boot_prom),
+        "io" => profile.io_prom,
+        _ => return Err(format!("unknown PROM role: {role}").into()),
+    };
+    let Some(id) = id else { return Ok(None) };
+    let prom = manifest.get(id, role)?;
     let cache = dirs::cache_dir()
-        .ok_or("cannot determine user cache directory; supply --prom FILE")?
+        .ok_or("cannot determine user cache directory; supply local PROM files")?
         .join("origami")
         .join("proms");
     let client = ureq::AgentBuilder::new()
@@ -129,7 +166,8 @@ pub fn acquire(profile_id: &str) -> Result<PathBuf> {
         .timeout(std::time::Duration::from_secs(120))
         .build();
     acquire_from(prom, &manifest.base_url, &cache, &client)
-        .map_err(|e| format!("cannot acquire PROM {}: {e}; offline creation requires a verified cache entry or --prom FILE", prom.path).into())
+        .map(Some)
+        .map_err(|error| format!("cannot acquire {role} PROM {}: {error}; use a verified cache entry or a local PROM file", prom.path).into())
 }
 
 fn verified(path: &Path, prom: &Prom) -> Result<bool> {
@@ -160,14 +198,20 @@ fn verified(path: &Path, prom: &Prom) -> Result<bool> {
     Ok(size == prom.size && format!("{:x}", hash.finalize()) == prom.sha256)
 }
 
+fn cached_prom_path(cache: &Path, prom: &Prom) -> PathBuf {
+    cache
+        .join(&prom.sha256)
+        .join(prom.path.rsplit('/').next().unwrap())
+}
+
 fn acquire_from(prom: &Prom, base: &str, cache: &Path, client: &ureq::Agent) -> Result<PathBuf> {
     use fs2::FileExt;
     use sha2::{Digest, Sha256};
     use std::fs::{self, OpenOptions};
     use std::io::{Read, Write};
     validate_prom(prom)?;
-    fs::create_dir_all(cache)?;
-    let final_path = cache.join(format!("{}.bin", prom.sha256));
+    let final_path = cached_prom_path(cache, prom);
+    fs::create_dir_all(final_path.parent().unwrap())?;
     let lock = OpenOptions::new()
         .read(true)
         .write(true)
@@ -178,7 +222,10 @@ fn acquire_from(prom: &Prom, base: &str, cache: &Path, client: &ureq::Agent) -> 
     if verified(&final_path, prom)? {
         return Ok(final_path);
     }
-    let partial = cache.join(format!("{}.part", prom.sha256));
+    let partial = final_path.with_file_name(format!(
+        "{}.part",
+        final_path.file_name().unwrap().to_string_lossy()
+    ));
     for path in [&final_path, &partial] {
         match fs::remove_file(path) {
             Ok(()) => (),
@@ -186,7 +233,13 @@ fn acquire_from(prom: &Prom, base: &str, cache: &Path, client: &ureq::Agent) -> 
             Err(e) => return Err(e.into()),
         }
     }
-    eprintln!("Downloading PROM {} ({} bytes)", prom.path, prom.size);
+    eprintln!(
+        "Downloading {} PROM {} (version {}, {} bytes). Verifying SHA-256 before use.",
+        prom.role,
+        prom.path.rsplit('/').next().unwrap(),
+        prom.version,
+        prom.size
+    );
     let result = (|| -> Result<()> {
         let response = client.get(&format!("{base}{}", prom.path)).call()?;
         if response.status() != 200 {
@@ -272,10 +325,11 @@ mod tests {
     }
     fn prom() -> Prom {
         Prom {
+            role: boot_role(),
             path: "prom/test.bin".into(),
             size: 4,
             sha256: format!("{:x}", Sha256::digest(b"test")),
-            profiles: vec!["test-profile".into()],
+            id: "test-prom".into(),
             version: String::new(),
         }
     }
@@ -348,15 +402,12 @@ mod tests {
             entry.path = path.into();
             assert!(validate_prom(&entry).is_err(), "{path}");
         }
-        let valid = format!("format = 1\nbase_url = \"https://origami-dist.irix.fans/\"\n[[proms]]\npath = \"prom/test.bin\"\nsize = 4\nsha256 = \"{}\"\nprofiles = [\"test-profile\"]\n", prom().sha256);
+        let valid = format!("format = 1\nbase_url = \"https://origami-dist.irix.fans/\"\n[[proms]]\npath = \"prom/test.bin\"\nsize = 4\nsha256 = \"{}\"\nid = \"test-prom\"\n", prom().sha256);
         for invalid in [
             valid.replace("format = 1", "format = 2"),
             valid.replace("size = 4", "size = 0"),
             valid.replace(&prom().sha256, "not-a-hash"),
-            valid.replace(
-                "profiles = [\"test-profile\"]",
-                "profiles = [\"test-profile\", \"test-profile\"]",
-            ),
+            valid.replace("id = \"test-prom\"", "profiles = [\"test-profile\"]"),
             valid.replace("https://", "http://"),
             format!("{valid}unknown = true\n"),
         ] {
@@ -364,30 +415,43 @@ mod tests {
         }
     }
     #[test]
-    fn embedded_manifest_covers_supported_presets() {
-        let manifest = manifest().unwrap();
-        for name in [
-            "origin200-1",
-            "origin200-2",
-            "origin200-dual",
-            "origin2000-8",
-            "origin300-2",
-        ] {
-            assert_eq!(
-                manifest
-                    .proms
-                    .iter()
-                    .filter(|prom| prom.profiles.iter().any(|p| p == name))
-                    .count(),
-                1,
-                "{name}"
-            );
+    fn registry_rejects_duplicate_ids_and_wrong_role_references() {
+        let row = format!(
+            "[[proms]]\nid = \"test-prom\"\npath = \"prom/test.bin\"\nsize = 4\nsha256 = \"{}\"\n",
+            prom().sha256
+        );
+        let header = "format = 1\nbase_url = \"https://example.org/\"\n";
+        let registry = Manifest::parse(&format!("{header}{row}")).unwrap();
+        assert!(registry.get("test-prom", "boot").is_ok());
+        assert!(registry
+            .get("missing", "boot")
+            .unwrap_err()
+            .to_string()
+            .contains("unknown PROM"));
+        assert!(registry
+            .get("test-prom", "io")
+            .unwrap_err()
+            .to_string()
+            .contains("expected io"));
+        assert!(Manifest::parse(&format!("{header}{row}{row}")).is_err());
+    }
+
+    #[test]
+    fn embedded_registry_resolves_every_profile_selection() {
+        let registry = manifest().unwrap();
+        for profile in crate::profiles::STARTERS {
+            assert!(registry.get(profile.boot_prom, "boot").is_ok());
+            if let Some(id) = profile.io_prom {
+                assert!(registry.get(id, "io").is_ok());
+            }
         }
     }
     #[test]
     fn failed_download_can_retry_after_stale_partial() {
         let cache = Scratch::new();
-        fs::write(cache.0.join(format!("{}.part", prom().sha256)), b"stale").unwrap();
+        let cached = cached_prom_path(&cache.0, &prom());
+        fs::create_dir_all(cached.parent().unwrap()).unwrap();
+        fs::write(cached.with_file_name("test.bin.part"), b"stale").unwrap();
         let (base, handle) =
             server(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest");
         let path = acquire_from(&prom(), &base, &cache.0, &client()).unwrap();
@@ -425,10 +489,10 @@ mod tests {
         handle.join().unwrap();
     }
     #[test]
-    fn parses_profile_mapping() {
-        let text = format!("format = 1\nbase_url = \"https://origami-dist.irix.fans/\"\n[[proms]]\npath = \"prom/test.bin\"\nsize = 4\nsha256 = \"{}\"\nprofiles = [\"test-profile\"]\n", prom().sha256);
+    fn parses_prom_registry() {
+        let text = format!("format = 1\nbase_url = \"https://origami-dist.irix.fans/\"\n[[proms]]\npath = \"prom/test.bin\"\nsize = 4\nsha256 = \"{}\"\nid = \"test-prom\"\n", prom().sha256);
         let manifest = Manifest::parse(&text).unwrap();
-        assert_eq!(manifest.proms[0].profiles, ["test-profile"]);
+        assert_eq!(manifest.proms[0].id, "test-prom");
     }
     #[test]
     fn downloads_and_reuses_verified_cache_offline() {
@@ -446,7 +510,9 @@ mod tests {
     #[test]
     fn corrupt_cache_is_replaced() {
         let cache = Scratch::new();
-        fs::write(cache.0.join(format!("{}.bin", prom().sha256)), b"oops").unwrap();
+        let cached = cached_prom_path(&cache.0, &prom());
+        fs::create_dir_all(cached.parent().unwrap()).unwrap();
+        fs::write(cached, b"oops").unwrap();
         let (base, handle) =
             server(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest");
         let path = acquire_from(&prom(), &base, &cache.0, &client()).unwrap();
@@ -465,8 +531,8 @@ mod tests {
             let (base, handle) = server(response);
             assert!(acquire_from(&prom(), &base, &cache.0, &client()).is_err());
             handle.join().unwrap();
-            assert!(!cache.0.join(format!("{}.bin", prom().sha256)).exists());
-            assert!(!cache.0.join(format!("{}.part", prom().sha256)).exists());
+            assert!(!cached_prom_path(&cache.0, &prom()).exists());
+            assert!(!cached_prom_path(&cache.0, &prom()).with_file_name("test.bin.part").exists());
         }
     }
     #[test]

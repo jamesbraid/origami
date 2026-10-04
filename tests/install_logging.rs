@@ -47,7 +47,7 @@ exit 7
     .unwrap();
     fs::set_permissions(&server, fs::Permissions::from_mode(0o755)).unwrap();
     let prom = root.0.join("synthetic-prom.bin");
-    fs::write(&prom, vec![0; 1024 * 1024]).unwrap();
+    fs::write(&prom, vec![0; 1024]).unwrap();
     let machine = root.0.join("machine with spaces");
     for args in [
         vec![

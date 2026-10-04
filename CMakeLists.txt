@@ -65,6 +65,10 @@ if(PRODUCT_PLATFORM STREQUAL "windows")
   set(exe .exe)
   set(go_platform GOOS=windows GOARCH=amd64)
 endif()
+if(PRODUCT_PLATFORM STREQUAL "windows" AND
+   NOT PRODUCT_RUST_TARGET STREQUAL "x86_64-pc-windows-gnu")
+  message(FATAL_ERROR "Use the windows-cross preset to select the MinGW C and Rust targets")
+endif()
 set(qemu_build "${CMAKE_BINARY_DIR}/qemu-build")
 set(cargo_target_dir "${CMAKE_BINARY_DIR}/cargo-target")
 set(cargo_home "${CMAKE_BINARY_DIR}/cargo-home")
@@ -77,7 +81,10 @@ if(PRODUCT_RUST_TARGET)
   string(APPEND frontend_binary "/${PRODUCT_RUST_TARGET}")
 endif()
 string(APPEND frontend_binary "/${build_type}/origami${exe}")
-set(cargo_environment "CARGO_TARGET_DIR=${cargo_target_dir}" "CARGO_HOME=${cargo_home}")
+set(cargo_environment "CARGO_TARGET_DIR=${cargo_target_dir}" "CARGO_HOME=${cargo_home}"
+  "SGI_FIRMWARE_ARCHIVE=${qemu_build}/libsgi-firmware-core.a"
+  "SGI_FIRMWARE_SOURCE_DIR=${CMAKE_SOURCE_DIR}/qemu"
+  "SGI_FIRMWARE_RUST_TARGET=${PRODUCT_RUST_TARGET}")
 set(go_environment "GOPATH=${CMAKE_BINARY_DIR}/go" "GOMODCACHE=${go_mod_cache}" "GOCACHE=${go_build_cache}" CGO_ENABLED=0 "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/tool-config")
 set(qemu_flags --target-list=mips64-softmmu --disable-docs --disable-gtk --disable-cocoa --enable-sdl --enable-vnc --enable-slirp)
 if(PRODUCT_CROSS_PREFIX)
@@ -111,9 +118,9 @@ ExternalProject_Add(qemu-product
     "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
       "${CMAKE_BINARY_DIR}/product-build.json" --prepare-qemu
     COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
-      "${PRODUCT_MAKE}" -j "${PRODUCT_JOBS}" "qemu-system-mips64${exe}" "qemu-img${exe}"
+      "${PRODUCT_MAKE}" -j "${PRODUCT_JOBS}" "qemu-system-mips64${exe}" "qemu-img${exe}" "qemu-sgi-firmware${exe}"
   BUILD_ALWAYS TRUE USES_TERMINAL_BUILD TRUE INSTALL_COMMAND ""
-  BUILD_BYPRODUCTS "${qemu_build}/qemu-system-mips64${exe}" "${qemu_build}/qemu-img${exe}")
+  BUILD_BYPRODUCTS "${qemu_build}/qemu-system-mips64${exe}" "${qemu_build}/qemu-img${exe}" "${qemu_build}/qemu-sgi-firmware${exe}")
 # Meson keeps extracted subprojects until explicitly updated.
 file(GLOB libslirp_patches CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/qemu/subprojects/packagefiles/libslirp*.patch")
@@ -124,10 +131,18 @@ ExternalProject_Add_Step(qemu-product refresh-libslirp
   WORKING_DIRECTORY "${qemu_build}"
   DEPENDEES configure DEPENDERS build
   DEPENDS "${CMAKE_SOURCE_DIR}/qemu/subprojects/libslirp.wrap" ${libslirp_patches})
+ExternalProject_Add_Step(qemu-product firmware-core
+  COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
+    "${PRODUCT_MAKE}" -j "${PRODUCT_JOBS}" libsgi-firmware-core.a
+  WORKING_DIRECTORY "${qemu_build}"
+  DEPENDEES refresh-libslirp DEPENDERS build
+  ALWAYS TRUE BYPRODUCTS "${qemu_build}/libsgi-firmware-core.a")
+ExternalProject_Add_StepTargets(qemu-product firmware-core)
 add_custom_target(frontend
   COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment} ${cargo_environment}
     "${PRODUCT_CARGO}" build --locked ${cargo_flags}
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" VERBATIM)
+add_dependencies(frontend qemu-product-firmware-core)
 add_custom_target(instigator-product
   COMMAND "${CMAKE_COMMAND}" -E env ${go_environment} ${go_platform}
     "${PRODUCT_GO}" build -mod=readonly -trimpath -buildvcs=true -o "${instigator_binary}" ./cmd/instigator
@@ -175,6 +190,7 @@ function(product_artifact destination source)
 endfunction()
 product_artifact("bin/origami${exe}" "${frontend_binary}")
 product_artifact("bin/instigator${exe}" "${instigator_binary}")
+product_artifact("bin/qemu-sgi-firmware${exe}" "${qemu_build}/qemu-sgi-firmware${exe}")
 product_artifact("libexec/sgi/qemu-system-mips64${exe}" "${qemu_build}/qemu-system-mips64${exe}")
 product_artifact("libexec/sgi/qemu-img${exe}" "${qemu_build}/qemu-img${exe}")
 if(NOT IS_DIRECTORY "${qemu_source}/pc-bios/keymaps")
@@ -196,9 +212,12 @@ add_custom_target(product ALL
   DEPENDS binaries VERBATIM)
 
 if(BUILD_TESTING)
-  # Cross products are tested with native tools; target executables cannot run here.
-  add_test(NAME frontend COMMAND "${CMAKE_COMMAND}" -E env ${cargo_environment}
-    "${PRODUCT_CARGO}" test --locked)
+  set(cargo_test_flags)
+  if(PRODUCT_RUST_TARGET)
+    list(APPEND cargo_test_flags --target "${PRODUCT_RUST_TARGET}" --no-run)
+  endif()
+  add_test(NAME frontend COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment} ${cargo_environment}
+    "${PRODUCT_CARGO}" test --locked ${cargo_test_flags})
   set_tests_properties(frontend PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   add_test(NAME instigator COMMAND "${CMAKE_COMMAND}" -E env ${go_environment}
     "${PRODUCT_GO}" test -mod=readonly ./internal/qemunet ./cmd/instigator)

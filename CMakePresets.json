@@ -33,7 +33,8 @@
       "inherits": "base",
       "displayName": "macOS arm64 product",
       "cacheVariables": {
-        "PRODUCT_PLATFORM": "macos"
+        "PRODUCT_PLATFORM": "macos",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "15.0"
       },
       "environment": {
         "MACOSX_DEPLOYMENT_TARGET": "15.0"

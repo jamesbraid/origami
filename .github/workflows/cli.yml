@@ -34,11 +34,25 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Record toolchain
         run: rustc -Vv
-      - name: Test CLI
-        run: cargo test --locked
-      - name: Install build test tools
+      - name: Install test dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends cmake ninja-build
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config libglib2.0-dev \
+            zlib1g-dev python3 python3-venv
+      - name: Build the firmware library
+        run: |
+          mkdir -p "$RUNNER_TEMP/qemu-build"
+          cd "$RUNNER_TEMP/qemu-build"
+          "$GITHUB_WORKSPACE/qemu/configure" --disable-system --disable-user \
+            --enable-tools --disable-docs --without-default-features
+          make -j2 libsgi-firmware-core.a
+      - name: Test CLI
+        run: |
+          SGI_FIRMWARE_ARCHIVE="$RUNNER_TEMP/qemu-build/libsgi-firmware-core.a" \
+          SGI_FIRMWARE_SOURCE_DIR="$GITHUB_WORKSPACE/qemu" cargo test --locked
       - name: Test build and packaging helpers
-        run: python3 -m unittest discover -s build/tests -p 'test_*.py' -v
+        run: |
+          SGI_FIRMWARE_ARCHIVE="$RUNNER_TEMP/qemu-build/libsgi-firmware-core.a" \
+          SGI_FIRMWARE_SOURCE_DIR="$GITHUB_WORKSPACE/qemu" \
+            python3 -m unittest discover -s build/tests -p 'test_*.py' -v

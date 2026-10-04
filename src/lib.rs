@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 pub mod assets;
 pub mod control;
+pub mod firmware;
 pub mod install;
 pub mod origin300;
 pub mod profiles;
@@ -64,6 +65,8 @@ pub struct Resource {
     pub count: u32,
     #[serde(default)]
     pub size: u64,
+    #[serde(rename = "backend-ids", default)]
+    pub backend_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -84,13 +87,19 @@ pub struct MachineFile {
 #[serde(deny_unknown_fields)]
 pub struct Origin300Identity {
     pub mac: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub spd_dimm2: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub spd_dimm3: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chassis_eeprom: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_eeprom: Option<String>,
 }
 
 pub struct Origin300Create<'a> {
-    pub spd_dimm2: &'a Path,
-    pub spd_dimm3: &'a Path,
+    pub spd_dimm2: Option<&'a Path>,
+    pub spd_dimm3: Option<&'a Path>,
     pub mac: &'a str,
 }
 
@@ -150,6 +159,8 @@ pub struct Machine {
     pub memory_per_node: String,
     #[serde(default = "default_graphics")]
     pub graphics: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub console: Option<String>,
 }
 
 fn default_graphics() -> String {
@@ -160,6 +171,8 @@ fn default_graphics() -> String {
 #[serde(deny_unknown_fields)]
 pub struct Firmware {
     pub image: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub io_image: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -266,6 +279,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         .into());
     }
     profiles::validate_graphics(offering, &file.machine.graphics)?;
+    profiles::validate_console(offering, file.machine.console.as_deref())?;
     profiles::validate_inputs(offering, &file.machine.inputs)?;
     match file.network.mode.as_str() {
         "none" | "user" if file.network.endpoint.is_none() && file.network.mac.is_none() => (),
@@ -321,21 +335,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
             .into());
         }
     }
-    let prom = resolve(dir, &file.firmware.image);
-    let prom_size = fs::metadata(&prom)?.len();
-    if !valid_firmware_size(offering, prom_size) {
-        return Err(format!(
-            "firmware {} must {}",
-            prom.display(),
-            firmware_size_requirement(offering)
-        )
-        .into());
-    }
-    if let Some(expected) = &offering.firmware.sha256 {
-        if sha256_file(&prom)? != *expected {
-            return Err(format!("firmware {} has an unexpected SHA-256", prom.display()).into());
-        }
-    }
+    runtime::validate_state(dir, file, offering)?;
     if offering.product == "origin300" && file.identity.is_some() {
         if offering.nodes != 1 || offering.smp != 2 {
             return Err("explicit Origin 300 identity currently requires one two-CPU node".into());
@@ -373,8 +373,9 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         if drive.kind == "cdrom" && !drive.read_only {
             return Err("CD-ROM must be read-only".into());
         }
-        if !resolve(dir, &drive.image).is_file() {
-            return Err(format!("missing drive image {}", drive.image).into());
+        let path = resolve(dir, &drive.image);
+        if !path.is_file() {
+            return Err(format!("missing drive image {}; restore the disk and its backing files from a complete backup, or attach an existing image with drive-attach", path.display()).into());
         }
     }
     Ok(offering)
@@ -393,20 +394,16 @@ pub fn qemu_path_option(path: &Path) -> String {
     path.display().to_string().replace(',', ",,")
 }
 
-fn valid_firmware_size(offering: &Offering, size: u64) -> bool {
-    if matches!(offering.firmware.kind.as_str(), "ip27-prom" | "ip30-prom") {
-        size > 0 && size <= offering.firmware.size
-    } else {
-        size == offering.firmware.size
+pub fn validate_io_prom(offering: &Offering, path: &Path) -> Result<()> {
+    if !profiles::has_io_prom(offering) {
+        return Err(format!("{} has no separate IO PROM flash", offering.topology).into());
     }
+    firmware::Layout::find(&offering.topology, "io")?.read_original(path)?;
+    Ok(())
 }
 
-fn firmware_size_requirement(offering: &Offering) -> String {
-    if matches!(offering.firmware.kind.as_str(), "ip27-prom" | "ip30-prom") {
-        format!("fit in {} bytes and be nonempty", offering.firmware.size)
-    } else {
-        format!("be {} bytes", offering.firmware.size)
-    }
+fn read_boot_prom(offering: &Offering, path: &Path) -> Result<Vec<u8>> {
+    firmware::Layout::find(&offering.topology, "cpu")?.read_original(path)
 }
 
 pub fn validate_create_inputs(
@@ -447,11 +444,24 @@ pub fn validate_create_inputs(
     }
     if offering.product == "origin300" && identity.is_some() {
         if offering.nodes != 1 || offering.smp != 2 {
-            return Err("explicit SPD inputs and persistent IP35 flash currently require one two-CPU node; omit them to use native QEMU defaults".into());
+            return Err(
+                "explicit Origin 300 identity currently requires one two-CPU chassis".into(),
+            );
         }
-        let inputs = identity.ok_or("Origin 300 needs --spd-dimm2 and --spd-dimm3")?;
-        origin300::validate_spd_file(inputs.spd_dimm2, origin300::DIMM2_SHA256)?;
-        origin300::validate_spd_file(inputs.spd_dimm3, origin300::DIMM3_SHA256)?;
+        let inputs = identity.ok_or("Origin 300 needs an identity selection")?;
+        match (inputs.spd_dimm2, inputs.spd_dimm3) {
+            (Some(dimm2), Some(dimm3)) => {
+                origin300::validate_spd_file(dimm2)?;
+                origin300::validate_spd_file(dimm3)?;
+            }
+            (None, None) => (),
+            _ => {
+                return Err(
+                    "supply --spd-dimm2 and --spd-dimm3 together, or omit both for QEMU defaults"
+                        .into(),
+                )
+            }
+        }
         if !valid_mac(inputs.mac) {
             return Err("Origin 300 MAC must contain six hexadecimal bytes".into());
         }
@@ -472,6 +482,7 @@ pub fn create(
         dir,
         offering,
         prom,
+        None,
         memory_per_node,
         identity,
         None,
@@ -483,6 +494,7 @@ pub fn create_configured(
     dir: &Path,
     offering: &Offering,
     prom: &Path,
+    io_prom: Option<&Path>,
     memory_per_node: Option<u32>,
     identity: Option<Origin300Create<'_>>,
     graphics: Option<&str>,
@@ -492,15 +504,110 @@ pub fn create_configured(
     let graphics = graphics.unwrap_or(profiles::default_graphics(offering));
     profiles::validate_graphics(offering, graphics)?;
     profiles::validate_inputs(offering, &inputs)?;
-    let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
-    if !valid_firmware_size(offering, fs::metadata(prom)?.len()) {
-        return Err(format!("PROM must {}", firmware_size_requirement(offering)).into());
-    }
-    if let Some(expected) = &offering.firmware.sha256 {
-        if sha256_file(prom)? != *expected {
-            return Err("PROM has an unexpected SHA-256".into());
+    let cpu_layout = firmware::Layout::find(&offering.topology, "cpu")?;
+    let original = read_boot_prom(offering, prom)?;
+    let cpu_image = cpu_layout.prepare(&original)?;
+    let cpu_images = vec![cpu_image; offering.nodes as usize];
+    let io_original = if let Some(path) = io_prom {
+        if !profiles::has_io_prom(offering) {
+            return Err(format!("{} has no separate IO PROM flash", offering.topology).into());
         }
+        Some(firmware::Layout::find(&offering.topology, "io")?.read_original(path)?)
+    } else {
+        None
+    };
+    let io_images = if let Some(original) = &io_original {
+        vec![
+            firmware::Layout::find(&offering.topology, "io")?.prepare(original)?;
+            firmware::io_count(offering)
+        ]
+    } else {
+        vec![]
+    };
+    create_with_images(
+        dir,
+        offering,
+        memory_per_node,
+        identity,
+        graphics,
+        inputs,
+        &cpu_images,
+        &io_images,
+        Some(&original),
+        io_original.as_deref(),
+    )
+}
+
+pub fn import_configured(
+    dir: &Path,
+    offering: &Offering,
+    cpu_flash: &[PathBuf],
+    io_flash: &[PathBuf],
+    memory_per_node: Option<u32>,
+    identity: Option<Origin300Create<'_>>,
+    graphics: Option<&str>,
+    inputs: std::collections::BTreeMap<String, String>,
+) -> Result<()> {
+    validate_create_inputs(dir, offering, memory_per_node, identity.as_ref())?;
+    let graphics = graphics.unwrap_or(profiles::default_graphics(offering));
+    profiles::validate_graphics(offering, graphics)?;
+    profiles::validate_inputs(offering, &inputs)?;
+    if cpu_flash.len() != offering.nodes as usize {
+        return Err(format!(
+            "{} needs {} independent --cpu-flash inputs in node order",
+            offering.topology, offering.nodes
+        )
+        .into());
     }
+    let cpu = firmware::Layout::find(&offering.topology, "cpu")?;
+    let cpu_images = cpu_flash
+        .iter()
+        .map(|path| cpu.read_prepared(path))
+        .collect::<Result<Vec<_>>>()?;
+    let io_images = if io_flash.is_empty() {
+        vec![]
+    } else {
+        let count = firmware::io_count(offering);
+        if !profiles::has_io_prom(offering) || io_flash.len() != count {
+            return Err(format!(
+                "{} needs {count} --io-flash inputs in board order",
+                offering.topology
+            )
+            .into());
+        }
+        let io = firmware::Layout::find(&offering.topology, "io")?;
+        io_flash
+            .iter()
+            .map(|path| io.read_prepared(path))
+            .collect::<Result<Vec<_>>>()?
+    };
+    create_with_images(
+        dir,
+        offering,
+        memory_per_node,
+        identity,
+        graphics,
+        inputs,
+        &cpu_images,
+        &io_images,
+        None,
+        None,
+    )
+}
+
+fn create_with_images(
+    dir: &Path,
+    offering: &Offering,
+    memory_per_node: Option<u32>,
+    identity: Option<Origin300Create<'_>>,
+    graphics: &str,
+    inputs: std::collections::BTreeMap<String, String>,
+    cpu_images: &[Vec<u8>],
+    io_images: &[Vec<u8>],
+    cpu_original: Option<&[u8]>,
+    io_original: Option<&[u8]>,
+) -> Result<()> {
+    let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
     if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
     }
@@ -509,14 +616,27 @@ pub fn create_configured(
         for name in ["firmware", "drives", "state", "logs"] {
             fs::create_dir(dir.join(name))?;
         }
-        fs::copy(prom, dir.join("firmware/prom.bin"))?;
+        if let Some(original) = cpu_original {
+            fs::write(dir.join("firmware/prom.bin"), original)?;
+        }
+        if let Some(original) = io_original {
+            fs::write(dir.join("firmware/io6prom.img"), original)?;
+        }
         let identity = if let Some(inputs) = identity {
-            fs::copy(inputs.spd_dimm2, dir.join("firmware/spd-dimm2.bin"))?;
-            fs::copy(inputs.spd_dimm3, dir.join("firmware/spd-dimm3.bin"))?;
+            if let (Some(dimm2), Some(dimm3)) = (inputs.spd_dimm2, inputs.spd_dimm3) {
+                fs::copy(dimm2, dir.join("firmware/spd-dimm2.bin"))?;
+                fs::copy(dimm3, dir.join("firmware/spd-dimm3.bin"))?;
+            }
             Some(Origin300Identity {
                 mac: inputs.mac.into(),
-                spd_dimm2: "firmware/spd-dimm2.bin".into(),
-                spd_dimm3: "firmware/spd-dimm3.bin".into(),
+                spd_dimm2: inputs
+                    .spd_dimm2
+                    .map_or(String::new(), |_| "firmware/spd-dimm2.bin".into()),
+                spd_dimm3: inputs
+                    .spd_dimm3
+                    .map_or(String::new(), |_| "firmware/spd-dimm3.bin".into()),
+                chassis_eeprom: None,
+                board_eeprom: None,
             })
         } else {
             None
@@ -532,9 +652,23 @@ pub fn create_configured(
                 cpus_per_node: offering.cpus_per_node[0],
                 memory_per_node: format!("{memory_per_node}MiB"),
                 graphics: graphics.into(),
+                console: None,
             },
             firmware: Firmware {
-                image: "firmware/prom.bin".into(),
+                image: if cpu_original.is_some() {
+                    "firmware/prom.bin".into()
+                } else {
+                    firmware::cpu_paths(Path::new(""), offering)[0]
+                        .display()
+                        .to_string()
+                },
+                io_image: if io_images.is_empty() {
+                    None
+                } else if io_original.is_some() {
+                    Some("firmware/io6prom.img".into())
+                } else {
+                    Some("state/io-proms/io0.bin".into())
+                },
             },
             identity,
             network: Network::default(),
@@ -543,6 +677,7 @@ pub fn create_configured(
         if let Some(identity) = &file.identity {
             origin300::validate_spd(dir, identity)?;
         }
+        runtime::create_state(dir, &file, offering, cpu_images, io_images)?;
         fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
         Ok(())
     })();
@@ -602,17 +737,40 @@ mod tests {
     }
 
     #[test]
-    fn ip27_payload_fits_flash_and_ip35_keeps_exact_size() {
+    fn local_boot_input_accepts_unlisted_containers_within_qemu_input_limit() {
+        let root = std::env::temp_dir().join(format!("origami-local-prom-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("unlisted-container.bin");
         let catalog = catalogue().unwrap();
-        let ip27 = preset(&catalog, "origin200-1").unwrap();
-        assert!(valid_firmware_size(ip27, 908752));
-        assert!(valid_firmware_size(ip27, 1048576));
-        assert!(!valid_firmware_size(ip27, 0));
-        assert!(!valid_firmware_size(ip27, 1048577));
+        for (profile, size) in [
+            ("origin200-1", 1048576 + 128),
+            ("origin300-2", 2 * 1048576),
+            ("octane-impact", 2 * 1048576 + 128),
+        ] {
+            fs::write(&path, vec![0x5a; size]).unwrap();
+            let offering = preset(&catalog, profile).unwrap();
+            assert!(read_boot_prom(offering, &path).is_ok(), "{profile}");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
 
-        let ip35 = preset(&catalog, "origin300-2").unwrap();
-        assert!(valid_firmware_size(ip35, 1476264));
-        assert!(!valid_firmware_size(ip35, 1476263));
+    #[test]
+    fn local_boot_input_rejects_empty_directory_and_oversized_files() {
+        let root =
+            std::env::temp_dir().join(format!("origami-invalid-prom-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("prom.bin");
+        let catalog = catalogue().unwrap();
+        let offering = preset(&catalog, "origin200-1").unwrap();
+        assert!(read_boot_prom(offering, &root).is_err());
+        let input = fs::File::create(&path).unwrap();
+        assert!(read_boot_prom(offering, &path).is_err());
+        input.set_len(1048576 + 4096).unwrap();
+        assert!(read_boot_prom(offering, &path).is_ok());
+        input.set_len(1048576 + 4097).unwrap();
+        assert!(read_boot_prom(offering, &path).is_err());
+        drop(input);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -645,25 +803,27 @@ mod tests {
     #[test]
     fn downloadable_proms_match_catalogue_requirements() {
         let catalog = catalogue().unwrap();
-        let manifest = crate::assets::manifest().unwrap();
-        for (profile, _) in presets(&catalog) {
-            assert_eq!(
-                manifest
-                    .proms
-                    .iter()
-                    .filter(|prom| prom.profiles.contains(&profile))
-                    .count(),
-                1,
-                "missing or ambiguous PROM: {profile}"
+        let registry = crate::assets::manifest().unwrap();
+        for (id, offer) in presets(&catalog) {
+            let profile = profiles::profile(&id).unwrap();
+            let prom = registry.get(profile.boot_prom, "boot").unwrap();
+            assert!(
+                prom.size > 0
+                    && prom.size
+                        <= firmware::Layout::find(&offer.topology, "cpu")
+                            .unwrap()
+                            .size() as u64
+                            + 4096,
+                "{id}"
             );
-        }
-        for prom in manifest.proms {
-            for profile in &prom.profiles {
-                let offer = preset(&catalog, profile).unwrap();
-                assert!(valid_firmware_size(offer, prom.size), "{profile}");
-                if let Some(expected) = &offer.firmware.sha256 {
-                    assert_eq!(&prom.sha256, expected, "{profile}");
-                }
+            assert_eq!(
+                profile.io_prom.is_some(),
+                profiles::has_io_prom(offer),
+                "{id}"
+            );
+            if let Some(id) = profile.io_prom {
+                let prom = registry.get(id, "io").unwrap();
+                assert!(prom.size > 0 && prom.size <= 1048576);
             }
         }
     }

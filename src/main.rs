@@ -20,7 +20,7 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  origami machines\n  origami create DIR --preset PRESET [--prom FILE] [--memory-per-node MiB] [--graphics none|rad4|si|esi|infinite-reality|vpro] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  origami validate DIR\n  origami show DIR\n  origami show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  origami run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  origami status DIR\n  origami console DIR\n  origami stop DIR\n  origami drive-create DIR SIZE-MiB\n  origami drive-attach DIR FILE --type disk|cdrom|tape --target N\n  origami drive-detach DIR NAME\n  origami network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  origami network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  origami network-forward-remove DIR NAME\n  origami install-init DIR [--media-root PATH] --mac MAC [--profile base|desktop|development]\n  origami install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  origami install-check DIR\n  origami install-serve DIR\n  origami install-apply DIR [--addon NAME]\n  origami install-finish DIR\n  origami --version\n\nFuel create inputs: --fuel-board-id-word N --fuel-bedrock-revision N --fuel-ioc3-subsystem-id N --fuel-l1-type-code N\nOctane2 create inputs: --r12000-prid N --r12000-fpu-id N --r12000-reset-mode N --r12000-scache-bytes N --r12000-scache-block-words N\nNumeric inputs accept decimal or 0x-prefixed hexadecimal."
+    "usage:\n  origami machines\n  origami create DIR --preset PRESET [--prom FILE] [--io-prom FILE] [--memory-per-node MiB] [--graphics none|rad4|si|esi|infinite-reality|vpro] [--spd-dimm2 FILE --spd-dimm3 FILE --mac MAC]\n  origami import DIR --preset PRESET --cpu-flash FILE [--cpu-flash FILE ...] [--io-flash FILE ...]\n  origami console-set DIR --port l1|ioc3-a\n  origami validate DIR\n  origami show DIR\n  origami show-command DIR [--display local|vnc|none] [--vnc-port PORT]\n  origami run DIR [--display local|vnc|none] [--vnc-port PORT] [--background]\n  origami status DIR\n  origami console DIR\n  origami stop DIR\n  origami drive-create DIR SIZE-MiB\n  origami drive-attach DIR FILE --type disk|cdrom|tape --target N\n  origami drive-detach DIR NAME\n  origami network-set DIR --mode user|none|private [--endpoint PATH --mac MAC]\n  origami network-forward-add DIR NAME --protocol tcp|udp --host-port PORT --guest-port PORT\n  origami network-forward-remove DIR NAME\n  origami install-init DIR [--media-root PATH] --mac MAC [--profile base|desktop|development]\n  origami install-addon DIR --name NAME --source PATH --install PRODUCT.SUBSYSTEM [--base DIR --dist DIR]\n  origami install-check DIR\n  origami install-serve DIR\n  origami install-apply DIR [--addon NAME]\n  origami install-finish DIR\n  origami --version\n\nFuel create inputs: --fuel-board-id-word N --fuel-bedrock-revision N --fuel-ioc3-subsystem-id N --fuel-l1-type-code N\nOctane2 create inputs: --r12000-prid N --r12000-fpu-id N --r12000-reset-mode N --r12000-scache-bytes N --r12000-scache-block-words N\nNumeric inputs accept decimal or 0x-prefixed hexadecimal."
 }
 
 fn value<'a>(args: &'a [String], flag: &str) -> Result<&'a str> {
@@ -120,8 +120,21 @@ fn command() -> Result<()> {
                 );
             }
         }
-        "create" => {
+        "create" | "import" => {
             let path = args.first().ok_or("missing destination directory")?;
+            if action == "import"
+                && args.iter().any(|arg| {
+                    matches!(
+                        arg.as_str(),
+                        "--prom" | "--io-prom" | "--disk-size" | "--no-disk"
+                    )
+                })
+            {
+                return Err(
+                    "import accepts complete prepared flash files; attach disks with drive-attach"
+                        .into(),
+                );
+            }
             let offer = preset(&catalog, value(&args, "--preset")?)?;
             if offer.product != "origin300"
                 && ["--spd-dimm2", "--spd-dimm3", "--mac"]
@@ -133,22 +146,16 @@ fn command() -> Result<()> {
             let identity = if offer.product == "origin300"
                 && args
                     .iter()
-                    .any(|arg| arg == "--spd-dimm2" || arg == "--spd-dimm3")
+                    .any(|arg| matches!(arg.as_str(), "--mac" | "--spd-dimm2" | "--spd-dimm3"))
             {
                 Some(Origin300Create {
-                    spd_dimm2: Path::new(value(&args, "--spd-dimm2")?),
-                    spd_dimm3: Path::new(value(&args, "--spd-dimm3")?),
+                    spd_dimm2: optional(&args, "--spd-dimm2").map(Path::new),
+                    spd_dimm3: optional(&args, "--spd-dimm3").map(Path::new),
                     mac: optional(&args, "--mac").unwrap_or("08:00:69:12:34:56"),
                 })
             } else {
                 None
             };
-            if identity.is_none() && args.iter().any(|arg| arg == "--mac") {
-                return Err(
-                    "--mac requires the explicit --spd-dimm2 and --spd-dimm3 identity inputs"
-                        .into(),
-                );
-            }
             let memory_per_node = if args.iter().any(|arg| arg == "--memory-per-node") {
                 Some(value(&args, "--memory-per-node")?.parse::<u32>()?)
             } else {
@@ -183,20 +190,48 @@ fn command() -> Result<()> {
             }
             origami::profiles::validate_inputs(offer, &inputs)?;
             validate_create_inputs(Path::new(path), offer, memory_per_node, identity.as_ref())?;
-            let prom = if args.iter().any(|arg| arg == "--prom") {
-                PathBuf::from(value(&args, "--prom")?)
+            if action == "import" {
+                let paths = |flag: &str| -> Vec<PathBuf> {
+                    args.windows(2)
+                        .filter(|pair| pair[0] == flag)
+                        .map(|pair| PathBuf::from(&pair[1]))
+                        .collect()
+                };
+                origami::import_configured(
+                    Path::new(path),
+                    offer,
+                    &paths("--cpu-flash"),
+                    &paths("--io-flash"),
+                    memory_per_node,
+                    identity,
+                    graphics,
+                    inputs,
+                )?;
             } else {
-                origami::assets::acquire(value(&args, "--preset")?)?
-            };
-            origami::create_configured(
-                Path::new(path),
-                offer,
-                &prom,
-                memory_per_node,
-                identity,
-                graphics,
-                inputs,
-            )?;
+                if let Some(image) = optional(&args, "--io-prom") {
+                    origami::validate_io_prom(offer, Path::new(image))?;
+                }
+                let prom = if args.iter().any(|arg| arg == "--prom") {
+                    PathBuf::from(value(&args, "--prom")?)
+                } else {
+                    origami::assets::acquire(value(&args, "--preset")?)?
+                };
+                let io_prom = if let Some(image) = optional(&args, "--io-prom") {
+                    Some(PathBuf::from(image))
+                } else {
+                    origami::assets::acquire_io(value(&args, "--preset")?)?
+                };
+                origami::create_configured(
+                    Path::new(path),
+                    offer,
+                    &prom,
+                    io_prom.as_deref(),
+                    memory_per_node,
+                    identity,
+                    graphics,
+                    inputs,
+                )?;
+            }
             println!("created {path}");
         }
         "validate" | "show" | "show-command" | "run" | "_serve" => {
@@ -218,6 +253,12 @@ fn command() -> Result<()> {
                         "firmware: {}",
                         resolve(&dir, &file.firmware.image).display()
                     );
+                    if offer.product == "fuel" {
+                        println!(
+                            "console: {}",
+                            file.machine.console.as_deref().unwrap_or("l1")
+                        );
+                    }
                     println!("network: {}", file.network.mode);
                     for forward in &file.network.forward {
                         let status = if file.network.mode == "user" {
@@ -236,14 +277,16 @@ fn command() -> Result<()> {
                     }
                     if let Some(identity) = &file.identity {
                         println!("IO8 MAC: {}", identity.mac);
-                        println!(
-                            "SPD DIMM 2: {}",
-                            resolve(&dir, &identity.spd_dimm2).display()
-                        );
-                        println!(
-                            "SPD DIMM 3: {}",
-                            resolve(&dir, &identity.spd_dimm3).display()
-                        );
+                        if !identity.spd_dimm2.is_empty() {
+                            println!(
+                                "SPD DIMM 2: {}",
+                                resolve(&dir, &identity.spd_dimm2).display()
+                            );
+                            println!(
+                                "SPD DIMM 3: {}",
+                                resolve(&dir, &identity.spd_dimm3).display()
+                            );
+                        }
                     }
                     for drive in &file.drive {
                         println!(
@@ -393,6 +436,16 @@ fn command() -> Result<()> {
             validate(&catalog, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("detached {name}");
+        }
+        "console-set" => {
+            let dir = directory(&args)?;
+            let _lock = control::lock_for_edit(&dir, "changing its console")?;
+            let mut file = read_machine(&dir)?;
+            let port = value(&args, "--port")?;
+            file.machine.console = Some(port.into());
+            validate(&catalog, &dir, &file)?;
+            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+            println!("console: {port}");
         }
         "network-set" => {
             let dir = directory(&args)?;

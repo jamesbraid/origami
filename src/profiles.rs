@@ -17,29 +17,114 @@ pub fn population(machine: &Machine) -> Vec<u32> {
     }
 }
 
+pub struct Profile {
+    pub id: &'static str,
+    pub topology: &'static str,
+    pub population: &'static [u32],
+    pub boot_prom: &'static str,
+    pub io_prom: Option<&'static str>,
+}
+
+pub const STARTERS: &[Profile] = &[
+    Profile {
+        id: "origin200-1",
+        topology: "origin200",
+        population: &[1],
+        boot_prom: "ip27prom-6.156",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin200-2",
+        topology: "origin200",
+        population: &[2],
+        boot_prom: "ip27prom-6.156",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin200-dual",
+        topology: "origin200-dual",
+        population: &[2, 2],
+        boot_prom: "ip27prom-6.156",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin2000-8",
+        topology: "origin2000-rack",
+        population: &[2, 2, 2, 2],
+        boot_prom: "ip27prom-6.156",
+        io_prom: Some("io6prom-6.156"),
+    },
+    Profile {
+        id: "origin300-2",
+        topology: "origin300",
+        population: &[2],
+        boot_prom: "ip35prom-6.210",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin200-impact",
+        topology: "origin200-gigachannel",
+        population: &[1],
+        boot_prom: "ip27prom-6.156",
+        io_prom: Some("io6prom-6.156"),
+    },
+    Profile {
+        id: "octane-impact",
+        topology: "octane",
+        population: &[1],
+        boot_prom: "IP30prom-4.17",
+        io_prom: None,
+    },
+    Profile {
+        id: "octane2-impact",
+        topology: "octane2",
+        population: &[1],
+        boot_prom: "IP30prom-4.17",
+        io_prom: None,
+    },
+    Profile {
+        id: "onyx2-infinite-reality",
+        topology: "onyx2-deskside",
+        population: &[2, 2],
+        boot_prom: "ip27prom-6.156",
+        io_prom: Some("io6prom-6.156"),
+    },
+    Profile {
+        id: "fuel-1",
+        topology: "fuel",
+        population: &[1],
+        boot_prom: "ip35prom-6.210",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin300-v12-direct-2",
+        topology: "origin300-v12-direct",
+        population: &[2],
+        boot_prom: "ip35prom-6.210",
+        io_prom: None,
+    },
+    Profile {
+        id: "origin300-vbrick-2",
+        topology: "origin300-vbrick",
+        population: &[2],
+        boot_prom: "ip35prom-6.210",
+        io_prom: None,
+    },
+];
+
+pub fn profile(id: &str) -> Option<&'static Profile> {
+    STARTERS.iter().find(|profile| profile.id == id)
+}
+
 pub fn presets(catalog: &Catalog) -> Vec<(String, &Offering)> {
-    const STARTERS: &[(&str, &str, &[u32])] = &[
-        ("origin200-1", "origin200", &[1]),
-        ("origin200-2", "origin200", &[2]),
-        ("origin200-dual", "origin200-dual", &[2, 2]),
-        ("origin2000-8", "origin2000-rack", &[2, 2, 2, 2]),
-        ("origin300-2", "origin300", &[2]),
-        ("origin200-impact", "origin200-gigachannel", &[1]),
-        ("octane-impact", "octane", &[1]),
-        ("octane2-impact", "octane2", &[1]),
-        ("onyx2-infinite-reality", "onyx2-deskside", &[2, 2]),
-        ("fuel-1", "fuel", &[1]),
-        ("origin300-v12-direct-2", "origin300-v12-direct", &[2]),
-        ("origin300-vbrick-2", "origin300-vbrick", &[2]),
-    ];
     STARTERS
         .iter()
-        .filter_map(|(name, topology, population)| {
+        .filter_map(|profile| {
             catalog
                 .offerings
                 .iter()
-                .find(|o| o.topology == *topology && o.cpus_per_node == *population)
-                .map(|o| ((*name).to_string(), o))
+                .find(|o| o.topology == profile.topology && o.cpus_per_node == profile.population)
+                .map(|o| (profile.id.to_string(), o))
         })
         .collect()
 }
@@ -95,44 +180,28 @@ fn number(value: &str) -> Result<u64> {
 }
 
 fn validate_octane2_cpu(inputs: &BTreeMap<String, String>) -> Result<()> {
-    let mut values = Vec::new();
     for key in OCTANE2_CPU_INPUTS {
         let value = inputs.get(*key).ok_or_else(|| {
             format!("Octane2 requires --{key}; no measured CPU default is available")
         })?;
-        let value = u32::try_from(number(value)?).map_err(|_| format!("{key} exceeds 32 bits"))?;
-        values.push(value);
+        u32::try_from(number(value)?).map_err(|_| format!("{key} exceeds 32 bits"))?;
     }
     if inputs.len() != OCTANE2_CPU_INPUTS.len() {
         return Err("unknown Octane2 CPU input".into());
     }
-    // QEMU target/mips/r10k_cpu.c owns the accepted reset configuration.
-    let mode = values[2];
-    let ec = (mode >> 9) & 15;
-    let sc = (mode >> 19) & 7;
-    let k0 = mode & 7;
-    let dsd = (mode >> 22) & 7;
-    if values[0] & 0xff00 != 0x0e00 {
-        return Err("r12000-prid requires implementation 0x0e".into());
-    }
-    if mode > 0x01ffffff
-        || k0 < 2
-        || k0 == 6
-        || !(3..=11).contains(&ec)
-        || sc < 2
-        || sc == 6
-        || !matches!(dsd, 0 | 4)
-        || (mode >> 15) & 1 != 1
-    {
-        return Err("r12000-reset-mode must use a valid big-endian QEMU R12000 encoding".into());
-    }
-    if !matches!(values[3], 1048576 | 2097152) || (mode >> 16) & 7 != values[3] >> 20 {
-        return Err("r12000-scache-bytes disagrees with reset-mode cache size".into());
-    }
-    if !matches!(values[4], 16 | 32) || (mode >> 13) & 1 != u32::from(values[4] == 32) {
-        return Err("r12000-scache-block-words disagrees with reset-mode block size".into());
-    }
+    // QEMU validates the processor register encodings and cache relationships.
     Ok(())
+}
+
+pub fn validate_console(offering: &Offering, console: Option<&str>) -> Result<()> {
+    match console {
+        None => Ok(()),
+        Some(_) if offering.product != "fuel" => {
+            Err("console selection is only supported for Fuel".into())
+        }
+        Some("l1" | "ioc3-a") => Ok(()),
+        Some(_) => Err("Fuel console must be l1 or ioc3-a".into()),
+    }
 }
 
 pub fn validate_inputs(offering: &Offering, inputs: &BTreeMap<String, String>) -> Result<()> {
@@ -185,6 +254,18 @@ pub fn add_graphics(args: &mut Vec<String>, offering: &Offering, graphics: &str)
     Ok(())
 }
 
+/// These topologies fit a separate BASEIO or GIGAchannel flash chip.
+pub fn has_io_prom(offering: &Offering) -> bool {
+    matches!(
+        offering.topology.as_str(),
+        "origin200-gigachannel"
+            | "origin2000-deskside"
+            | "origin2000-rack"
+            | "onyx2-deskside"
+            | "onyx2-rack"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,9 +284,11 @@ mod tests {
                 cpus_per_node: o.cpus_per_node[0],
                 memory_per_node: format!("{}MiB", o.memory.default),
                 graphics: graphics.into(),
+                console: None,
             },
             firmware: Firmware {
                 image: "firmware/prom.bin".into(),
+                io_image: None,
             },
             identity: None,
             network: Network::default(),
@@ -292,6 +375,11 @@ mod tests {
             .windows(2)
             .any(|p| p == ["-M", "octane,graphics-board=si"]));
         assert!(args.contains(&"nic,model=sgi-ioc3-eth,netdev=net0".into()));
+        assert!(args.windows(2).any(|p| p
+            == [
+                "-drive",
+                "if=pflash,index=0,file=/machine/state/cpu-flash.raw,format=raw,readonly=on",
+            ]));
         assert!(validate_graphics(o, "vpro").is_err());
     }
 
@@ -367,6 +455,11 @@ mod tests {
         .collect();
         let args =
             runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
+        assert!(args.windows(2).any(|p| p
+            == [
+                "-drive",
+                "if=pflash,index=0,file=/machine/state/cpu-flash.raw,format=raw,readonly=on",
+            ]));
         let cpu = args.windows(2).find(|p| p[0] == "-cpu").unwrap();
         let machine = args.windows(2).find(|p| p[0] == "-M").unwrap();
         for key in OCTANE2_CPU_INPUTS {
@@ -379,6 +472,10 @@ mod tests {
         f.machine
             .inputs
             .insert("r12000-scache-bytes".into(), "1048576".into());
+        assert!(validate_inputs(o, &f.machine.inputs).is_ok());
+        f.machine
+            .inputs
+            .insert("r12000-prid".into(), "4294967296".into());
         assert!(validate_inputs(o, &f.machine.inputs).is_err());
     }
 

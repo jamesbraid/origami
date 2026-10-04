@@ -15,6 +15,7 @@ SPEC.loader.exec_module(BUNDLER)
 COMPILER = shutil.which("x86_64-w64-mingw32-gcc")
 OBJDUMP = shutil.which("x86_64-w64-mingw32-objdump")
 CMAKE = shutil.which("cmake")
+TARGET_SYSROOT = BUNDLER.SYSROOT
 AVAILABLE = all((COMPILER, OBJDUMP, CMAKE)) and BUNDLER.SYSROOT.is_dir()
 
 
@@ -86,6 +87,30 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
 
         dependencies = {path.name.lower() for path in self.scan(executable)}
         self.assertTrue({"first.dll", "second.dll", "sdl2.dll", "sdl3.dll"} <= dependencies)
+
+    def test_packages_frontend_and_firmware_helper_target_zlib(self):
+        roots = []
+        for name in ("origami.exe", "instigator.exe", "qemu-sgi-firmware.exe",
+                     "qemu-system-mips64.exe", "qemu-img.exe"):
+            binary = self.executable(name,
+                                     '#include <zlib.h>\nint main(void) { return zlibVersion()[0] ? 0 : 1; }\n',
+                                     libraries=("z",))
+            if name in ("qemu-system-mips64.exe", "qemu-img.exe"):
+                destination = self.root / "libexec/sgi" / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                binary.rename(destination)
+            else:
+                roots.append(binary)
+        with patch.object(BUNDLER, "SYSROOT", TARGET_SYSROOT), \
+                patch.object(BUNDLER.sys, "argv", [str(SCRIPT), str(self.root)]):
+            BUNDLER.main()
+        manifest = (self.root / "share/sgi/windows-dlls.tsv").read_text()
+        self.assertIn("mingw64-zlib", manifest)
+        self.assertTrue((self.bin / "zlib1.dll").is_file())
+        self.assertTrue((self.root / "share/sgi/licenses/fedora/mingw64-zlib/zlib.LICENSE.txt").is_file())
+        with patch.object(BUNDLER, "SYSROOT", self.bin):
+            dependencies = BUNDLER.runtime_dependencies(roots)
+        self.assertIn("zlib1.dll", {path.name.lower() for path in dependencies})
 
     def test_excludes_unavailable_api_set_import(self):
         api_source = self.root / "api.c"

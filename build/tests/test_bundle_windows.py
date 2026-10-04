@@ -57,7 +57,7 @@ class WindowsRuntimeDependencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bundle = root / "bundle"
-            for directory, names in (("bin", ("origami.exe", "instigator.exe")),
+            for directory, names in (("bin", ("origami.exe", "instigator.exe", "qemu-sgi-firmware.exe")),
                                      ("libexec/sgi", ("qemu-system-mips64.exe", "qemu-img.exe"))):
                 destination = bundle / directory
                 destination.mkdir(parents=True)
