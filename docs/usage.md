@@ -42,7 +42,8 @@ firmware and disks outside the extracted package.
 Use the full CLI path above in place of `origami` in the examples below, or
 add the package's `bin` directory to your PATH. The first `create` example
 downloads and verifies its preset's PROM. Use `--prom FILE` to supply a local
-PROM instead.
+PROM instead. Presets with a BASEIO or GIGAchannel board also download the IO
+PROM; `--io-prom FILE` supplies a local one.
 To use an existing guest disk after `create`, attach a copy as the system disk:
 
 ```sh
@@ -257,26 +258,52 @@ Onyx2, Origin 300, Octane, Octane2 and Fuel. The IMPACT shortcuts select SI.
 Onyx2 selects InfiniteReality. Origin 300 has direct V12 and V-brick choices.
 Fuel currently has a serial console. Octane VPro and Fuel VPro are unavailable.
 
+The console uses the serial line QEMU's catalogue marks as the machine's
+console: the L1 on Origin 300 and Fuel, and IOC3 port A elsewhere. A Fuel
+whose PROM environment is set to `console=d` talks on IOC3 port A instead.
+Choose another line while the machine is stopped, or omit `--port` to return
+to the default. Lines take their catalogue names, such as `l1`, `ioc3_a` and
+`ioc3_b`; an unknown name lists the machine's choices.
+
+```sh
+origami console-set my-fuel --port ioc3_a
+```
+
 `create --memory-per-node MiB` selects one of the values accepted by the preset.
 The full QEMU catalogue also validates additional topologies and processor
 populations configured in `machine.toml`. Use `topology` and `population` to
 identify those configurations. Support remains experimental: a selectable
 configuration does not imply that firmware, installation or graphics work.
 The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/sgi-origami/docs/specs/sgi-sn.rst)
-describes topology and board options. Fuel requires explicit board inputs.
-Octane2 requires explicit R12000 CPU inputs. `origami create --help` lists their options.
+describes topology and board options. Origin 300 and Fuel accept optional
+board overrides such as `--board-id-word`; QEMU supplies their defaults and
+checks any value given. `origami create --help` lists these options.
 
-Origin 2000 and Onyx2 keep independent node PROM images under `state/`.
-Origin 300 can use QEMU's native defaults. Its optional `--spd-dimm2` and
-`--spd-dimm3` inputs select the existing reviewed 512 MiB kit for a single
-node with two CPUs. That path checks both 128-byte records, copies them into
-the machine directory, creates persistent boot flash, and uses `--mac` for
-synthetic IO8 identity. Use the same MAC for private installation networking.
-Native-default firmware memory discovery remains unverified.
+A machine has one MAC, stored under `[identity]` in `machine.toml` and passed
+to QEMU as the machine's `mac` property. QEMU reports it in the machine's
+identity records and gives it to the onboard Ethernet. `create`,
+`network-set` and `install-init` accept `--mac` to set it when the machine has
+none; a machine keeps the MAC it has. Private networking and installation
+need it. Without one, QEMU uses its own default address.
 
-PROMs and media stay outside the repository. Explicit local PROMs remain
-supported. IP27 accepts a nonempty payload up to 1 MiB. IP30 accepts up to
-2 MiB. IP35 requires the catalogue's exact size and hash.
+PROMs and media stay outside the repository. Local IP27 and IP35 PROM files
+may be SGI's original images or raw PROM payloads; Octane takes a raw image.
+QEMU checks them when it creates the machine.
+
+## Machine state
+
+A machine keeps its writable state under `state/`: one file per node boot
+flash, IO PROM flash, Timekeeper NVRAM and clock record, named as QEMU's
+machine catalogue names them. `create` runs QEMU's `qemu-sgi-machine-init` to
+build these files from the PROM images, and keeps no copy of the images.
+Later runs need neither the PROM files nor a download. PROM updates and
+settings the guest saves persist in these files.
+
+Origami never rebuilds a missing state file, because that would discard what
+the guest saved. A missing file is an error naming its path. Restore it from a
+backup, or create a new machine and attach the old machine's disks.
+Machines created by earlier Origami versions are not converted. Opening one
+reports that it must be recreated the same way.
 
 The CLI starts an existing disk or CD-ROM image and prepares the Instigator server. The PROM, disk formatter, and first-run questions remain interactive. `install-apply` runs the generated `inst` package-selection script, and `install-finish` automates the RAD4 installer handoff.
 
@@ -286,7 +313,7 @@ The development media profile includes MIPSpro and development packages.
 
 Omit `--prom` to fetch the preset's pinned PROM over HTTPS. Origami checks its
 size and SHA-256 before creating the machine. Verified files are cached in the
-host's user cache directory, and each machine gets its own firmware copy.
+host's user cache directory, and creation builds the machine's flash from them.
 A warm cache supports offline creation. `--prom FILE` keeps the local-file
 workflow, including custom IP27 PROMs. Running an existing machine never fetches
 firmware. Presets without a pinned download require an explicit `--prom FILE`.
