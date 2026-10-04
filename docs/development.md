@@ -127,16 +127,17 @@ and `qemu-img` under `libexec/sgi/`, runtime libraries and QEMU keymaps.
 carried by each executable. QEMU and Instigator are queried at their launch
 paths, including `SGI_RUNTIME_DIR` for QEMU. Replacing a binary changes its
 reported identity. Local edits are marked `-dirty`, and unavailable components
-are reported on their own lines.
+are reported on their own lines. Instigator 0.3.1 does not yet support
+`--version`, so its line reports `unavailable` until a binary with version
+support is installed.
 
 The frontend uses `vergen-gitcl` with Cargo's package version. QEMU uses its
 native package version option with `sgi-origami` and its Git description.
 Every build checks the QEMU checkout and refreshes that option when its
 identity changes, including local edits. The product build passes Instigator's
-own checkout identity through Go linker variables because Go 1.26's automatic VCS discovery
-skips submodule `.git` files. Instigator's release builds stamp the same fields
-through GoReleaser, with native Go build information as the fallback for other
-builds.
+own checkout identity through Go linker variables for version-aware binaries.
+Go 1.26's automatic VCS discovery skips submodule `.git` files, so automatic
+stamping cannot reliably identify those builds.
 
 Release archives add toolchain and dependency notices and manifests.
 `SHA256SUMS` covers each packaged file, and CPack writes an archive SHA-256
