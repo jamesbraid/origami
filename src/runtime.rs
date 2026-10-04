@@ -160,13 +160,8 @@ pub fn arguments(
         machine.push_str(&format!(",graphics-board={}", file.machine.graphics));
     }
     crate::profiles::validate_inputs(offering, &file.machine.inputs)?;
-    let mut cpu = offering.cpu.clone();
     for (key, value) in &file.machine.inputs {
-        if offering.product == "octane2" {
-            cpu.push_str(&format!(",{key}={value}"));
-        } else {
-            machine.push_str(&format!(",{key}={value}"));
-        }
+        machine.push_str(&format!(",{key}={value}"));
     }
     if let Some(identity) = &file.identity {
         machine.push_str(&format!(",mac={}", identity.mac));
@@ -209,7 +204,7 @@ pub fn arguments(
         "-M".into(),
         machine,
         "-cpu".into(),
-        cpu,
+        offering.cpu.clone(),
         "-smp".into(),
         offering.smp.to_string(),
         "-m".into(),
@@ -563,16 +558,7 @@ mod tests {
     fn fuel_guest_console_uses_ioc3_a_in_foreground_and_background() {
         let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "fuel-1").unwrap();
-        let mut file = machine(offer, "none");
-        file.machine.inputs = [
-            ("fuel-board-id-word", "0x4000"),
-            ("fuel-bedrock-revision", "0"),
-            ("fuel-ioc3-subsystem-id", "0"),
-            ("fuel-l1-type-code", "1"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.into(), v.into()))
-        .collect();
+        let file = machine(offer, "none");
         let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
         let serial: Vec<_> = args
             .windows(2)
