@@ -1,8 +1,7 @@
 use crate::cli::CreateArgs;
 use origami::{control, runtime};
 use origami::{
-    preset, read_machine, validate, validate_create_inputs, Catalog, Drive, MachineInit,
-    Origin300Create, Result,
+    preset, read_machine, validate, validate_create_inputs, Catalog, Drive, MachineInit, Result,
 };
 use std::fs;
 use std::path::Path;
@@ -11,15 +10,6 @@ use std::process::Command;
 pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
     let offer = preset(catalog, &args.preset)?;
     let options = &args.options;
-    let identity = options
-        .spd_dimm2
-        .as_ref()
-        .zip(options.spd_dimm3.as_ref())
-        .map(|(spd_dimm2, spd_dimm3)| Origin300Create {
-            spd_dimm2,
-            spd_dimm3,
-            mac: options.mac.as_deref().unwrap_or("08:00:69:12:34:56"),
-        });
     let graphics = options
         .graphics
         .as_deref()
@@ -30,7 +20,12 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
     )?;
     let inputs = options.hardware.inputs();
     origami::profiles::validate_inputs(offer, &inputs)?;
-    validate_create_inputs(&args.dir, offer, options.memory_per_node, identity.as_ref())?;
+    validate_create_inputs(
+        &args.dir,
+        offer,
+        options.memory_per_node,
+        options.mac.as_deref(),
+    )?;
     let tool = runtime::machine_init_path()?;
     // Check the tool before any download that it would consume.
     if !tool.is_file() {
@@ -56,7 +51,7 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
             io_prom: io_prom.as_deref(),
         },
         options.memory_per_node,
-        identity,
+        options.mac.as_deref(),
         graphics,
         inputs,
     )?;

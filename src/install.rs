@@ -115,7 +115,7 @@ pub fn init_profile(
     catalog: &Catalog,
     dir: &Path,
     media_root: &Path,
-    mac: &str,
+    mac: Option<&str>,
     file: &mut MachineFile,
     profile: &str,
 ) -> Result<PathBuf> {
@@ -126,7 +126,7 @@ pub fn init_profile(
 pub fn init_remote_profile(
     catalog: &Catalog,
     dir: &Path,
-    mac: &str,
+    mac: Option<&str>,
     file: &mut MachineFile,
     profile: &str,
 ) -> Result<PathBuf> {
@@ -139,7 +139,7 @@ pub fn init_remote_profile(
 fn init_sources(
     catalog: &Catalog,
     dir: &Path,
-    mac: &str,
+    mac: Option<&str>,
     file: &mut MachineFile,
     root: Option<&Path>,
     profile: &str,
@@ -178,16 +178,19 @@ fn init_sources(
         addons: vec![],
     };
     let old_network = file.network.clone();
+    let old_identity = file.identity.clone();
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let endpoint = format!("tcp:{}", listener.local_addr()?);
     file.network = crate::Network {
         mode: "private".into(),
         endpoint: Some(endpoint),
-        mac: Some(mac.into()),
         forward: old_network.forward.clone(),
     };
-    if let Err(error) = crate::validate(catalog, dir, file) {
+    if let Err(error) =
+        crate::set_machine_mac(file, mac).and_then(|()| crate::validate(catalog, dir, file))
+    {
         file.network = old_network;
+        file.identity = old_identity;
         return Err(error);
     }
     fs::create_dir_all(&install_dir)?;
@@ -284,10 +287,10 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         return Err("installation requires a private network".into());
     }
     let mac = file
-        .network
-        .mac
-        .as_deref()
-        .ok_or("private network needs mac")?;
+        .identity
+        .as_ref()
+        .map(|identity| identity.mac.as_str())
+        .ok_or("installation needs the machine's MAC")?;
     let mut sets = Vec::new();
     for name in &recipe.sets {
         let mut layers = Vec::new();
@@ -990,11 +993,12 @@ mod tests {
                 population: vec![],
                 inputs: Default::default(),
             },
-            identity: None,
+            identity: Some(crate::Identity {
+                mac: "08:00:69:12:34:56".into(),
+            }),
             network: Network {
                 mode: "private".into(),
                 endpoint: Some("install/network.sock".into()),
-                mac: Some("08:00:69:12:34:56".into()),
                 forward: vec![],
             },
             drive: vec![],
@@ -1115,11 +1119,12 @@ mod tests {
                 population: vec![],
                 inputs: Default::default(),
             },
-            identity: None,
+            identity: Some(crate::Identity {
+                mac: "08:00:69:12:34:56".into(),
+            }),
             network: Network {
                 mode: "private".into(),
                 endpoint: Some("install/network.sock".into()),
-                mac: Some("08:00:69:12:34:56".into()),
                 forward: vec![],
             },
             drive: vec![],
@@ -1209,7 +1214,7 @@ mod tests {
             &catalog,
             &machine,
             &media_root,
-            "08:00:69:12:34:56",
+            Some("08:00:69:12:34:56"),
             &mut file,
             "development",
         )
@@ -1265,7 +1270,14 @@ mod tests {
         };
         crate::create_configured(&dir, offer, &init, None, None, None, Default::default()).unwrap();
         let mut file = crate::read_machine(&dir).unwrap();
-        init_remote_profile(&catalog, &dir, "08:00:69:12:34:56", &mut file, "desktop").unwrap();
+        init_remote_profile(
+            &catalog,
+            &dir,
+            Some("08:00:69:12:34:56"),
+            &mut file,
+            "desktop",
+        )
+        .unwrap();
         let mut media = read_media(&dir).unwrap();
         assert_eq!(media.media.len(), 10);
         assert_eq!(
