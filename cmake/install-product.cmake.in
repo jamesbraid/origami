@@ -1,10 +1,3 @@
-# CPack with Ninja does not run the build before installation.
-execute_process(
-  COMMAND "@CMAKE_COMMAND@" --build "@CMAKE_BINARY_DIR@" --target binaries
-  RESULT_VARIABLE build_result)
-if(NOT build_result EQUAL 0)
-  message(FATAL_ERROR "Product build failed (${build_result})")
-endif()
 # Installation stages only the release tree, never the build directory.
 execute_process(
   COMMAND "@CMAKE_COMMAND@" -E env "CARGO_HOME=@cargo_home@"

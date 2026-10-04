@@ -84,7 +84,7 @@ jobs:
       - name: Build archive
         run: |
           cmake --preset macos -B "$RUNNER_TEMP/build"
-          time cmake --build "$RUNNER_TEMP/build" --parallel 4
+          time cmake --build "$RUNNER_TEMP/build" --target binaries --parallel 4
           ctest --test-dir "$RUNNER_TEMP/build" --output-on-failure
           cpack --config "$RUNNER_TEMP/build/CPackConfig.cmake" -B "$RUNNER_TEMP/build/artifacts"
       - name: Smoke test extracted archive

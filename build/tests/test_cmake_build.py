@@ -168,17 +168,31 @@ for name, origin in [("origami", pathlib.Path(m["files"]["bin/origami"])), ("ins
             self.assertEqual(archive.extractfile(f"{archive_root}/policy").read(), b"release")
             self.assertNotIn("product-build.json", archive.getnames())
 
-    def test_package_rebuilds_changed_sources_before_collection(self):
+    def test_release_packages_explicit_build_without_recompiling(self):
         self.env["PRODUCT_TEST_GENERATOR"] = "Ninja"
         self.configure()
         self.assertIn("CMAKE_GENERATOR:INTERNAL=Ninja",
                       (self.binary / "CMakeCache.txt").read_text())
-        self.build()
+        self.run_command("cmake", "--build", str(self.binary), "--target", "binaries")
+        self.assertFalse((self.binary / "run").exists())
         (self.source / "src/main.rs").write_text("updated frontend for package")
         (self.source / "instigator/main.go").write_text("updated installer for package")
         (self.source / "qemu/source.c").write_text("updated emulator for package")
+        self.run_command("cmake", "--build", str(self.binary), "--target", "binaries")
+        self.run_command("ctest", "--test-dir", str(self.binary),
+                         "-R", "^(frontend|instigator)$", "--output-on-failure")
+        commands_before = [json.loads(line) for line in self.log.read_text().splitlines()]
+        builds_before = [entry for entry in commands_before
+                         if entry[0] == "qemu-make" or
+                         entry[0] in ("cargo", "go") and "build" in entry[1]]
         self.run_command("cpack", "--config", str(self.binary / "CPackConfig.cmake"),
                          "-B", str(self.binary / "archives"))
+        commands_after = [json.loads(line) for line in self.log.read_text().splitlines()]
+        builds_after = [entry for entry in commands_after
+                        if entry[0] == "qemu-make" or
+                        entry[0] in ("cargo", "go") and "build" in entry[1]]
+        self.assertEqual(builds_after, builds_before)
+        self.assertFalse((self.binary / "run").exists())
         import tarfile
         archive_name, archive_root = (("origami-macos-arm64-preview.tar.gz", "macos-arm64-dev")
                                       if sys.platform == "darwin" else

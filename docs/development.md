@@ -57,9 +57,11 @@ When libslirp's wrap or patch files change, the product build runs
 before compilation. Unchanged builds reuse the extracted dependency.
 
 Ordinary builds accept local edits and produce a runnable directory.
-The install script builds CMake's `binaries` target before release staging,
-including when CPack uses Ninja. Release packaging requires clean
-source and dependencies at their committed pins.
+Release builds follow configure, build, test and package in that order.
+CPack stages the existing binaries without invoking compilation. Run the
+build again after changing source or release tags, then test and package.
+Release packaging requires clean source and dependencies at their committed
+pins.
 
 ## macOS
 
@@ -79,10 +81,11 @@ cmake --build --preset macos
 ./out/macos/run/bin/origami machines
 ```
 
-Changes rebuild incrementally in the same directory. Tests and release
-packaging are separate:
+Changes rebuild incrementally in the same directory. To create a release
+archive from a clean checkout:
 
 ```sh
+cmake --build --preset macos --target binaries
 ctest --preset macos
 cpack --preset macos
 ```
@@ -139,6 +142,11 @@ The presets use ignored `out/<preset>/` directories. Override a configure
 command with `-B /path/to/build` to select external storage, then use
 `cmake --build /path/to/build`, `ctest --test-dir /path/to/build` and
 `cpack --config /path/to/build/CPackConfig.cmake` for that directory.
+
+The default build assembles the runnable development tree. Release CI builds
+`--target binaries` to skip that assembly, runs CTest, then lets CPack stage
+the release tree once. Use the same target locally when only an archive is
+needed.
 
 The runnable tree contains `origami` and `instigator` under `bin/`, QEMU
 and `qemu-img` under `libexec/sgi/`, runtime libraries and QEMU keymaps.
