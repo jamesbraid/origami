@@ -1,7 +1,8 @@
 use crate::cli::CreateArgs;
 use origami::{control, runtime};
 use origami::{
-    preset, read_machine, validate, validate_create_inputs, Catalog, Drive, Origin300Create, Result,
+    preset, read_machine, validate, validate_create_inputs, Catalog, Drive, MachineInit,
+    Origin300Create, Result,
 };
 use std::fs;
 use std::path::Path;
@@ -30,6 +31,18 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
     let inputs = options.hardware.inputs();
     origami::profiles::validate_inputs(offer, &inputs)?;
     validate_create_inputs(&args.dir, offer, options.memory_per_node, identity.as_ref())?;
+    let needs_io_prom = offer
+        .init_inputs
+        .iter()
+        .any(|input| input.name == "io-prom" && input.required);
+    if needs_io_prom && options.io_prom.is_none() {
+        return Err(format!("{} needs an IO PROM; supply --io-prom FILE", args.preset).into());
+    }
+    let tool = runtime::machine_init_path()?;
+    // Check the tool before any download that it would consume.
+    if !tool.is_file() {
+        return Err(format!("packaged machine init tool missing: {}", tool.display()).into());
+    }
     let prom = match &options.prom {
         Some(path) => path.clone(),
         None => origami::assets::acquire(&args.preset)?,
@@ -37,7 +50,11 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
     origami::create_configured(
         &args.dir,
         offer,
-        &prom,
+        &MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: options.io_prom.as_deref(),
+        },
         options.memory_per_node,
         identity,
         graphics,

@@ -947,7 +947,7 @@ mod tests {
 
     #[test]
     fn addon_script_selects_mipspro_and_local_package() {
-        use crate::{Firmware, Machine, Network};
+        use crate::{Machine, Network};
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let dir = std::env::temp_dir().join(format!(
@@ -979,7 +979,7 @@ mod tests {
             }],
         };
         let file = MachineFile {
-            format: 1,
+            format: crate::MACHINE_FORMAT,
             machine: Machine {
                 model: "origin200".into(),
                 nodes: 1,
@@ -989,9 +989,6 @@ mod tests {
                 topology: None,
                 population: vec![],
                 inputs: Default::default(),
-            },
-            firmware: Firmware {
-                image: "prom.bin".into(),
             },
             identity: None,
             network: Network {
@@ -1065,7 +1062,7 @@ mod tests {
 
     #[test]
     fn add_addon_preserves_https_source_and_rejects_invalid_urls_without_writing() {
-        use crate::{Firmware, Machine, Network};
+        use crate::{Machine, Network};
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let dir = std::env::temp_dir().join(format!(
@@ -1107,7 +1104,7 @@ mod tests {
         assert_eq!(configured.addons[0].source, url);
 
         let file = MachineFile {
-            format: 1,
+            format: crate::MACHINE_FORMAT,
             machine: Machine {
                 model: "origin200".into(),
                 nodes: 1,
@@ -1117,9 +1114,6 @@ mod tests {
                 topology: None,
                 population: vec![],
                 inputs: Default::default(),
-            },
-            firmware: Firmware {
-                image: "prom.bin".into(),
             },
             identity: None,
             network: Network {
@@ -1182,6 +1176,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn media_root_names_the_directory_containing_release_folders() {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -1200,16 +1195,15 @@ mod tests {
         fs::write(&prom, vec![0; 1048576]).unwrap();
         let machine = root.join("machine");
         let catalog = crate::test_catalogue();
-        crate::create_configured(
-            &machine,
-            crate::preset(&catalog, "origin200-1").unwrap(),
-            &prom,
-            None,
-            None,
-            None,
-            Default::default(),
-        )
-        .unwrap();
+        let offer = crate::preset(&catalog, "origin200-1").unwrap();
+        let tool = crate::fake_init_tool(&root, offer);
+        let init = crate::MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: None,
+        };
+        crate::create_configured(&machine, offer, &init, None, None, None, Default::default())
+            .unwrap();
         let mut file = crate::read_machine(&machine).unwrap();
         init_profile(
             &catalog,
@@ -1245,6 +1239,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn remote_init_preserves_recipe_without_downloading() {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -1262,7 +1257,13 @@ mod tests {
         let catalog = crate::test_catalogue();
         let offer = crate::preset(&catalog, "origin200-1").unwrap();
         let dir = root.join("machine");
-        crate::create_configured(&dir, offer, &prom, None, None, None, Default::default()).unwrap();
+        let tool = crate::fake_init_tool(&root, offer);
+        let init = crate::MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: None,
+        };
+        crate::create_configured(&dir, offer, &init, None, None, None, Default::default()).unwrap();
         let mut file = crate::read_machine(&dir).unwrap();
         init_remote_profile(&catalog, &dir, "08:00:69:12:34:56", &mut file, "desktop").unwrap();
         let mut media = read_media(&dir).unwrap();

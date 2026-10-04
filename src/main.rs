@@ -105,10 +105,7 @@ fn command(action: Action) -> Result<()> {
                 file.machine.memory_per_node,
                 file.machine.graphics
             );
-            println!(
-                "firmware: {}",
-                resolve(&dir, &file.firmware.image).display()
-            );
+            println!("state: {}", dir.join("state").display());
             println!("network: {}", file.network.mode);
             for forward in &file.network.forward {
                 let status = if file.network.mode == "user" {

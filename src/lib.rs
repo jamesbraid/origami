@@ -14,6 +14,10 @@ pub mod runtime;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+/// The machine.toml format. Format 1 machines kept a PROM copy and let the
+/// launcher rebuild flash; format 2 machines keep QEMU-created storage.
+pub const MACHINE_FORMAT: u32 = 2;
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct Catalog {
     pub schema: String,
@@ -32,6 +36,11 @@ pub struct Offering {
     pub cpu: String,
     #[serde(rename = "memory-per-node-mib")]
     pub memory: Memory,
+    /// The `-M` value selecting this product, topology and node count.
+    #[serde(rename = "machine-options")]
+    pub machine_options: String,
+    #[serde(rename = "init-inputs")]
+    pub init_inputs: Vec<InitInput>,
     pub storage: Vec<StorageItem>,
     #[serde(rename = "scsi-adapters")]
     pub scsi_adapters: Vec<ScsiAdapter>,
@@ -43,6 +52,15 @@ pub struct Offering {
 pub struct Memory {
     pub accepted: Vec<u32>,
     pub default: u32,
+}
+
+/// A firmware image that creating a machine's storage reads. Its name is
+/// also the init tool's option for that image.
+#[derive(Clone, Debug, Deserialize)]
+pub struct InitInput {
+    pub name: String,
+    pub kind: String,
+    pub required: bool,
 }
 
 /// One writable store of a machine, named as QEMU names its file, block
@@ -67,7 +85,6 @@ pub struct ScsiAdapter {
 pub struct MachineFile {
     pub format: u32,
     pub machine: Machine,
-    pub firmware: Firmware,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<Origin300Identity>,
     #[serde(default)]
@@ -161,12 +178,6 @@ fn default_graphics() -> String {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Firmware {
-    pub image: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Drive {
     pub name: String,
     #[serde(rename = "type")]
@@ -203,9 +214,32 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
             path.display()
         )
     })?;
-    toml::from_str(&text).map_err(|error| {
-        format!("invalid machine configuration {}: {error}", path.display()).into()
-    })
+    let invalid = |error: toml::de::Error| {
+        format!("invalid machine configuration {}: {error}", path.display())
+    };
+    let format = toml::from_str::<toml::Table>(&text)
+        .map_err(invalid)?
+        .get("format")
+        .and_then(toml::Value::as_integer);
+    match format {
+        Some(format) if format == i64::from(MACHINE_FORMAT) => (),
+        Some(format) if format > i64::from(MACHINE_FORMAT) => {
+            return Err(format!(
+                "{} needs a newer Origami (machine format {format})",
+                path.display()
+            )
+            .into())
+        }
+        _ => {
+            return Err(format!(
+                "{} was created by an earlier Origami and cannot be opened. \
+                 Create a new machine with origami create and attach its disks",
+                path.display()
+            )
+            .into())
+        }
+    }
+    toml::from_str(&text).map_err(|error| invalid(error).into())
 }
 
 pub fn tcp_endpoint(endpoint: &str) -> Result<Option<SocketAddrV4>> {
@@ -230,7 +264,7 @@ pub fn valid_mac(mac: &str) -> bool {
 }
 
 pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Result<&'a Offering> {
-    if file.format != 1 {
+    if file.format != MACHINE_FORMAT {
         return Err(format!("unsupported machine format {}", file.format).into());
     }
     let memory = file
@@ -245,11 +279,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         .find(|o| {
             o.product == file.machine.model
                 && o.nodes == file.machine.nodes
-                && file.machine.topology.as_ref().map_or(
-                    o.topology
-                        == profiles::legacy_topology(&file.machine.model, file.machine.nodes),
-                    |topology| o.topology == *topology,
-                )
+                && file.machine.topology.as_ref() == Some(&o.topology)
                 && o.cpus_per_node == profiles::population(&file.machine)
         })
         .ok_or("unsupported machine and processor population")?;
@@ -316,10 +346,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
             .into());
         }
     }
-    let prom = resolve(dir, &file.firmware.image);
-    if !prom.is_file() {
-        return Err(format!("missing firmware {}", prom.display()).into());
-    }
+    runtime::check_state(dir, offering)?;
     if let (true, Some(identity)) = (offering.product == "origin300", &file.identity) {
         if offering.nodes != 1 || offering.smp != 2 {
             return Err("explicit Origin 300 identity currently requires one two-CPU node".into());
@@ -408,10 +435,18 @@ pub fn validate_create_inputs(
     Ok(())
 }
 
+/// What creates a new machine's storage: QEMU's init tool and the original
+/// firmware images it reads.
+pub struct MachineInit<'a> {
+    pub tool: &'a Path,
+    pub boot_prom: &'a Path,
+    pub io_prom: Option<&'a Path>,
+}
+
 pub fn create_configured(
     dir: &Path,
     offering: &Offering,
-    prom: &Path,
+    init: &MachineInit<'_>,
     memory_per_node: Option<u32>,
     identity: Option<Origin300Create<'_>>,
     graphics: Option<&str>,
@@ -419,19 +454,28 @@ pub fn create_configured(
 ) -> Result<()> {
     let graphics = graphics.unwrap_or(profiles::default_graphics(offering));
     let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
-    if !prom.is_file() {
-        return Err(format!("missing PROM {}", prom.display()).into());
+    let arguments =
+        runtime::init_arguments(offering, init.boot_prom, init.io_prom, &dir.join("state"))?;
+    // On failure, remove every directory this call created, so a retry
+    // does not meet a half-made destination.
+    let mut created = dir;
+    while let Some(parent) = created
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty() && !parent.exists())
+    {
+        created = parent;
     }
     if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
     }
     fs::create_dir(dir)?;
     let result = (|| -> Result<()> {
-        for name in ["firmware", "drives", "state", "logs"] {
+        for name in ["drives", "logs"] {
             fs::create_dir(dir.join(name))?;
         }
-        fs::copy(prom, dir.join("firmware/prom.bin"))?;
+        runtime::create_state(init.tool, &arguments)?;
         let identity = if let Some(inputs) = identity {
+            fs::create_dir(dir.join("firmware"))?;
             fs::copy(inputs.spd_dimm2, dir.join("firmware/spd-dimm2.bin"))?;
             fs::copy(inputs.spd_dimm3, dir.join("firmware/spd-dimm3.bin"))?;
             Some(Origin300Identity {
@@ -443,7 +487,7 @@ pub fn create_configured(
             None
         };
         let file = MachineFile {
-            format: 1,
+            format: MACHINE_FORMAT,
             machine: Machine {
                 topology: Some(offering.topology.clone()),
                 population: offering.cpus_per_node.clone(),
@@ -454,9 +498,6 @@ pub fn create_configured(
                 memory_per_node: format!("{memory_per_node}MiB"),
                 graphics: graphics.into(),
             },
-            firmware: Firmware {
-                image: "firmware/prom.bin".into(),
-            },
             identity,
             network: Network::default(),
             drive: vec![],
@@ -465,7 +506,7 @@ pub fn create_configured(
         Ok(())
     })();
     if result.is_err() {
-        let _ = fs::remove_dir_all(dir);
+        let _ = fs::remove_dir_all(created);
     }
     result
 }
@@ -500,6 +541,24 @@ pub(crate) fn write_script(path: &Path, script: &str) {
     assert!(writer.wait().unwrap().success());
 }
 
+/// A stand-in for QEMU's init tool that creates `offering`'s storage files
+/// zero-filled and records its arguments in `<tool>.args`.
+#[cfg(all(test, unix))]
+pub(crate) fn fake_init_tool(root: &Path, offering: &Offering) -> PathBuf {
+    let tool = root.join("qemu-sgi-machine-init");
+    let mut script = String::from(
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\nfor dir; do :; done\nmkdir \"$dir\" || exit 1\n",
+    );
+    for item in &offering.storage {
+        script.push_str(&format!(
+            "dd if=/dev/zero of=\"$dir/{}.raw\" bs=1 count=0 seek={} 2>/dev/null || exit 1\n",
+            item.name, item.size
+        ));
+    }
+    write_script(&tool, &script);
+    tool
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +575,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn create_accepts_catalogue_memory_and_rejects_unsupported_memory() {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -532,11 +592,17 @@ mod tests {
         fs::write(&prom, [0u8; 1]).unwrap();
         let catalog = test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
+        let tool = fake_init_tool(&root, offer);
+        let init = MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: None,
+        };
         let machine = root.join("nested/machine");
         create_configured(
             &machine,
             offer,
-            &prom,
+            &init,
             Some(128),
             None,
             None,
@@ -546,6 +612,23 @@ mod tests {
         let file = read_machine(&machine).unwrap();
         assert_eq!(file.machine.memory_per_node, "128MiB");
         validate(&catalog, &machine, &file).unwrap();
+        let missing_tool = root.join("absent-tool");
+        let broken = MachineInit {
+            tool: &missing_tool,
+            ..init
+        };
+        let interrupted = root.join("new/parents/machine");
+        assert!(create_configured(
+            &interrupted,
+            offer,
+            &broken,
+            None,
+            None,
+            None,
+            Default::default()
+        )
+        .is_err());
+        assert!(!root.join("new").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -581,6 +664,89 @@ mod tests {
         let sn1 = preset(&catalog, "origin300-2").unwrap();
         assert!(validate_create_inputs(&absent, sn1, None, None).is_ok());
         assert!(!absent.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn create_runs_the_init_tool_and_reopen_requires_its_storage() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let root = std::env::temp_dir().join(format!(
+            "origami-create-state-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let prom = root.join("boot prom.img");
+        let io_prom = root.join("io,prom.img");
+        let catalog = test_catalogue();
+        let offer = preset(&catalog, "origin2000-8").unwrap();
+        let tool = fake_init_tool(&root, offer);
+        let machine = root.join("machine");
+        let without_io = MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: None,
+        };
+        let error = create_configured(
+            &machine,
+            offer,
+            &without_io,
+            None,
+            None,
+            None,
+            Default::default(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("--io-prom"), "{error}");
+        assert!(!machine.exists());
+        let init = MachineInit {
+            io_prom: Some(&io_prom),
+            ..without_io
+        };
+        create_configured(&machine, offer, &init, None, None, None, Default::default()).unwrap();
+        let arguments = fs::read_to_string(root.join("qemu-sgi-machine-init.args")).unwrap();
+        let state = machine.join("state");
+        assert_eq!(
+            arguments.lines().collect::<Vec<_>>(),
+            [
+                "--machine",
+                "origin2000,topology=origin2000-rack,nodes=4",
+                "--boot-prom",
+                prom.to_str().unwrap(),
+                "--io-prom",
+                io_prom.to_str().unwrap(),
+                state.to_str().unwrap(),
+            ]
+        );
+        let file = read_machine(&machine).unwrap();
+        assert!(!machine.join("firmware").exists());
+        validate(&catalog, &machine, &file).unwrap();
+        fs::remove_file(state.join("node3-flash.raw")).unwrap();
+        let error = validate(&catalog, &machine, &file).unwrap_err().to_string();
+        assert!(error.contains("node3-flash.raw"), "{error}");
+        assert!(error.contains("origami create"), "{error}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn machines_from_an_earlier_format_ask_to_be_recreated() {
+        let root = std::env::temp_dir().join(format!("origami-format-1-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("machine.toml"),
+            "format = 1\n[machine]\nmodel = \"origin200\"\n[firmware]\nimage = \"firmware/prom.bin\"\n",
+        )
+        .unwrap();
+        let error = read_machine(&root).unwrap_err().to_string();
+        assert!(error.contains("earlier Origami"), "{error}");
+        assert!(error.contains("origami create"), "{error}");
+        fs::write(root.join("machine.toml"), "format = 3\n").unwrap();
+        let error = read_machine(&root).unwrap_err().to_string();
+        assert!(error.contains("newer Origami"), "{error}");
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
