@@ -35,9 +35,6 @@
       "cacheVariables": {
         "PRODUCT_PLATFORM": "macos"
       },
-      "environment": {
-        "MACOSX_DEPLOYMENT_TARGET": "15.0"
-      },
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",

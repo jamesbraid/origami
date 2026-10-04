@@ -26,42 +26,32 @@ owns reconfiguration and its Meson/Ninja build. CTest runs the product checks
 and CPack creates release archives. Submodules own the exact
 QEMU and Instigator revisions. Builds never fetch or switch their commits.
 
-CMake defines the compiler commands, target paths and Go environment once.
-The staging helper consumes that generated configuration to assemble the
-runnable tree, bundle libraries and collect notices. Cargo, Go and QEMU
-own incremental rebuilds.
+CMake `install()` rules lay out the product, and `cmake/bundle.cmake` copies
+the shared libraries it needs during installation. Cargo, Go and QEMU own
+incremental rebuilds.
 
 Instigator's `go.mod` owns its required Go version. The container images
-install the distribution's Go as a bootstrap toolchain. Go automatically
-selects and downloads the required toolchain from the pinned Instigator
-checkout for builds, tests and license collection. A Go version bump belongs
-in Instigator. The product picks it up through its submodule pin. macOS CI
-also reads `instigator/go.mod` through `setup-go`.
+install the distribution's Go as a bootstrap toolchain, and the build sets
+`GOTOOLCHAIN=auto` so Go downloads the version the pinned Instigator checkout
+requires. A Go version bump belongs in Instigator. The product picks it up
+through its submodule pin. macOS CI also reads `instigator/go.mod` through
+`setup-go`.
 
-Initialize them once:
+Initialize the submodules once; configuration stops with this command if
+they are missing:
 
 ```sh
 git submodule update --init -- qemu instigator
-```
-
-Alternatively, configure the product and use its explicit initialization
-target before building:
-
-```sh
-cmake --preset macos
-cmake --build --preset macos --target submodules
 ```
 
 When libslirp's wrap or patch files change, the product build runs
 `meson subprojects update --reset libslirp` through QEMU's build environment
 before compilation. Unchanged builds reuse the extracted dependency.
 
-Ordinary builds accept local edits and produce a runnable directory.
-Release builds follow configure, build, test and package in that order.
-CPack stages the existing binaries without invoking compilation. Run the
-build again after changing source or release tags, then test and package.
-Release packaging requires clean source and dependencies at their committed
-pins.
+The default build installs a runnable tree into `run/` in the build
+directory. Release builds follow configure, build, test and package in that
+order. CPack installs the existing binaries without invoking compilation. Run
+the build again after changing source or release tags, then test and package.
 
 ## macOS
 
@@ -110,7 +100,10 @@ podman run --rm --userns=keep-id -v "$PWD:$PWD" -w "$PWD" origami-builder sh -ec
 
 The runnable CLI is `out/linux/run/bin/origami`. The archive is
 `origami-linux-x86_64-preview.tar.gz`, containing `linux-dev/`.
-The release target requires glibc 2.39 or newer. SDL uses the host's display
+The release target requires glibc 2.39 or newer. The archive bundles GLib,
+pixman, SDL, libepoxy and the few SDL dependencies that desktops do not
+reliably install. Graphics drivers, audio, X11, Wayland, D-Bus and udev come
+from the host, so they match its drivers and services. SDL uses the host's display
 and input services. Prior Xvfb checks exercised desktop drawing and synthetic
 input. They do not qualify physical host input.
 
@@ -143,19 +136,19 @@ command with `-B /path/to/build` to select external storage, then use
 `cmake --build /path/to/build`, `ctest --test-dir /path/to/build` and
 `cpack --config /path/to/build/CPackConfig.cmake` for that directory.
 
-The default build assembles the runnable development tree. Release CI builds
-`--target binaries` to skip that assembly, runs CTest, then lets CPack stage
-the release tree once. Use the same target locally when only an archive is
-needed.
+The default build installs the runnable development tree. Release CI builds
+`--target binaries` to skip that installation, runs CTest, then lets CPack
+install the release tree once. Use the same target locally when only an
+archive is needed.
 
 The runnable tree contains `origami` and `instigator` under `bin/`, QEMU
-and `qemu-img` under `libexec/sgi/`, runtime libraries and QEMU keymaps.
-`share/sgi/source-revisions.txt` records actual revisions and checkout state.
-`origami --version` (also `origami version`) prints the version and Git identity
-carried by each executable. QEMU and Instigator are queried at their launch
-paths, including `SGI_RUNTIME_DIR` for QEMU. Replacing a binary changes its
-reported identity. Local edits are marked dirty, and unavailable components
-are reported on their own lines.
+and `qemu-img` under `libexec/origami/`, bundled libraries under
+`lib/origami/` (beside the executables on Windows) and QEMU keymaps under
+`share/origami/qemu/`. `origami --version` (also `origami version`) prints
+the version and Git identity carried by each executable. QEMU and Instigator
+are queried at their launch paths, including `ORIGAMI_RUNTIME_DIR` for QEMU.
+Replacing a binary changes its reported identity. Local edits are marked
+dirty, and unavailable components are reported on their own lines.
 
 The frontend embeds its Git description through `vergen-gitcl`. QEMU uses its
 native package version option with `sgi-origami` and its Git description.
@@ -163,10 +156,9 @@ Every build checks the QEMU checkout and refreshes that option when its
 identity changes, including local edits. Instigator uses Go's native module
 version and VCS build information from its own checkout.
 
-Release archives add toolchain and dependency notices and manifests.
-`SHA256SUMS` covers each packaged file, and CPack writes an archive SHA-256
-file alongside the archive. Archives are assembled from the installed
-product tree, without build caches or source directories.
+CPack writes an archive SHA-256 file alongside the archive. Archives are
+assembled from the installed product tree, without build caches or source
+directories.
 
 GitHub release jobs and local builds use the same presets. Linux and Windows
 jobs supply their toolchains through the images above. The Mac builds
@@ -219,13 +211,15 @@ The Origami CLI, Instigator and original Origami additions to QEMU use
 BSD-3-Clause. QEMU as a whole uses GPLv2. Upstream and adapted code retain
 their existing licenses. `qemu/LICENSE.origami.paths` lists original files
 covered by the BSD grant, and `qemu/LICENSE.origami` contains its terms.
-Bundled libraries retain their own licenses, with notices under
-`share/sgi/licenses/` in the archive.
+Bundled libraries, Rust crates and Go modules retain their own licenses.
+`THIRD_PARTY_NOTICES` collects their notices, and archives install it with
+the Origami, Instigator and QEMU license files under
+`share/origami/licenses/`.
 
-`share/sgi/source-revisions.txt` identifies the product, QEMU and Instigator
-commits. The Debian and Windows library manifests record the exact binary and
-source package versions. Rust and Go dependency manifests identify their
-modules and bundled notices.
+The notices file is maintained by hand. Update it when a Rust crate, Go
+module or bundled library is added or changes license. Installation stops
+when it would bundle a library that `cmake/bundle.cmake` does not list as
+covered by the notices.
 
 QEMU statically links a patched libslirp. Its pinned source URL and checksum
 are in `qemu/subprojects/libslirp.wrap`. The patch and its tests are in

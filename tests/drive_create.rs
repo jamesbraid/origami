@@ -81,7 +81,7 @@ fn drive_create_rejects_an_occupied_system_target_before_writing() {
     assert!(!missing_runtime.exists());
     let create_disk = Command::new(env!("CARGO_BIN_EXE_origami"))
         .args(["drive-create", machine.to_str().unwrap(), "16"])
-        .env("SGI_RUNTIME_DIR", &missing_runtime)
+        .env("ORIGAMI_RUNTIME_DIR", &missing_runtime)
         .output()
         .unwrap();
 

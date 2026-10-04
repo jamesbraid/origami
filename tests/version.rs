@@ -22,7 +22,7 @@ impl Fixture {
                 .as_nanos()
         ));
         fs::create_dir_all(root.join("bin")).unwrap();
-        fs::create_dir_all(root.join("libexec/sgi")).unwrap();
+        fs::create_dir_all(root.join("libexec/origami")).unwrap();
         fs::copy(env!("CARGO_BIN_EXE_origami"), root.join("bin/origami")).unwrap();
         Self(root)
     }
@@ -39,9 +39,9 @@ impl Fixture {
 
     fn report(&self, argument: &str, runtime: Option<&Path>) -> String {
         let mut command = Command::new(self.0.join("bin/origami"));
-        command.arg(argument).env_remove("SGI_RUNTIME_DIR");
+        command.arg(argument).env_remove("ORIGAMI_RUNTIME_DIR");
         if let Some(runtime) = runtime {
-            command.env("SGI_RUNTIME_DIR", runtime);
+            command.env("ORIGAMI_RUNTIME_DIR", runtime);
         }
         let output = command.output().unwrap();
         assert!(
@@ -68,15 +68,9 @@ fn version_reports_the_selected_binaries_after_relocation() {
         "printf 'instigator version 0.3.1 (abcdef1-dirty)\\n'",
     );
     fixture.script(
-        "libexec/sgi/qemu-system-mips64",
+        "libexec/origami/qemu-system-mips64",
         "printf 'QEMU emulator version 11.1.50 (v11.0.0-123-g1234567)\\nCopyright ignored\\n'",
     );
-    fs::create_dir_all(fixture.0.join("share/sgi")).unwrap();
-    fs::write(
-        fixture.0.join("share/sgi/source-revisions.txt"),
-        "stale sidecar data",
-    )
-    .unwrap();
     let report = fixture.report("--version", None);
     let lines: Vec<_> = report.lines().collect();
     assert_eq!(lines.len(), 3, "{report}");
@@ -99,7 +93,7 @@ fn version_reports_the_selected_binaries_after_relocation() {
         .report("--version", None)
         .contains("instigator (devel) (unknown)"));
     fixture.script(
-        "libexec/sgi/qemu-system-mips64",
+        "libexec/origami/qemu-system-mips64",
         "printf 'QEMU emulator version 11.2.0 (vendor-build)\\n'",
     );
     let replacement = fixture.report("--version", None);
@@ -132,7 +126,7 @@ fn version_reports_missing_or_uncooperative_binaries_without_hiding_origami() {
         "printf 'Usage: old instigator\\n'; exit 1",
     );
     fixture.script(
-        "libexec/sgi/qemu-system-mips64",
+        "libexec/origami/qemu-system-mips64",
         "printf 'Usage: not a version\\n'",
     );
     let report = fixture.report("--version", None);

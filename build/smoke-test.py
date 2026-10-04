@@ -42,7 +42,7 @@ class ProductSmoke(unittest.TestCase):
         if os.name == "nt":
             binary = binary.with_suffix(".exe")
         env = os.environ.copy()
-        for name in ("SGI_RUNTIME_DIR", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
+        for name in ("ORIGAMI_RUNTIME_DIR", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
             env.pop(name, None)
         background = relative == "bin/origami" and args[0] == "run" and "--background" in args
         with subprocess.Popen([str(binary), *map(str, args)], stdout=subprocess.PIPE,
@@ -74,9 +74,9 @@ class ProductSmoke(unittest.TestCase):
         self.assertIn("\nqemu ", self.cli("version"))
         self.assertIn("origin200-1", self.cli("machines"))
         self.run_binary("bin/instigator", "--help")
-        self.run_binary("libexec/sgi/qemu-system-mips64", "--version")
-        self.assertIn("sdl", self.run_binary("libexec/sgi/qemu-system-mips64", "-display", "help"))
-        self.run_binary("libexec/sgi/qemu-img", "--version")
+        self.run_binary("libexec/origami/qemu-system-mips64", "--version")
+        self.assertIn("sdl", self.run_binary("libexec/origami/qemu-system-mips64", "-display", "help"))
+        self.run_binary("libexec/origami/qemu-img", "--version")
 
     def test_remote_install_configuration(self):
         with machine_directory(self.scratch) as root:
@@ -114,7 +114,7 @@ class ProductSmoke(unittest.TestCase):
             before = hashlib.sha256(disk.read_bytes()).hexdigest()
             self.cli("drive-create", machine, "16", success=False)
             self.assertEqual(hashlib.sha256(disk.read_bytes()).hexdigest(), before)
-            info = json.loads(self.run_binary("libexec/sgi/qemu-img", "info", "--output=json", disk))
+            info = json.loads(self.run_binary("libexec/origami/qemu-img", "info", "--output=json", disk))
             self.assertEqual(info["format"], "qcow2")
             self.assertEqual(info["virtual-size"], 16 * 1024 * 1024)
             self.cli("validate", machine)

@@ -19,14 +19,14 @@ pub enum Display {
 }
 
 pub fn qemu_path() -> Result<PathBuf> {
-    if let Some(root) = std::env::var_os("SGI_RUNTIME_DIR") {
+    if let Some(root) = std::env::var_os("ORIGAMI_RUNTIME_DIR") {
         return Ok(PathBuf::from(root).join(binary_name("qemu-system-mips64")));
     }
     let exe = std::env::current_exe()?;
     Ok(exe
         .parent()
         .ok_or("cannot locate origami executable directory")?
-        .join("../libexec/sgi")
+        .join("../libexec/origami")
         .join(binary_name("qemu-system-mips64")))
 }
 
@@ -46,7 +46,7 @@ fn qemu_data_path() -> Result<PathBuf> {
     Ok(qemu_path()?
         .parent()
         .ok_or("cannot locate packaged QEMU directory")?
-        .join("../../share/sgi/qemu"))
+        .join("../../share/origami/qemu"))
 }
 
 pub fn prepare_state(

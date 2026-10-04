@@ -74,10 +74,8 @@ jobs:
           python-version: '3.12'
       - name: Install build dependencies
         run: |
-          brew install cmake dylibbundler glib pixman sdl2 libslirp ninja pkg-config meson rust
+          brew install cmake dylibbundler glib pixman sdl2 libepoxy ninja pkg-config meson rust
           test "$(brew list --versions dylibbundler)" = "dylibbundler 1.0.5"
-      - name: Test macOS bundle
-        run: python3 -m unittest build.tests.test_macos_homebrew_notices -v
       - uses: actions/setup-go@v5
         with:
           go-version-file: instigator/go.mod

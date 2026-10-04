@@ -4,26 +4,15 @@ project(origami LANGUAGES NONE)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "Select an out-of-tree build directory with -B or a preset")
 endif()
-find_package(Git REQUIRED)
-add_custom_target(submodules
-  COMMAND "${GIT_EXECUTABLE}" -C "${CMAKE_SOURCE_DIR}" submodule update --init -- qemu instigator
-  COMMAND "${CMAKE_COMMAND}" -S "${CMAKE_SOURCE_DIR}" -B "${CMAKE_BINARY_DIR}"
-  COMMENT "Initialize pinned dependencies and configure the product"
-  VERBATIM)
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qemu/configure" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/instigator/go.mod")
-  message(STATUS "Initialize dependencies: cmake --build \"${CMAKE_BINARY_DIR}\" --target submodules")
-  add_custom_target(product ALL
-    COMMAND "${CMAKE_COMMAND}" -E echo "Run cmake --build \"${CMAKE_BINARY_DIR}\" --target submodules first"
-    COMMAND "${CMAKE_COMMAND}" -E false VERBATIM)
-  return()
+  message(FATAL_ERROR "Initialize the pinned dependencies first: git submodule update --init -- qemu instigator")
 endif()
 
 include(ExternalProject)
 include(CTest)
-find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
+find_package(Git REQUIRED)
 find_program(PRODUCT_MAKE NAMES gmake make REQUIRED)
 find_program(PRODUCT_CARGO cargo REQUIRED)
-find_program(PRODUCT_RUSTC rustc REQUIRED)
 find_program(PRODUCT_GO go REQUIRED)
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Cargo configuration: Debug or Release")
 set(PRODUCT_PLATFORM "" CACHE STRING "Product platform: linux, macos or windows")
@@ -67,19 +56,30 @@ if(PRODUCT_PLATFORM STREQUAL "windows")
 endif()
 set(qemu_build "${CMAKE_BINARY_DIR}/qemu-build")
 set(cargo_target_dir "${CMAKE_BINARY_DIR}/cargo-target")
-set(cargo_home "${CMAKE_BINARY_DIR}/cargo-home")
-set(go_mod_cache "${CMAKE_BINARY_DIR}/go-mod")
-set(go_build_cache "${CMAKE_BINARY_DIR}/go-build")
 set(instigator_binary "${CMAKE_BINARY_DIR}/instigator${exe}")
-set(output_dir "${CMAKE_BINARY_DIR}/run")
 set(frontend_binary "${cargo_target_dir}")
 if(PRODUCT_RUST_TARGET)
   string(APPEND frontend_binary "/${PRODUCT_RUST_TARGET}")
 endif()
 string(APPEND frontend_binary "/${build_type}/origami${exe}")
-set(cargo_environment "CARGO_TARGET_DIR=${cargo_target_dir}" "CARGO_HOME=${cargo_home}")
-set(go_environment "GOPATH=${CMAKE_BINARY_DIR}/go" "GOMODCACHE=${go_mod_cache}" "GOCACHE=${go_build_cache}" CGO_ENABLED=0 GOTOOLCHAIN=auto "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/tool-config")
-set(qemu_flags --target-list=mips64-softmmu --disable-docs --disable-gtk --disable-cocoa --enable-sdl --enable-vnc --enable-slirp)
+set(cargo_environment "CARGO_TARGET_DIR=${cargo_target_dir}" "CARGO_HOME=${CMAKE_BINARY_DIR}/cargo-home")
+# Fedora's Go defaults to the local toolchain; Instigator's go.mod selects the version.
+set(go_environment "GOPATH=${CMAKE_BINARY_DIR}/go" "GOMODCACHE=${CMAKE_BINARY_DIR}/go-mod"
+  "GOCACHE=${CMAKE_BINARY_DIR}/go-build" CGO_ENABLED=0 GOTOOLCHAIN=auto
+  "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/tool-config")
+
+# Require the display, graphics and audio support the product relies on so a
+# missing dependency fails configuration instead of silently dropping it.
+set(qemu_flags --target-list=mips64-softmmu --disable-docs --disable-gtk --disable-cocoa
+  --enable-sdl --enable-opengl --enable-vnc --enable-slirp)
+if(PRODUCT_PLATFORM STREQUAL "linux")
+  # sndio is rarely installed on Linux hosts, and QEMU links every enabled driver.
+  list(APPEND qemu_flags --enable-alsa --enable-pa --disable-sndio)
+elseif(PRODUCT_PLATFORM STREQUAL "macos")
+  list(APPEND qemu_flags --enable-coreaudio)
+else()
+  list(APPEND qemu_flags --enable-dsound)
+endif()
 if(PRODUCT_CROSS_PREFIX)
   list(APPEND qemu_flags "--cross-prefix=${PRODUCT_CROSS_PREFIX}")
 endif()
@@ -100,20 +100,18 @@ if(PRODUCT_PLATFORM STREQUAL "windows")
   list(APPEND qemu_configure COMMAND "${PRODUCT_MESON}" configure
     -Dc_args=-DBUILDING_LIBSLIRP -Dcurl=disabled -Dgnutls=disabled -Dgcrypt=disabled
     -Dbzip2=disabled -Dlibssh=disabled -Dlibnfs=disabled -Dlibiscsi=disabled
-    -Drbd=disabled -Dvde=disabled -Dspice=disabled -Dopengl=disabled -Dvirglrenderer=disabled)
+    -Drbd=disabled -Dvde=disabled -Dspice=disabled -Dvirglrenderer=disabled)
 endif()
 # Native tools own source dependency tracking and compiler caches.
 ExternalProject_Add(qemu-product
   SOURCE_DIR "${CMAKE_SOURCE_DIR}/qemu" BINARY_DIR "${qemu_build}"
-  DOWNLOAD_COMMAND "" UPDATE_COMMAND "" PATCH_COMMAND ""
   CONFIGURE_COMMAND ${qemu_configure}
-  BUILD_COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
-    "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
-      "${CMAKE_BINARY_DIR}/product-build.json" --prepare-qemu
+  BUILD_COMMAND "${CMAKE_COMMAND}" -DGIT_EXECUTABLE=${GIT_EXECUTABLE}
+      "-DSOURCE=${CMAKE_SOURCE_DIR}/qemu" "-DBUILD=${qemu_build}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/qemu-version.cmake"
     COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
       "${PRODUCT_MAKE}" -j "${PRODUCT_JOBS}" "qemu-system-mips64${exe}" "qemu-img${exe}"
-  BUILD_ALWAYS TRUE USES_TERMINAL_BUILD TRUE INSTALL_COMMAND ""
-  BUILD_BYPRODUCTS "${qemu_build}/qemu-system-mips64${exe}" "${qemu_build}/qemu-img${exe}")
+  BUILD_ALWAYS TRUE USES_TERMINAL_BUILD TRUE INSTALL_COMMAND "")
 # Meson keeps extracted subprojects until explicitly updated.
 file(GLOB libslirp_patches CONFIGURE_DEPENDS
   "${CMAKE_SOURCE_DIR}/qemu/subprojects/packagefiles/libslirp*.patch")
@@ -132,67 +130,10 @@ add_custom_target(instigator-product
   COMMAND "${CMAKE_COMMAND}" -E env ${go_environment} ${go_platform}
     "${PRODUCT_GO}" build -mod=readonly -trimpath -buildvcs=true -o "${instigator_binary}" ./cmd/instigator
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/instigator" VERBATIM)
-
-if(PRODUCT_PLATFORM STREQUAL "macos")
-  set(archive_root_name macos-arm64-dev)
-  set(archive_name origami-macos-arm64-preview)
-else()
-  set(archive_root_name "${PRODUCT_PLATFORM}-dev")
-  set(archive_name "origami-${PRODUCT_PLATFORM}-x86_64-preview")
-endif()
-# Source roots shared by compilation and packaging.
-set(product_source "${CMAKE_SOURCE_DIR}")
-set(qemu_source "${CMAKE_SOURCE_DIR}/qemu")
-set(instigator_source "${CMAKE_SOURCE_DIR}/instigator")
-set(rustc "${PRODUCT_RUSTC}")
-set(go "${PRODUCT_GO}")
-set(python "${Python3_EXECUTABLE}")
-set(platform "${PRODUCT_PLATFORM}")
-set(rust_target "${PRODUCT_RUST_TARGET}")
-# The generated manifest supplies packaging with the actual build inputs.
-function(json_string result value)
-  string(REPLACE "\\" "\\\\" value "${value}")
-  string(REPLACE "\"" "\\\"" value "${value}")
-  set(${result} "\"${value}\"" PARENT_SCOPE)
-endfunction()
-set(manifest "{}")
-foreach(key product_source qemu_source instigator_source qemu_build cargo_target_dir cargo_home go_mod_cache go_build_cache rustc go python platform rust_target output_dir)
-  json_string(value "${${key}}")
-  string(JSON manifest SET "${manifest}" "${key}" "${value}")
-endforeach()
-set(environment "[]")
-foreach(entry IN LISTS go_environment go_platform)
-  json_string(value "${entry}")
-  string(JSON length LENGTH "${environment}")
-  string(JSON environment SET "${environment}" ${length} "${value}")
-endforeach()
-string(JSON manifest SET "${manifest}" go_environment "${environment}")
-set(files "{}")
-function(product_artifact destination source)
-  json_string(value "${source}")
-  string(JSON files SET "${files}" "${destination}" "${value}")
-  set(files "${files}" PARENT_SCOPE)
-endfunction()
-product_artifact("bin/origami${exe}" "${frontend_binary}")
-product_artifact("bin/instigator${exe}" "${instigator_binary}")
-product_artifact("libexec/sgi/qemu-system-mips64${exe}" "${qemu_build}/qemu-system-mips64${exe}")
-product_artifact("libexec/sgi/qemu-img${exe}" "${qemu_build}/qemu-img${exe}")
-if(NOT IS_DIRECTORY "${qemu_source}/pc-bios/keymaps")
-  message(FATAL_ERROR "Missing QEMU keymaps: ${qemu_source}/pc-bios/keymaps")
-endif()
-file(GLOB keymaps CONFIGURE_DEPENDS "${qemu_source}/pc-bios/keymaps/*")
-foreach(source IN LISTS keymaps)
-  get_filename_component(name "${source}" NAME)
-  if(NOT IS_DIRECTORY "${source}" AND NOT name STREQUAL "meson.build")
-    product_artifact("share/sgi/qemu/keymaps/${name}" "${source}")
-  endif()
-endforeach()
-string(JSON manifest SET "${manifest}" files "${files}")
-file(CONFIGURE OUTPUT "${CMAKE_BINARY_DIR}/product-build.json" CONTENT "${manifest}\n" @ONLY)
 add_custom_target(binaries DEPENDS qemu-product frontend instigator-product)
+# The default build installs a runnable tree next to the build outputs.
 add_custom_target(product ALL
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/build/stage-product.py"
-    "${CMAKE_BINARY_DIR}/product-build.json"
+  COMMAND "${CMAKE_COMMAND}" --install "${CMAKE_BINARY_DIR}" --prefix "${CMAKE_BINARY_DIR}/run"
   DEPENDS binaries VERBATIM)
 
 if(BUILD_TESTING)
@@ -203,21 +144,39 @@ if(BUILD_TESTING)
   add_test(NAME instigator COMMAND "${CMAKE_COMMAND}" -E env ${go_environment}
     "${PRODUCT_GO}" test -mod=readonly ./internal/qemunet ./cmd/instigator)
   set_tests_properties(instigator PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/instigator")
-  file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/test-tmp")
-  add_test(NAME build-helpers COMMAND "${Python3_EXECUTABLE}" -m unittest discover -s "${CMAKE_SOURCE_DIR}/build/tests")
-  set_tests_properties(build-helpers PROPERTIES ENVIRONMENT "TMPDIR=${CMAKE_BINARY_DIR}/test-tmp;CARGO_HOME=${cargo_home}")
 endif()
-configure_file(cmake/install-product.cmake.in "${CMAKE_BINARY_DIR}/install-product.cmake" @ONLY)
-install(SCRIPT "${CMAKE_BINARY_DIR}/install-product.cmake")
-set(CPACK_PACKAGE_FILE_NAME "${archive_name}")
+
+install(PROGRAMS "${frontend_binary}" "${instigator_binary}" DESTINATION bin)
+install(PROGRAMS "${qemu_build}/qemu-system-mips64${exe}" "${qemu_build}/qemu-img${exe}"
+  DESTINATION libexec/origami)
+install(DIRECTORY qemu/pc-bios/keymaps/ DESTINATION share/origami/qemu/keymaps
+  PATTERN meson.build EXCLUDE)
+install(FILES LICENSE DESTINATION share/origami/licenses RENAME origami.LICENSE)
+install(FILES THIRD_PARTY_NOTICES DESTINATION share/origami/licenses)
+install(FILES instigator/LICENSE DESTINATION share/origami/licenses RENAME instigator.LICENSE)
+foreach(name LICENSE COPYING COPYING.LIB LICENSE.origami LICENSE.origami.paths)
+  install(FILES "qemu/${name}" DESTINATION share/origami/licenses RENAME "qemu.${name}")
+endforeach()
+install(FILES qemu/hw/mips/sgi/models/LICENSE DESTINATION share/origami/licenses
+  RENAME qemu.sgi-models.LICENSE)
+install(CODE "set(platform ${PRODUCT_PLATFORM})
+set(exe \"${exe}\")
+set(cross_prefix \"${PRODUCT_CROSS_PREFIX}\")
+set(scratch \"${CMAKE_BINARY_DIR}/bundle-scratch\")")
+install(SCRIPT cmake/bundle.cmake)
+
+if(PRODUCT_PLATFORM STREQUAL "macos")
+  set(CPACK_PACKAGE_FILE_NAME origami-macos-arm64-preview)
+  set(CPACK_PACKAGING_INSTALL_PREFIX /macos-arm64-dev)
+else()
+  set(CPACK_PACKAGE_FILE_NAME "origami-${PRODUCT_PLATFORM}-x86_64-preview")
+  set(CPACK_PACKAGING_INSTALL_PREFIX "/${PRODUCT_PLATFORM}-dev")
+endif()
 set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
-set(CPACK_PACKAGING_INSTALL_PREFIX "/")
 set(CPACK_PACKAGE_CHECKSUM SHA256)
 if(PRODUCT_PLATFORM STREQUAL "windows")
   set(CPACK_GENERATOR ZIP)
 else()
   set(CPACK_GENERATOR TGZ)
 endif()
-configure_file(cmake/package-version.cmake.in "${CMAKE_BINARY_DIR}/package-version.cmake" @ONLY)
-set(CPACK_PROJECT_CONFIG_FILE "${CMAKE_BINARY_DIR}/package-version.cmake")
 include(CPack)
