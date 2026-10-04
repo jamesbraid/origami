@@ -155,9 +155,9 @@ The default build installs the runnable development tree. Release CI builds
 install the release tree once. Use the same target locally when only an
 archive is needed.
 
-The runnable tree contains `origami` and `instigator` under `bin/`, QEMU
-and `qemu-img` under `libexec/origami/` (with the MinGW thread DLL on
-Windows) and QEMU keymaps under
+The runnable tree contains `origami` and `instigator` under `bin/`, QEMU,
+`qemu-img` and `qemu-sgi-machine-init` under `libexec/origami/` (with the
+MinGW thread DLL on Windows) and QEMU keymaps under
 `share/origami/qemu/`. `origami --version` (also `origami version`) prints
 the version and Git identity carried by each executable. QEMU and Instigator
 are queried at their launch paths, including `ORIGAMI_RUNTIME_DIR` for QEMU.
@@ -217,6 +217,33 @@ for component in qemu instigator; do
 done
 cmake --build --preset macos
 ./out/macos/run/bin/origami --version
+```
+
+## Machine catalogue and state
+
+The CLI reads its machine offerings from the QEMU it launches. It starts that
+QEMU with no machine, asks for `query-sgi-machines` over QMP and caches the
+reply in the user cache directory, keyed by the binary's path, size and
+modification time. A QEMU pin change that alters the catalogue therefore
+changes the offerings without a frontend edit, and a frontend change that
+needs new catalogue data needs the matching QEMU pin.
+
+The Rust tests read `tests/fixtures/sgi-machines.json`, a short hand-written
+excerpt of that reply with one offering of each kind the tests exercise.
+Anything that needs the full catalogue belongs in the product-state test
+below, which queries the real QEMU.
+
+`create` runs `qemu-sgi-machine-init` from beside QEMU to build a machine's
+storage, and launches attach each catalogue storage item as a block node of
+the same name. `cargo test` uses stand-ins for QEMU and the init tool, so it
+needs neither a QEMU build nor the submodules. One ignored test checks that
+every starter preset names an offering of the real catalogue, then creates
+and reopens each with the real tools. Native product builds run
+it in CTest as `product-state`. To run it against an existing build:
+
+```sh
+ORIGAMI_RUNTIME_DIR="$PWD/out/linux/run/libexec/origami" \
+  cargo test --test product_state -- --ignored
 ```
 
 ## Licenses and dependency sources
