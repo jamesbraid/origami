@@ -13,6 +13,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
+    if std::env::args_os().any(|arg| arg.to_str().is_none()) {
+        eprintln!("origami: arguments must be valid UTF-8");
+        return ExitCode::FAILURE;
+    }
     let cli = cli::Cli::parse();
     let action = if cli.version {
         Action::Version

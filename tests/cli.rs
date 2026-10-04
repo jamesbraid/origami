@@ -106,22 +106,17 @@ fn invalid_creation_arguments_do_not_create_a_machine() {
 
 #[test]
 #[cfg(unix)]
-fn creation_preserves_non_utf8_paths() {
+fn creation_rejects_non_utf8_paths() {
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt;
     let fixture = Fixture::new();
-    let name = OsString::from_vec(b"machine-\xff".to_vec());
     let output = fixture
         .cli()
         .arg("create")
-        .arg(&name)
+        .arg(OsString::from_vec(b"machine-\xff".to_vec()))
         .args(["--preset", "origin200-1", "--prom", "prom.bin"])
         .output()
         .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(fixture.0.join(name).join("machine.toml").is_file());
+    assert!(!output.status.success(), "unexpected success");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("valid UTF-8"));
 }
