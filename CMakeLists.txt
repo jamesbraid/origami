@@ -80,15 +80,14 @@ set(qemu_flags --target-list=mips64-softmmu --disable-docs --disable-gtk --disab
   --enable-sdl --enable-vnc --enable-slirp
   --disable-curl --disable-gnutls --disable-gcrypt --disable-bzip2 --disable-zstd
   --disable-libssh --disable-libnfs --disable-libiscsi --disable-rbd --disable-vde
-  --disable-spice --disable-virglrenderer --disable-libusb)
+  --disable-spice --disable-virglrenderer --disable-libusb --disable-opengl)
 if(PRODUCT_PLATFORM STREQUAL "linux")
   # sndio is rarely installed on Linux hosts, and QEMU links every enabled driver.
-  list(APPEND qemu_flags --enable-opengl --enable-alsa --enable-pa --disable-sndio)
+  list(APPEND qemu_flags --enable-alsa --enable-pa --disable-sndio)
 elseif(PRODUCT_PLATFORM STREQUAL "macos")
-  # QEMU's OpenGL support needs EGL, which macOS does not provide.
   list(APPEND qemu_flags --enable-coreaudio)
 else()
-  list(APPEND qemu_flags --enable-opengl --enable-dsound --extra-cflags=-DBUILDING_LIBSLIRP)
+  list(APPEND qemu_flags --enable-dsound --extra-cflags=-DBUILDING_LIBSLIRP)
 endif()
 if(PRODUCT_CROSS_PREFIX)
   list(APPEND qemu_flags "--cross-prefix=${PRODUCT_CROSS_PREFIX}")
@@ -101,7 +100,7 @@ if(PRODUCT_RUST_TARGET)
 endif()
 set(platform_environment "MESON_PACKAGE_CACHE_DIR=${CMAKE_BINARY_DIR}/meson-package-cache")
 # QEMU finds the libraries vcpkg built through pkg-config. Linux also needs
-# the host's X11, EGL and GL, which libepoxy requires. Elsewhere vcpkg is the
+# the host's X11, ALSA, PulseAudio and udev. Elsewhere vcpkg is the
 # only source, and the plain pkg-config command bypasses the MinGW wrapper's
 # Fedora search path.
 set(vcpkg_prefix "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
@@ -180,10 +179,8 @@ foreach(copyright IN LISTS vcpkg_copyrights)
   install(FILES "${copyright}" DESTINATION share/origami/licenses RENAME "${port}.copyright")
 endforeach()
 if(PRODUCT_PLATFORM STREQUAL "windows")
-  # vcpkg builds libepoxy only as a DLL on Windows, and MinGW's thread
-  # library comes from the toolchain as a DLL.
-  file(GLOB vcpkg_dlls "${vcpkg_prefix}/bin/*.dll")
-  install(FILES ${vcpkg_dlls} /usr/x86_64-w64-mingw32/sys-root/mingw/bin/libwinpthread-1.dll
+  # MinGW's thread library comes from the toolchain only as a DLL.
+  install(FILES /usr/x86_64-w64-mingw32/sys-root/mingw/bin/libwinpthread-1.dll
     DESTINATION libexec/origami)
 endif()
 install(CODE "set(platform ${PRODUCT_PLATFORM})

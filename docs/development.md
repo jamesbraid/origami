@@ -47,8 +47,8 @@ git submodule update --init
 
 ## C libraries
 
-vcpkg builds the C libraries QEMU links: GLib, pixman, SDL 2, libepoxy and
-their dependencies. `vcpkg.json` lists them, and the `vcpkg` submodule pins
+vcpkg builds the C libraries QEMU links: GLib, pixman, SDL 2 and their
+dependencies. `vcpkg.json` lists them, and the `vcpkg` submodule pins
 every port version, so moving that submodule is how they are updated. The
 presets load vcpkg's CMake toolchain, which bootstraps the pinned vcpkg tool
 and installs the libraries into `vcpkg_installed/` in the build directory
@@ -58,8 +58,8 @@ links them statically. The first configuration takes several minutes.
 Each preset selects a release-only static triplet: vcpkg's community
 `x64-linux-release` on Linux and the overlays in `cmake/vcpkg/triplets/` on
 macOS (deployment target 15.0) and Windows (a GLib warning that GCC 15
-treats as an error). `cmake/vcpkg/ports/libepoxy` adds EGL to libepoxy's
-Windows build, which vcpkg only produces as a DLL. Host display,
+treats as an error). QEMU is built without OpenGL, which no SGI graphics
+device uses yet. Host display,
 graphics, audio and system libraries stay dynamic and come from the user's
 system.
 
@@ -164,8 +164,8 @@ install the release tree once. Use the same target locally when only an
 archive is needed.
 
 The runnable tree contains `origami` and `instigator` under `bin/`, QEMU
-and `qemu-img` under `libexec/origami/` (with the libepoxy and MinGW thread
-DLLs on Windows) and QEMU keymaps under
+and `qemu-img` under `libexec/origami/` (with the MinGW thread DLL on
+Windows) and QEMU keymaps under
 `share/origami/qemu/`. `origami --version` (also `origami version`) prints
 the version and Git identity carried by each executable. QEMU and Instigator
 are queried at their launch paths, including `ORIGAMI_RUNTIME_DIR` for QEMU.

@@ -6,7 +6,7 @@ if(platform STREQUAL "linux")
   # Graphics, display, audio and device libraries must come from the host to
   # match its drivers and services.
   set(system "^(ld-linux-x86-64|lib(c|m|dl|rt|pthread|gcc_s|X11|X11-xcb|xcb|xkbcommon|wayland-[a-z]+|\
-EGL|GL|GLX|OpenGL|gbm|drm|udev|asound|pulse))\\.so")
+udev|asound|pulse))\\.so")
 elseif(platform STREQUAL "macos")
   set(system "^/usr/lib/" "^/System/Library/")
 else()

@@ -15,11 +15,11 @@ QEMU as a whole is distributed under the GNU GPL version 2. Its source code,
 including the patched libslirp and other bundled subprojects, is available
 from the Origami source repository at the tag matching this release.
 
-QEMU statically links GLib, pixman, SDL 2, libepoxy (Linux and Windows) and
-the libraries they need, built from the vcpkg ports pinned by that tag. Their
-license terms are in the PORT.copyright files. On Windows, libepoxy and the
-MinGW thread library ship as DLLs beside QEMU. Host graphics, display, audio
-and system libraries are not included.
+QEMU statically links GLib, pixman, SDL 2 and the libraries they need, built
+from the vcpkg ports pinned by that tag. Their license terms are in the
+PORT.copyright files. On Windows, the MinGW thread library ships as a DLL
+beside QEMU. Host graphics, display, audio and system libraries are not
+included.
 
 ==============================================================================
 Libraries linked into QEMU
