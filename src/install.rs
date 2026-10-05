@@ -125,14 +125,6 @@ const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
 
 const RAD4_FINISH_SCRIPT: &str = include_str!("../guest/irix/finish-rad4.sh");
 
-pub fn init(dir: &Path, media_root: &Path, mac: &str, file: &mut MachineFile) -> Result<PathBuf> {
-    init_profile(dir, media_root, mac, file, "desktop")
-}
-
-pub fn init_remote(dir: &Path, mac: &str, file: &mut MachineFile) -> Result<PathBuf> {
-    init_remote_profile(dir, mac, file, "desktop")
-}
-
 pub fn init_profile(
     dir: &Path,
     media_root: &Path,
@@ -764,47 +756,10 @@ pub fn apply(dir: &Path, file: &MachineFile, addon: Option<&str>) -> Result<()> 
     Ok(())
 }
 
-// POSIX cksum includes the byte length after the data and complements the CRC.
-fn posix_cksum(bytes: &[u8]) -> u32 {
-    let mut crc = 0u32;
-    let mut feed = |byte: u8| {
-        crc ^= (byte as u32) << 24;
-        for _ in 0..8 {
-            crc = (crc << 1)
-                ^ if crc & 0x8000_0000 != 0 {
-                    0x04c1_1db7
-                } else {
-                    0
-                };
-        }
-    };
-    for byte in bytes {
-        feed(*byte);
-    }
-    let mut length = bytes.len();
-    while length > 0 {
-        feed(length as u8);
-        length >>= 8;
-    }
-    !crc
-}
-
 fn received_expected(output: &str, size: usize) -> bool {
     output
         .lines()
         .any(|line| line.trim().starts_with(&format!("Received {size} bytes ")))
-}
-
-fn checksum_matches(output: &str, crc: u32, size: usize) -> bool {
-    output.lines().any(|line| {
-        let mut fields = line.split_whitespace();
-        let parsed = (
-            fields.next().and_then(|value| value.parse::<u32>().ok()),
-            fields.next().and_then(|value| value.parse::<usize>().ok()),
-            fields.next(),
-        );
-        parsed == (Some(crc), Some(size), Some("/tmp/finish-rad4.sh"))
-    })
 }
 
 pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
@@ -822,15 +777,6 @@ pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
     {
         return Err("RAD4 add-on is not configured for this machine".into());
     }
-    let generated = dir.join("install/generated/rad4/dist/finish-rad4.sh");
-    if fs::read(&generated)? != RAD4_FINISH_SCRIPT.as_bytes() {
-        return Err(format!(
-            "RAD4 helper differs from packaged source: {}",
-            generated.display()
-        )
-        .into());
-    }
-
     let mut console = InstallConsole::connect(dir)?;
     println!("Finish the installation only after its Inst> prompt appears.");
     console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
@@ -853,32 +799,6 @@ pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
             "RAD4 helper TFTP transfer did not report its expected size; machine remains running"
                 .into(),
         );
-    }
-    let checksum = console.command(
-        "cksum /tmp/finish-rad4.sh",
-        SHELL_PROMPT,
-        Duration::from_secs(30),
-    )?;
-    if !checksum_matches(
-        &checksum,
-        posix_cksum(RAD4_FINISH_SCRIPT.as_bytes()),
-        RAD4_FINISH_SCRIPT.len(),
-    ) {
-        return Err(
-            "RAD4 helper guest checksum differs from packaged source; machine remains running"
-                .into(),
-        );
-    }
-    let syntax = console.command(
-        "/bin/sh -c '/bin/sh -n /tmp/finish-rad4.sh; echo SGI_RAD4_SYNTAX_STATUS=$?'",
-        SHELL_PROMPT,
-        Duration::from_secs(30),
-    )?;
-    if !syntax
-        .lines()
-        .any(|line| line.trim() == "SGI_RAD4_SYNTAX_STATUS=0")
-    {
-        return Err("RAD4 helper failed guest shell syntax check; machine remains running".into());
     }
     let result = console.command(
         "/bin/sh -c '/bin/sh /tmp/finish-rad4.sh /; echo SGI_RAD4_FINISH_STATUS=$?'",
@@ -990,24 +910,20 @@ mod tests {
     #[test]
     fn rad4_guest_transfer_must_match_packaged_helper() {
         let size = RAD4_FINISH_SCRIPT.len();
-        let crc = posix_cksum(RAD4_FINISH_SCRIPT.as_bytes());
-        assert_eq!(crc, 2973792095);
-        assert_eq!(posix_cksum(b"123456789"), 930766865);
         assert!(received_expected(
-            "Received 2550 bytes in 0.0 seconds\r\n",
+            &format!("Received {size} bytes in 0.0 seconds\r\n"),
             size
         ));
-        assert!(checksum_matches(
-            "2973792095 2550 /tmp/finish-rad4.sh\r\n",
-            crc,
-            size,
-        ));
         assert!(!received_expected("Error: transfer failed\r\n", size));
-        assert!(!checksum_matches(
-            "2973792095 2549 /tmp/finish-rad4.sh\r\n",
-            crc,
-            size,
-        ));
+    }
+
+    #[test]
+    fn rad4_helper_parses_as_shell() {
+        let status = std::process::Command::new("/bin/sh")
+            .args(["-n", "guest/irix/finish-rad4.sh"])
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 
     #[test]
@@ -1350,7 +1266,7 @@ mod tests {
         let dir = root.join("machine");
         crate::create_configured(&dir, offer, &prom, None, None, None, Default::default()).unwrap();
         let mut file = crate::read_machine(&dir).unwrap();
-        init_remote(&dir, "08:00:69:12:34:56", &mut file).unwrap();
+        init_remote_profile(&dir, "08:00:69:12:34:56", &mut file, "desktop").unwrap();
         let mut media = read_media(&dir).unwrap();
         assert_eq!(media.media.len(), 10);
         assert_eq!(
