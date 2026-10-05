@@ -48,29 +48,17 @@ fn version_report() {
     println!("origami {version}");
     for (name, path, prefix) in [
         ("qemu", runtime::qemu_path(), "QEMU emulator version "),
-        ("instigator", install::instigator_path(), "instigator "),
+        (
+            "instigator",
+            install::instigator_path(),
+            "instigator version ",
+        ),
     ] {
         let version = path.ok().and_then(|path| {
             let output = Command::new(path).arg("--version").output().ok()?;
-            if !output.status.success() {
-                return None;
-            }
             let text = String::from_utf8(output.stdout).ok()?;
-            let line = text.lines().next()?;
-            let line = if name == "instigator" {
-                line.strip_prefix("instigator version ")
-                    .or_else(|| line.strip_prefix(prefix))?
-            } else {
-                line.strip_prefix(prefix)?
-            };
-            let number = line.strip_prefix('v').unwrap_or(line);
-            if !number.starts_with(|c: char| c.is_ascii_digit())
-                && !line.starts_with("devel")
-                && !line.starts_with("(devel)")
-            {
-                return None;
-            }
-            Some(line.trim().to_owned())
+            let line = text.lines().next()?.strip_prefix(prefix)?;
+            output.status.success().then(|| line.trim().to_owned())
         });
         println!("{name} {}", version.as_deref().unwrap_or("unavailable"));
     }

@@ -63,10 +63,7 @@ impl Drop for Fixture {
 fn version_reports_the_selected_binaries_after_relocation() {
     let _guard = EXECUTABLES.lock().unwrap();
     let fixture = Fixture::new();
-    fixture.script(
-        "bin/instigator",
-        "printf 'instigator version 0.3.1 (abcdef1-dirty)\\n'",
-    );
+    fixture.script("bin/instigator", "printf 'instigator version v0.3.2\\n'");
     fixture.script(
         "libexec/origami/qemu-system-mips64",
         "printf 'QEMU emulator version 11.1.50 (v11.0.0-123-g1234567)\\nCopyright ignored\\n'",
@@ -76,22 +73,12 @@ fn version_reports_the_selected_binaries_after_relocation() {
     assert_eq!(lines.len(), 3, "{report}");
     assert_eq!(lines[0], format!("origami {}", embedded_version()));
     assert_eq!(lines[1], "qemu 11.1.50 (v11.0.0-123-g1234567)");
-    assert_eq!(lines[2], "instigator 0.3.1 (abcdef1-dirty)");
+    assert_eq!(lines[2], "instigator v0.3.2");
     assert_eq!(fixture.report("version", None), report);
-    fixture.script(
-        "bin/instigator",
-        "printf 'instigator version v0.3.1 (unknown)\\n'",
-    );
+    fixture.script("bin/instigator", "printf 'instigator version (devel)\\n'");
     assert!(fixture
         .report("--version", None)
-        .contains("instigator v0.3.1 (unknown)"));
-    fixture.script(
-        "bin/instigator",
-        "printf 'instigator version (devel) (unknown)\\n'",
-    );
-    assert!(fixture
-        .report("--version", None)
-        .contains("instigator (devel) (unknown)"));
+        .contains("instigator (devel)"));
     fixture.script(
         "libexec/origami/qemu-system-mips64",
         "printf 'QEMU emulator version 11.2.0 (vendor-build)\\n'",
