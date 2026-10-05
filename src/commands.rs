@@ -18,7 +18,7 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
         offer,
         graphics.unwrap_or(origami::profiles::default_graphics(offer)),
     )?;
-    let inputs = options.hardware.inputs();
+    let inputs = options.hardware.inputs()?;
     origami::profiles::validate_inputs(offer, &inputs)?;
     validate_create_inputs(
         &args.dir,

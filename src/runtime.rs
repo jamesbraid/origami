@@ -204,8 +204,14 @@ pub fn arguments(
         machine.push_str(&format!(",graphics-board={}", file.machine.graphics));
     }
     crate::profiles::validate_inputs(offering, &file.machine.inputs)?;
+    let mut cpu = offering.cpu.clone();
     for (key, value) in &file.machine.inputs {
-        machine.push_str(&format!(",{key}={value}"));
+        let target = if crate::profiles::input_target(offering, key) == Some("cpu") {
+            &mut cpu
+        } else {
+            &mut machine
+        };
+        target.push_str(&format!(",{key}={value}"));
     }
     if let Some(identity) = &file.identity {
         machine.push_str(&format!(",mac={}", identity.mac));
@@ -248,7 +254,7 @@ pub fn arguments(
         "-M".into(),
         machine,
         "-cpu".into(),
-        offering.cpu.clone(),
+        cpu,
         "-smp".into(),
         offering.smp.to_string(),
         "-m".into(),

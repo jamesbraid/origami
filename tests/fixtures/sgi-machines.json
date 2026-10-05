@@ -19,7 +19,11 @@
     {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0},
     {"argument": "-serial chardev:elsc", "kind": "system-controller", "node": 0}
    ],
-   "hardware-inputs": []
+   "hardware-inputs": [],
+   "overrides": [
+    {"property": "mac", "target": "machine"},
+    {"property": "r10000-prid", "target": "cpu"}
+   ]
   },
   {
    "product": "origin2000", "topology": "origin2000-rack", "nodes": 4, "smp": 8, "cpus-per-node": [2, 2, 2, 2],
@@ -44,7 +48,11 @@
     {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0},
     {"argument": "-serial chardev:elsc", "kind": "system-controller", "node": 0}
    ],
-   "hardware-inputs": []
+   "hardware-inputs": [],
+   "overrides": [
+    {"property": "mac", "target": "machine"},
+    {"property": "r10000-prid", "target": "cpu"}
+   ]
   },
   {
    "product": "fuel", "topology": "fuel", "nodes": 1, "smp": 1, "cpus-per-node": [1],
@@ -62,7 +70,13 @@
     {"argument": "-serial chardev:ioc3_a", "kind": "second-port", "node": 0},
     {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0}
    ],
-   "hardware-inputs": [{"option": "fuel-mac-eeprom", "required": false}]
+   "hardware-inputs": [{"option": "fuel-mac-eeprom", "required": false}],
+   "overrides": [
+    {"property": "board-id-word", "target": "machine"},
+    {"property": "l1-revision", "target": "machine"},
+    {"property": "mac", "target": "machine"},
+    {"property": "r14000-prid", "target": "cpu"}
+   ]
   },
   {
    "product": "octane", "topology": "octane", "nodes": 1, "smp": 1, "cpus-per-node": [1],
@@ -79,7 +93,12 @@
     {"argument": "-serial chardev:ioc3_a", "kind": "console", "node": 0},
     {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0}
    ],
-   "hardware-inputs": []
+   "hardware-inputs": [],
+   "overrides": [
+    {"property": "flash-select", "target": "machine"},
+    {"property": "mac", "target": "machine"},
+    {"property": "r10000-prid", "target": "cpu"}
+   ]
   }
  ]
 }

@@ -155,28 +155,56 @@ pub fn validate_graphics(offering: &Offering, graphics: &str) -> Result<()> {
     Ok(())
 }
 
-/// Board values QEMU accepts as optional machine-property overrides of its
-/// catalogue defaults. QEMU checks each value and the machines it applies to.
-// TODO: the catalogue's hardware-inputs does not list these family overrides
-// yet. Drop this list once it does, so each offering accepts only its own.
-pub const BOARD_OVERRIDES: &[&str] = &[
-    "board-id-word",
-    "ioc3-subsystem-id",
-    "l1-type-code",
-    "l1-revision",
-    "bedrock-revision",
-];
+/// Where a launch input is set: `machine` (-M) or `cpu` (-cpu). The
+/// catalogue's overrides name the values a launch may replace, and its
+/// hardware inputs the further options a configuration binds.
+pub fn input_target<'a>(offering: &'a Offering, key: &str) -> Option<&'a str> {
+    if let Some(item) = offering.overrides.iter().find(|o| o.property == key) {
+        return Some(&item.target);
+    }
+    offering
+        .hardware_inputs
+        .iter()
+        .any(|input| input.option == key)
+        .then_some("machine")
+}
 
 pub fn validate_inputs(offering: &Offering, inputs: &BTreeMap<String, String>) -> Result<()> {
-    let listed = |key: &str| offering.hardware_inputs.iter().any(|i| i.option == key);
     for input in offering.hardware_inputs.iter().filter(|i| i.required) {
         if !inputs.contains_key(&input.option) {
-            return Err(format!("{} requires --{}", offering.topology, input.option).into());
+            return Err(format!(
+                "{} requires --set {}=VALUE",
+                offering.topology, input.option
+            )
+            .into());
         }
     }
     for (key, value) in inputs {
-        if !listed(key) && !BOARD_OVERRIDES.contains(&key.as_str()) {
-            return Err(format!("{} does not take --{key}", offering.topology).into());
+        // The machine MAC is the identity's, so it has one source.
+        if key == "mac" {
+            return Err("set the machine MAC with --mac".into());
+        }
+        match input_target(offering, key) {
+            Some("machine" | "cpu") => (),
+            Some(target) => {
+                return Err(format!("{key} has unsupported override target {target}").into())
+            }
+            None => {
+                let mut names: Vec<_> = offering
+                    .overrides
+                    .iter()
+                    .map(|o| o.property.as_str())
+                    .chain(offering.hardware_inputs.iter().map(|i| i.option.as_str()))
+                    .filter(|name| *name != "mac")
+                    .collect();
+                names.sort();
+                return Err(format!(
+                    "{} does not take {key}; it takes {}",
+                    offering.topology,
+                    names.join(", ")
+                )
+                .into());
+            }
         }
         // Values are QEMU's to judge, but must stay one option value.
         if value.is_empty()
@@ -184,10 +212,15 @@ pub fn validate_inputs(offering: &Offering, inputs: &BTreeMap<String, String>) -
                 .chars()
                 .any(|c| c == ',' || c == '=' || c.is_whitespace())
         {
-            return Err(format!("invalid --{key} value: {value:?}").into());
+            return Err(format!("invalid {key} value: {value:?}").into());
         }
     }
     Ok(())
+}
+
+/// Whether the offering's machine takes a `mac` property.
+pub fn takes_mac(offering: &Offering) -> bool {
+    input_target(offering, "mac") == Some("machine")
 }
 
 pub fn add_graphics(args: &mut Vec<String>, offering: &Offering, graphics: &str) -> Result<()> {
@@ -304,38 +337,69 @@ mod tests {
     }
 
     #[test]
-    fn fuel_board_values_are_optional_machine_overrides() {
+    fn catalogue_overrides_go_to_their_target() {
         let catalog = crate::test_catalogue();
         let o = preset(&catalog, "fuel-1").unwrap();
         let mut f = file(o, "none");
+        let option = |args: &[String], name: &str| {
+            args.windows(2)
+                .find(|p| p[0] == name)
+                .map(|p| p[1].clone())
+                .unwrap()
+        };
         let args =
             runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
-        let machine = &args.windows(2).find(|p| p[0] == "-M").unwrap()[1];
-        assert!(!BOARD_OVERRIDES.iter().any(|key| machine.contains(key)));
-        f.machine.inputs = [("board-id-word", "0x4000"), ("l1-revision", "1.2.3")]
-            .into_iter()
-            .map(|(k, v)| (k.into(), v.into()))
-            .collect();
+        assert!(!option(&args, "-M").contains("board-id-word"));
+        assert_eq!(option(&args, "-cpu"), o.cpu);
+        f.machine.inputs = [
+            ("board-id-word", "0x4000"),
+            ("l1-revision", "1.2.3"),
+            ("r14000-prid", "0xf14"),
+            ("fuel-mac-eeprom", "mac.bin"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.into(), v.into()))
+        .collect();
         let args =
             runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
-        let machine = &args.windows(2).find(|p| p[0] == "-M").unwrap()[1];
+        let machine = option(&args, "-M");
         assert!(machine.contains(",board-id-word=0x4000"), "{machine}");
         assert!(machine.contains(",l1-revision=1.2.3"), "{machine}");
-        f.machine
-            .inputs
-            .insert("fuel-mac-eeprom".into(), "mac.bin".into());
-        assert!(validate_inputs(o, &f.machine.inputs).is_ok());
-        f.machine
-            .inputs
-            .insert("fuel-board-id-word".into(), "0x4000".into());
-        assert!(validate_inputs(o, &f.machine.inputs).is_err());
+        assert!(machine.contains(",fuel-mac-eeprom=mac.bin"), "{machine}");
+        assert!(!machine.contains("r14000-prid"), "{machine}");
+        assert_eq!(
+            option(&args, "-cpu"),
+            format!("{},r14000-prid=0xf14", o.cpu)
+        );
+
+        let mut inputs = f.machine.inputs.clone();
+        inputs.insert("fuel-board-id-word".into(), "0x4000".into());
+        let error = validate_inputs(o, &inputs).unwrap_err().to_string();
+        assert!(error.contains("board-id-word, "), "{error}");
+        let mac = [("mac".to_string(), "08:00:69:12:34:56".to_string())].into();
+        assert!(validate_inputs(o, &mac).is_err());
         let mut required = o.clone();
         required.hardware_inputs.push(crate::InputBinding {
             option: "board-revision".into(),
             required: true,
         });
         let error = validate_inputs(&required, &BTreeMap::new()).unwrap_err();
-        assert!(error.to_string().contains("--board-revision"), "{error}");
+        assert!(error.to_string().contains("board-revision"), "{error}");
+
+        // Octane takes its flash straps and processor words the same way.
+        let octane = preset(&catalog, "octane-impact").unwrap();
+        let mut f = file(octane, "si");
+        f.machine.inputs = [("flash-select", "on"), ("r10000-prid", "0xe24")]
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
+        let args =
+            runtime::arguments(Path::new("/machine"), &f, octane, runtime::Display::None).unwrap();
+        assert!(option(&args, "-M").contains(",flash-select=on"));
+        assert_eq!(option(&args, "-cpu"), "R10000,r10000-prid=0xe24");
+        for o in catalog.offerings.iter() {
+            assert!(takes_mac(o), "{}", o.topology);
+        }
         assert!(validate_graphics(o, "vpro").is_err());
         assert!(preset(&catalog, "origin350-2").is_err());
         assert!(preset(&catalog, "tezro-4").is_err());
