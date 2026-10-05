@@ -1,0 +1,21 @@
+{
+  "$comment": "C libraries linked into QEMU. The vcpkg submodule pins their versions.",
+  "name": "origami",
+  "dependencies": [
+    "glib",
+    "pixman",
+    { "name": "libepoxy", "platform": "!osx" },
+    {
+      "name": "sdl2",
+      "default-features": false,
+      "features": [
+        { "name": "wayland", "platform": "linux" },
+        { "name": "x11", "platform": "linux" }
+      ]
+    }
+  ],
+  "vcpkg-configuration": {
+    "overlay-ports": ["cmake/vcpkg/ports"],
+    "overlay-triplets": ["cmake/vcpkg/triplets"]
+  }
+}
