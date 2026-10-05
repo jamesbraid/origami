@@ -24,10 +24,11 @@ CMake 3.25 or newer coordinates QEMU, Cargo and Go. The presets use Ninja
 for product orchestration. CMake invokes QEMU's GNU Make entry point, which
 owns reconfiguration and its Meson/Ninja build. CTest runs the product checks
 and CPack creates release archives. Submodules own the exact
-QEMU and Instigator revisions. Builds never fetch or switch their commits.
+QEMU, Instigator and vcpkg revisions. Builds never fetch or switch their commits.
 
-CMake `install()` rules lay out the product, and `cmake/bundle.cmake` copies
-the shared libraries it needs during installation. Cargo, Go and QEMU own
+CMake `install()` rules lay out the product, and `cmake/check-libraries.cmake`
+stops the installation if an executable needs a shared library that is
+neither in the archive nor part of the host platform. Cargo, Go and QEMU own
 incremental rebuilds.
 
 Instigator's `go.mod` owns its required Go version. The container images
@@ -41,8 +42,30 @@ Initialize the submodules once; configuration stops with this command if
 they are missing:
 
 ```sh
-git submodule update --init -- qemu instigator
+git submodule update --init
 ```
+
+## C libraries
+
+vcpkg builds the C libraries QEMU links: GLib, pixman, SDL 2, libepoxy and
+their dependencies. `vcpkg.json` lists them, and the `vcpkg` submodule pins
+every port version, so moving that submodule is how they are updated. The
+presets load vcpkg's CMake toolchain, which bootstraps the pinned vcpkg tool
+and installs the libraries into `vcpkg_installed/` in the build directory
+during configuration. QEMU's configure finds them through pkg-config and
+links them statically. The first configuration takes several minutes.
+
+Each preset selects a release-only static triplet: vcpkg's community
+`x64-linux-release` on Linux and the overlays in `cmake/vcpkg/triplets/` on
+macOS (deployment target 15.0) and Windows (a GLib warning that GCC 15
+treats as an error). `cmake/vcpkg/ports/libepoxy` adds EGL to libepoxy's
+Windows build, which vcpkg only produces as a DLL. Host display,
+graphics, audio and system libraries stay dynamic and come from the user's
+system.
+
+vcpkg reuses built libraries from its default binary cache, `~/.cache/vcpkg`
+on Linux and macOS. CI jobs start without it; caching that directory between
+runs would skip most of the configuration time.
 
 When libslirp's wrap or patch files change, the product build runs
 `meson subprojects update --reset libslirp` through QEMU's build environment
@@ -57,10 +80,10 @@ the build again after changing source or release tags, then test and package.
 
 Use an Apple Silicon Mac running macOS 15 or newer, with Xcode command-line
 tools, Rust, Go with automatic toolchain selection, and Python 3.12 or newer.
-Install the native libraries and build tools:
+Install the build tools:
 
 ```sh
-brew install cmake ninja meson pkg-config glib pixman sdl2 dylibbundler
+brew install cmake ninja meson pkg-config autoconf automake libtool
 ```
 
 Then, from the product checkout:
@@ -100,10 +123,9 @@ podman run --rm --userns=keep-id -v "$PWD:$PWD" -w "$PWD" origami-builder sh -ec
 
 The runnable CLI is `out/linux/run/bin/origami`. The archive is
 `origami-linux-x86_64-preview.tar.gz`, containing `linux-dev/`.
-The release target requires glibc 2.39 or newer. The archive bundles GLib,
-pixman, SDL, libepoxy and the few SDL dependencies that desktops do not
-reliably install. Graphics drivers, audio, X11, Wayland, D-Bus and udev come
-from the host, so they match its drivers and services. SDL uses the host's display
+The release target requires glibc 2.39 or newer. The archive ships no shared
+libraries. Graphics drivers, audio, X11, Wayland and udev come from the host,
+so they match its drivers and services. SDL uses the host's display
 and input services. Prior Xvfb checks exercised desktop drawing and synthetic
 input. They do not qualify physical host input.
 
@@ -142,8 +164,8 @@ install the release tree once. Use the same target locally when only an
 archive is needed.
 
 The runnable tree contains `origami` and `instigator` under `bin/`, QEMU
-and `qemu-img` under `libexec/origami/`, bundled libraries under
-`lib/origami/` (beside the executables on Windows) and QEMU keymaps under
+and `qemu-img` under `libexec/origami/` (with the libepoxy and MinGW thread
+DLLs on Windows) and QEMU keymaps under
 `share/origami/qemu/`. `origami --version` (also `origami version`) prints
 the version and Git identity carried by each executable. QEMU and Instigator
 are queried at their launch paths, including `ORIGAMI_RUNTIME_DIR` for QEMU.
@@ -175,7 +197,7 @@ check out that tag and initialize its dependencies:
 git clone https://github.com/jamesbraid/origami.git
 cd origami
 git checkout RELEASE_TAG
-git submodule update --init -- qemu instigator
+git submodule update --init
 ```
 
 The pinned QEMU and Instigator commits must be available in sibling GitHub
@@ -211,15 +233,14 @@ The Origami CLI, Instigator and original Origami additions to QEMU use
 BSD-3-Clause. QEMU as a whole uses GPLv2. Upstream and adapted code retain
 their existing licenses. `qemu/LICENSE.origami.paths` lists original files
 covered by the BSD grant, and `qemu/LICENSE.origami` contains its terms.
-Bundled libraries, Rust crates and Go modules retain their own licenses.
-`THIRD_PARTY_NOTICES` collects their notices, and archives install it with
-the Origami, Instigator and QEMU license files under
-`share/origami/licenses/`.
+Linked libraries, Rust crates and Go modules retain their own licenses.
+Archives install the Origami, Instigator and QEMU license files under
+`share/origami/licenses/`, with the `copyright` file vcpkg installs for each
+C library it built, renamed `PORT.copyright`.
 
-The notices file is maintained by hand. Update it when a Rust crate, Go
-module or bundled library is added or changes license. Installation stops
-when it would bundle a library that `cmake/bundle.cmake` does not list as
-covered by the notices.
+`THIRD_PARTY_NOTICES` covers everything else and is maintained by hand.
+Update it when a Rust crate or Go module is added or changes license, or
+when QEMU links code that does not come from vcpkg.
 
 QEMU statically links a patched libslirp. Its pinned source URL and checksum
 are in `qemu/subprojects/libslirp.wrap`. The patch and its tests are in

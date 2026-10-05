@@ -11,8 +11,11 @@
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/out/${presetName}",
+      "toolchainFile": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_BOOTSTRAP_OPTIONS": "-disableMetrics",
+        "VCPKG_INSTALL_OPTIONS": "--clean-after-build"
       }
     },
     {
@@ -20,7 +23,8 @@
       "inherits": "base",
       "displayName": "Linux x86-64 product",
       "cacheVariables": {
-        "PRODUCT_PLATFORM": "linux"
+        "PRODUCT_PLATFORM": "linux",
+        "VCPKG_TARGET_TRIPLET": "x64-linux-release"
       },
       "condition": {
         "type": "equals",
@@ -33,7 +37,8 @@
       "inherits": "base",
       "displayName": "macOS arm64 product",
       "cacheVariables": {
-        "PRODUCT_PLATFORM": "macos"
+        "PRODUCT_PLATFORM": "macos",
+        "VCPKG_TARGET_TRIPLET": "arm64-osx-origami"
       },
       "condition": {
         "type": "equals",
@@ -48,7 +53,8 @@
       "cacheVariables": {
         "PRODUCT_PLATFORM": "windows",
         "PRODUCT_RUST_TARGET": "x86_64-pc-windows-gnu",
-        "PRODUCT_CROSS_PREFIX": "x86_64-w64-mingw32-"
+        "PRODUCT_CROSS_PREFIX": "x86_64-w64-mingw32-",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-origami"
       },
       "condition": {
         "type": "equals",

@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.25)
-project(origami LANGUAGES NONE)
-
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "Select an out-of-tree build directory with -B or a preset")
 endif()
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qemu/configure" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/instigator/go.mod")
-  message(FATAL_ERROR "Initialize the pinned dependencies first: git submodule update --init -- qemu instigator")
+# Checked before project(), which runs the vcpkg toolchain.
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qemu/configure" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/instigator/go.mod"
+    OR NOT EXISTS "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake")
+  message(FATAL_ERROR "Initialize the pinned dependencies first: git submodule update --init")
+endif()
+project(origami LANGUAGES NONE)
+if(NOT VCPKG_INSTALLED_DIR OR NOT VCPKG_TARGET_TRIPLET)
+  message(FATAL_ERROR "Configure with a preset, which builds QEMU's libraries with vcpkg")
 endif()
 
 include(ExternalProject)
@@ -96,6 +100,16 @@ if(PRODUCT_RUST_TARGET)
   endif()
 endif()
 set(platform_environment "MESON_PACKAGE_CACHE_DIR=${CMAKE_BINARY_DIR}/meson-package-cache")
+# QEMU finds the libraries vcpkg built through pkg-config. Linux also needs
+# the host's X11, EGL and GL, which libepoxy requires. Elsewhere vcpkg is the
+# only source, and the plain pkg-config command bypasses the MinGW wrapper's
+# Fedora search path.
+set(vcpkg_prefix "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}")
+if(PRODUCT_PLATFORM STREQUAL "linux")
+  list(APPEND platform_environment "PKG_CONFIG_PATH=${vcpkg_prefix}/lib/pkgconfig")
+else()
+  list(APPEND platform_environment PKG_CONFIG=pkg-config "PKG_CONFIG_LIBDIR=${vcpkg_prefix}/lib/pkgconfig")
+endif()
 if(PRODUCT_PLATFORM STREQUAL "macos")
   list(APPEND platform_environment MACOSX_DEPLOYMENT_TARGET=15.0)
 endif()
@@ -158,11 +172,24 @@ foreach(name LICENSE COPYING COPYING.LIB LICENSE.origami LICENSE.origami.paths)
 endforeach()
 install(FILES qemu/hw/mips/sgi/models/LICENSE DESTINATION share/origami/licenses
   RENAME qemu.sgi-models.LICENSE)
+# vcpkg installs a copyright file for each library it built.
+file(GLOB vcpkg_copyrights "${vcpkg_prefix}/share/*/copyright")
+foreach(copyright IN LISTS vcpkg_copyrights)
+  get_filename_component(port "${copyright}" DIRECTORY)
+  get_filename_component(port "${port}" NAME)
+  install(FILES "${copyright}" DESTINATION share/origami/licenses RENAME "${port}.copyright")
+endforeach()
+if(PRODUCT_PLATFORM STREQUAL "windows")
+  # vcpkg builds libepoxy only as a DLL on Windows, and MinGW's thread
+  # library comes from the toolchain as a DLL.
+  file(GLOB vcpkg_dlls "${vcpkg_prefix}/bin/*.dll")
+  install(FILES ${vcpkg_dlls} /usr/x86_64-w64-mingw32/sys-root/mingw/bin/libwinpthread-1.dll
+    DESTINATION libexec/origami)
+endif()
 install(CODE "set(platform ${PRODUCT_PLATFORM})
 set(exe \"${exe}\")
-set(cross_prefix \"${PRODUCT_CROSS_PREFIX}\")
-set(scratch \"${CMAKE_BINARY_DIR}/bundle-scratch\")")
-install(SCRIPT cmake/bundle.cmake)
+set(cross_prefix \"${PRODUCT_CROSS_PREFIX}\")")
+install(SCRIPT cmake/check-libraries.cmake)
 
 if(PRODUCT_PLATFORM STREQUAL "macos")
   set(CPACK_PACKAGE_FILE_NAME origami-macos-arm64-preview)
