@@ -184,7 +184,7 @@ pub struct CreateOptions {
     /// Graphics device supported by the preset
     #[arg(long)]
     pub graphics: Option<String>,
-    /// Ethernet address an Origin 300 or Fuel serves as its identity
+    /// The machine's Ethernet address, for its identity and onboard network
     #[arg(long, help_heading = "Hardware options")]
     pub mac: Option<String>,
     #[command(flatten)]
@@ -194,35 +194,31 @@ pub struct CreateOptions {
 #[derive(Debug, Default, Args)]
 #[command(next_help_heading = "Hardware options")]
 pub struct HardwareArgs {
-    /// Override the board identification word
-    #[arg(long)]
-    pub board_id_word: Option<String>,
-    /// Override the IOC3 PCI subsystem ID
-    #[arg(long)]
-    pub ioc3_subsystem_id: Option<String>,
-    /// Override the L1 identity reply byte
-    #[arg(long)]
-    pub l1_type_code: Option<String>,
-    /// Override the L1 firmware revision (major.minor.patch)
-    #[arg(long)]
-    pub l1_revision: Option<String>,
-    /// Override the Bedrock revision
-    #[arg(long)]
-    pub bedrock_revision: Option<String>,
+    /// Override a catalogue value or set a machine input, such as
+    /// board-id-word=0x4000 or r12000-prid=0xe24; repeatable
+    #[arg(long = "set", value_name = "PROPERTY=VALUE", value_parser = parse_setting)]
+    pub settings: Vec<(String, String)>,
+}
+
+fn parse_setting(text: &str) -> Result<(String, String), String> {
+    let (key, value) = text
+        .split_once('=')
+        .ok_or_else(|| format!("expected PROPERTY=VALUE, got {text}"))?;
+    if key.is_empty() {
+        return Err(format!("expected PROPERTY=VALUE, got {text}"));
+    }
+    Ok((key.into(), value.into()))
 }
 
 impl HardwareArgs {
-    pub fn inputs(&self) -> BTreeMap<String, String> {
-        [
-            ("board-id-word", &self.board_id_word),
-            ("ioc3-subsystem-id", &self.ioc3_subsystem_id),
-            ("l1-type-code", &self.l1_type_code),
-            ("l1-revision", &self.l1_revision),
-            ("bedrock-revision", &self.bedrock_revision),
-        ]
-        .into_iter()
-        .filter_map(|(name, value)| value.as_ref().map(|value| (name.into(), value.clone())))
-        .collect()
+    pub fn inputs(&self) -> Result<BTreeMap<String, String>, String> {
+        let mut inputs = BTreeMap::new();
+        for (key, value) in &self.settings {
+            if inputs.insert(key.clone(), value.clone()).is_some() {
+                return Err(format!("--set {key} given twice"));
+            }
+        }
+        Ok(inputs)
     }
 }
 

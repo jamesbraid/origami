@@ -48,9 +48,18 @@ pub struct Offering {
     /// Machine options this offering accepts beyond its storage.
     #[serde(rename = "hardware-inputs")]
     pub hardware_inputs: Vec<InputBinding>,
+    /// Catalogue values a launch may override, and where each is set.
+    pub overrides: Vec<Override>,
     /// Serial lines in -serial order; the line of kind `console` is the
     /// primary console.
     pub consoles: Vec<Console>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Override {
+    pub property: String,
+    /// `machine` for a -M property, `cpu` for a -cpu property.
+    pub target: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -385,6 +394,9 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         if !valid_mac(&identity.mac) {
             return Err("identity MAC must contain six hexadecimal bytes".into());
         }
+        if !profiles::takes_mac(offering) {
+            return Err(format!("{} takes no machine MAC", offering.topology).into());
+        }
     }
     let mut occupied = std::collections::HashSet::new();
     for drive in &file.drive {
@@ -446,6 +458,9 @@ pub fn validate_create_inputs(
     }
     if mac.is_some_and(|mac| !valid_mac(mac)) {
         return Err("--mac must contain six hexadecimal bytes".into());
+    }
+    if mac.is_some() && !profiles::takes_mac(offering) {
+        return Err(format!("{} takes no machine MAC", offering.topology).into());
     }
     Ok(())
 }

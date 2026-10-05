@@ -275,9 +275,10 @@ populations configured in `machine.toml`. Use `topology` and `population` to
 identify those configurations. Support remains experimental: a selectable
 configuration does not imply that firmware, installation or graphics work.
 The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/sgi-origami/docs/specs/sgi-sn.rst)
-describes topology and board options. Origin 300 and Fuel accept optional
-board overrides such as `--board-id-word`; QEMU supplies their defaults and
-checks any value given. `origami create --help` lists these options.
+describes topology and board options. QEMU's catalogue gives each machine its
+board and processor values, such as Fuel's `board-id-word` or Octane2's
+`r12000-prid`. `create --set PROPERTY=VALUE` overrides one; QEMU checks the
+value. An unknown property lists the ones the preset accepts.
 
 A machine has one MAC, stored under `[identity]` in `machine.toml` and passed
 to QEMU as the machine's `mac` property. QEMU reports it in the machine's
