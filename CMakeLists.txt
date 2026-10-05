@@ -138,6 +138,7 @@ ExternalProject_Add(qemu-product
       -P "${CMAKE_SOURCE_DIR}/cmake/qemu-version.cmake"
     COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
       "${PRODUCT_MAKE}" -j "${PRODUCT_JOBS}" "qemu-system-mips64${exe}" "qemu-img${exe}"
+        "tools/sgi/qemu-sgi-machine-init${exe}"
   BUILD_ALWAYS TRUE USES_TERMINAL_BUILD TRUE INSTALL_COMMAND "")
 # Meson keeps extracted subprojects until explicitly updated.
 file(GLOB libslirp_patches CONFIGURE_DEPENDS
@@ -175,7 +176,7 @@ endif()
 
 install(PROGRAMS "${frontend_binary}" "${instigator_binary}" DESTINATION bin)
 install(PROGRAMS "${qemu_build}/qemu-system-mips64${exe}" "${qemu_build}/qemu-img${exe}"
-  DESTINATION libexec/origami)
+  "${qemu_build}/tools/sgi/qemu-sgi-machine-init${exe}" DESTINATION libexec/origami)
 install(DIRECTORY qemu/pc-bios/keymaps/ DESTINATION share/origami/qemu/keymaps
   PATTERN meson.build EXCLUDE)
 install(FILES LICENSE DESTINATION share/origami/licenses RENAME origami.LICENSE)
