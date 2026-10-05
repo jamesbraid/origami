@@ -39,12 +39,7 @@ fn directory(path: &Path) -> Result<PathBuf> {
 }
 
 fn version_report() {
-    let version = env!("VERGEN_GIT_DESCRIBE");
-    let version = if version == "VERGEN_IDEMPOTENT_OUTPUT" {
-        "unknown"
-    } else {
-        version
-    };
+    let version = option_env!("VERGEN_GIT_DESCRIBE").unwrap_or("unknown");
     println!("origami {version}");
     for (name, path, prefix) in [
         ("qemu", runtime::qemu_path(), "QEMU emulator version "),

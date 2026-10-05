@@ -2,7 +2,6 @@ use crate::{
     control, origin300, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering,
     PortForward, Result,
 };
-use fs2::FileExt;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
@@ -454,7 +453,7 @@ fn run_inner(
         .write(true)
         .create(true)
         .open(dir.join("state/machine.lock"))?;
-    lock.try_lock_exclusive()
+    lock.try_lock()
         .map_err(|error| format!("cannot lock machine: {error}"))?;
     let mut args = arguments(dir, file, offering, display)?;
     if file.network.mode == "private" {

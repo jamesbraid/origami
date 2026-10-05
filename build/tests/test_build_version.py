@@ -24,7 +24,7 @@ class BuildVersion(unittest.TestCase):
         shutil.copy(ROOT / "Cargo.lock", self.source)
         (self.source / "Cargo.toml").write_text(
             '[package]\nname = "version-fixture"\nversion = "0.0.0"\nedition = "2021"\n'
-            '[build-dependencies]\nvergen-gitcl = "=1.0.8"\n')
+            '[build-dependencies]\nvergen-gitcl = "10"\n')
         (self.source / "src").mkdir()
         (self.source / "src/main.rs").write_text(
             'fn main() { println!("{}", option_env!("VERGEN_GIT_DESCRIBE").unwrap_or("missing")); }\n')
@@ -80,4 +80,4 @@ class BuildVersion(unittest.TestCase):
 
     def test_source_archive_has_unknown_version(self):
         shutil.rmtree(self.source / ".git")
-        self.assertEqual(self.version(), "VERGEN_IDEMPOTENT_OUTPUT")
+        self.assertEqual(self.version(), "missing")

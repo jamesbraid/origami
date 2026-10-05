@@ -130,7 +130,6 @@ pub fn prepare_state(dir: &Path, file: &MachineFile, prom: &Path) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sha2::Digest;
 
     #[test]
     fn io8_identity_has_reviewed_field_positions_and_checksum() {
@@ -165,7 +164,7 @@ mod tests {
         assert_eq!(&image[0x9e0141..0x9e0149], b"DisableD");
         assert_eq!(image[0x9e0180], 0xff);
         assert_eq!(
-            format!("{:x}", sha2::Sha256::digest(&image)),
+            crate::sha256_hex(&image),
             "ca02338573f873c8717b7a81ea5e28d148b0162da84e839e04747afe54617f50"
         );
     }

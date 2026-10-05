@@ -3,20 +3,19 @@ name = "origami"
 version = "0.0.0"
 publish = false
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.95"
 license = "BSD-3-Clause"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-dirs = "6"
-fs2 = "0.4"
+dirs = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 tempfile = "3"
-toml = "0.8"
-ureq = { version = "2.12", default-features = false, features = ["tls"] }
+toml = "1"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 url = "2"
 
 [build-dependencies]
-vergen-gitcl = "=1.0.8"
+vergen-gitcl = "10"

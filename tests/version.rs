@@ -123,8 +123,5 @@ fn version_reports_missing_or_uncooperative_binaries_without_hiding_origami() {
 }
 
 fn embedded_version() -> &'static str {
-    match env!("VERGEN_GIT_DESCRIBE") {
-        "VERGEN_IDEMPOTENT_OUTPUT" => "unknown",
-        version => version,
-    }
+    option_env!("VERGEN_GIT_DESCRIBE").unwrap_or("unknown")
 }

@@ -1,5 +1,4 @@
 use crate::Result;
-use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -103,7 +102,7 @@ pub fn lock_for_edit(dir: &Path, action: &str) -> Result<std::fs::File> {
         .write(true)
         .create(true)
         .open(dir.join("state/machine.lock"))?;
-    if file.try_lock_exclusive().is_err() {
+    if file.try_lock().is_err() {
         return Err(format!("stop the machine before {action}").into());
     }
     Ok(file)
@@ -118,10 +117,10 @@ pub fn is_locked(dir: &Path) -> Result<bool> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error.into()),
     };
-    if file.try_lock_exclusive().is_err() {
+    if file.try_lock().is_err() {
         return Ok(true);
     }
-    FileExt::unlock(&file)?;
+    file.unlock()?;
     Ok(false)
 }
 

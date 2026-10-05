@@ -94,8 +94,15 @@ pub struct Origin300Create<'a> {
     pub mac: &'a str,
 }
 
+pub fn sha256_hex(data: &[u8]) -> String {
+    Sha256::digest(data)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 pub fn sha256_file(path: &Path) -> Result<String> {
-    Ok(format!("{:x}", Sha256::digest(fs::read(path)?)))
+    Ok(sha256_hex(&fs::read(path)?))
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -176,10 +183,7 @@ pub struct Drive {
 }
 
 pub fn catalogue_sha256() -> String {
-    format!(
-        "{:x}",
-        Sha256::digest(include_bytes!("../catalogue/sn-catalogue.json"))
-    )
+    sha256_hex(include_bytes!("../catalogue/sn-catalogue.json"))
 }
 
 pub fn catalogue() -> Result<Catalog> {

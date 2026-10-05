@@ -1,7 +1,6 @@
 use crate::Result;
 use serde::Deserialize;
-use sha2::Digest;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 pub struct Manifest {
@@ -71,6 +70,7 @@ fn validate_path(path: &str) -> Result<()> {
 }
 
 pub fn acquire(profile_id: &str) -> Result<PathBuf> {
+    use std::io::Write;
     let manifest = manifest()?;
     let prom = manifest
         .proms
@@ -83,48 +83,45 @@ pub fn acquire(profile_id: &str) -> Result<PathBuf> {
         .ok_or("cannot determine user cache directory; supply --prom FILE")?
         .join("origami")
         .join("proms");
-    let client = ureq::AgentBuilder::new()
-        .https_only(true)
-        .redirects(0)
-        .timeout_connect(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(120))
-        .build();
-    acquire_from(prom, &manifest.base_url, &cache, &client)
-        .map_err(|e| format!("cannot acquire PROM {}: {e}; offline creation requires a verified cache entry or --prom FILE", prom.path).into())
-}
-
-fn acquire_from(prom: &Prom, base: &str, cache: &Path, client: &ureq::Agent) -> Result<PathBuf> {
-    use std::io::{Read, Write};
-    std::fs::create_dir_all(cache)?;
-    let final_path = cache.join(format!("{}.bin", prom.sha256));
-    if std::fs::metadata(&final_path).is_ok_and(|m| m.len() == prom.size)
-        && crate::sha256_file(&final_path)? == prom.sha256
-    {
-        return Ok(final_path);
-    }
-    eprintln!("Downloading PROM {} ({} bytes)", prom.path, prom.size);
-    let response = client.get(&format!("{base}{}", prom.path)).call()?;
-    if response.status() != 200 {
-        return Err(format!("PROM download returned HTTP {}", response.status()).into());
-    }
-    // One byte past the expected size is enough to detect an oversized body.
-    let mut body = Vec::new();
-    response
-        .into_reader()
-        .take(prom.size + 1)
-        .read_to_end(&mut body)?;
-    if body.len() as u64 != prom.size {
-        return Err("PROM download byte size does not match manifest".into());
-    }
-    if format!("{:x}", sha2::Sha256::digest(&body)) != prom.sha256 {
-        return Err("PROM download SHA-256 does not match manifest".into());
-    }
-    // Concurrent creates may both download; identical verified bytes make the
-    // rename race harmless.
-    let mut temp = tempfile::NamedTempFile::new_in(cache)?;
-    temp.write_all(&body)?;
-    temp.persist(&final_path).map_err(|e| e.error)?;
-    Ok(final_path)
+    let fetch = || -> Result<PathBuf> {
+        std::fs::create_dir_all(&cache)?;
+        let path = cache.join(format!("{}.bin", prom.sha256));
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() == prom.size)
+            && crate::sha256_file(&path)? == prom.sha256
+        {
+            return Ok(path);
+        }
+        eprintln!("Downloading PROM {} ({} bytes)", prom.path, prom.size);
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .https_only(true)
+            .max_redirects(0)
+            .timeout_connect(Some(std::time::Duration::from_secs(15)))
+            .timeout_global(Some(std::time::Duration::from_secs(120)))
+            .build()
+            .into();
+        let mut response = agent
+            .get(&format!("{}{}", manifest.base_url, prom.path))
+            .call()?;
+        // Redirects are refused, so a 3xx response arrives here rather than as an error.
+        if response.status() != 200 {
+            return Err(format!("PROM download returned HTTP {}", response.status()).into());
+        }
+        let body = response
+            .body_mut()
+            .with_config()
+            .limit(prom.size)
+            .read_to_vec()?;
+        if body.len() as u64 != prom.size || crate::sha256_hex(&body) != prom.sha256 {
+            return Err("PROM download does not match the manifest's size and SHA-256".into());
+        }
+        // Concurrent creates may both download; identical verified bytes make
+        // the rename race harmless.
+        let mut temp = tempfile::NamedTempFile::new_in(&cache)?;
+        temp.write_all(&body)?;
+        temp.persist(&path).map_err(|e| e.error)?;
+        Ok(path)
+    };
+    fetch().map_err(|e| format!("cannot acquire PROM {}: {e}; offline creation requires a verified cache entry or --prom FILE", prom.path).into())
 }
 
 #[cfg(test)]

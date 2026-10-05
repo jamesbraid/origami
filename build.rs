@@ -1,11 +1,11 @@
 use std::path::Path;
 use std::process::Command;
-use vergen_gitcl::{Emitter, GitclBuilder};
+use vergen_gitcl::{Emitter, Gitcl};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let git = GitclBuilder::default()
+    let git = Gitcl::builder()
         .describe(true, true, Some("v[0-9]*"))
-        .build()?;
+        .build();
     Emitter::default().add_instructions(&git)?.emit()?;
     // Git refs alone do not change when an existing source file is edited.
     let files = Command::new("git")
