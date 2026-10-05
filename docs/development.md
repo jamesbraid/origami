@@ -110,8 +110,9 @@ podman run --rm --userns=keep-id -v "$PWD:$PWD" -w "$PWD" origami-builder sh -ec
 
 The runnable CLI is `out/linux/run/bin/origami`. The archive is
 `origami-linux-x86_64-preview.tar.gz`, containing `linux-dev/`.
-The release target requires glibc 2.39 or newer. The archive ships no shared
-libraries. Graphics drivers, audio, X11, Wayland and udev come from the host,
+The release target requires glibc 2.39 or newer and the host's PulseAudio and
+ALSA client libraries. The archive ships no shared libraries. Graphics
+drivers, audio, X11, Wayland and udev come from the host,
 so they match its drivers and services. SDL uses the host's display
 and input services. Prior Xvfb checks exercised desktop drawing and synthetic
 input. They do not qualify physical host input.

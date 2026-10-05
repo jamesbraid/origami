@@ -180,6 +180,8 @@ jobs:
       - name: Smoke test Linux archive
         if: matrix.platform == 'linux-x86_64' && (github.event_name != 'workflow_dispatch' || inputs.platform == matrix.platform)
         run: |
+          # QEMU links the host's PulseAudio and ALSA clients, which desktops have.
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libpulse0 libasound2t64
           mkdir -p "$RUNNER_TEMP/smoke/package with spaces"
           tar -xzf "$RUNNER_TEMP/build/artifacts/origami-linux-x86_64-preview.tar.gz" -C "$RUNNER_TEMP/smoke/package with spaces"
           python3 build/smoke-test.py "$RUNNER_TEMP/smoke/package with spaces/linux-dev" --scratch "$RUNNER_TEMP/smoke"
