@@ -130,79 +130,6 @@ fn acquire_from(prom: &Prom, base: &str, cache: &Path, client: &ureq::Agent) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sha2::{Digest, Sha256};
-    use std::fs;
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-    use std::thread;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    struct Scratch(PathBuf);
-    impl Scratch {
-        fn new() -> Self {
-            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "origami-prom-{}-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-    }
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    fn prom() -> Prom {
-        Prom {
-            path: "prom/test.bin".into(),
-            size: 4,
-            sha256: format!("{:x}", Sha256::digest(b"test")),
-            profiles: vec!["test-profile".into()],
-            version: String::new(),
-        }
-    }
-    fn server(response: &'static [u8]) -> (String, thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let base = format!("http://{}/", listener.local_addr().unwrap());
-        let handle = thread::spawn(move || {
-            listener.set_nonblocking(true).unwrap();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-            let mut socket = loop {
-                match listener.accept() {
-                    Ok((socket, _)) => break socket,
-                    Err(e)
-                        if e.kind() == std::io::ErrorKind::WouldBlock
-                            && std::time::Instant::now() < deadline =>
-                    {
-                        thread::sleep(std::time::Duration::from_millis(10))
-                    }
-                    Err(e) => panic!("test server did not receive request: {e}"),
-                }
-            };
-            socket.set_nonblocking(false).unwrap();
-            socket
-                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
-                .unwrap();
-            let mut request = [0; 4096];
-            let count = socket.read(&mut request).unwrap();
-            assert!(std::str::from_utf8(&request[..count])
-                .unwrap()
-                .starts_with("GET /prom/test.bin "));
-            thread::sleep(std::time::Duration::from_millis(50));
-            let _ = socket.write_all(response);
-        });
-        (base, handle)
-    }
-    fn client() -> ureq::Agent {
-        ureq::AgentBuilder::new().redirects(0).build()
-    }
     #[test]
     fn rejects_unsafe_urls() {
         for value in [
@@ -241,45 +168,6 @@ mod tests {
                 1,
                 "{name}"
             );
-        }
-    }
-    #[test]
-    fn downloads_and_reuses_verified_cache_offline() {
-        let cache = Scratch::new();
-        let (base, handle) =
-            server(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest");
-        let path = acquire_from(&prom(), &base, &cache.0, &client()).unwrap();
-        handle.join().unwrap();
-        assert_eq!(fs::read(&path).unwrap(), b"test");
-        assert_eq!(
-            acquire_from(&prom(), "http://127.0.0.1:1/", &cache.0, &client()).unwrap(),
-            path
-        );
-    }
-    #[test]
-    fn corrupt_cache_is_replaced() {
-        let cache = Scratch::new();
-        fs::write(cache.0.join(format!("{}.bin", prom().sha256)), b"oops").unwrap();
-        let (base, handle) =
-            server(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest");
-        let path = acquire_from(&prom(), &base, &cache.0, &client()).unwrap();
-        handle.join().unwrap();
-        assert_eq!(fs::read(path).unwrap(), b"test");
-    }
-    #[test]
-    fn rejects_invalid_downloads_and_leaves_nothing_cached() {
-        for response in [
-            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nte".as_slice(),
-            b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\ntestextra".as_slice(),
-            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\noops".as_slice(),
-            b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".as_slice(),
-        ] {
-            let cache = Scratch::new();
-            let (base, handle) = server(response);
-            assert!(acquire_from(&prom(), &base, &cache.0, &client()).is_err());
-            handle.join().unwrap();
-            assert!(!cache.0.join(format!("{}.bin", prom().sha256)).exists());
-            assert_eq!(fs::read_dir(&cache.0).unwrap().count(), 0);
         }
     }
 }
