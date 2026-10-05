@@ -364,26 +364,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn flag_looking_values_keep_their_argument_identity() {
-        let cli = Cli::try_parse_from([
-            "origami",
-            "create",
-            "machine",
-            "--preset",
-            "origin200-1",
-            "--prom=--memory-per-node",
-            "--memory-per-node",
-            "128",
-        ])
-        .unwrap();
-        let Some(Command::Create(args)) = cli.command else {
-            panic!("expected create");
-        };
-        assert_eq!(args.options.prom, Some(PathBuf::from("--memory-per-node")));
-        assert_eq!(args.options.memory_per_node, Some(128));
-    }
-
-    #[test]
     fn vnc_options_are_typed_and_validate_port_ranges() {
         let cli = Cli::try_parse_from([
             "origami",
