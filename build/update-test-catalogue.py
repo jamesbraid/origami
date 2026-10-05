@@ -23,7 +23,7 @@ SUBMODULE_CATALOGUE = ROOT / "qemu/hw/mips/sgi/sgi-machines.json"
 OFFERING_FIELDS = (
     "product", "topology", "nodes", "machine-options", "cpus-per-node", "smp",
     "memory-per-node-mib", "init-inputs", "storage", "scsi-adapters",
-    "consoles", "hardware-inputs", "default-cpu-model",
+    "consoles", "hardware-inputs", "overrides", "default-cpu-model",
     "needs-debug-leds-off",
 )
 

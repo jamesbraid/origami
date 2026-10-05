@@ -44,6 +44,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "fuel",
    "scsi-adapters": [
     {
@@ -135,6 +165,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "fuel",
    "scsi-adapters": [
     {
@@ -207,7 +267,7 @@
      "required": true
     }
    ],
-   "machine-options": "octane,topology=octane",
+   "machine-options": "octane,topology=octane,nodes=1",
    "memory-per-node-mib": {
     "accepted": [
      128
@@ -216,6 +276,24 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "flash-select",
+     "target": "machine"
+    },
+    {
+     "property": "flash-strap",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "octane",
    "scsi-adapters": [
     {
@@ -293,7 +371,7 @@
      "required": true
     }
    ],
-   "machine-options": "octane2,topology=octane2",
+   "machine-options": "octane2,topology=octane2,nodes=1",
    "memory-per-node-mib": {
     "accepted": [
      256
@@ -302,6 +380,40 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "flash-select",
+     "target": "machine"
+    },
+    {
+     "property": "flash-strap",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r12000-prid",
+     "target": "cpu"
+    },
+    {
+     "property": "r12000-fpu-id",
+     "target": "cpu"
+    },
+    {
+     "property": "r12000-reset-mode",
+     "target": "cpu"
+    },
+    {
+     "property": "r12000-scache-bytes",
+     "target": "cpu"
+    },
+    {
+     "property": "r12000-scache-block-words",
+     "target": "cpu"
+    }
+   ],
    "product": "octane2",
    "scsi-adapters": [
     {
@@ -399,6 +511,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -508,6 +630,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -617,6 +749,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -725,6 +867,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -827,6 +979,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -932,6 +1094,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -1055,6 +1227,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -1178,6 +1360,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -1301,6 +1493,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -1424,6 +1626,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -1546,6 +1758,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -1662,6 +1884,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -1778,6 +2010,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -1894,6 +2136,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -2009,6 +2261,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -2118,6 +2380,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -2227,6 +2499,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -2335,6 +2617,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -2437,6 +2729,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "onyx2",
    "scsi-adapters": [
     {
@@ -2543,6 +2845,16 @@
    },
    "needs-debug-leds-off": true,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin200",
    "scsi-adapters": [
     {
@@ -2686,6 +2998,16 @@
    },
    "needs-debug-leds-off": true,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin200",
    "scsi-adapters": [
     {
@@ -2785,6 +3107,16 @@
    },
    "needs-debug-leds-off": true,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin200",
    "scsi-adapters": [
     {
@@ -2889,6 +3221,16 @@
    },
    "needs-debug-leds-off": true,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin200",
    "scsi-adapters": [
     {
@@ -2999,6 +3341,16 @@
    },
    "needs-debug-leds-off": true,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin200",
    "scsi-adapters": [
     {
@@ -3104,6 +3456,16 @@
    },
    "needs-debug-leds-off": true,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin200",
    "scsi-adapters": [
     {
@@ -3203,6 +3565,16 @@
    },
    "needs-debug-leds-off": true,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin200",
    "scsi-adapters": [
     {
@@ -3303,6 +3675,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -3427,6 +3809,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -3551,6 +3943,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -3675,6 +4077,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -3799,6 +4211,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -3922,6 +4344,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4039,6 +4471,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4156,6 +4598,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4273,6 +4725,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4389,6 +4851,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4499,6 +4971,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4609,6 +5091,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4718,6 +5210,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4821,6 +5323,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -4926,6 +5438,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -5049,6 +5571,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -5172,6 +5704,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -5295,6 +5837,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -5418,6 +5970,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 4,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -5540,6 +6102,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -5656,6 +6228,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -5772,6 +6354,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -5888,6 +6480,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 3,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -6003,6 +6605,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -6112,6 +6724,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -6221,6 +6843,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -6329,6 +6961,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -6431,6 +7073,16 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r10000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin2000",
    "scsi-adapters": [
     {
@@ -6518,6 +7170,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -6594,6 +7276,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -6670,6 +7382,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -6746,6 +7488,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -6822,6 +7594,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -6898,6 +7700,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -6974,6 +7806,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7050,6 +7912,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7132,6 +8024,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7253,6 +8175,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7374,6 +8326,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7495,6 +8477,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 2,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7610,6 +8622,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7686,6 +8728,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7762,6 +8834,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7838,6 +8940,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7914,6 +9046,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {
@@ -7990,6 +9152,36 @@
    },
    "needs-debug-leds-off": false,
    "nodes": 1,
+   "overrides": [
+    {
+     "property": "bedrock-revision",
+     "target": "machine"
+    },
+    {
+     "property": "board-id-word",
+     "target": "machine"
+    },
+    {
+     "property": "ioc3-subsystem-id",
+     "target": "machine"
+    },
+    {
+     "property": "l1-revision",
+     "target": "machine"
+    },
+    {
+     "property": "l1-type-code",
+     "target": "machine"
+    },
+    {
+     "property": "mac",
+     "target": "machine"
+    },
+    {
+     "property": "r14000-prid",
+     "target": "cpu"
+    }
+   ],
    "product": "origin300",
    "scsi-adapters": [
     {

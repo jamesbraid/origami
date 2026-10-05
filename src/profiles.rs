@@ -307,11 +307,8 @@ mod tests {
             runtime::Display::Vnc { port: 5901 },
         )
         .unwrap();
-        assert!(
-            args.windows(2)
-                .any(|p| p[0] == "-M"
-                    && p[1].starts_with("octane,topology=octane,graphics-board=si,"))
-        );
+        assert!(args.windows(2).any(|p| p[0] == "-M"
+            && p[1].starts_with("octane,topology=octane,nodes=1,graphics-board=si,")));
         assert!(args.contains(&"nic,model=sgi-ioc3-eth,netdev=net0".into()));
         assert!(validate_graphics(o, "vpro").is_err());
     }
