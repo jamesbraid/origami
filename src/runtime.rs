@@ -312,11 +312,7 @@ pub fn arguments(
             ]);
         }
         "user" if offering.product == "origin300" && file.identity.is_some() => {
-            let mac = &file
-                .identity
-                .as_ref()
-                .ok_or("Origin 300 needs identity")?
-                .mac;
+            let mac = &file.identity.as_ref().unwrap().mac;
             args.extend([
                 "-netdev".into(),
                 user_network(&file.network.forward),

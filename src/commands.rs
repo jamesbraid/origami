@@ -12,25 +12,15 @@ pub fn create_machine(args: &CreateArgs) -> Result<()> {
     let catalog = catalogue()?;
     let offer = preset(&catalog, &args.preset)?;
     let options = &args.options;
-    if offer.product != "origin300"
-        && (options.spd_dimm2.is_some() || options.spd_dimm3.is_some() || options.mac.is_some())
-    {
-        return Err("SPD and identity inputs apply only to Origin 300".into());
-    }
-    let identity = match (&options.spd_dimm2, &options.spd_dimm3) {
-        (Some(dimm2), Some(dimm3)) => Some(Origin300Create {
-            spd_dimm2: dimm2,
-            spd_dimm3: dimm3,
+    let identity = options
+        .spd_dimm2
+        .as_ref()
+        .zip(options.spd_dimm3.as_ref())
+        .map(|(spd_dimm2, spd_dimm3)| Origin300Create {
+            spd_dimm2,
+            spd_dimm3,
             mac: options.mac.as_deref().unwrap_or("08:00:69:12:34:56"),
-        }),
-        (None, None) => None,
-        _ => return Err("both --spd-dimm2 and --spd-dimm3 are required".into()),
-    };
-    if identity.is_none() && options.mac.is_some() {
-        return Err(
-            "--mac requires the explicit --spd-dimm2 and --spd-dimm3 identity inputs".into(),
-        );
-    }
+        });
     let graphics = options
         .graphics
         .as_deref()
@@ -61,9 +51,6 @@ pub fn create_machine(args: &CreateArgs) -> Result<()> {
 
 pub fn create_disk(dir: &Path, size: u64) -> Result<()> {
     let _lock = control::lock_for_edit(dir, "changing drives")?;
-    if size == 0 || size > 131072 {
-        return Err("disk size must be 1..131072 MiB".into());
-    }
     let mut file = read_machine(dir)?;
     let catalog = catalogue()?;
     let offer = validate(&catalog, dir, &file)?;

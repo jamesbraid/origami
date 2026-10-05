@@ -1287,12 +1287,14 @@ mod tests {
         fs::write(&prom, vec![0; 1048576]).unwrap();
         let machine = root.join("machine");
         let catalog = crate::catalogue().unwrap();
-        crate::create(
+        crate::create_configured(
             &machine,
             crate::preset(&catalog, "origin200-1").unwrap(),
             &prom,
             None,
             None,
+            None,
+            Default::default(),
         )
         .unwrap();
         let mut file = crate::read_machine(&machine).unwrap();
@@ -1346,7 +1348,7 @@ mod tests {
         let catalog = crate::catalogue().unwrap();
         let offer = crate::preset(&catalog, "origin200-1").unwrap();
         let dir = root.join("machine");
-        crate::create(&dir, offer, &prom, None, None).unwrap();
+        crate::create_configured(&dir, offer, &prom, None, None, None, Default::default()).unwrap();
         let mut file = crate::read_machine(&dir).unwrap();
         init_remote(&dir, "08:00:69:12:34:56", &mut file).unwrap();
         let mut media = read_media(&dir).unwrap();

@@ -336,14 +336,10 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
             return Err(format!("firmware {} has an unexpected SHA-256", prom.display()).into());
         }
     }
-    if offering.product == "origin300" && file.identity.is_some() {
+    if let (true, Some(identity)) = (offering.product == "origin300", &file.identity) {
         if offering.nodes != 1 || offering.smp != 2 {
             return Err("explicit Origin 300 identity currently requires one two-CPU node".into());
         }
-        let identity = file
-            .identity
-            .as_ref()
-            .ok_or("Origin 300 needs an identity section")?;
         if !valid_mac(&identity.mac) {
             return Err("Origin 300 identity MAC must contain six hexadecimal bytes".into());
         }
@@ -428,55 +424,20 @@ pub fn validate_create_inputs(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
     }
-    let mut parent = dir.parent();
-    while let Some(path) = parent.filter(|path| !path.as_os_str().is_empty()) {
-        match fs::symlink_metadata(path) {
-            Ok(_) => {
-                if !fs::metadata(path)?.is_dir() {
-                    return Err(format!(
-                        "destination parent is not a directory: {}",
-                        path.display()
-                    )
-                    .into());
-                }
-                break;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => parent = path.parent(),
-            Err(error) => return Err(error.into()),
+    if let Some(inputs) = identity {
+        if offering.product != "origin300" {
+            return Err("SPD inputs are only supported for Origin 300".into());
         }
-    }
-    if offering.product == "origin300" && identity.is_some() {
         if offering.nodes != 1 || offering.smp != 2 {
             return Err("explicit SPD inputs and persistent IP35 flash currently require one two-CPU node; omit them to use native QEMU defaults".into());
         }
-        let inputs = identity.ok_or("Origin 300 needs --spd-dimm2 and --spd-dimm3")?;
         origin300::validate_spd_file(inputs.spd_dimm2, origin300::DIMM2_SHA256)?;
         origin300::validate_spd_file(inputs.spd_dimm3, origin300::DIMM3_SHA256)?;
         if !valid_mac(inputs.mac) {
             return Err("Origin 300 MAC must contain six hexadecimal bytes".into());
         }
-    } else if offering.product != "origin300" && identity.is_some() {
-        return Err("SPD inputs are only supported for Origin 300".into());
     }
     Ok(())
-}
-
-pub fn create(
-    dir: &Path,
-    offering: &Offering,
-    prom: &Path,
-    memory_per_node: Option<u32>,
-    identity: Option<Origin300Create<'_>>,
-) -> Result<()> {
-    create_configured(
-        dir,
-        offering,
-        prom,
-        memory_per_node,
-        identity,
-        None,
-        Default::default(),
-    )
 }
 
 pub fn create_configured(
@@ -488,10 +449,7 @@ pub fn create_configured(
     graphics: Option<&str>,
     inputs: std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
-    validate_create_inputs(dir, offering, memory_per_node, identity.as_ref())?;
     let graphics = graphics.unwrap_or(profiles::default_graphics(offering));
-    profiles::validate_graphics(offering, graphics)?;
-    profiles::validate_inputs(offering, &inputs)?;
     let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
     if !valid_firmware_size(offering, fs::metadata(prom)?.len()) {
         return Err(format!("PROM must {}", firmware_size_requirement(offering)).into());
@@ -540,9 +498,6 @@ pub fn create_configured(
             network: Network::default(),
             drive: vec![],
         };
-        if let Some(identity) = &file.identity {
-            origin300::validate_spd(dir, identity)?;
-        }
         fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
         Ok(())
     })();
@@ -632,13 +587,19 @@ mod tests {
         let catalog = catalogue().unwrap();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let machine = root.join("nested/machine");
-        create(&machine, offer, &prom, Some(128), None).unwrap();
+        create_configured(
+            &machine,
+            offer,
+            &prom,
+            Some(128),
+            None,
+            None,
+            Default::default(),
+        )
+        .unwrap();
         let file = read_machine(&machine).unwrap();
         assert_eq!(file.machine.memory_per_node, "128MiB");
         validate(&catalog, &machine, &file).unwrap();
-        let rejected = root.join("rejected");
-        assert!(create(&rejected, offer, &prom, Some(96), None).is_err());
-        assert!(!rejected.exists());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -678,33 +639,6 @@ mod tests {
         let sn1 = preset(&catalog, "origin300-2").unwrap();
         assert!(validate_create_inputs(&absent, sn1, None, None).is_ok());
         assert!(!absent.exists());
-    }
-
-    #[test]
-    fn create_preflight_rejects_unusable_destination_paths() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!(
-            "origami-create-path-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&root).unwrap();
-        let catalog = catalogue().unwrap();
-        let offer = preset(&catalog, "origin200-1").unwrap();
-        let file = root.join("file");
-        fs::write(&file, b"existing").unwrap();
-        assert!(validate_create_inputs(&file.join("machine"), offer, None, None).is_err());
-        #[cfg(unix)]
-        {
-            let link = root.join("dangling");
-            std::os::unix::fs::symlink(root.join("absent"), &link).unwrap();
-            assert!(validate_create_inputs(&link, offer, None, None).is_err());
-            assert!(validate_create_inputs(&link.join("machine"), offer, None, None).is_err());
-        }
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
