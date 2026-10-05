@@ -47,25 +47,12 @@ git submodule update --init
 
 ## C libraries
 
-vcpkg builds the C libraries QEMU links: GLib, pixman, SDL 2 and their
-dependencies. `vcpkg.json` lists them, and the `vcpkg` submodule pins
-every port version, so moving that submodule is how they are updated. The
-presets load vcpkg's CMake toolchain, which bootstraps the pinned vcpkg tool
-and installs the libraries into `vcpkg_installed/` in the build directory
-during configuration. QEMU's configure finds them through pkg-config and
-links them statically. The first configuration takes several minutes.
-
-Each preset selects a release-only static triplet: vcpkg's community
-`x64-linux-release` on Linux and the overlays in `cmake/vcpkg/triplets/` on
-macOS (deployment target 15.0) and Windows (a GLib warning that GCC 15
-treats as an error). QEMU is built without OpenGL, which no SGI graphics
-device uses yet. Host display,
-graphics, audio and system libraries stay dynamic and come from the user's
-system.
-
-vcpkg reuses built libraries from its default binary cache, `~/.cache/vcpkg`
-on Linux and macOS. CI jobs start without it; caching that directory between
-runs would skip most of the configuration time.
+vcpkg builds GLib, pixman and SDL 2 during configuration, and QEMU links
+them statically. `vcpkg.json` lists them; the `vcpkg` submodule pins their
+versions, so update them by moving the submodule. Triplet overrides live in
+`cmake/vcpkg/triplets/`. The first configuration takes several minutes, and
+later ones reuse `~/.cache/vcpkg`. Host display, audio and system libraries
+come from the user's system.
 
 When libslirp's wrap or patch files change, the product build runs
 `meson subprojects update --reset libslirp` through QEMU's build environment
@@ -233,14 +220,10 @@ The Origami CLI, Instigator and original Origami additions to QEMU use
 BSD-3-Clause. QEMU as a whole uses GPLv2. Upstream and adapted code retain
 their existing licenses. `qemu/LICENSE.origami.paths` lists original files
 covered by the BSD grant, and `qemu/LICENSE.origami` contains its terms.
-Linked libraries, Rust crates and Go modules retain their own licenses.
-Archives install the Origami, Instigator and QEMU license files under
-`share/origami/licenses/`, with the `copyright` file vcpkg installs for each
-C library it built, renamed `PORT.copyright`.
-
-`THIRD_PARTY_NOTICES` covers everything else and is maintained by hand.
-Update it when a Rust crate or Go module is added or changes license, or
-when QEMU links code that does not come from vcpkg.
+Archives install these licenses, each vcpkg library's `copyright` file and
+`THIRD_PARTY_NOTICES` under `share/origami/licenses/`. The notices file is
+maintained by hand: update it when a Rust crate or Go module is added or
+changes license.
 
 QEMU statically links a patched libslirp. Its pinned source URL and checksum
 are in `qemu/subprojects/libslirp.wrap`. The patch and its tests are in
