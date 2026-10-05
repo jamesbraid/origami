@@ -96,8 +96,7 @@ pub fn acquire(profile_id: &str) -> Result<PathBuf> {
 }
 
 fn acquire_from(prom: &Prom, base: &str, cache: &Path, client: &ureq::Agent) -> Result<PathBuf> {
-    use std::io::Read;
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::io::{Read, Write};
     std::fs::create_dir_all(cache)?;
     let final_path = cache.join(format!("{}.bin", prom.sha256));
     if std::fs::metadata(&final_path).is_ok_and(|m| m.len() == prom.size)
@@ -124,18 +123,9 @@ fn acquire_from(prom: &Prom, base: &str, cache: &Path, client: &ureq::Agent) -> 
     }
     // Concurrent creates may both download; identical verified bytes make the
     // rename race harmless.
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let temp = cache.join(format!(
-        "{}.{}.{}.tmp",
-        prom.sha256,
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
-    std::fs::write(&temp, &body)?;
-    if let Err(e) = std::fs::rename(&temp, &final_path) {
-        let _ = std::fs::remove_file(&temp);
-        return Err(e.into());
-    }
+    let mut temp = tempfile::NamedTempFile::new_in(cache)?;
+    temp.write_all(&body)?;
+    temp.persist(&final_path).map_err(|e| e.error)?;
     Ok(final_path)
 }
 
