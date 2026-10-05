@@ -157,6 +157,8 @@ pub fn validate_graphics(offering: &Offering, graphics: &str) -> Result<()> {
 
 /// Board values QEMU accepts as optional machine-property overrides of its
 /// catalogue defaults. QEMU checks each value and the machines it applies to.
+// TODO: the catalogue's hardware-inputs does not list these family overrides
+// yet. Drop this list once it does, so each offering accepts only its own.
 pub const BOARD_OVERRIDES: &[&str] = &[
     "board-id-word",
     "ioc3-subsystem-id",
@@ -166,8 +168,14 @@ pub const BOARD_OVERRIDES: &[&str] = &[
 ];
 
 pub fn validate_inputs(offering: &Offering, inputs: &BTreeMap<String, String>) -> Result<()> {
+    let listed = |key: &str| offering.hardware_inputs.iter().any(|i| i.option == key);
+    for input in offering.hardware_inputs.iter().filter(|i| i.required) {
+        if !inputs.contains_key(&input.option) {
+            return Err(format!("{} requires --{}", offering.topology, input.option).into());
+        }
+    }
     for (key, value) in inputs {
-        if !BOARD_OVERRIDES.contains(&key.as_str()) {
+        if !listed(key) && !BOARD_OVERRIDES.contains(&key.as_str()) {
             return Err(format!("{} does not take --{key}", offering.topology).into());
         }
         // Values are QEMU's to judge, but must stay one option value.
@@ -374,8 +382,19 @@ mod tests {
         assert!(machine.contains(",l1-revision=1.2.3"), "{machine}");
         f.machine
             .inputs
+            .insert("fuel-mac-eeprom".into(), "mac.bin".into());
+        assert!(validate_inputs(o, &f.machine.inputs).is_ok());
+        f.machine
+            .inputs
             .insert("fuel-board-id-word".into(), "0x4000".into());
         assert!(validate_inputs(o, &f.machine.inputs).is_err());
+        let mut required = o.clone();
+        required.hardware_inputs.push(crate::InputBinding {
+            option: "board-revision".into(),
+            required: true,
+        });
+        let error = validate_inputs(&required, &BTreeMap::new()).unwrap_err();
+        assert!(error.to_string().contains("--board-revision"), "{error}");
         assert!(validate_graphics(o, "vpro").is_err());
         assert!(preset(&catalog, "origin350-2").is_err());
         assert!(preset(&catalog, "tezro-4").is_err());
