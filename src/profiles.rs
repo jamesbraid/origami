@@ -94,43 +94,17 @@ fn number(value: &str) -> Result<u64> {
     })
 }
 
+// QEMU's R12000 CPU model owns the meaning and validity of these values.
 fn validate_octane2_cpu(inputs: &BTreeMap<String, String>) -> Result<()> {
-    let mut values = Vec::new();
     for key in OCTANE2_CPU_INPUTS {
-        let value = inputs.get(*key).ok_or_else(|| {
-            format!("Octane2 requires --{key}; no measured CPU default is available")
-        })?;
-        let value = u32::try_from(number(value)?).map_err(|_| format!("{key} exceeds 32 bits"))?;
-        values.push(value);
+        if !inputs.contains_key(*key) {
+            return Err(
+                format!("Octane2 requires --{key}; no measured CPU default is available").into(),
+            );
+        }
     }
     if inputs.len() != OCTANE2_CPU_INPUTS.len() {
         return Err("unknown Octane2 CPU input".into());
-    }
-    // QEMU target/mips/r10k_cpu.c owns the accepted reset configuration.
-    let mode = values[2];
-    let ec = (mode >> 9) & 15;
-    let sc = (mode >> 19) & 7;
-    let k0 = mode & 7;
-    let dsd = (mode >> 22) & 7;
-    if values[0] & 0xff00 != 0x0e00 {
-        return Err("r12000-prid requires implementation 0x0e".into());
-    }
-    if mode > 0x01ffffff
-        || k0 < 2
-        || k0 == 6
-        || !(3..=11).contains(&ec)
-        || sc < 2
-        || sc == 6
-        || !matches!(dsd, 0 | 4)
-        || (mode >> 15) & 1 != 1
-    {
-        return Err("r12000-reset-mode must use a valid big-endian QEMU R12000 encoding".into());
-    }
-    if !matches!(values[3], 1048576 | 2097152) || (mode >> 16) & 7 != values[3] >> 20 {
-        return Err("r12000-scache-bytes disagrees with reset-mode cache size".into());
-    }
-    if !matches!(values[4], 16 | 32) || (mode >> 13) & 1 != u32::from(values[4] == 32) {
-        return Err("r12000-scache-block-words disagrees with reset-mode block size".into());
     }
     Ok(())
 }
@@ -376,10 +350,6 @@ mod tests {
             missing.remove(*key);
             assert!(validate_inputs(o, &missing).is_err());
         }
-        f.machine
-            .inputs
-            .insert("r12000-scache-bytes".into(), "1048576".into());
-        assert!(validate_inputs(o, &f.machine.inputs).is_err());
     }
 
     #[test]
