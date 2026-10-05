@@ -233,18 +233,18 @@ QEMU checkout.
 ## Preview archive workflow
 
 The `Build release archives` workflow runs for version tags or manually
-requested builds. Public GitHub tag builds produce Linux, macOS and Windows
+requested builds. GitHub tag builds produce Linux, macOS and Windows
 archives, then publish a prerelease with their checksums. Windows is
 cross-compiled on Linux. Only assets produced in that workflow run are
-uploaded. Private GitHub repositories skip these jobs. Pull requests and
-`main` pushes do not build archives.
+uploaded. Pull requests and `main` pushes do not build archives. GitHub jobs
+keep vcpkg's binary cache between runs.
 
 Manual runs build the selected platform without publishing a release.
 Routine development checks and additional archive builds can use the same
 workflow on the project's build runners.
 
-The Linux and macOS jobs extract their archives into paths containing spaces
-and run the product smoke test. It checks bundled executables, disk creation,
+Each platform's archive is extracted into a path containing spaces and run
+through the product smoke test, Windows on a Windows runner. It checks bundled executables, disk creation,
 QEMU start/status/stop, a VNC connection, concurrent-launch refusal and
 drive-edit locks using
 an original synthetic MIPS loop. No firmware or guest media is needed.

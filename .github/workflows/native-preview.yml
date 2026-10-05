@@ -60,15 +60,27 @@ jobs:
     concurrency:
       group: native-preview-${{ github.workflow }}-${{ github.ref }}-macos-arm64
       cancel-in-progress: false
-    if: github.server_url == 'https://github.com' && !github.event.repository.private && (github.event_name != 'workflow_dispatch' || (inputs.platform == 'macos-arm64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))
+    if: github.server_url == 'https://github.com' && (github.event_name != 'workflow_dispatch' || (inputs.platform == 'macos-arm64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))
     runs-on: macos-15
     timeout-minutes: 90
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/vcpkg-cache
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 0
           submodules: true
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+      - id: vcpkg
+        run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-cache
+          key: vcpkg-macos-arm64-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
+          restore-keys: vcpkg-macos-arm64-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -137,7 +149,7 @@ jobs:
           retention-days: 14
 
   github-containers:
-    if: github.server_url == 'https://github.com' && !github.event.repository.private && (github.event_name != 'workflow_dispatch' || inputs.platform != 'macos-arm64')
+    if: github.server_url == 'https://github.com' && (github.event_name != 'workflow_dispatch' || inputs.platform != 'macos-arm64')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
@@ -153,6 +165,14 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           submodules: true
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+      - id: vcpkg
+        run: echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/build-vcpkg-cache
+          key: vcpkg-${{ matrix.platform }}-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
+          restore-keys: vcpkg-${{ matrix.platform }}-
       - uses: ./.github/actions/build-archive
         if: github.event_name != 'workflow_dispatch' || inputs.platform == matrix.platform
         with:
@@ -172,9 +192,32 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  windows-smoke:
+    needs: github-containers
+    if: github.event_name != 'workflow_dispatch' || inputs.platform == 'windows-x86_64'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: origami-windows-x86_64-preview
+          path: dist
+      - name: Smoke test extracted archive
+        shell: pwsh
+        run: |
+          $package = Join-Path $env:RUNNER_TEMP 'smoke\package with spaces'
+          Expand-Archive dist/origami-windows-x86_64-preview.zip -DestinationPath $package
+          python build/smoke-test.py (Join-Path $package 'windows-dev') --scratch (Join-Path $env:RUNNER_TEMP 'smoke')
+
   publish:
-    needs: [github-containers, macos]
-    if: github.server_url == 'https://github.com' && !github.event.repository.private && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [github-containers, macos, windows-smoke]
+    if: github.server_url == 'https://github.com' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

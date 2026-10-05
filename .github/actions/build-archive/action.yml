@@ -39,8 +39,10 @@ runs:
         ENGINE: ${{ inputs.engine }}
         BUILD_DIR: ${{ inputs.build-dir }}
       run: |
-        mkdir -p "$BUILD_DIR"
+        # vcpkg's binary cache sits beside the build so the workflow can keep it.
+        mkdir -p "$BUILD_DIR" "$BUILD_DIR-vcpkg-cache"
         "$ENGINE" run --rm -v "$PWD:/source" -v "$BUILD_DIR:/build" -w /source \
+          -v "$BUILD_DIR-vcpkg-cache:/vcpkg-cache" -e VCPKG_DEFAULT_BINARY_CACHE=/vcpkg-cache \
           -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e 'GIT_CONFIG_VALUE_0=*' \
           -e PRESET="$PRESET" origami-product-builder:ci sh -ec '
             cmake --preset "$PRESET" -B /build
