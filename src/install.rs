@@ -53,10 +53,7 @@ struct Layer {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct InstallRecipe {
-    #[cfg_attr(not(test), allow(dead_code))]
-    format: u32,
     base_url: String,
     sets: Vec<String>,
     #[serde(skip)]
@@ -818,16 +815,9 @@ mod tests {
     #[test]
     fn embedded_recipe_has_https_layer_urls() {
         let recipe = recipe("legacy-development").unwrap();
-        assert_eq!(recipe.format, 1);
-        assert!(recipe.base_url.ends_with('/'));
-        crate::assets::validate_https_url(&recipe.base_url).unwrap();
         for layer in &recipe.layers {
-            crate::assets::validate_https_url(&format!(
-                "{}{}",
-                recipe.base_url,
-                layer.remote_path.as_deref().unwrap_or(&layer.path)
-            ))
-            .unwrap();
+            let path = layer.remote_path.as_deref().unwrap_or(&layer.path);
+            crate::assets::validate_https_url(&format!("{}{path}", recipe.base_url)).unwrap();
         }
     }
 

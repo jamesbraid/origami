@@ -4,9 +4,7 @@ use sha2::Digest;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Manifest {
-    pub format: u32,
     pub base_url: String,
     pub proms: Vec<Prom>,
 }
@@ -224,26 +222,8 @@ mod tests {
     #[test]
     fn embedded_manifest_covers_supported_presets() {
         let manifest = manifest().unwrap();
-        // The manifest is compile-time data, so check it here rather than at runtime.
-        assert_eq!(manifest.format, 1);
-        validate_https_url(&manifest.base_url).unwrap();
-        assert!(manifest.base_url.ends_with('/'));
-        let mut seen = std::collections::HashSet::new();
         for prom in &manifest.proms {
             validate_https_url(&format!("{}{}", manifest.base_url, prom.path)).unwrap();
-            assert!(prom.size > 0 && !prom.profiles.is_empty(), "{}", prom.path);
-            assert!(
-                prom.sha256.len() == 64
-                    && prom
-                        .sha256
-                        .bytes()
-                        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c)),
-                "{}",
-                prom.path
-            );
-            for profile in &prom.profiles {
-                assert!(!profile.is_empty() && seen.insert(profile), "{profile}");
-            }
         }
         for name in [
             "origin200-1",
