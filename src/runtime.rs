@@ -6,6 +6,8 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -384,6 +386,24 @@ pub fn start_background(dir: &Path, display: Display) -> Result<()> {
         .arg(display_name);
     if let Display::Vnc { port } = display {
         child.arg("--vnc-port").arg(port.to_string());
+    }
+    // Windows passes every inheritable handle to a child, including this
+    // process's own standard streams, so a caller reading them would wait
+    // until QEMU exits. Keep them out of the background process.
+    #[cfg(windows)]
+    for handle in [
+        std::io::stdin().as_raw_handle(),
+        std::io::stdout().as_raw_handle(),
+        std::io::stderr().as_raw_handle(),
+    ] {
+        // SAFETY: the standard handles stay open for the life of the process.
+        unsafe {
+            windows_sys::Win32::Foundation::SetHandleInformation(
+                handle,
+                windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT,
+                0,
+            )
+        };
     }
     let mut child = child
         .stdin(Stdio::null())
