@@ -44,9 +44,18 @@ pub struct Offering {
     pub scsi_adapters: Vec<ScsiAdapter>,
     #[serde(rename = "needs-debug-leds-off", default)]
     pub needs_debug_leds_off: bool,
+    /// Machine options this offering accepts beyond its storage.
+    #[serde(rename = "hardware-inputs")]
+    pub hardware_inputs: Vec<InputBinding>,
     /// Serial lines in -serial order; the line of kind `console` is the
     /// primary console.
     pub consoles: Vec<Console>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct InputBinding {
+    pub option: String,
+    pub required: bool,
 }
 
 /// A serial line the machine offers, named by the chardev its argument uses.
