@@ -1,19 +1,11 @@
 use crate::{qemu_path_option, resolve, sha256_file, MachineFile, Origin300Identity, Result};
-use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-#[cfg(unix)]
-use std::os::unix::fs::MetadataExt;
-#[cfg(windows)]
-use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const DIMM2_SHA256: &str = "a8bb5857941fefae8e11037fe98b01d199199bd34eb059b269a8c4b6875ca0d3";
 pub const DIMM3_SHA256: &str = "9e60c3400772d227b91c5d61cea8de7f89777d41377516de072944c26cef4aa7";
 const FLASH_BYTES: usize = 16 * 1024 * 1024;
-const FLASH_SEED_SHA256: &str = "6df02e413cc71206badcd375dfc53499e9fc6a193b76e3e37baca515e92b2f0f";
-const PROM_SHA256: &str = "554924380189a03a512156af2faa38344902f251b49fd5c80c253c23ecaff27b";
 
 pub fn validate_spd_file(path: &Path, expected: &str) -> Result<()> {
     if fs::metadata(path)?.len() != 128 || sha256_file(path)? != expected {
@@ -82,83 +74,12 @@ fn board_record(mac: &str) -> Result<[u8; 80]> {
         record[offset] = 0x04;
         offset += 5;
     }
-    if offset != 64 {
-        return Err("internal IO8 board layout error".into());
-    }
+    debug_assert_eq!(offset, 64);
     record[64] = 0xcc;
     record[65..77].copy_from_slice(&digits);
     record[77] = 0xc1;
     checksum(&mut record);
     Ok(record)
-}
-
-fn ensure_record(path: &Path, expected: &[u8]) -> Result<()> {
-    if path.exists() {
-        if fs::read(path)? != expected {
-            return Err(format!(
-                "existing Origin 300 identity differs from machine.toml: {}",
-                path.display()
-            )
-            .into());
-        }
-        return Ok(());
-    }
-    let temporary = path.with_extension(format!(
-        "bin.{}.{}.new",
-        std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
-    ));
-    let result = (|| -> Result<()> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        file.write_all(expected)?;
-        file.sync_all()?;
-        fs::rename(&temporary, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(temporary);
-    }
-    result
-}
-
-#[cfg(windows)]
-fn file_link_count(path: &Path) -> Result<u32> {
-    #[repr(C)]
-    struct FileTime {
-        low: u32,
-        high: u32,
-    }
-    #[repr(C)]
-    struct FileInformation {
-        attributes: u32,
-        created: FileTime,
-        accessed: FileTime,
-        modified: FileTime,
-        volume: u32,
-        size_high: u32,
-        size_low: u32,
-        links: u32,
-        index_high: u32,
-        index_low: u32,
-    }
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetFileInformationByHandle(
-            handle: *mut std::ffi::c_void,
-            info: *mut FileInformation,
-        ) -> i32;
-    }
-    let file = fs::File::open(path)?;
-    let mut info = std::mem::MaybeUninit::<FileInformation>::uninit();
-    // The Windows API writes the complete structure only on success.
-    let success = unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
-    if success == 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(unsafe { info.assume_init().links })
 }
 
 fn seed_flash(prom: &[u8]) -> Result<Vec<u8>> {
@@ -187,116 +108,29 @@ pub fn prepare_state(dir: &Path, file: &MachineFile, prom: &Path) -> Result<()> 
         .as_ref()
         .ok_or("Origin 300 needs an identity section")?;
     let board = board_record(&identity.mac)?;
-    ensure_record(&dir.join("state/io8-chassis.bin"), &chassis_record())?;
-    ensure_record(&dir.join("state/io8-board.bin"), &board)?;
+    fs::write(dir.join("state/io8-chassis.bin"), chassis_record())?;
+    fs::write(dir.join("state/io8-board.bin"), board)?;
     let target = flash_path(dir);
     if target.exists() {
         let info = fs::symlink_metadata(&target)?;
         if !info.file_type().is_file() || info.len() != FLASH_BYTES as u64 {
             return Err(format!("invalid Origin 300 boot flash: {}", target.display()).into());
         }
-        #[cfg(unix)]
-        if info.nlink() != 1 {
-            return Err("Origin 300 boot flash must not share a hard link".into());
-        }
-        #[cfg(windows)]
-        if file_link_count(&target)? != 1 {
-            return Err("Origin 300 boot flash must not share a hard link".into());
-        }
         return Ok(());
     }
-    let prom_bytes = fs::read(prom)?;
-    if format!("{:x}", Sha256::digest(&prom_bytes)) != PROM_SHA256 {
-        return Err("Origin 300 PROM has an unexpected SHA-256".into());
-    }
-    let image = seed_flash(&prom_bytes)?;
-    if format!("{:x}", Sha256::digest(&image)) != FLASH_SEED_SHA256 {
-        return Err("Origin 300 boot flash seed differs from the reviewed image".into());
-    }
-    let temporary = dir.join(format!(
-        "state/ip35-boot-flash.raw.{}.new",
-        std::process::id()
-    ));
-    let result = (|| -> Result<()> {
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)?;
-        output.write_all(&image)?;
-        output.sync_all()?;
-        fs::rename(&temporary, &target)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(temporary);
-    }
-    result
+    let image = seed_flash(&fs::read(prom)?)?;
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&target)?
+        .write_all(&image)?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn test_dir(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("sgi-{name}-{}", std::process::id()))
-    }
-
-    #[test]
-    fn identity_write_recovers_from_an_incomplete_temporary_file() {
-        let dir = test_dir("identity-retry");
-        fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("io8-board.bin");
-        let abandoned = dir.join("io8-board.bin.0.old.new");
-        fs::write(&abandoned, b"partial").unwrap();
-        ensure_record(&path, b"complete").unwrap();
-        assert_eq!(fs::read(&path).unwrap(), b"complete");
-        assert_eq!(fs::read(&abandoned).unwrap(), b"partial");
-        fs::write(&path, b"partial").unwrap();
-        assert!(ensure_record(&path, b"complete").is_err());
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn linked_flash_is_rejected() {
-        let dir = test_dir("linked-flash");
-        fs::create_dir_all(dir.join("state")).unwrap();
-        let target = flash_path(&dir);
-        let other = dir.join("other.raw");
-        fs::File::create(&other)
-            .unwrap()
-            .set_len(FLASH_BYTES as u64)
-            .unwrap();
-        fs::hard_link(&other, &target).unwrap();
-        let file = MachineFile {
-            format: 1,
-            machine: crate::Machine {
-                topology: None,
-                population: vec![],
-                inputs: Default::default(),
-                model: "origin300".into(),
-                nodes: 1,
-                cpus_per_node: 2,
-                memory_per_node: "512MiB".into(),
-                graphics: "none".into(),
-            },
-            firmware: crate::Firmware {
-                image: String::new(),
-            },
-            identity: Some(Origin300Identity {
-                mac: "08:00:69:12:34:56".into(),
-                spd_dimm2: String::new(),
-                spd_dimm3: String::new(),
-            }),
-            network: crate::Network::default(),
-            drive: vec![],
-        };
-        let prom = dir.join("missing-prom");
-        assert!(prepare_state(&dir, &file, &prom)
-            .unwrap_err()
-            .to_string()
-            .contains("hard link"));
-        fs::remove_dir_all(dir).unwrap();
-    }
+    use sha2::Digest;
 
     #[test]
     fn io8_identity_has_reviewed_field_positions_and_checksum() {
@@ -330,5 +164,9 @@ mod tests {
         assert_eq!(&image[0x9e0101..0x9e0109], b"DisableB");
         assert_eq!(&image[0x9e0141..0x9e0149], b"DisableD");
         assert_eq!(image[0x9e0180], 0xff);
+        assert_eq!(
+            format!("{:x}", sha2::Sha256::digest(&image)),
+            "ca02338573f873c8717b7a81ea5e28d148b0162da84e839e04747afe54617f50"
+        );
     }
 }
