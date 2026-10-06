@@ -233,6 +233,31 @@ fn origin2000_and_onyx2_read_the_io_prom_given() {
 }
 
 #[test]
+fn a_machine_without_a_topology_takes_the_one_it_ran_on() {
+    let root = tempfile::tempdir().unwrap();
+    let io_prom = root.path().join("io6prom.img");
+    fs::write(&io_prom, b"io6").unwrap();
+    let text = ORIGIN2000.replace("topology = \"origin2000-rack\"\n", "");
+    let text = text.replace("population = [\n    2,\n    2,\n    2,\n    2,\n]\n", "");
+    assert!(!text.contains("topology") && !text.contains("population"));
+    let machine = format1(root.path(), "origin2000", &text, &borrowed(&ip27_state(4)));
+    let path = machine.to_str().unwrap();
+    let output = origami(
+        root.path(),
+        &["upgrade", path, "--io-prom", io_prom.to_str().unwrap()],
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = fs::read_to_string(machine.join("machine.toml")).unwrap();
+    assert!(text.contains("topology = \"origin2000-rack\""), "{text}");
+    assert_eq!(
+        fs::read(machine.join("state/node3-flash.raw")).unwrap(),
+        [4; 1048576]
+    );
+    let output = origami(root.path(), &["validate", path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
 fn io_prom_without_a_file_or_cached_copy_names_the_option() {
     let root = tempfile::tempdir().unwrap();
     let machine = format1(

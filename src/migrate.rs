@@ -74,6 +74,22 @@ fn convert(dir: &Path, text: &str) -> Result<(MachineFile, PathBuf)> {
             toml::Table::from_iter([("mac".into(), mac)]).into(),
         );
     }
+    // Machines from before topologies named only the model, and Origami
+    // 0.1.1 ran them on the topology this picks.
+    if let Some(machine) = table
+        .get_mut("machine")
+        .and_then(toml::Value::as_table_mut)
+        .filter(|machine| !machine.contains_key("topology"))
+    {
+        let model = machine.get("model").and_then(toml::Value::as_str);
+        let nodes = machine.get("nodes").and_then(toml::Value::as_integer);
+        let topology = match (model, nodes) {
+            (Some("origin200"), Some(2)) => "origin200-dual",
+            (Some("origin2000"), _) => "origin2000-rack",
+            (model, _) => model.ok_or("no machine model")?,
+        };
+        machine.insert("topology".into(), topology.into());
+    }
     // Fuel's board inputs took the QEMU property names.
     if let Some(inputs) = table
         .get_mut("machine")
