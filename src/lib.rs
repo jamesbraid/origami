@@ -476,7 +476,7 @@ pub fn create_configured(
     let graphics = graphics.unwrap_or(profiles::default_graphics(offering));
     let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
     let arguments =
-        runtime::init_arguments(offering, init.boot_prom, init.io_prom, &dir.join("state"))?;
+        runtime::init_arguments(offering, init.boot_prom, init.io_prom, &dir.join("state"));
     if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
     }
@@ -631,26 +631,10 @@ mod tests {
         let offer = preset(&catalog, "origin2000-8").unwrap();
         let tool = test_support::init_tool(&root);
         let machine = root.join("machine");
-        let without_io = MachineInit {
+        let init = MachineInit {
             tool: &tool,
             boot_prom: &prom,
-            io_prom: None,
-        };
-        let error = create_configured(
-            &machine,
-            offer,
-            &without_io,
-            None,
-            None,
-            None,
-            Default::default(),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("--io-prom"), "{error}");
-        assert!(!machine.exists());
-        let init = MachineInit {
             io_prom: Some(&io_prom),
-            ..without_io
         };
         create_configured(&machine, offer, &init, None, None, None, Default::default()).unwrap();
         let arguments =

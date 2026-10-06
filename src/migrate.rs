@@ -108,7 +108,7 @@ fn install(
     // Left by an interrupted upgrade.
     let _ = fs::remove_dir_all(&staging);
     let result = (|| -> Result<()> {
-        let arguments = runtime::init_arguments(offering, init.boot_prom, init.io_prom, &staging)?;
+        let arguments = runtime::init_arguments(offering, init.boot_prom, init.io_prom, &staging);
         runtime::create_state(init.tool, &arguments)?;
         let raw = |root: &Path, name: &str| root.join(format!("{name}.raw"));
         for item in &offering.storage {

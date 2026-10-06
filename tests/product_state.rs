@@ -115,5 +115,26 @@ fn every_preset_creates_the_catalogue_storage_and_reopens() {
             }
         }
     }
+    // The init tool refuses an image the machine does not read.
+    let image = root.0.join("ip27.bin");
+    synthetic_image(&image, "ip27-prom");
+    let machine = root.0.join("origin200 with an IO PROM");
+    let output = origami(
+        &root.0,
+        &[
+            "create".as_ref(),
+            machine.as_os_str(),
+            "--preset".as_ref(),
+            "origin200-1".as_ref(),
+            "--prom".as_ref(),
+            image.as_os_str(),
+            "--io-prom".as_ref(),
+            image.as_os_str(),
+        ],
+    );
+    let error = String::from_utf8_lossy(&output.stderr);
+    if output.status.success() || !error.contains("takes no --io-prom") || machine.exists() {
+        failures.push(format!("origin200-1 with --io-prom: {error}"));
+    }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

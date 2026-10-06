@@ -55,39 +55,25 @@ pub fn machine_init_path() -> Result<PathBuf> {
 }
 
 /// The init tool's command line for a new machine whose storage goes in
-/// `state`. Each catalogue init input is the tool option of the same name.
+/// `state`. The tool refuses an image the machine does not read and a
+/// missing one it needs, before it creates anything.
 pub fn init_arguments(
     offering: &Offering,
     boot_prom: &Path,
     io_prom: Option<&Path>,
     state: &Path,
-) -> Result<Vec<OsString>> {
-    let mut args = vec!["--machine".into(), offering.machine_options.clone().into()];
-    for input in &offering.init_inputs {
-        let image = match input.name.as_str() {
-            "boot-prom" => Some(boot_prom),
-            "io-prom" => io_prom,
-            other => {
-                return Err(format!("{} needs unsupported input {other}", offering.topology).into())
-            }
-        };
-        match image {
-            Some(image) => args.extend([format!("--{}", input.name).into(), image.into()]),
-            None if input.required => {
-                return Err(format!(
-                    "{} needs its {} image; supply --{} FILE",
-                    offering.topology, input.kind, input.name
-                )
-                .into())
-            }
-            None => (),
-        }
-    }
-    if io_prom.is_some() && !offering.init_inputs.iter().any(|i| i.name == "io-prom") {
-        return Err(format!("{} has no IO PROM", offering.topology).into());
+) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec![
+        "--machine".into(),
+        offering.machine_options.clone().into(),
+        "--boot-prom".into(),
+        boot_prom.into(),
+    ];
+    if let Some(io_prom) = io_prom {
+        args.extend(["--io-prom".into(), io_prom.into()]);
     }
     args.push(state.into());
-    Ok(args)
+    args
 }
 
 /// Run QEMU's init tool, which writes every storage file or nothing.
@@ -763,7 +749,7 @@ mod tests {
     }
 
     #[test]
-    fn init_arguments_follow_the_catalogue_inputs() {
+    fn init_arguments_pass_the_images_to_the_tool() {
         let catalog = crate::test_catalogue();
         let origin200 = preset(&catalog, "origin200-1").unwrap();
         let args = init_arguments(
@@ -771,8 +757,7 @@ mod tests {
             Path::new("boot,prom.img"),
             None,
             Path::new("/machine/state"),
-        )
-        .unwrap();
+        );
         assert_eq!(
             args,
             [
@@ -783,25 +768,13 @@ mod tests {
                 "/machine/state"
             ]
         );
-        let error = init_arguments(
-            origin200,
-            Path::new("boot.img"),
-            Some(Path::new("io.img")),
-            Path::new("state"),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("no IO PROM"), "{error}");
         let origin2000 = preset(&catalog, "origin2000-8").unwrap();
-        let error = init_arguments(origin2000, Path::new("boot.img"), None, Path::new("state"))
-            .unwrap_err();
-        assert!(error.to_string().contains("--io-prom FILE"), "{error}");
         let args = init_arguments(
             origin2000,
             Path::new("boot.img"),
             Some(Path::new("io.img")),
             Path::new("state"),
-        )
-        .unwrap();
+        );
         assert_eq!(&args[4..], ["--io-prom", "io.img", "state"]);
     }
 
