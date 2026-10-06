@@ -1,6 +1,10 @@
+#![cfg(unix)]
+
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct TempDir(PathBuf);
@@ -30,8 +34,8 @@ impl Drop for TempDir {
     }
 }
 
-fn run(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_origami"))
+fn run(root: &Path, args: &[&str]) -> Output {
+    common::origami(Path::new(env!("CARGO_BIN_EXE_origami")), root)
         .args(args)
         .output()
         .unwrap()
@@ -43,14 +47,17 @@ fn drive_create_rejects_an_occupied_system_target_before_writing() {
     let prom = root.path().join("synthetic-prom.bin");
     fs::write(&prom, vec![0; 1024 * 1024]).unwrap();
     let machine = root.path().join("machine");
-    let create = run(&[
-        "create",
-        machine.to_str().unwrap(),
-        "--preset",
-        "origin200-1",
-        "--prom",
-        prom.to_str().unwrap(),
-    ]);
+    let create = run(
+        root.path(),
+        &[
+            "create",
+            machine.to_str().unwrap(),
+            "--preset",
+            "origin200-1",
+            "--prom",
+            prom.to_str().unwrap(),
+        ],
+    );
     assert!(
         create.status.success(),
         "{}",
@@ -59,15 +66,18 @@ fn drive_create_rejects_an_occupied_system_target_before_writing() {
 
     let sentinel = root.path().join("sentinel-disk.img");
     fs::write(&sentinel, b"external disk sentinel\n").unwrap();
-    let attach = run(&[
-        "drive-attach",
-        machine.to_str().unwrap(),
-        sentinel.to_str().unwrap(),
-        "--type",
-        "disk",
-        "--target",
-        "1",
-    ]);
+    let attach = run(
+        root.path(),
+        &[
+            "drive-attach",
+            machine.to_str().unwrap(),
+            sentinel.to_str().unwrap(),
+            "--type",
+            "disk",
+            "--target",
+            "1",
+        ],
+    );
     assert!(
         attach.status.success(),
         "{}",
@@ -77,13 +87,12 @@ fn drive_create_rejects_an_occupied_system_target_before_writing() {
     let machine_file = machine.join("machine.toml");
     let machine_before = fs::read(&machine_file).unwrap();
     let sentinel_before = fs::read(&sentinel).unwrap();
-    let missing_runtime = root.path().join("missing-runtime");
-    assert!(!missing_runtime.exists());
-    let create_disk = Command::new(env!("CARGO_BIN_EXE_origami"))
-        .args(["drive-create", machine.to_str().unwrap(), "16"])
-        .env("ORIGAMI_RUNTIME_DIR", &missing_runtime)
-        .output()
-        .unwrap();
+    // The fake runtime has no qemu-img, so reaching it would fail differently.
+    assert!(!root.path().join("runtime/qemu-img").exists());
+    let create_disk = run(
+        root.path(),
+        &["drive-create", machine.to_str().unwrap(), "16"],
+    );
 
     let stderr = String::from_utf8_lossy(&create_disk.stderr);
     assert!(!create_disk.status.success());

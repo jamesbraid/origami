@@ -1,9 +1,11 @@
 #![cfg(unix)]
 
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct TempDir(PathBuf);
@@ -14,8 +16,11 @@ impl Drop for TempDir {
     }
 }
 
-fn run(executable: &Path, args: &[&str]) -> Output {
-    Command::new(executable).args(args).output().unwrap()
+fn run(executable: &Path, root: &Path, args: &[&str]) -> Output {
+    common::origami(executable, root)
+        .args(args)
+        .output()
+        .unwrap()
 }
 
 #[test]
@@ -67,7 +72,7 @@ exit 7
             "desktop",
         ],
     ] {
-        let output = run(&executable, &args);
+        let output = run(&executable, &root.0, &args);
         assert!(
             output.status.success(),
             "{}",
@@ -75,7 +80,11 @@ exit 7
         );
     }
     for _ in 0..2 {
-        let output = run(&executable, &["install-serve", machine.to_str().unwrap()]);
+        let output = run(
+            &executable,
+            &root.0,
+            &["install-serve", machine.to_str().unwrap()],
+        );
         assert!(!output.status.success());
         assert!(String::from_utf8_lossy(&output.stderr).contains("server.log"));
     }

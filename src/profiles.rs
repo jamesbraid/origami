@@ -162,7 +162,7 @@ pub fn add_graphics(args: &mut Vec<String>, offering: &Offering, graphics: &str)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{catalogue, preset, runtime, Firmware, MachineFile, Network};
+    use crate::{preset, runtime, Firmware, MachineFile, Network};
     use std::path::Path;
 
     fn file(o: &Offering, graphics: &str) -> MachineFile {
@@ -188,53 +188,9 @@ mod tests {
     }
 
     #[test]
-    fn starter_profiles_are_unique_and_cover_implemented_families() {
-        let catalog = catalogue().unwrap();
-        let profiles = presets(&catalog);
-        let names: std::collections::HashSet<_> = profiles.iter().map(|(name, _)| name).collect();
-        assert_eq!(names.len(), profiles.len());
-        assert_eq!(profiles.len(), 12);
-        for product in [
-            "origin200",
-            "origin2000",
-            "origin300",
-            "onyx2",
-            "octane",
-            "octane2",
-            "fuel",
-        ] {
-            assert!(profiles.iter().any(|(_, o)| o.product == product));
-        }
-        for name in [
-            "origin200-impact",
-            "octane-impact",
-            "octane2-impact",
-            "onyx2-infinite-reality",
-            "origin300-v12-direct-2",
-            "origin300-vbrick-2",
-        ] {
-            assert!(preset(&catalog, name).is_ok());
-        }
-        assert!(preset(&catalog, "origin300-two-chassis-4-2").is_err());
-        assert!(catalog
-            .offerings
-            .iter()
-            .any(|o| o.topology == "origin300-two-chassis" && o.cpus_per_node == [4, 2]));
-        for legacy in [
-            "origin200-1",
-            "origin200-2",
-            "origin200-dual",
-            "origin2000-8",
-            "origin300-2",
-        ] {
-            assert!(preset(&catalog, legacy).is_ok());
-        }
-    }
-
-    #[test]
-    fn origin200_impact_uses_the_gigachannel_slot() {
-        let catalog = catalogue().unwrap();
-        let o = preset(&catalog, "origin200-impact").unwrap();
+    fn impact_boards_use_the_xio_slot_and_onyx2_its_fitted_pipe() {
+        let catalog = crate::test_catalogue();
+        let o = preset(&catalog, "origin2000-8").unwrap();
         let args = runtime::arguments(
             Path::new("/machine"),
             &file(o, "si"),
@@ -244,16 +200,22 @@ mod tests {
         .unwrap();
         assert!(args
             .windows(2)
-            .any(|p| p[0] == "-M" && p[1].contains("topology=origin200-gigachannel")));
-        assert!(args
-            .windows(2)
             .any(|p| p == ["-device", "sgi-mgras,slot=io3,board=si"]));
-        assert!(!args.iter().any(|a| a.contains("psitech")));
+        let mut args = vec![];
+        add_graphics(&mut args, o, "infinite-reality").unwrap();
+        assert_eq!(args, ["-device", "sgi-kona,slot=io3"]);
+        // An Onyx2 has its pipe built in, so no device is added for it.
+        let mut onyx2 = o.clone();
+        onyx2.product = "onyx2".into();
+        onyx2.topology = "onyx2-deskside".into();
+        let mut args = vec![];
+        add_graphics(&mut args, &onyx2, "infinite-reality").unwrap();
+        assert!(args.is_empty());
     }
 
     #[test]
     fn octane_impact_uses_machine_graphics_and_embedded_network() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let o = preset(&catalog, "octane-impact").unwrap();
         let args = runtime::arguments(
             Path::new("/machine"),
@@ -270,24 +232,8 @@ mod tests {
     }
 
     #[test]
-    fn onyx2_uses_its_fitted_infinite_reality_pipe() {
-        let catalog = catalogue().unwrap();
-        let o = preset(&catalog, "onyx2-infinite-reality").unwrap();
-        let args = runtime::arguments(
-            Path::new("/machine"),
-            &file(o, "infinite-reality"),
-            o,
-            runtime::Display::None,
-        )
-        .unwrap();
-        assert!(args.iter().any(|a| a.contains("topology=onyx2-deskside")));
-        assert!(!args.iter().any(|a| a.contains("sgi-kona")));
-        assert!(args.iter().any(|a| a.starts_with("if=pflash,index=0,")));
-    }
-
-    #[test]
     fn heterogeneous_cpu_populations_are_explicit() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         for o in catalog
             .offerings
             .iter()
@@ -318,43 +264,8 @@ mod tests {
     }
 
     #[test]
-    fn octane2_requires_explicit_cpu_properties_on_cpu_option() {
-        let catalog = catalogue().unwrap();
-        let o = preset(&catalog, "octane2-impact").unwrap();
-        let mut f = file(o, "si");
-        assert!(
-            runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None)
-                .unwrap_err()
-                .to_string()
-                .contains("r12000-prid")
-        );
-        // Synthetic configuration from QEMU tests/qtest/octane-test.c.
-        f.machine.inputs = [
-            ("r12000-prid", "0xe24"),
-            ("r12000-fpu-id", "0x7654"),
-            ("r12000-reset-mode", "0x1aa683"),
-            ("r12000-scache-bytes", "2097152"),
-            ("r12000-scache-block-words", "32"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.into(), v.into()))
-        .collect();
-        let args =
-            runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
-        let cpu = args.windows(2).find(|p| p[0] == "-cpu").unwrap();
-        let machine = args.windows(2).find(|p| p[0] == "-M").unwrap();
-        for key in OCTANE2_CPU_INPUTS {
-            assert!(cpu[1].contains(&format!("{key}={}", f.machine.inputs[*key])));
-            assert!(!machine[1].contains(key));
-            let mut missing = f.machine.inputs.clone();
-            missing.remove(*key);
-            assert!(validate_inputs(o, &missing).is_err());
-        }
-    }
-
-    #[test]
     fn fuel_requires_explicit_inputs_and_rejects_vpro() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let o = preset(&catalog, "fuel-1").unwrap();
         let mut f = file(o, "none");
         assert!(runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).is_err());

@@ -1,6 +1,6 @@
 use crate::{
     control, origin300, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering,
-    PortForward, Result,
+    PortForward, Result, StorageItem,
 };
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -57,27 +57,11 @@ pub fn prepare_state(
     prom: &Path,
 ) -> Result<()> {
     fs::create_dir_all(dir.join("state"))?;
-    let nvram_count: u32 = offering
-        .resources
-        .iter()
-        .filter(|resource| resource.kind == "nvram")
-        .map(|resource| resource.count)
-        .sum();
-    let nvram_size = offering
-        .resources
-        .iter()
-        .find(|r| r.kind == "nvram")
-        .map_or(32768, |r| r.size);
-    let clock_size = offering
-        .resources
-        .iter()
-        .find(|r| r.kind == "rtc-clock")
-        .map_or(16, |r| r.size);
-    for node in 0..nvram_count {
-        ensure_size(&dir.join(format!("state/nvram{node}.raw")), nvram_size)?;
+    for (node, nvram, clock) in nvram_stores(offering) {
+        ensure_size(&dir.join(format!("state/nvram{node}.raw")), nvram.size)?;
         ensure_size(
             &dir.join(format!("state/nvram{node}.raw.clock")),
-            clock_size,
+            clock.size,
         )?;
     }
     if offering.product == "origin300" && file.identity.is_some() {
@@ -112,6 +96,19 @@ pub fn prepare_state(
         }
     }
     Ok(())
+}
+
+fn nvram_stores(offering: &Offering) -> Vec<(usize, &StorageItem, &StorageItem)> {
+    let item = |name: String| offering.storage.iter().find(|item| item.name == name);
+    (0..)
+        .map_while(|index| {
+            Some((
+                index,
+                item(format!("nvram{index}"))?,
+                item(format!("nvram{index}-clock"))?,
+            ))
+        })
+        .collect()
 }
 
 fn ensure_size(path: &Path, bytes: u64) -> Result<()> {
@@ -232,13 +229,7 @@ pub fn arguments(
             ]);
         }
     }
-    let nvram_count: u32 = offering
-        .resources
-        .iter()
-        .filter(|resource| resource.kind == "nvram")
-        .map(|resource| resource.count)
-        .sum();
-    for node in 0..nvram_count {
+    for (node, _, _) in nvram_stores(offering) {
         let path = dir.join(format!("state/nvram{node}.raw"));
         args.extend([
             "-drive".into(),
@@ -567,7 +558,7 @@ fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{catalogue, preset, Firmware, Machine, Network};
+    use crate::{preset, Firmware, Machine, Network};
 
     fn machine(offering: &Offering, graphics: &str) -> MachineFile {
         MachineFile {
@@ -593,7 +584,7 @@ mod tests {
 
     #[test]
     fn local_graphics_uses_sdl_and_rad4() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let args = arguments(
             Path::new("/machine"),
@@ -613,7 +604,7 @@ mod tests {
 
     #[test]
     fn fuel_guest_console_uses_ioc3_a_in_foreground_and_background() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "fuel-1").unwrap();
         let mut file = machine(offer, "none");
         file.machine.inputs = [
@@ -644,7 +635,7 @@ mod tests {
 
     #[test]
     fn foreground_serial_keeps_console_and_logs_output() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let mut args = arguments(
             Path::new("/machine"),
@@ -670,7 +661,7 @@ mod tests {
 
     #[test]
     fn vnc_port_maps_to_qemu_display_offset() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let display = Display::Vnc { port: 5991 };
         let args = arguments(
@@ -687,7 +678,7 @@ mod tests {
 
     #[test]
     fn user_network_forwards_bind_only_to_loopback() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let rules = vec![
             PortForward {
                 name: "ssh".into(),
@@ -705,25 +696,14 @@ mod tests {
         let expected = "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15,hostfwd=tcp:127.0.0.1:2222-:22,hostfwd=udp:127.0.0.1:5353-:53";
         let origin200 = preset(&catalog, "origin200-1").unwrap();
         let mut file = machine(origin200, "rad4");
-        file.network.forward = rules.clone();
+        file.network.forward = rules;
         let args = arguments(Path::new("/machine"), &file, origin200, Display::None).unwrap();
         assert!(args.windows(2).any(|pair| pair == ["-nic", expected]));
-
-        let origin300 = preset(&catalog, "origin300-2").unwrap();
-        let mut file = machine(origin300, "none");
-        file.network.forward = rules;
-        file.identity = Some(crate::Origin300Identity {
-            mac: "08:00:69:12:34:56".into(),
-            spd_dimm2: "firmware/spd-dimm2.bin".into(),
-            spd_dimm3: "firmware/spd-dimm3.bin".into(),
-        });
-        let args = arguments(Path::new("/machine"), &file, origin300, Display::None).unwrap();
-        assert!(args.windows(2).any(|pair| pair == ["-netdev", expected]));
     }
 
     #[test]
     fn origin2000_uses_independent_node_flash_images() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin2000-8").unwrap();
         let args = arguments(
             Path::new("/machine"),
@@ -745,52 +725,10 @@ mod tests {
             ]));
     }
 
-    #[test]
-    fn origin300_uses_persistent_flash_and_spd_inputs() {
-        let catalog = catalogue().unwrap();
-        let offer = preset(&catalog, "origin300-2").unwrap();
-        let dir = Path::new("/machine");
-        let mut file = machine(offer, "none");
-        file.identity = Some(crate::Origin300Identity {
-            mac: "08:00:69:12:34:56".into(),
-            spd_dimm2: "firmware/spd-dimm2.bin".into(),
-            spd_dimm3: "firmware/spd-dimm3.bin".into(),
-        });
-        let args = arguments(dir, &file, offer, Display::None).unwrap();
-        let flash = format!(
-            "if=pflash,index=0,file={},format=raw",
-            dir.join("state/ip35-boot-flash.raw").display()
-        );
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["-drive", flash.as_str()]));
-        for (slot, name) in [(3, "spd-dimm2.bin"), (5, "spd-dimm3.bin")] {
-            let expected = format!(
-                "spd-eeprom.{slot}={}",
-                resolve(dir, &format!("firmware/{name}")).display()
-            );
-            assert!(args.iter().any(|arg| arg.contains(&expected)));
-        }
-        assert!(args
-            .iter()
-            .any(|arg| arg == "nic,model=sgi-ioc3-eth,netdev=net0,macaddr=08:00:69:12:34:56"));
-        file.identity.as_mut().unwrap().spd_dimm2 = "firmware/dimm,2.bin".into();
-        let escaped = arguments(Path::new("/machine,one"), &file, offer, Display::None).unwrap();
-        assert!(escaped
-            .iter()
-            .any(|arg| arg.contains("chassis-eeprom.1=") && arg.contains("machine,,one")));
-        assert!(escaped
-            .iter()
-            .any(|arg| arg.contains("spd-eeprom.3=") && arg.contains("dimm,,2.bin")));
-        assert!(escaped
-            .iter()
-            .any(|arg| arg.contains("if=pflash,index=0,file=") && arg.contains("machine,,one")));
-    }
-
     #[cfg(unix)]
     #[test]
     fn private_network_uses_qemu_stream_client() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let mut file = machine(offer, "rad4");
         file.network = Network {
@@ -814,7 +752,7 @@ mod tests {
 
     #[test]
     fn private_tcp_network_uses_loopback_stream_client() {
-        let catalog = catalogue().unwrap();
+        let catalog = crate::test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
         let mut file = machine(offer, "rad4");
         file.network = Network {

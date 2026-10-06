@@ -1,0 +1,85 @@
+{
+ "schema": "sgi-machines",
+ "version": 1,
+ "offerings": [
+  {
+   "product": "origin200", "topology": "origin200", "nodes": 1, "smp": 1, "cpus-per-node": [1],
+   "machine-options": "origin200,topology=origin200,nodes=1", "default-cpu-model": "R10000",
+   "memory-per-node-mib": {"accepted": [512, 256, 128, 64], "default": 64},
+   "needs-debug-leds-off": true,
+   "init-inputs": [{"kind": "ip27-prom", "name": "boot-prom", "required": true}],
+   "storage": [
+    {"name": "node0-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "nvram0", "size": 32768, "initial": "ip27-nvram", "read-only": false},
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+   ],
+   "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]}],
+   "consoles": [
+    {"argument": "-serial chardev:ioc3_a", "kind": "console", "node": 0},
+    {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0},
+    {"argument": "-serial chardev:elsc", "kind": "system-controller", "node": 0}
+   ],
+   "hardware-inputs": []
+  },
+  {
+   "product": "origin2000", "topology": "origin2000-rack", "nodes": 4, "smp": 8, "cpus-per-node": [2, 2, 2, 2],
+   "machine-options": "origin2000,topology=origin2000-rack,nodes=4", "default-cpu-model": "R10000",
+   "memory-per-node-mib": {"accepted": [64], "default": 64},
+   "init-inputs": [
+    {"kind": "ip27-prom", "name": "boot-prom", "required": true},
+    {"kind": "io6-prom", "name": "io-prom", "required": true}
+   ],
+   "storage": [
+    {"name": "node0-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "node1-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "node2-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "node3-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "io0-flash", "size": 1048576, "initial": "io-prom", "read-only": false},
+    {"name": "nvram0", "size": 32768, "initial": "ip27-nvram", "read-only": false},
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+   ],
+   "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]}],
+   "consoles": [
+    {"argument": "-serial chardev:ioc3_a", "kind": "console", "node": 0},
+    {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0},
+    {"argument": "-serial chardev:elsc", "kind": "system-controller", "node": 0}
+   ],
+   "hardware-inputs": []
+  },
+  {
+   "product": "fuel", "topology": "fuel", "nodes": 1, "smp": 1, "cpus-per-node": [1],
+   "machine-options": "fuel,topology=fuel,nodes=1", "default-cpu-model": "R14000",
+   "memory-per-node-mib": {"accepted": [512], "default": 512},
+   "init-inputs": [{"kind": "ip35-prom", "name": "boot-prom", "required": true}],
+   "storage": [
+    {"name": "node0-flash", "size": 16777216, "initial": "boot-prom", "read-only": false},
+    {"name": "nvram0", "size": 32768, "initial": "zero", "read-only": false},
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+   ],
+   "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]}],
+   "consoles": [
+    {"argument": "-serial chardev:l1", "kind": "console", "node": 0},
+    {"argument": "-serial chardev:ioc3_a", "kind": "second-port", "node": 0},
+    {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0}
+   ],
+   "hardware-inputs": [{"option": "fuel-mac-eeprom", "required": false}]
+  },
+  {
+   "product": "octane", "topology": "octane", "nodes": 1, "smp": 1, "cpus-per-node": [1],
+   "machine-options": "octane,topology=octane,nodes=1", "default-cpu-model": "R10000",
+   "memory-per-node-mib": {"accepted": [128], "default": 128},
+   "init-inputs": [{"kind": "ip30-prom", "name": "boot-prom", "required": true}],
+   "storage": [
+    {"name": "node0-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "nvram0", "size": 512, "initial": "zero", "read-only": false},
+    {"name": "nvram0-clock", "size": 24, "initial": "zero", "read-only": false}
+   ],
+   "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]}],
+   "consoles": [
+    {"argument": "-serial chardev:ioc3_a", "kind": "console", "node": 0},
+    {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0}
+   ],
+   "hardware-inputs": []
+  }
+ ]
+}
