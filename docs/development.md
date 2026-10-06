@@ -81,6 +81,10 @@ cmake --build --preset macos
 ./out/macos/run/bin/origami machines
 ```
 
+CMake applies the preset's vcpkg toolchain only to a new build directory, so a
+directory configured before vcpkg was added fails with "vcpkg's toolchain is
+not loaded". Reconfigure it with `cmake --preset macos --fresh`.
+
 Changes rebuild incrementally in the same directory. To create a release
 archive from a clean checkout:
 

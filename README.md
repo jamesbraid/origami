@@ -63,7 +63,20 @@ Start with `origami machines` and the [user guide](docs/usage.md).
 
 ## Developing
 
-Have fun vibing away... 
+Have fun vibing away...
+
+Build from a clone with its submodules (`git submodule update --init`), using
+the CMake preset for your platform:
+
+```sh
+cmake --preset macos      # or linux, or windows-cross in the Linux build image
+cmake --build --preset macos
+```
+
+The first configuration builds QEMU's libraries with vcpkg and takes several
+minutes. A build directory from before vcpkg was added needs
+`cmake --preset macos --fresh`. [Developing Origami](docs/development.md) has
+the per-platform prerequisites and packaging steps.
 
 Machine models pass IRIX online diags as well as offline field diags where they exist.
 

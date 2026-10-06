@@ -9,7 +9,11 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qemu/configure" OR NOT EXISTS "${CMAKE_SOURCE
 endif()
 project(origami LANGUAGES NONE)
 if(NOT VCPKG_INSTALLED_DIR OR NOT VCPKG_TARGET_TRIPLET)
-  message(FATAL_ERROR "Configure with a preset, which builds QEMU's libraries with vcpkg")
+  message(FATAL_ERROR "vcpkg's toolchain is not loaded, so QEMU's libraries cannot be built.\n"
+    "Configure through a preset, for example: cmake --preset macos\n"
+    "CMake applies a preset's toolchain only to a new build directory. A directory "
+    "configured before vcpkg was added keeps its old settings; reconfigure it from "
+    "scratch with: cmake --preset macos --fresh (or delete the build directory).")
 endif()
 
 include(ExternalProject)
