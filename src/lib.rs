@@ -8,6 +8,7 @@ pub mod assets;
 pub mod catalogue;
 pub mod control;
 pub mod install;
+mod migrate;
 pub mod profiles;
 pub mod runtime;
 
@@ -242,12 +243,8 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
         .and_then(|table| table.get("format")?.as_integer())
         == Some(1)
     {
-        return Err(format!(
-            "{} was created by an earlier Origami and cannot be opened. \
-             Create a new machine with origami create and attach its disks",
-            path.display()
-        )
-        .into());
+        migrate::upgrade(dir, &text)?;
+        return read_machine(dir);
     }
     toml::from_str(&text).map_err(|error| {
         format!("invalid machine configuration {}: {error}", path.display()).into()
@@ -297,6 +294,20 @@ pub fn valid_mac(mac: &str) -> bool {
             .all(|part| part.len() == 2 && u8::from_str_radix(part, 16).is_ok())
 }
 
+/// The catalogue offering a machine was created from.
+pub fn offering<'a>(catalog: &'a Catalog, machine: &Machine) -> Result<&'a Offering> {
+    catalog
+        .offerings
+        .iter()
+        .find(|o| {
+            o.product == machine.model
+                && o.nodes == machine.nodes
+                && machine.topology.as_ref() == Some(&o.topology)
+                && o.cpus_per_node == profiles::population(machine)
+        })
+        .ok_or_else(|| "unsupported machine and processor population".into())
+}
+
 pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Result<&'a Offering> {
     if file.format != MACHINE_FORMAT {
         return Err(format!("unsupported machine format {}", file.format).into());
@@ -307,16 +318,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         .strip_suffix("MiB")
         .ok_or("memory_per_node must use MiB")?
         .parse::<u32>()?;
-    let offering = catalog
-        .offerings
-        .iter()
-        .find(|o| {
-            o.product == file.machine.model
-                && o.nodes == file.machine.nodes
-                && file.machine.topology.as_ref() == Some(&o.topology)
-                && o.cpus_per_node == profiles::population(&file.machine)
-        })
-        .ok_or("unsupported machine and processor population")?;
+    let offering = offering(catalog, &file.machine)?;
     if !offering.memory.accepted.contains(&memory) {
         return Err(format!(
             "{} MiB per node is not offered for {}",
@@ -756,21 +758,6 @@ mod tests {
         assert!(error.contains("--mac"), "{error}");
         set_machine_mac(&mut file, Some("08:00:69:12:34:56")).unwrap();
         validate(&catalog, &machine, &file).unwrap();
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn machines_from_an_earlier_format_ask_to_be_recreated() {
-        let root = std::env::temp_dir().join(format!("origami-format-1-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
-        fs::write(
-            root.join("machine.toml"),
-            "format = 1\n[machine]\nmodel = \"origin200\"\n[firmware]\nimage = \"firmware/prom.bin\"\n",
-        )
-        .unwrap();
-        let error = read_machine(&root).unwrap_err().to_string();
-        assert!(error.contains("earlier Origami"), "{error}");
-        assert!(error.contains("origami create"), "{error}");
         fs::remove_dir_all(root).unwrap();
     }
 }
