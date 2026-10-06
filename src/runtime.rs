@@ -467,14 +467,7 @@ fn run_inner(
     if !keymap.is_file() {
         return Err(format!("packaged QEMU keymap missing: {}", keymap.display()).into());
     }
-    fs::create_dir_all(dir.join("state"))?;
-    let lock = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .open(dir.join("state/machine.lock"))?;
-    lock.try_lock()
-        .map_err(|error| format!("cannot lock machine: {error}"))?;
+    let _lock = control::lock_for_edit(dir, "starting it again")?;
     let mut args = arguments(dir, file, offering, display)?;
     if file.network.mode == "private" {
         let endpoint = file

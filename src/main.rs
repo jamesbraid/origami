@@ -2,7 +2,7 @@ mod cli;
 mod commands;
 
 use clap::Parser;
-use cli::{Command as Action, DriveKind, NetworkMode};
+use cli::{Action, DriveKind, NetworkMode};
 use origami::runtime;
 use origami::{
     catalogue, presets, read_machine, resolve, validate, Drive, Network, PortForward, Result,

@@ -15,18 +15,18 @@ pub struct Cli {
     #[arg(short = 'V', long, exclusive = true)]
     pub version: bool,
     #[command(subcommand)]
-    pub command: Option<Command>,
+    pub command: Option<Action>,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum Command {
+pub enum Action {
     /// List available machine presets
     Machines,
     /// Show version and Git identity for each bundled executable
     Version,
     /// Create a machine configuration and acquire its verified PROM
     #[command(after_help = "Example: origami create o200 --preset origin200-1")]
-    Create(CreateArgs),
+    Create(Box<CreateArgs>),
     /// Check a machine configuration
     Validate(MachineArgs),
     /// Show a machine configuration
@@ -375,7 +375,7 @@ mod tests {
             "5991",
         ])
         .unwrap();
-        let Some(Command::Run(args)) = cli.command else {
+        let Some(Action::Run(args)) = cli.command else {
             panic!("expected run");
         };
         assert_eq!(
@@ -458,7 +458,7 @@ mod tests {
             "extras.man",
         ])
         .unwrap();
-        let Some(Command::InstallAddon { install, .. }) = cli.command else {
+        let Some(Action::InstallAddon { install, .. }) = cli.command else {
             panic!("expected install-addon");
         };
         assert_eq!(install, ["extras.sw", "extras.man"]);
@@ -494,7 +494,7 @@ mod tests {
         .unwrap();
         assert!(matches!(
             cli.command,
-            Some(Command::NetworkSet {
+            Some(Action::NetworkSet {
                 mode: NetworkMode::Private,
                 ..
             })

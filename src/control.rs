@@ -101,6 +101,7 @@ pub fn lock_for_edit(dir: &Path, action: &str) -> Result<std::fs::File> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(dir.join("state/machine.lock"))?;
     if file.try_lock().is_err() {
         return Err(format!("stop the machine before {action}").into());
