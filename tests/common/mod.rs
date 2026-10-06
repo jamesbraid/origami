@@ -59,8 +59,8 @@ fn script(path: &Path, body: &str) {
     assert!(writer.wait().unwrap().success());
 }
 
-/// An `origami` command that uses the fake runtime and keeps its catalogue
-/// cache inside the test directory.
+/// An `origami` command that uses the fake runtime and keeps its PROM cache
+/// inside the test directory.
 pub fn origami(executable: &Path, root: &Path) -> Command {
     let mut command = Command::new(executable);
     command

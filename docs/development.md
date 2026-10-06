@@ -222,9 +222,8 @@ cmake --build --preset macos
 ## Machine catalogue and state
 
 The CLI reads its machine offerings from the QEMU it launches. It starts that
-QEMU with no machine, asks for `query-sgi-machines` over QMP and caches the
-reply in the user cache directory, keyed by the binary's path, size and
-modification time. A QEMU pin change that alters the catalogue therefore
+QEMU with no machine and asks for `query-sgi-machines` over QMP each time a
+command needs an offering. A QEMU pin change that alters the catalogue therefore
 changes the offerings without a frontend edit, and a frontend change that
 needs new catalogue data needs the matching QEMU pin.
 
