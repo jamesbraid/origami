@@ -233,6 +233,51 @@ fn origin2000_and_onyx2_read_the_io_prom_given() {
 }
 
 #[test]
+fn a_failed_upgrade_changes_nothing_and_a_later_one_keeps_every_old_file() {
+    let root = tempfile::tempdir().unwrap();
+    let io_prom = root.path().join("io6prom.img");
+    fs::write(&io_prom, b"io6").unwrap();
+    let text = ORIGIN2000.replace(
+        "[network]\nmode = \"user\"\n",
+        "[network]\nmode = \"private\"\nendpoint = \"tcp:127.0.0.1:4242\"\nmac = \"08:00:69:12:34:56\"\n",
+    );
+    let mut state = ip27_state(4);
+    // A clock of another size is not this machine's, so a fresh one replaces it.
+    state[1].1 = vec![7; 8];
+    let machine = format1(root.path(), "origin2000", &text, &borrowed(&state));
+    let path = machine.to_str().unwrap();
+    let upgrade = || {
+        origami(
+            root.path(),
+            &["upgrade", path, "--io-prom", io_prom.to_str().unwrap()],
+        )
+    };
+    let before = snapshot(&machine);
+    let tool = common::init_tool(root.path());
+    let away = tool.with_extension("away");
+    fs::rename(&tool, &away).unwrap();
+    assert!(!upgrade().status.success());
+    assert_eq!(snapshot(&machine), before);
+    fs::rename(&away, &tool).unwrap();
+
+    let output = upgrade();
+    assert!(output.status.success(), "{}", stderr(&output));
+    for (file, bytes) in &before {
+        if !file.ends_with("machine.toml") {
+            assert_eq!(&fs::read(file).unwrap(), bytes, "{}", file.display());
+        }
+    }
+    let state = |name: &str| fs::read(machine.join("state").join(name)).unwrap();
+    assert_eq!(state("nvram0-clock.raw"), [0; 16]);
+    assert_eq!(state("io0-flash.raw"), [0; 1048576]);
+    let output = origami(root.path(), &["show", path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let shown = String::from_utf8_lossy(&output.stdout);
+    assert!(shown.contains("network: private"), "{shown}");
+    assert!(shown.contains("identity MAC: 08:00:69:12:34:56"), "{shown}");
+}
+
+#[test]
 fn a_machine_without_a_topology_takes_the_one_it_ran_on() {
     let root = tempfile::tempdir().unwrap();
     let io_prom = root.path().join("io6prom.img");
