@@ -70,7 +70,7 @@ fn validate_path(path: &str) -> Result<()> {
 }
 
 pub fn acquire(profile_id: &str) -> Result<PathBuf> {
-    use std::io::Write;
+    use std::io::{Read, Write};
     let manifest = manifest()?;
     let prom = manifest
         .proms
@@ -106,15 +106,10 @@ pub fn acquire(profile_id: &str) -> Result<PathBuf> {
         if response.status() != 200 {
             return Err(format!("PROM download returned HTTP {}", response.status()).into());
         }
-        let body = response
-            .body_mut()
-            .with_config()
-            // ureq refuses a body that reaches the limit, so allow one byte more;
-            // the size check below rejects anything longer.
-            .limit(prom.size + 1)
-            .read_to_vec()?;
-        if body.len() as u64 != prom.size || crate::sha256_hex(&body) != prom.sha256 {
-            return Err("PROM download does not match the manifest's size and SHA-256".into());
+        let mut body = Vec::new();
+        response.body_mut().as_reader().read_to_end(&mut body)?;
+        if crate::sha256_hex(&body) != prom.sha256 {
+            return Err("PROM download does not match the manifest's SHA-256".into());
         }
         // Concurrent creates may both download; identical verified bytes make
         // the rename race harmless.
