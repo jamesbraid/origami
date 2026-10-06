@@ -3,9 +3,20 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
   message(FATAL_ERROR "Select an out-of-tree build directory with -B or a preset")
 endif()
 # Checked before project(), which runs the vcpkg toolchain.
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/qemu/configure" OR NOT EXISTS "${CMAKE_SOURCE_DIR}/instigator/go.mod"
-    OR NOT EXISTS "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake")
-  message(FATAL_ERROR "Initialize the pinned dependencies first: git submodule update --init")
+set(missing "")
+foreach(file IN ITEMS qemu/configure instigator/go.mod vcpkg/scripts/buildsystems/vcpkg.cmake)
+  if(NOT EXISTS "${CMAKE_SOURCE_DIR}/${file}")
+    string(REGEX REPLACE "/.*" "" submodule "${file}")
+    list(APPEND missing "${submodule}")
+  endif()
+endforeach()
+if(missing)
+  list(JOIN missing ", " missing)
+  message(FATAL_ERROR "Missing Git submodules: ${missing}\n"
+    "QEMU, Instigator and vcpkg are pinned submodules of this repository. Fetch them "
+    "from the repository root with:\n"
+    "  git submodule update --init\n"
+    "Run it again whenever a pull adds a submodule or changes a pinned commit.")
 endif()
 project(origami LANGUAGES NONE)
 if(NOT VCPKG_INSTALLED_DIR OR NOT VCPKG_TARGET_TRIPLET)
