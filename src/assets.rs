@@ -109,7 +109,9 @@ pub fn acquire(profile_id: &str) -> Result<PathBuf> {
         let body = response
             .body_mut()
             .with_config()
-            .limit(prom.size)
+            // ureq refuses a body that reaches the limit, so allow one byte more;
+            // the size check below rejects anything longer.
+            .limit(prom.size + 1)
             .read_to_vec()?;
         if body.len() as u64 != prom.size || crate::sha256_hex(&body) != prom.sha256 {
             return Err("PROM download does not match the manifest's size and SHA-256".into());
