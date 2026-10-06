@@ -58,17 +58,19 @@ fn every_preset_creates_the_catalogue_storage_and_reopens() {
     fs::create_dir(&root.0).unwrap();
     let catalog = origami::catalogue().unwrap();
     let mut failures = Vec::new();
-    // Each starter must name an offering of this QEMU, with the PROMs that
-    // offering needs.
+    // Each starter must name an offering of this QEMU, and the registry
+    // must have every image kind an offering reads.
     for profile in origami::profiles::STARTERS {
-        match origami::preset(&catalog, profile.id) {
-            Ok(offering) => {
-                let io_prom = offering.init_inputs.iter().any(|i| i.name == "io-prom");
-                if io_prom != profile.io_prom.is_some() {
-                    failures.push(format!("{}: IO PROM selection", profile.id));
-                }
+        if let Err(error) = origami::preset(&catalog, profile.id) {
+            failures.push(format!("{}: {error}", profile.id));
+        }
+    }
+    let manifest = origami::assets::manifest().unwrap();
+    for offering in &catalog.offerings {
+        for input in &offering.init_inputs {
+            if manifest.get(&input.kind).is_err() {
+                failures.push(format!("{}: no {} download", offering.topology, input.kind));
             }
-            Err(error) => failures.push(format!("{}: {error}", profile.id)),
         }
     }
     for (name, offering) in origami::presets(&catalog) {

@@ -312,12 +312,13 @@ The development media profile includes MIPSpro and development packages.
 
 ## Firmware and remote installation media
 
-Omit `--prom` to fetch the preset's pinned PROM over HTTPS. Origami checks its
-size and SHA-256 before creating the machine. Verified files are cached in the
+Omit `--prom` and `--io-prom` to fetch the pinned PROM images the machine
+reads over HTTPS. Origami checks their size and SHA-256 before creating the
+machine. Verified files are cached in the
 host's user cache directory, and creation builds the machine's flash from them.
 A warm cache supports offline creation. `--prom FILE` keeps the local-file
 workflow, including custom IP27 PROMs. Running an existing machine never fetches
-firmware. Presets without a pinned download require an explicit `--prom FILE`.
+firmware.
 
 ```sh
 origami create my-origin --preset origin200-1

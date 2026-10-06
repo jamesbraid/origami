@@ -464,6 +464,33 @@ pub struct MachineInit<'a> {
     pub io_prom: Option<&'a Path>,
 }
 
+/// The boot and IO PROM images that create `offering`'s storage: the files
+/// given, else verified downloads of the kinds its catalogue entry reads.
+pub fn firmware(
+    offering: &Offering,
+    boot_prom: Option<&Path>,
+    io_prom: Option<&Path>,
+) -> Result<(PathBuf, Option<PathBuf>)> {
+    let image = |name: &str, given: Option<&Path>, option: &str| -> Result<Option<PathBuf>> {
+        if let Some(path) = given {
+            return Ok(Some(path.into()));
+        }
+        let Some(input) = offering
+            .init_inputs
+            .iter()
+            .find(|input| input.name == name && input.required)
+        else {
+            return Ok(None);
+        };
+        assets::acquire(&input.kind)
+            .map(Some)
+            .map_err(|error| format!("{error}; supply {option} FILE").into())
+    };
+    let boot_prom = image("boot-prom", boot_prom, "--prom")?
+        .ok_or_else(|| format!("{} reads no boot PROM", offering.topology))?;
+    Ok((boot_prom, image("io-prom", io_prom, "--io-prom")?))
+}
+
 pub fn create_configured(
     dir: &Path,
     offering: &Offering,

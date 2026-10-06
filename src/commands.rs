@@ -31,17 +31,8 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
     if !tool.is_file() {
         return Err(format!("packaged machine init tool missing: {}", tool.display()).into());
     }
-    // Every preset the catalogue offers is a starter profile.
-    let profile = origami::profiles::profile(&args.preset).ok_or("unknown preset")?;
-    let prom = match &options.prom {
-        Some(path) => path.clone(),
-        None => origami::assets::acquire(profile.boot_prom)?,
-    };
-    let io_prom = match (&options.io_prom, profile.io_prom) {
-        (Some(path), _) => Some(path.clone()),
-        (None, Some(id)) => Some(origami::assets::acquire(id)?),
-        (None, None) => None,
-    };
+    let (prom, io_prom) =
+        origami::firmware(offer, options.prom.as_deref(), options.io_prom.as_deref())?;
     origami::create_configured(
         &args.dir,
         offer,

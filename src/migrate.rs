@@ -14,16 +14,8 @@ pub fn upgrade(dir: &Path, text: &str) -> Result<()> {
         let catalog = crate::catalogue()?;
         let (file, prom) = convert(dir, text)?;
         let offering = crate::offering(&catalog, &file.machine)?;
-        // Format 1 had no IO PROM, so take the one the matching preset
-        // downloads.
-        let io_prom = match profiles::STARTERS
-            .iter()
-            .find(|p| p.topology == offering.topology && p.population == offering.cpus_per_node)
-            .and_then(|p| p.io_prom)
-        {
-            Some(id) => Some(crate::assets::acquire(id)?),
-            None => None,
-        };
+        // Format 1 kept no IO PROM, so download the one the catalogue reads.
+        let (prom, io_prom) = crate::firmware(offering, Some(&prom), None)?;
         let init = MachineInit {
             tool: &runtime::machine_init_path()?,
             boot_prom: &prom,

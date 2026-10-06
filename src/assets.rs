@@ -11,7 +11,8 @@ pub struct Manifest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Prom {
-    pub id: String,
+    /// The catalogue's name for the kind of image, such as `ip27-prom`.
+    pub kind: String,
     pub path: String,
     pub size: u64,
     pub sha256: String,
@@ -24,11 +25,11 @@ pub fn manifest() -> Result<Manifest> {
 }
 
 impl Manifest {
-    pub fn get(&self, id: &str) -> Result<&Prom> {
+    pub fn get(&self, kind: &str) -> Result<&Prom> {
         self.proms
             .iter()
-            .find(|prom| prom.id == id)
-            .ok_or_else(|| format!("no PROM {id} in the registry").into())
+            .find(|prom| prom.kind == kind)
+            .ok_or_else(|| format!("no downloadable {kind} image").into())
     }
 }
 
@@ -78,11 +79,12 @@ fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Download the registry's PROM `id`, or reuse a verified cached copy.
-pub fn acquire(id: &str) -> Result<PathBuf> {
+/// Download the registry's image of catalogue kind `kind`, or reuse a
+/// verified cached copy.
+pub fn acquire(kind: &str) -> Result<PathBuf> {
     use std::io::{Read, Write};
     let manifest = manifest()?;
-    let prom = manifest.get(id)?;
+    let prom = manifest.get(kind)?;
     let name = prom.path.rsplit('/').next().unwrap_or(&prom.path);
     // Each image keeps SGI's file name, under a directory named by its digest.
     let cache = dirs::cache_dir()
@@ -128,7 +130,10 @@ pub fn acquire(id: &str) -> Result<PathBuf> {
         temp.persist(&path).map_err(|e| e.error)?;
         Ok(path)
     };
-    fetch().map_err(|e| format!("cannot acquire PROM {name}: {e}; offline creation requires a verified cache entry or a local PROM file").into())
+    fetch().map_err(|e| {
+        format!("cannot acquire PROM {name}: {e}; working offline needs a verified cached copy")
+            .into()
+    })
 }
 
 #[cfg(test)]
@@ -151,14 +156,14 @@ mod tests {
         validate_https_url("https://origami-dist.irix.fans/prom/test.bin").unwrap();
     }
     #[test]
-    fn embedded_registry_resolves_every_preset_selection() {
+    fn embedded_registry_has_every_catalogue_image() {
         let manifest = manifest().unwrap();
         for prom in &manifest.proms {
             validate_https_url(&format!("{}{}", manifest.base_url, prom.path)).unwrap();
         }
-        for profile in crate::profiles::STARTERS {
-            for id in std::iter::once(profile.boot_prom).chain(profile.io_prom) {
-                assert!(manifest.get(id).is_ok(), "{}", profile.id);
+        for offering in crate::test_catalogue().offerings {
+            for input in offering.init_inputs {
+                assert!(manifest.get(&input.kind).is_ok(), "{}", input.kind);
             }
         }
     }
