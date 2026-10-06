@@ -3,36 +3,8 @@
 mod common;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Output;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "origami-drive-create-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
 
 fn run(root: &Path, args: &[&str]) -> Output {
     common::origami(Path::new(env!("CARGO_BIN_EXE_origami")), root)
@@ -43,7 +15,7 @@ fn run(root: &Path, args: &[&str]) -> Output {
 
 #[test]
 fn drive_create_rejects_an_occupied_system_target_before_writing() {
-    let root = TempDir::new();
+    let root = tempfile::tempdir().unwrap();
     let prom = root.path().join("synthetic-prom.bin");
     fs::write(&prom, vec![0; 1024 * 1024]).unwrap();
     let machine = root.path().join("machine");

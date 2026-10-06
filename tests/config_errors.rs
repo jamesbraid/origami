@@ -1,35 +1,10 @@
 use std::fs;
-use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "origami-config-errors-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
 
 #[test]
 fn missing_machine_directory_names_the_path_and_create_command() {
-    let root = TempDir::new();
-    let missing = root.0.join("missing machine");
+    let root = tempfile::tempdir().unwrap();
+    let missing = root.path().join("missing machine");
     let output = Command::new(env!("CARGO_BIN_EXE_origami"))
         .arg("validate")
         .arg(&missing)
@@ -43,29 +18,29 @@ fn missing_machine_directory_names_the_path_and_create_command() {
 
 #[test]
 fn machine_configuration_errors_name_the_file() {
-    let root = TempDir::new();
-    let path = root.0.join("machine.toml");
-    let error = origami::read_machine(&root.0).unwrap_err().to_string();
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("machine.toml");
+    let error = origami::read_machine(root.path()).unwrap_err().to_string();
     assert!(error.contains(path.to_str().unwrap()), "{error}");
     assert!(error.contains("origami create"), "{error}");
     fs::write(&path, "format = [").unwrap();
-    let error = origami::read_machine(&root.0).unwrap_err().to_string();
+    let error = origami::read_machine(root.path()).unwrap_err().to_string();
     assert!(error.contains(path.to_str().unwrap()), "{error}");
     assert!(error.contains("invalid machine configuration"), "{error}");
 }
 
 #[test]
 fn install_configuration_errors_name_the_file_and_initialization_command() {
-    let root = TempDir::new();
-    let path = root.0.join("install/media.toml");
-    let error = origami::install::read_media(&root.0)
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("install/media.toml");
+    let error = origami::install::read_media(root.path())
         .unwrap_err()
         .to_string();
     assert!(error.contains(path.to_str().unwrap()), "{error}");
     assert!(error.contains("origami install-init"), "{error}");
-    fs::create_dir(root.0.join("install")).unwrap();
+    fs::create_dir(root.path().join("install")).unwrap();
     fs::write(&path, "format = [").unwrap();
-    let error = origami::install::read_media(&root.0)
+    let error = origami::install::read_media(root.path())
         .unwrap_err()
         .to_string();
     assert!(error.contains(path.to_str().unwrap()), "{error}");

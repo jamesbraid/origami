@@ -4,17 +4,8 @@ mod common;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Output;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-struct TempDir(PathBuf);
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
 
 fn run(executable: &Path, root: &Path, args: &[&str]) -> Output {
     common::origami(executable, root)
@@ -25,15 +16,10 @@ fn run(executable: &Path, root: &Path, args: &[&str]) -> Output {
 
 #[test]
 fn install_serve_preserves_each_runs_output_and_capture_on_failure() {
-    let root = TempDir(std::env::temp_dir().join(format!(
-        "origami-install-logging-{}-{}",
-        std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-    )));
-    fs::create_dir(&root.0).unwrap();
-    let executable = root.0.join("origami");
+    let root = tempfile::tempdir().unwrap();
+    let executable = root.path().join("origami");
     fs::copy(env!("CARGO_BIN_EXE_origami"), &executable).unwrap();
-    let server = root.0.join("instigator");
+    let server = root.path().join("instigator");
     fs::write(
         &server,
         r#"#!/bin/sh
@@ -51,9 +37,9 @@ exit 7
     )
     .unwrap();
     fs::set_permissions(&server, fs::Permissions::from_mode(0o755)).unwrap();
-    let prom = root.0.join("synthetic-prom.bin");
+    let prom = root.path().join("synthetic-prom.bin");
     fs::write(&prom, vec![0; 1024 * 1024]).unwrap();
-    let machine = root.0.join("machine with spaces");
+    let machine = root.path().join("machine with spaces");
     for args in [
         vec![
             "create",
@@ -72,7 +58,7 @@ exit 7
             "desktop",
         ],
     ] {
-        let output = run(&executable, &root.0, &args);
+        let output = run(&executable, root.path(), &args);
         assert!(
             output.status.success(),
             "{}",
@@ -82,7 +68,7 @@ exit 7
     for _ in 0..2 {
         let output = run(
             &executable,
-            &root.0,
+            root.path(),
             &["install-serve", machine.to_str().unwrap()],
         );
         assert!(!output.status.success());
