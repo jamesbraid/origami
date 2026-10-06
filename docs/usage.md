@@ -303,8 +303,15 @@ settings the guest saves persist in these files.
 Origami never rebuilds a missing state file, because that would discard what
 the guest saved. A missing file is an error naming its path. Restore it from a
 backup, or create a new machine and attach the old machine's disks.
-A machine created by an earlier Origami is upgraded in place the first time
-a command opens it, keeping its flash, NVRAM, drives, network and MAC.
+Other commands refuse a machine created by Origami 0.1 until it is upgraded
+in place, which keeps its flash, NVRAM, drives, network and MAC. Stop the
+machine first. A machine with an IO PROM downloads one as `create` does, or
+takes a local file:
+
+```sh
+origami upgrade my-origin
+origami upgrade my-onyx2 --io-prom io6prom.img
+```
 
 The CLI starts an existing disk or CD-ROM image and prepares the Instigator server. The PROM, disk formatter, and first-run questions remain interactive. `install-apply` runs the generated `inst` package-selection script, and `install-finish` automates the RAD4 installer handoff.
 

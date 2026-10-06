@@ -1,21 +1,41 @@
 //! Upgrade machines from format 1, which kept a copy of the boot PROM and
 //! let the launcher build flash and NVRAM files under its own names.
 
-use crate::{profiles, resolve, runtime, MachineFile, MachineInit, Offering, Result};
+use crate::{profiles, resolve, runtime, Catalog, MachineFile, MachineInit, Offering, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Rewrite the format 1 machine in `dir`, whose machine.toml is `text`, as
-/// the current format. QEMU's init tool creates its storage, then the flash
-/// and NVRAM contents the machine already has replace the fresh ones. The
-/// old files stay where they are; on failure, so does machine.toml.
-pub fn upgrade(dir: &Path, text: &str) -> Result<()> {
+/// The `format` a machine.toml's `text` declares.
+pub fn format(text: &str) -> Option<i64> {
+    toml::from_str::<toml::Table>(text)
+        .ok()?
+        .get("format")?
+        .as_integer()
+}
+
+/// Rewrite the stopped format 1 machine in `dir` as the current format,
+/// reading an IO PROM from `io_prom` or a verified download. QEMU's init
+/// tool creates its storage, then the flash and NVRAM contents the machine
+/// already has replace the fresh ones. The old files stay where they are;
+/// on failure, so does machine.toml.
+pub fn upgrade(dir: &Path, catalog: &Catalog, io_prom: Option<&Path>) -> Result<()> {
+    // A running machine, or another edit, holds this lock.
+    let _lock = crate::control::lock_for_edit(dir, "upgrading it")?;
+    let path = dir.join("machine.toml");
+    let text = fs::read_to_string(&path)
+        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    if format(&text) != Some(1) {
+        return Err(format!(
+            "{} is not from Origami 0.1; it needs no upgrade",
+            path.display()
+        )
+        .into());
+    }
     let result = (|| -> Result<()> {
-        let catalog = crate::catalogue()?;
-        let (file, prom) = convert(dir, text)?;
-        let offering = crate::offering(&catalog, &file.machine)?;
-        // Format 1 kept no IO PROM, so download the one the catalogue reads.
-        let (prom, io_prom) = crate::firmware(offering, Some(&prom), None)?;
+        let (file, prom) = convert(dir, &text)?;
+        let offering = crate::offering(catalog, &file.machine)?;
+        // Format 1 kept no IO PROM.
+        let (prom, io_prom) = crate::firmware(offering, Some(&prom), io_prom)?;
         let init = MachineInit {
             tool: &runtime::machine_init_path()?,
             boot_prom: &prom,

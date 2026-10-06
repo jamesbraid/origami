@@ -8,7 +8,7 @@ pub mod assets;
 pub mod catalogue;
 pub mod control;
 pub mod install;
-mod migrate;
+pub mod migrate;
 pub mod profiles;
 pub mod runtime;
 
@@ -238,13 +238,13 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
         )
     })?;
     // Format 1 has sections format 2 refuses, so check it first.
-    if toml::from_str::<toml::Table>(&text)
-        .ok()
-        .and_then(|table| table.get("format")?.as_integer())
-        == Some(1)
-    {
-        migrate::upgrade(dir, &text)?;
-        return read_machine(dir);
+    if migrate::format(&text) == Some(1) {
+        return Err(format!(
+            "{} is from Origami 0.1; upgrade it once with origami upgrade {}",
+            path.display(),
+            dir.display()
+        )
+        .into());
     }
     toml::from_str(&text).map_err(|error| {
         format!("invalid machine configuration {}: {error}", path.display()).into()

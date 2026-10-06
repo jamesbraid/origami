@@ -29,6 +29,14 @@ pub enum Action {
     Create(Box<CreateArgs>),
     /// Check a machine configuration
     Validate(MachineArgs),
+    /// Upgrade a stopped machine created by Origami 0.1
+    Upgrade {
+        #[arg(value_name = "DIR")]
+        dir: PathBuf,
+        /// Local IO PROM for a machine with a BASEIO or GIGAchannel board
+        #[arg(long, value_name = "FILE")]
+        io_prom: Option<PathBuf>,
+    },
     /// Show a machine configuration
     Show(MachineArgs),
     /// Print the QEMU command without starting the guest

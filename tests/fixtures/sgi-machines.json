@@ -55,6 +55,36 @@
    ]
   },
   {
+   "product": "onyx2", "topology": "onyx2-rack", "nodes": 2, "smp": 4, "cpus-per-node": [2, 2],
+   "machine-options": "onyx2,topology=onyx2-rack,nodes=2", "default-cpu-model": "R10000",
+   "memory-per-node-mib": {"accepted": [64], "default": 64},
+   "init-inputs": [
+    {"kind": "ip27-prom", "name": "boot-prom", "required": true},
+    {"kind": "io6-prom", "name": "io-prom", "required": true}
+   ],
+   "storage": [
+    {"name": "node0-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "node1-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "io0-flash", "size": 1048576, "initial": "io-prom", "read-only": false},
+    {"name": "nvram0", "size": 32768, "initial": "ip27-nvram", "read-only": false},
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+   ],
+   "scsi-adapters": [
+    {"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]},
+    {"bus": "scsi.1", "targets": [1, 2, 3, 4, 5, 6, 7]}
+   ],
+   "consoles": [
+    {"argument": "-serial chardev:ioc3_a", "kind": "console", "node": 0},
+    {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0},
+    {"argument": "-serial chardev:elsc", "kind": "system-controller", "node": 0}
+   ],
+   "hardware-inputs": [],
+   "overrides": [
+    {"property": "mac", "target": "machine"},
+    {"property": "r10000-prid", "target": "cpu"}
+   ]
+  },
+  {
    "product": "fuel", "topology": "fuel", "nodes": 1, "smp": 1, "cpus-per-node": [1],
    "machine-options": "fuel,topology=fuel,nodes=1", "default-cpu-model": "R14000",
    "memory-per-node-mib": {"accepted": [512], "default": 512},
