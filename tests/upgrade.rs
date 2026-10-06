@@ -281,6 +281,43 @@ fn io_prom_without_a_file_or_cached_copy_names_the_option() {
 }
 
 #[test]
+fn nvram_already_under_its_new_name_stays_in_place() {
+    use std::os::unix::fs::MetadataExt;
+    let root = tempfile::tempdir().unwrap();
+    let machine = format1(
+        root.path(),
+        "origin200",
+        ORIGIN200,
+        &borrowed(&ip27_state(0)),
+    );
+    fs::write(machine.join("drives/system.qcow2"), b"disk").unwrap();
+    let nvram = machine.join("state/nvram0.raw");
+    let inode = fs::metadata(&nvram).unwrap().ino();
+    let output = origami(root.path(), &["upgrade", machine.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(fs::metadata(&nvram).unwrap().ino(), inode);
+    assert_eq!(fs::read(&nvram).unwrap(), [0x5a; 32768]);
+
+    // One of another size is not replaced with a fresh one.
+    let machine = format1(
+        root.path(),
+        "short",
+        ORIGIN200,
+        &[("nvram0.raw", vec![7; 100])],
+    );
+    fs::write(machine.join("drives/system.qcow2"), b"disk").unwrap();
+    let before = snapshot(&machine);
+    let output = origami(root.path(), &["upgrade", machine.to_str().unwrap()]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("nvram0.raw is not 32768 bytes"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(snapshot(&machine), before);
+}
+
+#[test]
 fn upgrade_refuses_a_machine_that_holds_its_lock() {
     let root = tempfile::tempdir().unwrap();
     let machine = format1(

@@ -132,26 +132,46 @@ fn install(
     init: &MachineInit<'_>,
 ) -> Result<()> {
     profiles::validate_inputs(offering, &file.machine.inputs)?;
+    let state = dir.join("state");
+    let raw = |root: &Path, name: &str| root.join(format!("{name}.raw"));
+    // Format 1 kept NVRAM under the name QEMU now uses. Only a file of the
+    // item's size can stay; replacing another would lose what it holds.
+    for item in &offering.storage {
+        let target = raw(&state, &item.name);
+        if fs::metadata(&target).is_ok_and(|m| m.len() != item.size) {
+            return Err(format!(
+                "{} is not {} bytes; move it aside to upgrade",
+                target.display(),
+                item.size
+            )
+            .into());
+        }
+    }
     let staging = dir.join("state.format2");
     // Left by an interrupted upgrade.
     let _ = fs::remove_dir_all(&staging);
     let result = (|| -> Result<()> {
         let arguments = runtime::init_arguments(offering, init.boot_prom, init.io_prom, &staging);
         runtime::create_state(init.tool, &arguments)?;
-        let raw = |root: &Path, name: &str| root.join(format!("{name}.raw"));
+        let mut moves = vec![];
         for item in &offering.storage {
+            let (fresh, target) = (raw(&staging, &item.name), raw(&state, &item.name));
             // A file of another size is not this item's contents.
-            if let Some(old) = old_state(dir, &item.name)
+            match old_state(dir, &item.name)
                 .into_iter()
                 .find(|old| fs::metadata(old).is_ok_and(|m| m.len() == item.size))
             {
-                fs::copy(old, raw(&staging, &item.name))?;
+                Some(old) if old == target => continue,
+                Some(old) => {
+                    fs::copy(old, &fresh)?;
+                }
+                None => (),
             }
+            moves.push((fresh, target));
         }
-        let state = dir.join("state");
         fs::create_dir_all(&state)?;
-        for item in &offering.storage {
-            fs::rename(raw(&staging, &item.name), raw(&state, &item.name))?;
+        for (fresh, target) in moves {
+            fs::rename(fresh, target)?;
         }
         let temporary = dir.join("machine.toml.format2");
         fs::write(&temporary, toml::to_string_pretty(file)?)?;
