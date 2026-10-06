@@ -196,7 +196,7 @@ image = "drives/system.qcow2"
         let catalog = crate::test_catalogue();
         let (file, prom) = convert(&dir, text).unwrap();
         let offering = crate::offering(&catalog, &file.machine).unwrap();
-        let tool = crate::fake_init_tool(&root, offering);
+        let tool = crate::test_support::init_tool(&root);
         let io_prom = root.join("io6prom.img");
         let init = MachineInit {
             tool: &tool,

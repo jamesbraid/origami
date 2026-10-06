@@ -522,46 +522,10 @@ pub(crate) fn test_catalogue() -> Catalog {
     catalogue::parse(include_str!("../tests/fixtures/sgi-machines.json")).unwrap()
 }
 
-/// Write an executable script without this process ever holding it open
-/// for writing. A child forked meanwhile by another test thread would
-/// inherit such a descriptor, and running the script would then fail with
-/// "Text file busy" until that child calls exec.
+/// The stand-in QEMU tools the command tests use.
 #[cfg(all(test, unix))]
-pub(crate) fn write_script(path: &Path, script: &str) {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    let mut writer = Command::new("sh")
-        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    writer
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(script.as_bytes())
-        .unwrap();
-    assert!(writer.wait().unwrap().success());
-}
-
-/// A stand-in for QEMU's init tool that creates `offering`'s storage files
-/// zero-filled and records its arguments in `<tool>.args`.
-#[cfg(all(test, unix))]
-pub(crate) fn fake_init_tool(root: &Path, offering: &Offering) -> PathBuf {
-    let tool = root.join("qemu-sgi-machine-init");
-    let mut script = String::from(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$0.args\"\nfor dir; do :; done\nmkdir \"$dir\" || exit 1\n",
-    );
-    for item in &offering.storage {
-        script.push_str(&format!(
-            "dd if=/dev/zero of=\"$dir/{}.raw\" bs=1 count=0 seek={} 2>/dev/null || exit 1\n",
-            item.name, item.size
-        ));
-    }
-    write_script(&tool, &script);
-    tool
-}
+#[path = "../tests/common/mod.rs"]
+pub(crate) mod test_support;
 
 #[cfg(test)]
 mod tests {
@@ -596,7 +560,7 @@ mod tests {
         fs::write(&prom, [0u8; 1]).unwrap();
         let catalog = test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
-        let tool = fake_init_tool(&root, offer);
+        let tool = test_support::init_tool(&root);
         let init = MachineInit {
             tool: &tool,
             boot_prom: &prom,
@@ -665,7 +629,7 @@ mod tests {
         let io_prom = root.join("io,prom.img");
         let catalog = test_catalogue();
         let offer = preset(&catalog, "origin2000-8").unwrap();
-        let tool = fake_init_tool(&root, offer);
+        let tool = test_support::init_tool(&root);
         let machine = root.join("machine");
         let without_io = MachineInit {
             tool: &tool,
@@ -689,7 +653,8 @@ mod tests {
             ..without_io
         };
         create_configured(&machine, offer, &init, None, None, None, Default::default()).unwrap();
-        let arguments = fs::read_to_string(root.join("qemu-sgi-machine-init.args")).unwrap();
+        let arguments =
+            fs::read_to_string(root.join("runtime/qemu-sgi-machine-init.args")).unwrap();
         let state = machine.join("state");
         assert_eq!(
             arguments.lines().collect::<Vec<_>>(),
@@ -721,7 +686,7 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let catalog = test_catalogue();
         let offer = preset(&catalog, "origin200-1").unwrap();
-        let tool = fake_init_tool(&root, offer);
+        let tool = test_support::init_tool(&root);
         let prom = root.join("prom.img");
         let init = MachineInit {
             tool: &tool,

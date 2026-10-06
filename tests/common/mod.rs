@@ -1,5 +1,6 @@
-//! Stand-ins for the bundled QEMU tools, so command tests run without a
-//! product build.
+//! Stand-ins for the bundled QEMU tools, so command and unit tests run
+//! without a product build. The crate's unit tests include this file too.
+#![allow(dead_code)]
 
 use std::fs;
 use std::io::Write;
@@ -7,9 +8,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Write a QEMU that answers `query-sgi-machines` from the test catalogue
-/// and an init tool that creates Origin 200 storage. Returns the directory
-/// to select with `ORIGAMI_RUNTIME_DIR`.
-fn fake_runtime(root: &Path) -> PathBuf {
+/// and an init tool that creates zero-filled storage for each of its
+/// offerings and records its arguments in `qemu-sgi-machine-init.args`.
+/// Returns the directory to select with `ORIGAMI_RUNTIME_DIR`.
+pub fn fake_runtime(root: &Path) -> PathBuf {
     let runtime = root.join("runtime");
     if runtime.join("qemu-system-mips64").exists() {
         return runtime;
@@ -31,17 +33,39 @@ done"#,
             catalogue.display()
         ),
     );
-    // Only the Origin 200 storage the command tests create is known here.
-    script(
-        &runtime.join("qemu-sgi-machine-init"),
-        r#"[ "$1 $2" = "--machine origin200,topology=origin200,nodes=1" ] || exit 9
-for dir; do :; done
+    let mut tool =
+        String::from("printf '%s\\n' \"$@\" > \"$0.args\"\nfor dir; do :; done\ncase \"$2\" in\n");
+    let offerings: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&catalogue).unwrap()).unwrap();
+    for offering in offerings["offerings"].as_array().unwrap() {
+        tool.push_str(&format!(
+            "'{}') items='",
+            offering["machine-options"].as_str().unwrap()
+        ));
+        for item in offering["storage"].as_array().unwrap() {
+            tool.push_str(&format!(
+                " {}:{}",
+                item["name"].as_str().unwrap(),
+                item["size"]
+            ));
+        }
+        tool.push_str("' ;;\n");
+    }
+    tool.push_str(
+        r#"*) exit 9 ;;
+esac
 mkdir "$dir" || exit 1
-for item in node0-flash:1048576 nvram0:32768 nvram0-clock:16; do
+for item in $items; do
     dd if=/dev/zero of="$dir/${item%%:*}.raw" bs=1 count=0 seek="${item#*:}" 2>/dev/null || exit 1
 done"#,
     );
+    script(&runtime.join("qemu-sgi-machine-init"), &tool);
     runtime
+}
+
+/// The fake init tool under `root`.
+pub fn init_tool(root: &Path) -> PathBuf {
+    fake_runtime(root).join("qemu-sgi-machine-init")
 }
 
 /// Write an executable script without this process ever holding it open

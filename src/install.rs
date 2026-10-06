@@ -1203,7 +1203,7 @@ mod tests {
         let machine = root.join("machine");
         let catalog = crate::test_catalogue();
         let offer = crate::preset(&catalog, "origin200-1").unwrap();
-        let tool = crate::fake_init_tool(&root, offer);
+        let tool = crate::test_support::init_tool(&root);
         let init = crate::MachineInit {
             tool: &tool,
             boot_prom: &prom,
@@ -1264,7 +1264,7 @@ mod tests {
         let catalog = crate::test_catalogue();
         let offer = crate::preset(&catalog, "origin200-1").unwrap();
         let dir = root.join("machine");
-        let tool = crate::fake_init_tool(&root, offer);
+        let tool = crate::test_support::init_tool(&root);
         let init = crate::MachineInit {
             tool: &tool,
             boot_prom: &prom,
