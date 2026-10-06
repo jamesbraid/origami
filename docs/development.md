@@ -235,10 +235,11 @@ below, which queries the real QEMU.
 `create` runs `qemu-sgi-machine-init` from beside QEMU to build a machine's
 storage, and launches attach each catalogue storage item as a block node of
 the same name. `cargo test` uses stand-ins for QEMU and the init tool, so it
-needs neither a QEMU build nor the submodules. One ignored test checks that
-every starter preset names an offering of the real catalogue, then creates
-and reopens each with the real tools. Native product builds run
-it in CTest as `product-state`. To run it against an existing build:
+needs neither a QEMU build nor the submodules. The ignored product-state
+tests check that every starter preset names an offering of the real
+catalogue, then create, reopen, start and stop each with the real tools,
+and upgrade and start a format 1 machine. Native product builds run them
+in CTest as `product-state`. To run it against an existing build:
 
 ```sh
 ORIGAMI_RUNTIME_DIR="$PWD/out/linux/run/libexec/origami" \
