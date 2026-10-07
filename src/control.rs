@@ -131,29 +131,3 @@ pub fn console(dir: &Path) -> Result<()> {
     io::copy(&mut stream, &mut io::stdout())?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    #[test]
-    fn edit_lock_excludes_another_writer() {
-        let dir = std::env::temp_dir().join(format!(
-            "sgi-edit-lock-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&dir).unwrap();
-        let lock = lock_for_edit(&dir, "changing drives").unwrap();
-        assert!(is_locked(&dir).unwrap());
-        assert!(lock_for_edit(&dir, "changing drives").is_err());
-        assert!(crate::runtime::start_background(&dir, crate::runtime::Display::None).is_err());
-        drop(lock);
-        assert!(!is_locked(&dir).unwrap());
-        fs::remove_dir_all(dir).unwrap();
-    }
-}

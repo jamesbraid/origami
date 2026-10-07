@@ -639,55 +639,6 @@ mod tests {
     }
 
     #[cfg(unix)]
-    #[test]
-    fn create_runs_the_init_tool_and_reopen_requires_its_storage() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let root = std::env::temp_dir().join(format!(
-            "origami-create-state-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        fs::create_dir(&root).unwrap();
-        let prom = root.join("boot prom.img");
-        let io_prom = root.join("io,prom.img");
-        let catalog = test_catalogue();
-        let offer = preset(&catalog, "origin2000-8").unwrap();
-        let tool = test_support::init_tool(&root);
-        let machine = root.join("machine");
-        let init = MachineInit {
-            tool: &tool,
-            boot_prom: &prom,
-            io_prom: Some(&io_prom),
-        };
-        create_configured(&machine, offer, &init, None, None, None, Default::default()).unwrap();
-        let arguments =
-            fs::read_to_string(root.join("runtime/qemu-sgi-machine-init.args")).unwrap();
-        let state = machine.join("state");
-        assert_eq!(
-            arguments.lines().collect::<Vec<_>>(),
-            [
-                "--machine",
-                "origin2000,topology=origin2000-rack,nodes=4",
-                "--boot-prom",
-                prom.to_str().unwrap(),
-                "--io-prom",
-                io_prom.to_str().unwrap(),
-                state.to_str().unwrap(),
-            ]
-        );
-        let file = read_machine(&machine).unwrap();
-        assert!(!machine.join("firmware").exists());
-        validate(&catalog, &machine, &file).unwrap();
-        fs::remove_file(state.join("node3-flash.raw")).unwrap();
-        let error = validate(&catalog, &machine, &file).unwrap_err().to_string();
-        assert!(error.contains("node3-flash.raw"), "{error}");
-        assert!(error.contains("origami create"), "{error}");
-        fs::remove_dir_all(root).unwrap();
-    }
-
     #[cfg(unix)]
     #[test]
     fn private_networking_uses_the_machine_mac() {

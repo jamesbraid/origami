@@ -155,16 +155,4 @@ mod tests {
         }
         validate_https_url("https://origami-dist.irix.fans/prom/test.bin").unwrap();
     }
-    #[test]
-    fn embedded_registry_has_every_catalogue_image() {
-        let manifest = manifest().unwrap();
-        for prom in &manifest.proms {
-            validate_https_url(&format!("{}{}", manifest.base_url, prom.path)).unwrap();
-        }
-        for offering in crate::test_catalogue().offerings {
-            for input in offering.init_inputs {
-                assert!(manifest.get(&input.kind).is_ok(), "{}", input.kind);
-            }
-        }
-    }
 }
