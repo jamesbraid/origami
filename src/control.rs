@@ -1,6 +1,6 @@
 use crate::Result;
+use qapi::qmp;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::{SocketAddrV4, TcpListener, TcpStream};
@@ -49,48 +49,32 @@ fn connect(record: &Record) -> Result<TcpStream> {
     Ok(stream)
 }
 
-fn response(reader: &mut BufReader<TcpStream>) -> Result<Value> {
-    for _ in 0..64 {
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
-            return Err("QMP connection closed".into());
-        }
-        let value: Value = serde_json::from_str(&line)?;
-        if value.get("return").is_some() || value.get("error").is_some() {
-            if value.get("error").is_some() {
-                return Err(format!("QMP error: {value}").into());
-            }
-            return Ok(value);
-        }
-    }
-    Err("QMP sent too many events without a response".into())
-}
+/// A QMP connection to a running machine.
+pub type Qmp = qapi::Qmp<qapi::Stream<BufReader<TcpStream>, TcpStream>>;
 
-fn execute(stream: &mut TcpStream, reader: &mut BufReader<TcpStream>, name: &str) -> Result<Value> {
-    serde_json::to_writer(&mut *stream, &json!({"execute": name}))?;
-    stream.write_all(b"\n")?;
-    response(reader)
-}
-
-pub fn verified_qmp(record: &Record) -> Result<(TcpStream, BufReader<TcpStream>)> {
-    let mut stream = connect(record)?;
-    let mut reader = BufReader::new(stream.try_clone()?);
-    let mut greeting = String::new();
-    if reader.read_line(&mut greeting)? == 0 {
+/// Read the greeting of the QMP server on `qmp` and enter command mode.
+pub fn handshake<S: BufRead + Write>(qmp: &mut qapi::Qmp<S>) -> Result<()> {
+    // qapi panics on end of input where it expects the greeting.
+    if qmp.inner_mut().fill_buf()?.is_empty() {
         return Err("QMP greeting missing".into());
     }
-    if serde_json::from_str::<Value>(&greeting)?
-        .get("QMP")
-        .is_none()
-    {
-        return Err("unexpected QMP greeting".into());
-    }
-    execute(&mut stream, &mut reader, "qmp_capabilities")?;
-    let answer = execute(&mut stream, &mut reader, "query-name")?;
-    if answer["return"]["name"].as_str() != Some(&record.name) {
+    qmp.handshake()?;
+    Ok(())
+}
+
+/// Connect to the QMP endpoint in `record` and check that it belongs to
+/// that machine's QEMU, not another process that reused the port.
+pub fn verified_qmp(record: &Record) -> Result<Qmp> {
+    let stream = connect(record)?;
+    let mut qmp = Qmp::new(qapi::Stream::new(
+        BufReader::new(stream.try_clone()?),
+        stream,
+    ));
+    handshake(&mut qmp)?;
+    if qmp.execute(&qmp::query_name {})?.name.as_deref() != Some(&record.name) {
         return Err("QMP endpoint belongs to another machine process".into());
     }
-    Ok((stream, reader))
+    Ok(qmp)
 }
 
 /// Hold the returned file for the edit; dropping it releases the lock. A running
@@ -141,9 +125,7 @@ pub fn is_running(dir: &Path) -> Result<bool> {
 
 pub fn stop(dir: &Path) -> Result<()> {
     let record = read(dir)?;
-    let (mut stream, _) = verified_qmp(&record)?;
-    serde_json::to_writer(&mut stream, &json!({"execute": "quit"}))?;
-    stream.write_all(b"\n")?;
+    verified_qmp(&record)?.write_command(&qmp::quit {})?;
     Ok(())
 }
 
