@@ -111,7 +111,7 @@ image = "firmware/prom.bin"
 mode = "user"
 "#;
 
-/// No preset has this topology and population, so only the catalogue says
+/// No preset has this topology and population, so only the machine list says
 /// which IO PROM it reads.
 const ONYX2_RACK: &str = r#"format = 1
 

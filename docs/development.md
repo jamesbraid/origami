@@ -220,25 +220,25 @@ cmake --build --preset macos
 ./out/macos/run/bin/origami --version
 ```
 
-## Machine catalogue and state
+## Machine list and state
 
 The CLI reads its machine offerings from the QEMU it launches. It starts that
 QEMU with no machine and asks for `query-sgi-machines` over QMP each time a
-command needs an offering. A QEMU pin change that alters the catalogue therefore
+command needs an offering. A QEMU pin change that alters the machine list therefore
 changes the offerings without a frontend edit, and a frontend change that
-needs new catalogue data needs the matching QEMU pin.
+needs new machine list data needs the matching QEMU pin.
 
 The Rust tests read `tests/fixtures/sgi-machines.json`, a short hand-written
 excerpt of that reply with one offering of each kind the tests exercise.
-Anything that needs the full catalogue belongs in the product-state test
+Anything that needs the full machine list belongs in the product-state test
 below, which queries the real QEMU.
 
 `create` runs `qemu-sgi-machine-init` from beside QEMU to build a machine's
-storage, and launches attach each catalogue storage item as a block node of
+storage, and launches attach each storage item in the machine list as a block node of
 the same name. `cargo test` uses stand-ins for QEMU and the init tool, so it
 needs neither a QEMU build nor the submodules. The ignored product-state
 tests check that every starter preset names an offering of the real
-catalogue, then create, reopen, start and stop each with the real tools,
+machine list, then create, reopen, start and stop each with the real tools,
 and upgrade and start a format 1 machine. Native product builds run them
 in CTest as `product-state`. To run it against an existing build:
 

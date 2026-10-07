@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Write a QEMU that answers `query-sgi-machines` from the test catalogue
+/// Write a QEMU that answers `query-sgi-machines` from the test machine list
 /// and an init tool that creates zero-filled storage for each of its
 /// offerings and records its arguments in `qemu-sgi-machine-init.args`.
 /// Returns the directory to select with `ORIGAMI_RUNTIME_DIR`.
@@ -17,7 +17,7 @@ pub fn fake_runtime(root: &Path) -> PathBuf {
         return runtime;
     }
     fs::create_dir_all(&runtime).unwrap();
-    let catalogue = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sgi-machines.json");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sgi-machines.json");
     script(
         &runtime.join("qemu-system-mips64"),
         &format!(
@@ -30,13 +30,13 @@ while IFS= read -r line; do
     *quit*) printf '{{"return": {{}}}}\n'; exit 0 ;;
     esac
 done"#,
-            catalogue.display()
+            fixture.display()
         ),
     );
     let mut tool =
         String::from("printf '%s\\n' \"$@\" > \"$0.args\"\nfor dir; do :; done\ncase \"$2\" in\n");
     let offerings: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&catalogue).unwrap()).unwrap();
+        serde_json::from_str(&fs::read_to_string(&fixture).unwrap()).unwrap();
     for offering in offerings["offerings"].as_array().unwrap() {
         tool.push_str(&format!(
             "'{}') items='",

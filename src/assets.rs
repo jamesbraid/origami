@@ -11,7 +11,7 @@ pub struct Manifest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Prom {
-    /// The catalogue's name for the kind of image, such as `ip27-prom`.
+    /// The machine list's name for the kind of image, such as `ip27-prom`.
     pub kind: String,
     pub path: String,
     pub size: u64,
@@ -79,7 +79,7 @@ fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Download the registry's image of catalogue kind `kind`, or reuse a
+/// Download the registry's image of kind `kind`, or reuse a
 /// verified cached copy.
 pub fn acquire(kind: &str) -> Result<PathBuf> {
     use std::io::{Read, Write};

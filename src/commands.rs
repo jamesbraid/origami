@@ -1,14 +1,14 @@
 use crate::cli::CreateArgs;
 use origami::{control, runtime};
 use origami::{
-    preset, read_machine, validate, validate_create_inputs, Catalog, Drive, MachineInit, Result,
+    preset, read_machine, validate, validate_create_inputs, Drive, MachineInit, Machines, Result,
 };
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
-    let offer = preset(catalog, &args.preset)?;
+pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
+    let offer = preset(machines, &args.preset)?;
     let options = &args.options;
     let graphics = options
         .graphics
@@ -50,10 +50,10 @@ pub fn create_machine(catalog: &Catalog, args: &CreateArgs) -> Result<()> {
     Ok(())
 }
 
-pub fn create_disk(catalog: &Catalog, dir: &Path, size: u64) -> Result<()> {
+pub fn create_disk(machines: &Machines, dir: &Path, size: u64) -> Result<()> {
     let _lock = control::lock_for_edit(dir, "changing drives")?;
     let mut file = read_machine(dir)?;
-    let offer = validate(catalog, dir, &file)?;
+    let offer = validate(machines, dir, &file)?;
     if file.drive.iter().any(|d| d.name == "system") {
         return Err("system disk already attached".into());
     }

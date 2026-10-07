@@ -4,8 +4,8 @@ mod commands;
 use clap::Parser;
 use cli::{Action, DriveKind, NetworkMode};
 use origami::runtime;
-use origami::{catalogue, presets, read_machine, validate, Drive, Network, PortForward, Result};
 use origami::{control, install};
+use origami::{machines, presets, read_machine, validate, Drive, Network, PortForward, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -65,7 +65,7 @@ fn command(action: Action) -> Result<()> {
     match action {
         Action::Version => unreachable!(),
         Action::Machines => {
-            for (name, offer) in presets(&catalogue()?) {
+            for (name, offer) in presets(&machines()?) {
                 println!(
                     "{name:36} {} CPUs, {} nodes, graphics: {} (experimental)",
                     offer.smp,
@@ -74,24 +74,24 @@ fn command(action: Action) -> Result<()> {
                 );
             }
         }
-        Action::Create(args) => commands::create_machine(&catalogue()?, &args)?,
+        Action::Create(args) => commands::create_machine(&machines()?, &args)?,
         Action::Validate(args) => {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
-            let catalog = catalogue()?;
-            let offer = validate(&catalog, &dir, &file)?;
+            let machines = machines()?;
+            let offer = validate(&machines, &dir, &file)?;
             println!("valid: {} ({} CPUs)", offer.topology, offer.smp);
         }
         Action::Upgrade { dir, io_prom } => {
             let dir = directory(&dir)?;
-            origami::migrate::upgrade(&dir, &catalogue()?, io_prom.as_deref())?;
+            origami::migrate::upgrade(&dir, &machines()?, io_prom.as_deref())?;
             println!("upgraded {}", dir.display());
         }
         Action::Show(args) => {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
-            let catalog = catalogue()?;
-            let offer = validate(&catalog, &dir, &file)?;
+            let machines = machines()?;
+            let offer = validate(&machines, &dir, &file)?;
             println!(
                 "{}: {} CPUs, {} nodes, {} per node, {} graphics",
                 file.machine.model,
@@ -131,8 +131,8 @@ fn command(action: Action) -> Result<()> {
         Action::ShowCommand(args) => {
             let dir = directory(&args.machine.dir)?;
             let file = read_machine(&dir)?;
-            let catalog = catalogue()?;
-            let offer = validate(&catalog, &dir, &file)?;
+            let machines = machines()?;
+            let offer = validate(&machines, &dir, &file)?;
             let display = args.display.resolve(&file.machine.graphics)?;
             let exe = runtime::qemu_path()?;
             let arguments = runtime::arguments(&dir, &file, offer, display)?;
@@ -144,8 +144,8 @@ fn command(action: Action) -> Result<()> {
         Action::Run(args) => {
             let dir = directory(&args.launch.machine.dir)?;
             let file = read_machine(&dir)?;
-            let catalog = catalogue()?;
-            let offer = validate(&catalog, &dir, &file)?;
+            let machines = machines()?;
+            let offer = validate(&machines, &dir, &file)?;
             let display = args.launch.display.resolve(&file.machine.graphics)?;
             if args.background {
                 runtime::start_background(&dir, display)?;
@@ -159,8 +159,8 @@ fn command(action: Action) -> Result<()> {
         Action::Serve(args) => {
             let dir = directory(&args.machine.dir)?;
             let file = read_machine(&dir)?;
-            let catalog = catalogue()?;
-            let offer = validate(&catalog, &dir, &file)?;
+            let machines = machines()?;
+            let offer = validate(&machines, &dir, &file)?;
             let display = args.display.resolve(&file.machine.graphics)?;
             let status = runtime::serve(&dir, &file, offer, display)?;
             if !status.success() {
@@ -185,7 +185,7 @@ fn command(action: Action) -> Result<()> {
         }
         Action::DriveCreate { dir, size } => {
             let dir = directory(&dir)?;
-            commands::create_disk(&catalogue()?, &dir, size)?
+            commands::create_disk(&machines()?, &dir, size)?
         }
         Action::DriveAttach {
             dir,
@@ -205,7 +205,7 @@ fn command(action: Action) -> Result<()> {
                 image: path.display().to_string(),
                 read_only: kind == DriveKind::Cdrom,
             });
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("attached {}", path.display());
         }
@@ -226,7 +226,7 @@ fn command(action: Action) -> Result<()> {
                 );
             }
             file.drive.remove(matches[0]);
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("detached {name}");
         }
@@ -235,8 +235,8 @@ fn command(action: Action) -> Result<()> {
             let _lock = control::lock_for_edit(&dir, "changing its console")?;
             let mut file = read_machine(&dir)?;
             file.machine.console = port;
-            let catalog = catalogue()?;
-            let offer = validate(&catalog, &dir, &file)?;
+            let machines = machines()?;
+            let offer = validate(&machines, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             let console = file.machine.console.as_deref();
             println!(
@@ -262,7 +262,7 @@ fn command(action: Action) -> Result<()> {
                 forward: file.network.forward.clone(),
             };
             origami::set_machine_mac(&mut file, mac.as_deref())?;
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("network: {}", mode.as_str());
         }
@@ -282,7 +282,7 @@ fn command(action: Action) -> Result<()> {
                 host_port,
                 guest_port,
             });
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("forward added: {name}");
         }
@@ -295,7 +295,7 @@ fn command(action: Action) -> Result<()> {
             if file.network.forward.len() == count {
                 return Err(format!("unknown forward: {name}").into());
             }
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("forward removed: {name}");
         }
@@ -310,7 +310,7 @@ fn command(action: Action) -> Result<()> {
             let mut file = read_machine(&dir)?;
             let path = if let Some(root) = media_root {
                 install::init_profile(
-                    &catalogue()?,
+                    &machines()?,
                     &dir,
                     &root,
                     mac.as_deref(),
@@ -319,7 +319,7 @@ fn command(action: Action) -> Result<()> {
                 )?
             } else {
                 install::init_remote_profile(
-                    &catalogue()?,
+                    &machines()?,
                     &dir,
                     mac.as_deref(),
                     &mut file,
@@ -339,7 +339,7 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing its install add-ons")?;
             let file = read_machine(&dir)?;
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             let path = install::add_addon(
                 &dir,
                 &name,
@@ -353,26 +353,26 @@ fn command(action: Action) -> Result<()> {
         Action::InstallApply { dir, addon } => {
             let dir = directory(&dir)?;
             let file = read_machine(&dir)?;
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             install::apply(&dir, &file, addon.as_deref())?;
         }
         Action::InstallFinish(args) => {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             install::finish_rad4(&dir, &file)?;
         }
         Action::InstallCheck(args) => {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             install::check(&dir, &file)?;
             println!("install media validated");
         }
         Action::InstallServe(args) => {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
-            validate(&catalogue()?, &dir, &file)?;
+            validate(&machines()?, &dir, &file)?;
             let status = install::serve(&dir, &file)?;
             if !status.success() {
                 return Err(format!("Instigator exited with {status}").into());

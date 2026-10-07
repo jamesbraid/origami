@@ -258,11 +258,11 @@ Onyx2, Origin 300, Octane, Octane2 and Fuel. The IMPACT shortcuts select SI.
 Onyx2 selects InfiniteReality. Origin 300 has direct V12 and V-brick choices.
 Fuel currently has a serial console. Octane VPro and Fuel VPro are unavailable.
 
-The console uses the serial line QEMU's catalogue marks as the machine's
+The console uses the serial line QEMU's machine list marks as the machine's
 console: the L1 on Origin 300 and Fuel, and IOC3 port A elsewhere. A Fuel
 whose PROM environment is set to `console=d` talks on IOC3 port A instead.
 Choose another line while the machine is stopped, or omit `--port` to return
-to the default. Lines take their catalogue names, such as `l1`, `ioc3_a` and
+to the default. Lines take their machine list names, such as `l1`, `ioc3_a` and
 `ioc3_b`; an unknown name lists the machine's choices.
 
 ```sh
@@ -270,12 +270,12 @@ origami console-set my-fuel --port ioc3_a
 ```
 
 `create --memory-per-node MiB` selects one of the values accepted by the preset.
-The full QEMU catalogue also validates additional topologies and processor
+The full QEMU machine list also validates additional topologies and processor
 populations configured in `machine.toml`. Use `topology` and `population` to
 identify those configurations. Support remains experimental: a selectable
 configuration does not imply that firmware, installation or graphics work.
 The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/sgi-origami/docs/specs/sgi-sn.rst)
-describes topology and board options. QEMU's catalogue gives each machine its
+describes topology and board options. QEMU's machine list gives each machine its
 board and processor values, such as Fuel's `board-id-word` or Octane2's
 `r12000-prid`. `create --set PROPERTY=VALUE` overrides one; QEMU checks the
 value. An unknown property lists the ones the preset accepts.
@@ -295,7 +295,7 @@ QEMU checks them when it creates the machine.
 
 A machine keeps its writable state under `state/`: one file per node boot
 flash, IO PROM flash, Timekeeper NVRAM and clock record, named as QEMU's
-machine catalogue names them. `create` runs QEMU's `qemu-sgi-machine-init` to
+machine list names them. `create` runs QEMU's `qemu-sgi-machine-init` to
 build these files from the PROM images, and keeps no copy of the images.
 Later runs need neither the PROM files nor a download. PROM updates and
 settings the guest saves persist in these files.

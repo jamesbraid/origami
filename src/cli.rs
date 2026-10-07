@@ -82,7 +82,7 @@ pub enum Action {
     ConsoleSet {
         #[arg(value_name = "DIR")]
         dir: PathBuf,
-        /// Serial line to connect, named as in QEMU's catalogue (such as l1
+        /// Serial line to connect, named as in QEMU's machine list (such as l1
         /// or ioc3_a); omit to use the machine's default console
         #[arg(long)]
         port: Option<String>,
@@ -202,7 +202,7 @@ pub struct CreateOptions {
 #[derive(Debug, Default, Args)]
 #[command(next_help_heading = "Hardware options")]
 pub struct HardwareArgs {
-    /// Override a catalogue value or set a machine input, such as
+    /// Override a machine list value or set a machine input, such as
     /// board-id-word=0x4000 or r12000-prid=0xe24; repeatable
     #[arg(long = "set", value_name = "PROPERTY=VALUE", value_parser = parse_setting)]
     pub settings: Vec<(String, String)>,

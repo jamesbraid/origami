@@ -1,7 +1,7 @@
 //! Upgrade machines from format 1, which kept a copy of the boot PROM and
 //! let the launcher build flash and NVRAM files under its own names.
 
-use crate::{profiles, resolve, runtime, Catalog, MachineFile, MachineInit, Offering, Result};
+use crate::{profiles, resolve, runtime, MachineFile, MachineInit, Machines, Offering, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -18,7 +18,7 @@ pub fn format(text: &str) -> Option<i64> {
 /// tool creates its storage, then the flash and NVRAM contents the machine
 /// already has replace the fresh ones. The old files stay where they are;
 /// on failure, so does machine.toml.
-pub fn upgrade(dir: &Path, catalog: &Catalog, io_prom: Option<&Path>) -> Result<()> {
+pub fn upgrade(dir: &Path, machines: &Machines, io_prom: Option<&Path>) -> Result<()> {
     // A running machine, or another edit, holds this lock.
     let _lock = crate::control::lock_for_edit(dir, "upgrading it")?;
     let path = dir.join("machine.toml");
@@ -33,7 +33,7 @@ pub fn upgrade(dir: &Path, catalog: &Catalog, io_prom: Option<&Path>) -> Result<
     }
     let result = (|| -> Result<()> {
         let (file, prom) = convert(dir, &text)?;
-        let offering = crate::offering(catalog, &file.machine)?;
+        let offering = crate::offering(machines, &file.machine)?;
         // Format 1 kept no IO PROM.
         let (prom, io_prom) = crate::firmware(offering, Some(&prom), io_prom)?;
         let init = MachineInit {

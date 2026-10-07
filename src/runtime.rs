@@ -95,7 +95,7 @@ pub fn create_state(tool: &Path, arguments: &[OsString]) -> Result<()> {
 }
 
 /// The serial lines a console can use, as (-serial index, chardev name,
-/// whether it is the primary console). The catalogue lists the lines in
+/// whether it is the primary console). The machine list gives the lines in
 /// -serial order, node 0 first; lines of other nodes are not offered.
 fn console_ports(offering: &Offering) -> impl Iterator<Item = (usize, &str, bool)> {
     offering
@@ -110,7 +110,7 @@ fn console_ports(offering: &Offering) -> impl Iterator<Item = (usize, &str, bool
         })
 }
 
-/// The machine's default console: the catalogue's line of kind console.
+/// The machine's default console: the machine list's line of kind console.
 pub fn default_console(offering: &Offering) -> Result<&str> {
     console_ports(offering)
         .find(|(_, _, primary)| *primary)
@@ -118,7 +118,7 @@ pub fn default_console(offering: &Offering) -> Result<&str> {
         .ok_or_else(|| format!("{} lists no node 0 console", offering.topology).into())
 }
 
-/// The -serial index of a console port, by default the catalogue's.
+/// The -serial index of a console port, by default the machine list's.
 pub fn console_line(offering: &Offering, port: Option<&str>) -> Result<usize> {
     let port = match port {
         Some(port) => port,
@@ -561,8 +561,8 @@ mod tests {
 
     #[test]
     fn local_graphics_uses_sdl_and_rad4() {
-        let catalog = crate::test_catalogue();
-        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
         let args = arguments(
             Path::new("/machine"),
             &machine(offer, "rad4"),
@@ -580,16 +580,16 @@ mod tests {
     }
 
     #[test]
-    fn console_line_follows_the_catalogue_and_machine_choice() {
-        let catalog = crate::test_catalogue();
+    fn console_line_follows_the_machine_list_and_choice() {
+        let machines = crate::test_machines();
         let serial = |args: &[String]| -> Vec<String> {
             args.windows(2)
                 .filter(|p| p[0] == "-serial")
                 .map(|p| p[1].clone())
                 .collect()
         };
-        // Fuel's catalogue lists l1 (its console), then IOC3 ports A and B.
-        let fuel = preset(&catalog, "fuel-1").unwrap();
+        // Fuel's machine list entry gives l1 (its console), then IOC3 ports A and B.
+        let fuel = preset(&machines, "fuel-1").unwrap();
         assert_eq!(default_console(fuel).unwrap(), "l1");
         assert_eq!(
             console_ports(fuel).collect::<Vec<_>>(),
@@ -613,7 +613,7 @@ mod tests {
         }
 
         // Only node 0 lines of console kinds are offered.
-        let mut origin2000 = preset(&catalog, "origin2000-8").unwrap().clone();
+        let mut origin2000 = preset(&machines, "origin2000-8").unwrap().clone();
         origin2000.consoles.push(crate::Console {
             kind: "second-port".into(),
             node: 1,
@@ -636,8 +636,8 @@ mod tests {
 
     #[test]
     fn foreground_serial_keeps_console_and_logs_output() {
-        let catalog = crate::test_catalogue();
-        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
         let mut args = arguments(
             Path::new("/machine"),
             &machine(offer, "rad4"),
@@ -662,8 +662,8 @@ mod tests {
 
     #[test]
     fn vnc_port_maps_to_qemu_display_offset() {
-        let catalog = crate::test_catalogue();
-        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
         let display = Display::Vnc { port: 5991 };
         let args = arguments(
             Path::new("/machine"),
@@ -679,7 +679,7 @@ mod tests {
 
     #[test]
     fn user_network_forwards_bind_only_to_loopback() {
-        let catalog = crate::test_catalogue();
+        let machines = crate::test_machines();
         let rules = vec![
             PortForward {
                 name: "ssh".into(),
@@ -695,13 +695,13 @@ mod tests {
             },
         ];
         let expected = "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15,hostfwd=tcp:127.0.0.1:2222-:22,hostfwd=udp:127.0.0.1:5353-:53";
-        let origin200 = preset(&catalog, "origin200-1").unwrap();
+        let origin200 = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(origin200, "rad4");
         file.network.forward = rules.clone();
         let args = arguments(Path::new("/machine"), &file, origin200, Display::None).unwrap();
         assert!(args.windows(2).any(|pair| pair == ["-nic", expected]));
 
-        let origin2000 = preset(&catalog, "origin2000-8").unwrap();
+        let origin2000 = preset(&machines, "origin2000-8").unwrap();
         let mut file = machine(origin2000, "none");
         file.network.forward = rules;
         file.identity = Some(crate::Identity {
@@ -713,8 +713,8 @@ mod tests {
 
     #[test]
     fn identity_mac_is_a_machine_property() {
-        let catalog = crate::test_catalogue();
-        let offer = preset(&catalog, "origin2000-8").unwrap();
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "origin2000-8").unwrap();
         let mut file = machine(offer, "none");
         file.identity = Some(crate::Identity {
             mac: "02:00:5d:aa:bb:cc".into(),
@@ -729,8 +729,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn private_network_uses_qemu_stream_client() {
-        let catalog = crate::test_catalogue();
-        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(offer, "rad4");
         file.network = Network {
             mode: "private".into(),
@@ -756,8 +756,8 @@ mod tests {
 
     #[test]
     fn private_tcp_network_uses_loopback_stream_client() {
-        let catalog = crate::test_catalogue();
-        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(offer, "rad4");
         file.network = Network {
             mode: "private".into(),

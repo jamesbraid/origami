@@ -1,10 +1,10 @@
-use crate::{Catalog, Result};
+use crate::{Machines, Result};
 use std::io::BufReader;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-/// Ask a short-lived QEMU with no machine for the catalogue compiled into it.
-pub fn load(qemu: &Path) -> Result<Catalog> {
+/// Ask a short-lived QEMU with no machine for the machine list compiled into it.
+pub fn load(qemu: &Path) -> Result<Machines> {
     let mut child = Command::new(qemu)
         .args([
             "-M",
@@ -34,7 +34,7 @@ pub fn load(qemu: &Path) -> Result<Catalog> {
     let output = child.wait_with_output()?;
     reply.map_err(|error| {
         format!(
-            "cannot read the machine catalogue from {}: {error} {}",
+            "cannot read the machine list from {}: {error} {}",
             qemu.display(),
             String::from_utf8_lossy(&output.stderr).trim()
         )
@@ -46,7 +46,7 @@ pub fn load(qemu: &Path) -> Result<Catalog> {
 struct QuerySgiMachines {}
 
 impl qapi::Command for QuerySgiMachines {
-    type Ok = Catalog;
+    type Ok = Machines;
     const NAME: &'static str = "query-sgi-machines";
     const ALLOW_OOB: bool = false;
 }

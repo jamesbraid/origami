@@ -1,5 +1,5 @@
 //! Machines against a product build's own QEMU and init tool: each starter
-//! preset names a catalogue offering and its machine is created, reopened,
+//! preset names a offering in the machine list and its machine is created, reopened,
 //! started and stopped, and a format 1 machine upgrades and starts. The
 //! other tests use stand-ins, so this runs only on request; the product
 //! build's CTest runs it on native builds:
@@ -76,24 +76,24 @@ fn synthetic_image(path: &Path, kind: &str) -> Vec<u8> {
 fn every_preset_creates_reopens_and_starts() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
-    let catalog = origami::catalogue().unwrap();
+    let machines = origami::machines().unwrap();
     let mut failures = Vec::new();
     // Each starter must name an offering of this QEMU, and the registry
     // must have every image kind an offering reads.
     for profile in origami::profiles::STARTERS {
-        if let Err(error) = origami::preset(&catalog, profile.id) {
+        if let Err(error) = origami::preset(&machines, profile.id) {
             failures.push(format!("{}: {error}", profile.id));
         }
     }
     let manifest = origami::assets::manifest().unwrap();
-    for offering in &catalog.offerings {
+    for offering in &machines.offerings {
         for input in &offering.init_inputs {
             if manifest.get(&input.kind).is_err() {
                 failures.push(format!("{}: no {} download", offering.topology, input.kind));
             }
         }
     }
-    for (name, offering) in origami::presets(&catalog) {
+    for (name, offering) in origami::presets(&machines) {
         let machine = root.join(format!("{name}, with comma"));
         let mut args: Vec<OsString> = vec!["--preset".into(), name.clone().into()];
         for input in &offering.init_inputs {

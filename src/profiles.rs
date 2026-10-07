@@ -1,4 +1,4 @@
-use crate::{Catalog, Machine, Offering, Result};
+use crate::{Machine, Machines, Offering, Result};
 use std::collections::BTreeMap;
 
 pub fn population(machine: &Machine) -> Vec<u32> {
@@ -78,11 +78,11 @@ pub const STARTERS: &[Profile] = &[
     },
 ];
 
-pub fn presets(catalog: &Catalog) -> Vec<(String, &Offering)> {
+pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
     STARTERS
         .iter()
         .filter_map(|profile| {
-            catalog
+            machines
                 .offerings
                 .iter()
                 .find(|o| o.topology == profile.topology && o.cpus_per_node == profile.population)
@@ -126,7 +126,7 @@ pub fn validate_graphics(offering: &Offering, graphics: &str) -> Result<()> {
 }
 
 /// Where a launch input is set: `machine` (-M) or `cpu` (-cpu). The
-/// catalogue's overrides name the values a launch may replace, and its
+/// machine list's overrides name the values a launch may replace, and its
 /// hardware inputs the further options a configuration binds.
 pub fn input_target<'a>(offering: &'a Offering, key: &str) -> Option<&'a str> {
     if let Some(item) = offering.overrides.iter().find(|o| o.property == key) {
@@ -237,8 +237,8 @@ mod tests {
 
     #[test]
     fn impact_boards_use_the_xio_slot_and_onyx2_its_fitted_pipe() {
-        let catalog = crate::test_catalogue();
-        let o = preset(&catalog, "origin2000-8").unwrap();
+        let machines = crate::test_machines();
+        let o = preset(&machines, "origin2000-8").unwrap();
         let args = runtime::arguments(
             Path::new("/machine"),
             &file(o, "si"),
@@ -263,8 +263,8 @@ mod tests {
 
     #[test]
     fn octane_impact_uses_machine_graphics_and_embedded_network() {
-        let catalog = crate::test_catalogue();
-        let o = preset(&catalog, "octane-impact").unwrap();
+        let machines = crate::test_machines();
+        let o = preset(&machines, "octane-impact").unwrap();
         let args = runtime::arguments(
             Path::new("/machine"),
             &file(o, "si"),
@@ -280,8 +280,8 @@ mod tests {
 
     #[test]
     fn heterogeneous_cpu_populations_are_explicit() {
-        let catalog = crate::test_catalogue();
-        for o in catalog.offerings.iter() {
+        let machines = crate::test_machines();
+        for o in machines.offerings.iter() {
             let graphics = default_graphics(o);
             let f = file(o, graphics);
             let args =
@@ -307,9 +307,9 @@ mod tests {
     }
 
     #[test]
-    fn catalogue_overrides_go_to_their_target() {
-        let catalog = crate::test_catalogue();
-        let o = preset(&catalog, "fuel-1").unwrap();
+    fn listed_overrides_go_to_their_target() {
+        let machines = crate::test_machines();
+        let o = preset(&machines, "fuel-1").unwrap();
         let mut f = file(o, "none");
         let option = |args: &[String], name: &str| {
             args.windows(2)
@@ -357,7 +357,7 @@ mod tests {
         assert!(error.to_string().contains("board-revision"), "{error}");
 
         // Octane takes its flash straps and processor words the same way.
-        let octane = preset(&catalog, "octane-impact").unwrap();
+        let octane = preset(&machines, "octane-impact").unwrap();
         let mut f = file(octane, "si");
         f.machine.inputs = [("flash-select", "on"), ("r10000-prid", "0xe24")]
             .into_iter()
@@ -367,11 +367,11 @@ mod tests {
             runtime::arguments(Path::new("/machine"), &f, octane, runtime::Display::None).unwrap();
         assert!(option(&args, "-M").contains(",flash-select=on"));
         assert_eq!(option(&args, "-cpu"), "R10000,r10000-prid=0xe24");
-        for o in catalog.offerings.iter() {
+        for o in machines.offerings.iter() {
             assert!(takes_mac(o), "{}", o.topology);
         }
         assert!(validate_graphics(o, "vpro").is_err());
-        assert!(preset(&catalog, "origin350-2").is_err());
-        assert!(preset(&catalog, "tezro-4").is_err());
+        assert!(preset(&machines, "origin350-2").is_err());
+        assert!(preset(&machines, "tezro-4").is_err());
     }
 }

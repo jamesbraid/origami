@@ -5,9 +5,9 @@ use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 
 pub mod assets;
-pub mod catalogue;
 pub mod control;
 pub mod install;
+pub mod machines;
 pub mod migrate;
 pub mod profiles;
 pub mod runtime;
@@ -18,7 +18,7 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub const MACHINE_FORMAT: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct Catalog {
+pub struct Machines {
     pub offerings: Vec<Offering>,
 }
 
@@ -47,7 +47,7 @@ pub struct Offering {
     /// Machine options this offering accepts beyond its storage.
     #[serde(rename = "hardware-inputs")]
     pub hardware_inputs: Vec<InputBinding>,
-    /// Catalogue values a launch may override, and where each is set.
+    /// Values a launch may override, and where each is set.
     pub overrides: Vec<Override>,
     /// Serial lines in -serial order; the line of kind `console` is the
     /// primary console.
@@ -189,7 +189,7 @@ pub struct Machine {
     #[serde(default = "default_graphics")]
     pub graphics: String,
     /// The chardev name of the console line, such as `ioc3_a`, when it
-    /// differs from the catalogue's primary console.
+    /// differs from the machine list's primary console.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console: Option<String>,
 }
@@ -211,17 +211,17 @@ pub struct Drive {
     pub read_only: bool,
 }
 
-/// The machine catalogue of the QEMU that launches guests.
-pub fn catalogue() -> Result<Catalog> {
-    catalogue::load(&runtime::qemu_path()?)
+/// The machine list of the QEMU that launches guests.
+pub fn machines() -> Result<Machines> {
+    machines::load(&runtime::qemu_path()?)
 }
 
-pub fn presets(catalog: &Catalog) -> Vec<(String, &Offering)> {
-    profiles::presets(catalog)
+pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
+    profiles::presets(machines)
 }
 
-pub fn preset<'a>(catalog: &'a Catalog, name: &str) -> Result<&'a Offering> {
-    presets(catalog)
+pub fn preset<'a>(machines: &'a Machines, name: &str) -> Result<&'a Offering> {
+    presets(machines)
         .into_iter()
         .find(|(n, _)| n == name)
         .map(|(_, offering)| offering)
@@ -293,9 +293,9 @@ pub fn valid_mac(mac: &str) -> bool {
             .all(|part| part.len() == 2 && u8::from_str_radix(part, 16).is_ok())
 }
 
-/// The catalogue offering a machine was created from.
-pub fn offering<'a>(catalog: &'a Catalog, machine: &Machine) -> Result<&'a Offering> {
-    catalog
+/// The offering in the machine list a machine was created from.
+pub fn offering<'a>(machines: &'a Machines, machine: &Machine) -> Result<&'a Offering> {
+    machines
         .offerings
         .iter()
         .find(|o| {
@@ -307,7 +307,11 @@ pub fn offering<'a>(catalog: &'a Catalog, machine: &Machine) -> Result<&'a Offer
         .ok_or_else(|| "unsupported machine and processor population".into())
 }
 
-pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Result<&'a Offering> {
+pub fn validate<'a>(
+    machines: &'a Machines,
+    dir: &Path,
+    file: &MachineFile,
+) -> Result<&'a Offering> {
     if file.format != MACHINE_FORMAT {
         return Err(format!("unsupported machine format {}", file.format).into());
     }
@@ -317,7 +321,7 @@ pub fn validate<'a>(catalog: &'a Catalog, dir: &Path, file: &MachineFile) -> Res
         .strip_suffix("MiB")
         .ok_or("memory_per_node must use MiB")?
         .parse::<u32>()?;
-    let offering = offering(catalog, &file.machine)?;
+    let offering = offering(machines, &file.machine)?;
     if !offering.memory.accepted.contains(&memory) {
         return Err(format!(
             "{} MiB per node is not offered for {}",
@@ -464,7 +468,7 @@ pub struct MachineInit<'a> {
 }
 
 /// The boot and IO PROM images that create `offering`'s storage: the files
-/// given, else verified downloads of the kinds its catalogue entry reads.
+/// given, else verified downloads of the kinds its machine list entry reads.
 pub fn firmware(
     offering: &Offering,
     boot_prom: Option<&Path>,
@@ -542,9 +546,9 @@ pub fn create_configured(
 
 /// A hand-trimmed excerpt of a `query-sgi-machines` reply: one offering of
 /// each kind the unit tests exercise. The product build's product-state test
-/// reads the real catalogue.
+/// reads the real machine list.
 #[cfg(test)]
-pub(crate) fn test_catalogue() -> Catalog {
+pub(crate) fn test_machines() -> Machines {
     serde_json::from_str(include_str!("../tests/fixtures/sgi-machines.json")).unwrap()
 }
 
@@ -571,7 +575,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn create_accepts_catalogue_memory_and_rejects_unsupported_memory() {
+    fn create_accepts_listed_memory_and_rejects_unsupported_memory() {
         use std::time::{SystemTime, UNIX_EPOCH};
         let root = std::env::temp_dir().join(format!(
             "sgi-create-memory-{}-{}",
@@ -584,8 +588,8 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let prom = root.join("prom.bin");
         fs::write(&prom, [0u8; 1]).unwrap();
-        let catalog = test_catalogue();
-        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machines = test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
         let tool = test_support::init_tool(&root);
         let init = MachineInit {
             tool: &tool,
@@ -605,7 +609,7 @@ mod tests {
         .unwrap();
         let file = read_machine(&machine).unwrap();
         assert_eq!(file.machine.memory_per_node, "128MiB");
-        validate(&catalog, &machine, &file).unwrap();
+        validate(&machines, &machine, &file).unwrap();
         let missing_tool = root.join("absent-tool");
         let broken = MachineInit {
             tool: &missing_tool,
@@ -628,12 +632,12 @@ mod tests {
 
     #[test]
     fn create_preflight_rejects_inputs_before_firmware_fetch() {
-        let catalog = test_catalogue();
-        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machines = test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
         let absent = std::env::temp_dir().join(format!("origami-absent-{}", std::process::id()));
         assert!(validate_create_inputs(&absent, offer, Some(96), None).is_err());
         assert!(validate_create_inputs(Path::new("."), offer, None, None).is_err());
-        let sn1 = preset(&catalog, "fuel-1").unwrap();
+        let sn1 = preset(&machines, "fuel-1").unwrap();
         assert!(validate_create_inputs(&absent, sn1, None, None).is_ok());
         assert!(!absent.exists());
     }
@@ -645,8 +649,8 @@ mod tests {
         let root = std::env::temp_dir().join(format!("origami-identity-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir(&root).unwrap();
-        let catalog = test_catalogue();
-        let offer = preset(&catalog, "origin200-1").unwrap();
+        let machines = test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
         let tool = test_support::init_tool(&root);
         let prom = root.join("prom.img");
         let init = MachineInit {
@@ -673,17 +677,19 @@ mod tests {
             endpoint: Some("tcp:127.0.0.1:4242".into()),
             forward: vec![],
         };
-        validate(&catalog, &machine, &file).unwrap();
+        validate(&machines, &machine, &file).unwrap();
         let error = set_machine_mac(&mut file, Some("08:00:69:12:34:56"))
             .unwrap_err()
             .to_string();
         assert!(error.contains("02:00:5d:aa:bb:cc"), "{error}");
         set_machine_mac(&mut file, Some("02:00:5D:AA:BB:CC")).unwrap();
         file.identity = None;
-        let error = validate(&catalog, &machine, &file).unwrap_err().to_string();
+        let error = validate(&machines, &machine, &file)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("--mac"), "{error}");
         set_machine_mac(&mut file, Some("08:00:69:12:34:56")).unwrap();
-        validate(&catalog, &machine, &file).unwrap();
+        validate(&machines, &machine, &file).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 }
