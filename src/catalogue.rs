@@ -1,30 +1,10 @@
-use crate::{control, Catalog, Result};
+use crate::{Catalog, Result};
 use std::io::BufReader;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-pub const SCHEMA: &str = "sgi-machines";
-
-/// Load the machine catalogue compiled into `qemu`.
+/// Ask a short-lived QEMU with no machine for the catalogue compiled into it.
 pub fn load(qemu: &Path) -> Result<Catalog> {
-    parse(&query(qemu)?)
-}
-
-pub fn parse(text: &str) -> Result<Catalog> {
-    let catalog: Catalog = serde_json::from_str(text)
-        .map_err(|error| format!("invalid QEMU machine catalogue: {error}"))?;
-    if catalog.schema != SCHEMA {
-        return Err(format!(
-            "QEMU machine catalogue has schema {}, expected {SCHEMA}",
-            catalog.schema
-        )
-        .into());
-    }
-    Ok(catalog)
-}
-
-/// Ask a short-lived QEMU with no machine for its catalogue over QMP.
-fn query(qemu: &Path) -> Result<String> {
     let mut child = Command::new(qemu)
         .args([
             "-M",
@@ -43,12 +23,10 @@ fn query(qemu: &Path) -> Result<String> {
     let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
         return Err("QEMU's standard streams are not piped".into());
     };
-    // On Windows QEMU drops stdio input that arrives while its monitor is
-    // busy, so wait for the greeting and send each command after the
-    // previous reply. A QEMU that exits early is reported from its output.
     let mut qmp = qapi::Qmp::new(qapi::Stream::new(BufReader::new(stdout), stdin));
-    let reply = control::handshake(&mut qmp)
-        .and_then(|()| Ok(qmp.execute(&QuerySgiMachines {})?.to_string()));
+    let reply = qmp
+        .handshake()
+        .and_then(|_| qmp.execute(&QuerySgiMachines {}));
     // Quit only after the reply is read: QEMU can exit with the end of a
     // long reply still unwritten.
     let _ = qmp.execute(&qapi::qmp::quit {});
@@ -68,20 +46,7 @@ fn query(qemu: &Path) -> Result<String> {
 struct QuerySgiMachines {}
 
 impl qapi::Command for QuerySgiMachines {
-    type Ok = serde_json::Value;
+    type Ok = Catalog;
     const NAME: &'static str = "query-sgi-machines";
     const ALLOW_OOB: bool = false;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_rejects_another_schema() {
-        let error = parse("{\"schema\": \"sgi-sn\", \"offerings\": []}")
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("sgi-sn"), "{error}");
-    }
 }

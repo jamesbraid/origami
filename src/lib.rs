@@ -19,7 +19,6 @@ pub const MACHINE_FORMAT: u32 = 2;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Catalog {
-    pub schema: String,
     pub offerings: Vec<Offering>,
 }
 
@@ -546,7 +545,7 @@ pub fn create_configured(
 /// reads the real catalogue.
 #[cfg(test)]
 pub(crate) fn test_catalogue() -> Catalog {
-    catalogue::parse(include_str!("../tests/fixtures/sgi-machines.json")).unwrap()
+    serde_json::from_str(include_str!("../tests/fixtures/sgi-machines.json")).unwrap()
 }
 
 /// The stand-in QEMU tools the command tests use.

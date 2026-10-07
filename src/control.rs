@@ -2,7 +2,7 @@ use crate::Result;
 use qapi::qmp;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufReader};
 use std::net::{SocketAddrV4, TcpListener, TcpStream};
 use std::path::Path;
 use std::time::Duration;
@@ -52,16 +52,6 @@ fn connect(record: &Record) -> Result<TcpStream> {
 /// A QMP connection to a running machine.
 pub type Qmp = qapi::Qmp<qapi::Stream<BufReader<TcpStream>, TcpStream>>;
 
-/// Read the greeting of the QMP server on `qmp` and enter command mode.
-pub fn handshake<S: BufRead + Write>(qmp: &mut qapi::Qmp<S>) -> Result<()> {
-    // qapi panics on end of input where it expects the greeting.
-    if qmp.inner_mut().fill_buf()?.is_empty() {
-        return Err("QMP greeting missing".into());
-    }
-    qmp.handshake()?;
-    Ok(())
-}
-
 /// Connect to the QMP endpoint in `record` and check that it belongs to
 /// that machine's QEMU, not another process that reused the port.
 pub fn verified_qmp(record: &Record) -> Result<Qmp> {
@@ -70,7 +60,7 @@ pub fn verified_qmp(record: &Record) -> Result<Qmp> {
         BufReader::new(stream.try_clone()?),
         stream,
     ));
-    handshake(&mut qmp)?;
+    qmp.handshake()?;
     if qmp.execute(&qmp::query_name {})?.name.as_deref() != Some(&record.name) {
         return Err("QMP endpoint belongs to another machine process".into());
     }
