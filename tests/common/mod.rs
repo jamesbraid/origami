@@ -22,7 +22,7 @@ pub fn fake_runtime(root: &Path) -> PathBuf {
         &runtime.join("qemu-system-mips64"),
         &format!(
             r#"case " $* " in *" -qmp stdio "*) ;; *) exit 9 ;; esac
-printf '{{"QMP": {{"version": {{}}, "capabilities": []}}}}\n'
+printf '{{"QMP": {{"version": {{"qemu": {{"major": 0, "minor": 0, "micro": 0}}, "package": ""}}, "capabilities": []}}}}\n'
 while IFS= read -r line; do
     case "$line" in
     *qmp_capabilities*) printf '{{"return": {{}}}}\n' ;;
