@@ -240,6 +240,11 @@ jobs:
           cat ./*.sha256 > SHA256SUMS
           test "$(wc -l < SHA256SUMS)" -eq 3
           sha256sum -c SHA256SUMS
+          notes="$RUNNER_TEMP/notes.md"
+          awk -v heading="## ${GITHUB_REF_NAME#v}" '$0 == heading { on = 1; next } /^## / { on = 0 } on' \
+            ../CHANGELOG.md > "$notes"
+          grep -q . "$notes" || { echo "CHANGELOG.md has no section for $GITHUB_REF_NAME" >&2; exit 1; }
+          cat ../docs/release-notes.md >> "$notes"
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
-            --title "Origami $GITHUB_REF_NAME" --notes-file ../docs/release-notes.md \
+            --title "Origami $GITHUB_REF_NAME" --notes-file "$notes" \
             ./origami-*-preview.* ./SHA256SUMS

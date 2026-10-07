@@ -12,7 +12,8 @@ and a `-dirty` suffix for tracked local edits. Without a version tag it uses
 the commit ID. Builds without Git metadata report `unknown`.
 
 Create an annotated `vX.Y.Z` tag on the product commit to select a release.
-That commit also selects the QEMU and Instigator pins. Build from the tag,
+That commit also selects the QEMU and Instigator pins, and its `CHANGELOG.md`
+needs an `## X.Y.Z` section, which becomes the top of the release notes. Build from the tag,
 run the tests, then package those binaries. Rebuild after adding or changing
 a tag so the embedded version matches the archive version.
 Cargo's `0.0.0` is a package placeholder. The Git tag owns the release version,
