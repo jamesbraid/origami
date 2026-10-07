@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- QEMU updated to fa81284.
+- The CLI talks to QEMU through the qapi library instead of its own
+  protocol code.
+
 ## 0.2.0
 
 Machines created by 0.1.x must be upgraded once before use:
