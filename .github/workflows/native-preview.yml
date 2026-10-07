@@ -232,6 +232,7 @@ jobs:
           pattern: origami-*-preview
           path: release-assets
           merge-multiple: true
+      - uses: taiki-e/install-action@parse-changelog
       - name: Verify and publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -241,9 +242,8 @@ jobs:
           test "$(wc -l < SHA256SUMS)" -eq 3
           sha256sum -c SHA256SUMS
           notes="$RUNNER_TEMP/notes.md"
-          awk -v heading="## ${GITHUB_REF_NAME#v}" '$0 == heading { on = 1; next } /^## / { on = 0 } on' \
-            ../CHANGELOG.md > "$notes"
-          grep -q . "$notes" || { echo "CHANGELOG.md has no section for $GITHUB_REF_NAME" >&2; exit 1; }
+          parse-changelog ../CHANGELOG.md "${GITHUB_REF_NAME#v}" > "$notes"
+          printf '\n' >> "$notes"
           cat ../docs/release-notes.md >> "$notes"
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
             --title "Origami $GITHUB_REF_NAME" --notes-file "$notes" \
