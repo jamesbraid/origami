@@ -23,3 +23,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation"] }
 
 [build-dependencies]
 vergen-gitcl = "10"
+
+[patch.crates-io]
+# 0.15.0 panics when the stream ends before the QMP greeting, as it does
+# when QEMU fails to start. This fork adds the fix from qapi-rs PR 29.
+qapi = { git = "https://github.com/jamesbraid/qapi-rs", rev = "3c80a7769b39bba4e25f07460b134dc6efb31996" }
