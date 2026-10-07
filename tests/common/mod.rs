@@ -89,6 +89,8 @@ pub fn origami(executable: &Path, root: &Path) -> Command {
     let mut command = Command::new(executable);
     command
         .env("ORIGAMI_RUNTIME_DIR", fake_runtime(root))
-        .env("XDG_CACHE_HOME", root.join("cache"));
+        .env("XDG_CACHE_HOME", root.join("cache"))
+        // macOS keeps its cache under $HOME/Library/Caches and ignores XDG.
+        .env("HOME", root.join("home"));
     command
 }

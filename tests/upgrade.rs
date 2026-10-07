@@ -169,7 +169,11 @@ fn origin200_upgrades_once_and_keeps_its_nvram_drives_and_forwards() {
     let output = origami(root.path(), &["validate", path]);
     assert!(!output.status.success());
     assert!(
-        stderr(&output).contains(&format!("origami upgrade {path}")),
+        // macOS reports temporary directories through the /private symlink.
+        stderr(&output).contains(&format!(
+            "origami upgrade {}",
+            fs::canonicalize(&machine).unwrap().display()
+        )),
         "{}",
         stderr(&output)
     );
@@ -311,9 +315,10 @@ fn io_prom_without_a_file_or_cached_copy_names_the_option() {
         ORIGIN2000,
         &borrowed(&ip27_state(4)),
     );
-    // A cache directory that cannot exist stops the download before it
+    // Cache directories that cannot exist stop the download before it
     // reaches the network.
     fs::write(root.path().join("cache"), b"").unwrap();
+    fs::write(root.path().join("home"), b"").unwrap();
     let before = snapshot(&machine);
     let output = origami(root.path(), &["upgrade", machine.to_str().unwrap()]);
     assert!(!output.status.success());
