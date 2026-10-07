@@ -21,15 +21,14 @@ logs, drives and port forwards are kept, and the old files stay in place.
 
 First public release.
 
-- Portable archives for Linux x86-64, Windows 11 x86-64 and macOS on
-  Apple Silicon, each bundling the CLI, QEMU and Instigator.
+- Portable archives for Linux, Windows and MacOS
 - QEMU's libraries come from pinned vcpkg ports instead of the build host.
-- QEMU is built without OpenGL.
 
 ## 0.1.0
 
 First preview, not published as a release.
 
 - The `origami` CLI creates, runs and stops Origin 200, Origin 2000,
-  Origin 300 and Onyx2 machines from presets, downloading verified PROMs.
-- Drives, CD and tape images, networking and guided IRIX installs.
+  Origin 300 and Onyx2 machines from presets. Fetches PROMs on demand.
+- Tested with IRIX installing from scratch on an emulated Origin 200 with RAD4
+  graphics.
