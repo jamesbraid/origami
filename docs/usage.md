@@ -305,13 +305,17 @@ settings the guest saves persist in these files.
 Origami never rebuilds a missing state file, because that would discard what
 the guest saved. A missing file is an error naming its path. Restore it from a
 backup, or create a new machine and attach the old machine's disks.
-Other commands refuse a machine created by Origami 0.1 until it is upgraded
-in place, which keeps its flash, NVRAM, drives, network and MAC. Stop the
-machine first. A machine with an IO PROM downloads one as `create` does, or
-takes a local file:
+Other commands refuse a machine created by Origami 0.1 or 0.2 until it is
+upgraded in place, which keeps its flash, NVRAM, drives, network and MAC. Stop
+the machine first. Upgrading a 0.2 Origin 200, Origin 2000 or Onyx2 adds the
+module controller NVRAM file those machines now have, in the state `create`
+gives a new machine. The upgrade reads the machine's PROMs to build that
+file. It downloads them as `create` does, or takes local files. Upgrading a
+machine that is already current changes nothing.
 
 ```sh
 origami upgrade my-origin
+origami upgrade my-origin --prom ip27prom.img
 origami upgrade my-onyx2 --io-prom io6prom.img
 ```
 

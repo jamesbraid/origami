@@ -1,7 +1,10 @@
-//! Upgrade machines from format 1, which kept a copy of the boot PROM and
-//! let the launcher build flash and NVRAM files under its own names.
+//! Upgrade machines from earlier formats. Format 1 kept a copy of the boot
+//! PROM and let the launcher build flash and NVRAM files under its own
+//! names. Format 2 machines predate the module controller NVRAM store.
 
-use crate::{profiles, resolve, runtime, MachineFile, MachineInit, Machines, Offering, Result};
+use crate::{
+    profiles, resolve, runtime, MachineFile, MachineInit, Machines, Offering, Result, StorageItem,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,46 +16,116 @@ pub fn format(text: &str) -> Option<i64> {
         .as_integer()
 }
 
-/// Rewrite the stopped format 1 machine in `dir` as the current format,
-/// reading an IO PROM from `io_prom` or a verified download. QEMU's init
-/// tool creates its storage, then the flash and NVRAM contents the machine
-/// already has replace the fresh ones. The old files stay where they are;
-/// on failure, so does machine.toml.
-pub fn upgrade(dir: &Path, machines: &Machines, io_prom: Option<&Path>) -> Result<()> {
+/// Bring the stopped machine in `dir` to the current format, reading PROMs
+/// from `prom` and `io_prom` or verified downloads where the upgrade needs
+/// them. Returns false for a machine that is already current, which is left
+/// untouched. On failure machine.toml is unchanged.
+pub fn upgrade(
+    dir: &Path,
+    machines: &Machines,
+    prom: Option<&Path>,
+    io_prom: Option<&Path>,
+) -> Result<bool> {
     // A running machine, or another edit, holds this lock.
     let _lock = crate::control::lock_for_edit(dir, "upgrading it")?;
     let path = dir.join("machine.toml");
     let text = fs::read_to_string(&path)
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-    if format(&text) != Some(1) {
-        return Err(format!(
-            "{} is not from Origami 0.1; it needs no upgrade",
-            path.display()
-        )
-        .into());
-    }
-    let result = (|| -> Result<()> {
-        let (file, prom) = convert(dir, &text)?;
-        let offering = crate::offering(machines, &file.machine)?;
-        // Format 1 kept no IO PROM.
-        let (prom, io_prom) = crate::firmware(offering, Some(&prom), io_prom)?;
-        let init = MachineInit {
-            tool: &runtime::machine_init_path()?,
-            boot_prom: &prom,
-            io_prom: io_prom.as_deref(),
-        };
-        install(dir, &file, offering, &init)
-    })();
-    result.map_err(|error| {
+    let format = format(&text);
+    let result = match format {
+        Some(1) => from_format1(dir, machines, &text, prom, io_prom),
+        Some(2) => from_format2(dir, machines, &text, prom, io_prom),
+        Some(current) if current == i64::from(crate::MACHINE_FORMAT) => return Ok(false),
+        _ => return Err(format!("{} has an unsupported format", path.display()).into()),
+    };
+    result.map(|()| true).map_err(|error| {
         format!(
-            "cannot upgrade the format 1 machine {}: {error}; its machine.toml is unchanged",
+            "cannot upgrade the format {} machine {}: {error}; its machine.toml is unchanged",
+            format.unwrap_or_default(),
             dir.display()
         )
         .into()
     })
 }
 
-/// The format 2 machine file for format 1 `text`, and its boot PROM.
+/// QEMU's init tool creates the storage, then the flash and NVRAM contents
+/// the machine already has replace the fresh ones. The old files stay where
+/// they are.
+fn from_format1(
+    dir: &Path,
+    machines: &Machines,
+    text: &str,
+    prom: Option<&Path>,
+    io_prom: Option<&Path>,
+) -> Result<()> {
+    let (file, own_prom) = convert(dir, text)?;
+    let offering = crate::offering(machines, &file.machine)?;
+    // Format 1 kept no IO PROM.
+    let (prom, io_prom) = crate::firmware(offering, Some(prom.unwrap_or(&own_prom)), io_prom)?;
+    let init = MachineInit {
+        tool: &runtime::machine_init_path()?,
+        boot_prom: &prom,
+        io_prom: io_prom.as_deref(),
+    };
+    install(dir, &file, offering, &init)
+}
+
+/// Create the module controller NVRAM files a format 2 machine lacks. Their
+/// first contents depend only on the machine, not on what the guest saved,
+/// so a fresh file is the one create would have made. Any other missing
+/// file holds guest state that cannot be rebuilt.
+fn from_format2(
+    dir: &Path,
+    machines: &Machines,
+    text: &str,
+    prom: Option<&Path>,
+    io_prom: Option<&Path>,
+) -> Result<()> {
+    let mut file: MachineFile = toml::from_str(text)?;
+    let offering = crate::offering(machines, &file.machine)?;
+    let state = dir.join("state");
+    let raw = |root: &Path, item: &StorageItem| root.join(format!("{}.raw", item.name));
+    let missing: Vec<&StorageItem> = offering
+        .storage
+        .iter()
+        .filter(|item| !raw(&state, item).is_file())
+        .collect();
+    if let Some(item) = missing
+        .iter()
+        .find(|item| item.initial != "controller-nvram")
+    {
+        return Err(format!(
+            "missing machine state {}. Restore it from a backup",
+            raw(&state, item).display()
+        )
+        .into());
+    }
+    // Left by an interrupted upgrade.
+    let staging = dir.join("state.format3");
+    let _ = fs::remove_dir_all(&staging);
+    if !missing.is_empty() {
+        // The init tool reads the machine's PROMs before it writes anything,
+        // although these files do not depend on them.
+        let (prom, io_prom) = crate::firmware(offering, prom, io_prom)?;
+        let result = (|| -> Result<()> {
+            let arguments = runtime::init_arguments(offering, &prom, io_prom.as_deref(), &staging);
+            runtime::create_state(&runtime::machine_init_path()?, &arguments)?;
+            for item in &missing {
+                fs::rename(raw(&staging, item), raw(&state, item))?;
+            }
+            Ok(())
+        })();
+        let _ = fs::remove_dir_all(&staging);
+        result?;
+    }
+    file.format = crate::MACHINE_FORMAT;
+    let temporary = dir.join("machine.toml.format3");
+    fs::write(&temporary, toml::to_string_pretty(&file)?)?;
+    fs::rename(temporary, dir.join("machine.toml"))?;
+    Ok(())
+}
+
+/// The current machine file for format 1 `text`, and its boot PROM.
 fn convert(dir: &Path, text: &str) -> Result<(MachineFile, PathBuf)> {
     let mut table: toml::Table = toml::from_str(text)?;
     let prom = table

@@ -11,7 +11,8 @@
    "storage": [
     {"name": "node0-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
     {"name": "nvram0", "size": 32768, "initial": "ip27-nvram", "read-only": false},
-    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false},
+    {"name": "module0-nvram", "size": 2048, "initial": "controller-nvram", "read-only": false}
    ],
    "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]}],
    "consoles": [
@@ -40,7 +41,8 @@
     {"name": "node3-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
     {"name": "io0-flash", "size": 1048576, "initial": "io-prom", "read-only": false},
     {"name": "nvram0", "size": 32768, "initial": "ip27-nvram", "read-only": false},
-    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false},
+    {"name": "module0-nvram", "size": 2048, "initial": "controller-nvram", "read-only": false}
    ],
    "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]}],
    "consoles": [
@@ -67,7 +69,8 @@
     {"name": "node1-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
     {"name": "io0-flash", "size": 1048576, "initial": "io-prom", "read-only": false},
     {"name": "nvram0", "size": 32768, "initial": "ip27-nvram", "read-only": false},
-    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false},
+    {"name": "module0-nvram", "size": 2048, "initial": "controller-nvram", "read-only": false}
    ],
    "scsi-adapters": [
     {"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]},

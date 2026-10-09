@@ -82,10 +82,13 @@ fn command(action: Action) -> Result<()> {
             let offer = validate(&machines, &dir, &file)?;
             println!("valid: {} ({} CPUs)", offer.topology, offer.smp);
         }
-        Action::Upgrade { dir, io_prom } => {
+        Action::Upgrade { dir, prom, io_prom } => {
             let dir = directory(&dir)?;
-            origami::migrate::upgrade(&dir, &machines()?, io_prom.as_deref())?;
-            println!("upgraded {}", dir.display());
+            if origami::migrate::upgrade(&dir, &machines()?, prom.as_deref(), io_prom.as_deref())? {
+                println!("upgraded {}", dir.display());
+            } else {
+                println!("{} is current; it needs no upgrade", dir.display());
+            }
         }
         Action::Show(args) => {
             let dir = directory(&args.dir)?;

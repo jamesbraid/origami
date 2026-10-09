@@ -14,8 +14,9 @@ pub mod runtime;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-/// The machine.toml format. Format 2 machines keep QEMU-created storage.
-pub const MACHINE_FORMAT: u32 = 2;
+/// The machine.toml format. Format 2 machines keep QEMU-created storage;
+/// format 3 adds the module controller NVRAM.
+pub const MACHINE_FORMAT: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Machines {
@@ -236,10 +237,15 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
             path.display()
         )
     })?;
-    // Format 1 has sections format 2 refuses, so check it first.
-    if migrate::format(&text) == Some(1) {
+    // Format 1 has sections the current format refuses, so check it first.
+    let release = match migrate::format(&text) {
+        Some(1) => Some("0.1"),
+        Some(2) => Some("0.2"),
+        _ => None,
+    };
+    if let Some(release) = release {
         return Err(format!(
-            "{} is from Origami 0.1; upgrade it once with origami upgrade {}",
+            "{} is from Origami {release}; upgrade it once with origami upgrade {}",
             path.display(),
             dir.display()
         )

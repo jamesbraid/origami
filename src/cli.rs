@@ -29,10 +29,13 @@ pub enum Action {
     Create(Box<CreateArgs>),
     /// Check a machine configuration
     Validate(MachineArgs),
-    /// Upgrade a stopped machine created by Origami 0.1
+    /// Upgrade a stopped machine created by an earlier Origami
     Upgrade {
         #[arg(value_name = "DIR")]
         dir: PathBuf,
+        /// Local boot PROM instead of a download, for a machine that needs one
+        #[arg(long, value_name = "FILE")]
+        prom: Option<PathBuf>,
         /// Local IO PROM for a machine with a BASEIO or GIGAchannel board
         #[arg(long, value_name = "FILE")]
         io_prom: Option<PathBuf>,
