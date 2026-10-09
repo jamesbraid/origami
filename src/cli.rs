@@ -155,15 +155,13 @@ pub enum Action {
     InstallCheck(MachineArgs),
     /// Serve installation media until stopped
     InstallServe(MachineArgs),
-    /// At Inst>, install the selected profile and optional add-on
+    /// At Inst>, install the selected profile and optional add-on, then restart
     InstallApply {
         #[arg(value_name = "DIR")]
         dir: PathBuf,
         #[arg(long)]
         addon: Option<String>,
     },
-    /// At Inst>, configure RAD4, build the installed kernel and reboot
-    InstallFinish(MachineArgs),
 }
 
 #[derive(Debug, Args)]

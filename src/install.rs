@@ -109,8 +109,6 @@ fn recipe(profile: &str) -> Result<InstallRecipe> {
 
 const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
 
-const RAD4_FINISH_SCRIPT: &str = include_str!("../guest/irix/finish-rad4.sh");
-
 /// The RAD4 driver archive and selection the user guide gives.
 const RAD4_ADDON_SOURCE: &str =
     "https://origami-dist.irix.fans/irix/addons/rad4/rad4x_65_13k.tar.gz";
@@ -121,7 +119,11 @@ fn rad4_addon() -> InstallAddon {
         source: RAD4_ADDON_SOURCE.into(),
         base: None,
         dist: Some("dist_6.5".into()),
-        install: vec!["rad4x".into()],
+        install: vec![
+            "rad4x.sw.driver".into(),
+            "rad4x.sw.xserver".into(),
+            "rad4x.man".into(),
+        ],
     }
 }
 
@@ -370,24 +372,20 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         if let Some(dist) = &addon.dist {
             layer["dist"] = json!(dist);
         }
-        let mut layers = vec![layer];
-        if addon.install.iter().any(|selection| selection == "rad4x") {
-            layers.push(json!({
-                "name": "sgi-rad4-finish",
-                "source": dir.join("install/generated/rad4"),
-                "dist": "dist",
-            }));
-        }
+        // An add-on installs in a second pass, after IRIX. Its files then go
+        // through the symbolic links IRIX's own products make, such as
+        // /var/sysgen/boot, instead of replacing them with directories.
+        let name = format!("addon-{}", addon.name);
         sets.push(json!({
-            "name": format!("addon-{}", addon.name),
-            "layers": layers,
+            "name": name,
+            "addon": true,
+            "layers": [layer],
         }));
-        let mut selected = recipe.install.clone();
-        selected.extend(addon.install.iter().cloned());
         scripts.push(json!({
-            "name": format!("addon-{}", addon.name),
-            "install": selected,
+            "name": name,
+            "install": recipe.install,
             "keep": recipe.keep,
+            "then": { "sets": [name], "install": addon.install },
         }));
     }
     Ok(json!({
@@ -401,19 +399,6 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         "install_scripts": scripts,
         "install_sets": sets
     }))
-}
-
-fn prepare_guest_scripts(dir: &Path, media: &InstallMedia) -> Result<()> {
-    if media
-        .addons
-        .iter()
-        .any(|addon| addon.install.iter().any(|selection| selection == "rad4x"))
-    {
-        let path = dir.join("install/generated/rad4/dist/finish-rad4.sh");
-        fs::create_dir_all(path.parent().ok_or("RAD4 script has no parent directory")?)?;
-        fs::write(path, RAD4_FINISH_SCRIPT)?;
-    }
-    Ok(())
 }
 
 pub fn instigator_path() -> Result<PathBuf> {
@@ -430,7 +415,6 @@ pub fn instigator_path() -> Result<PathBuf> {
 
 pub fn check(dir: &Path, file: &MachineFile) -> Result<()> {
     let media = read_media(dir)?;
-    prepare_guest_scripts(dir, &media)?;
     let document = config(dir, file, &media)?;
     fs::create_dir_all(dir.join("install/cache"))?;
     let mut child = Command::new(instigator_path()?)
@@ -457,7 +441,6 @@ pub fn check(dir: &Path, file: &MachineFile) -> Result<()> {
 
 pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     let media = read_media(dir)?;
-    prepare_guest_scripts(dir, &media)?;
     let document = config(dir, file, &media)?;
     let install_dir = dir.join("install");
     fs::create_dir_all(install_dir.join("cache"))?;
@@ -512,8 +495,12 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
 
 const INSTALL_PROMPT: &[u8] = b"Inst> ";
 const SHELL_PROMPT: &[u8] = b"# ";
-const TFTP_PROMPT: &[u8] = b"tftp> ";
+const RESTART_PROMPT: &[u8] = b"Restart? { (y)es, (n)o, (sh)ell, (h)elp }: ";
 const SERIAL_LOGIN_PROMPT_SUFFIX: &[u8] = b" console login: ";
+const TERMINAL_PROMPT: &[u8] = b"TERM = (vt100) ";
+// IRIX's startup autoconfig prints this when it built a kernel that only a
+// further restart loads.
+const STARTUP_REBUILD: &str = "Reboot to start using the reconfigured kernel.";
 
 struct InstallConsole {
     stream: TcpStream,
@@ -589,6 +576,8 @@ enum InstallPhase {
 
 struct InstallProgress {
     phase: InstallPhase,
+    passes: usize,
+    pass: usize,
     pending: Vec<u8>,
     menu_pending: Vec<u8>,
     menu_answered: bool,
@@ -598,9 +587,14 @@ struct InstallProgress {
 }
 
 impl InstallProgress {
-    fn new() -> Self {
+    /// Follow `passes` runs of go from one command file. inst prints no
+    /// Inst> prompt between them: the next pass starts reading its
+    /// distribution as soon as the previous one has calculated sizes.
+    fn new(passes: usize) -> Self {
         Self {
             phase: InstallPhase::ReadingSources,
+            passes,
+            pass: 1,
             pending: Vec::new(),
             menu_pending: Vec::new(),
             menu_answered: false,
@@ -673,6 +667,9 @@ impl InstallProgress {
                 InstallPhase::ReadingSources => b"Installing/removing files ..",
                 InstallPhase::Transferring => b"Checking dependencies ..",
                 InstallPhase::Checking => b"Calculating sizes ..",
+                InstallPhase::Finalizing if self.pass < self.passes => {
+                    b"Installing/removing files .."
+                }
                 InstallPhase::Finalizing => {
                     if self.pending.ends_with(INSTALL_PROMPT) {
                         return true;
@@ -697,16 +694,21 @@ impl InstallProgress {
                 InstallPhase::ReadingSources => InstallPhase::Transferring,
                 InstallPhase::Transferring => InstallPhase::Checking,
                 InstallPhase::Checking => InstallPhase::Finalizing,
-                InstallPhase::Finalizing => unreachable!(),
+                InstallPhase::Finalizing => {
+                    self.pass += 1;
+                    InstallPhase::Transferring
+                }
             };
         }
     }
 }
 
 impl InstallConsole {
-    fn wait_for_install(&mut self, timeout: Duration) -> Result<()> {
+    /// Follow `passes` runs of go back to Inst>. Only the first pass reopens
+    /// the primary distribution, so only it can show the distribution menu.
+    fn wait_for_install(&mut self, passes: usize, timeout: Duration) -> Result<()> {
         let deadline = Instant::now() + timeout;
-        let mut progress = InstallProgress::new();
+        let mut progress = InstallProgress::new(passes);
         let mut chunk = [0u8; 4096];
         while Instant::now() < deadline {
             match self.stream.read(&mut chunk) {
@@ -732,24 +734,41 @@ impl InstallConsole {
             }
         }
         Err(format!(
-            "guest installation did not finish after {} seconds ({:?}); machine remains running",
+            "guest installation did not finish after {} seconds (pass {} of {}, {:?}); machine remains running",
             timeout.as_secs(),
+            progress.pass,
+            progress.passes,
             progress.phase
         )
         .into())
     }
 }
 
-fn install_source_command(media: &InstallMedia, addon: Option<&str>) -> Result<String> {
-    let script: String = if let Some(name) = addon {
+fn install_script(media: &InstallMedia, addon: Option<&str>) -> Result<(String, usize)> {
+    if let Some(name) = addon {
         if !valid_addon_name(name) || !media.addons.iter().any(|item| item.name == name) {
             return Err(format!("unknown install add-on: {name}").into());
         }
-        format!("addon-{name}")
-    } else {
-        STANDARD_INSTALL_SCRIPT.into()
-    };
-    Ok(format!("admin source 10.98.0.2:/{script}.cmds\n"))
+        // The add-on script installs IRIX, then the add-on in a second go.
+        return Ok((format!("admin source 10.98.0.2:/addon-{name}.cmds\n"), 2));
+    }
+    Ok((
+        format!("admin source 10.98.0.2:/{STANDARD_INSTALL_SCRIPT}.cmds\n"),
+        1,
+    ))
+}
+
+/// The quit output stops at the restart prompt. IRIX relinks the kernel
+/// there, and an lboot message means that kernel may be missing objects.
+fn check_quit(output: &str) -> Result<()> {
+    if let Some(line) = output.lines().find(|line| line.contains("lboot")) {
+        return Err(format!(
+            "kernel reconfiguration reported: {}; guest remains at the restart prompt",
+            line.trim()
+        )
+        .into());
+    }
+    Ok(())
 }
 
 pub fn apply(dir: &Path, file: &MachineFile, addon: Option<&str>) -> Result<()> {
@@ -757,80 +776,39 @@ pub fn apply(dir: &Path, file: &MachineFile, addon: Option<&str>) -> Result<()> 
         return Err("package installation requires private installation networking".into());
     }
     let media = read_media(dir)?;
-    let command = install_source_command(&media, addon)?;
+    let (command, passes) = install_script(&media, addon)?;
     let mut console = InstallConsole::connect(dir)?;
     println!("Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.");
     console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
     console.stream.write_all(command.as_bytes())?;
-    console.wait_for_install(Duration::from_secs(4 * 60 * 60))?;
-    println!("Package transfer returned to Inst>. Review the serial output for package errors before finishing the install.");
+    console.wait_for_install(passes, Duration::from_secs(4 * 60 * 60))?;
+    let quit = console.command("quit", RESTART_PROMPT, Duration::from_secs(900))?;
+    check_quit(&quit)?;
+    console.restart()?;
+    println!("Installed IRIX reached serial login. Stop the machine before switching to user networking.");
     Ok(())
 }
 
-fn received_expected(output: &str, size: usize) -> bool {
-    output
-        .lines()
-        .any(|line| line.trim().starts_with(&format!("Received {size} bytes ")))
-}
-
-pub fn finish_rad4(dir: &Path, file: &MachineFile) -> Result<()> {
-    if file.machine.model != "origin200" || file.machine.graphics != "rad4" {
-        return Err("RAD4 finish requires an Origin 200 RAD4 machine".into());
+impl InstallConsole {
+    /// Answer the restart prompt and wait for login. If the first boot's
+    /// autoconfig built a kernel instead of the quit-time reconfiguration,
+    /// log in as root, which has no password on a new install, and restart
+    /// once more so the guest runs that kernel.
+    fn restart(&mut self) -> Result<()> {
+        let boot = self.command("y", SERIAL_LOGIN_PROMPT_SUFFIX, Duration::from_secs(900))?;
+        if !boot.contains(STARTUP_REBUILD) {
+            return Ok(());
+        }
+        println!("\nFirst boot rebuilt the kernel. Restarting once more to load it.");
+        self.command("root", TERMINAL_PROMPT, Duration::from_secs(60))?;
+        self.command("", SHELL_PROMPT, Duration::from_secs(60))?;
+        self.command(
+            "reboot",
+            SERIAL_LOGIN_PROMPT_SUFFIX,
+            Duration::from_secs(900),
+        )?;
+        Ok(())
     }
-    if file.network.mode != "private" {
-        return Err("RAD4 finish requires private installation networking".into());
-    }
-    let media = read_media(dir)?;
-    if !media
-        .addons
-        .iter()
-        .any(|addon| addon.install.iter().any(|item| item == "rad4x"))
-    {
-        return Err("RAD4 add-on is not configured for this machine".into());
-    }
-    let mut console = InstallConsole::connect(dir)?;
-    println!("Finish the installation only after its Inst> prompt appears.");
-    console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
-    console.command("shroot", SHELL_PROMPT, Duration::from_secs(60))?;
-    console.command(
-        "ifconfig ef0 10.98.0.65 netmask 255.255.255.0 up",
-        SHELL_PROMPT,
-        Duration::from_secs(30),
-    )?;
-    console.command("tftp 10.98.0.2", TFTP_PROMPT, Duration::from_secs(30))?;
-    console.command("binary", TFTP_PROMPT, Duration::from_secs(30))?;
-    let received = console.command(
-        "get /addon-rad4/dist/finish-rad4.sh /tmp/finish-rad4.sh",
-        TFTP_PROMPT,
-        Duration::from_secs(60),
-    )?;
-    console.command("quit", SHELL_PROMPT, Duration::from_secs(30))?;
-    if !received_expected(&received, RAD4_FINISH_SCRIPT.len()) {
-        return Err(
-            "RAD4 helper TFTP transfer did not report its expected size; machine remains running"
-                .into(),
-        );
-    }
-    let result = console.command(
-        "/bin/sh -c '/bin/sh /tmp/finish-rad4.sh /; echo SGI_RAD4_FINISH_STATUS=$?'",
-        SHELL_PROMPT,
-        Duration::from_secs(900),
-    )?;
-    if !result
-        .lines()
-        .any(|line| line.trim() == "SGI_RAD4_FINISH_STATUS=0")
-    {
-        return Err("RAD4 helper did not report successful exit; machine remains running".into());
-    }
-    console.command("exit", INSTALL_PROMPT, Duration::from_secs(60))?;
-    console.command(
-        "quit",
-        b"Restart? { (y)es, (n)o, (sh)ell, (h)elp }: ",
-        Duration::from_secs(900),
-    )?;
-    console.command("y", SERIAL_LOGIN_PROMPT_SUFFIX, Duration::from_secs(600))?;
-    println!("RAD4 configured and installed IRIX reached serial login. Stop the machine before switching to user networking and SDL.");
-    Ok(())
 }
 
 #[cfg(test)]
@@ -867,7 +845,7 @@ mod tests {
             stream: TcpStream::connect(address).unwrap(),
         };
         let error = console
-            .wait_for_install(Duration::from_secs(1))
+            .wait_for_install(1, Duration::from_secs(1))
             .unwrap_err()
             .to_string();
         writer.join().unwrap();
@@ -876,7 +854,7 @@ mod tests {
 
     #[test]
     fn install_conflict_is_reported_at_prompt_after_diagnostics() {
-        let mut progress = InstallProgress::new();
+        let mut progress = InstallProgress::new(1);
         assert!(!progress.observe_conflicts(b"Inst> "));
 
         assert!(!progress.observe_conflicts(b"ERROR: Conflicts must be"));
@@ -892,7 +870,7 @@ mod tests {
     fn install_conflict_marker_is_detected_across_every_split() {
         let marker = b"ERROR: Conflicts must be resolved.";
         for split in 0..=marker.len() {
-            let mut progress = InstallProgress::new();
+            let mut progress = InstallProgress::new(1);
             let first = progress.observe_conflicts(&marker[..split]);
             assert!(!first, "split {split}");
             let second = progress.observe_conflicts(&marker[split..]);
@@ -903,7 +881,7 @@ mod tests {
 
     #[test]
     fn install_progress_selects_distribution_menu_once() {
-        let mut progress = InstallProgress::new();
+        let mut progress = InstallProgress::new(1);
         assert_eq!(progress.distribution_choice(b" 1 primary\r\n 7 done (distribution information read, return to inst prompt)\r\nInstall software from: [primary"), None);
         assert_eq!(progress.distribution_choice(b"] "), Some(7));
         assert_eq!(
@@ -914,7 +892,7 @@ mod tests {
 
     #[test]
     fn install_progress_ignores_intermediate_inst_prompt() {
-        let mut progress = InstallProgress::new();
+        let mut progress = InstallProgress::new(1);
         assert!(!progress.observe(b"Inst> Reading product descriptions .. 100% Done.\r\n"));
         assert!(!progress.observe(b"Inst> "));
         assert_eq!(progress.phase, InstallPhase::ReadingSources);
@@ -927,27 +905,130 @@ mod tests {
         assert!(progress.observe(b" "));
     }
 
-    #[test]
-    fn rad4_guest_transfer_must_match_packaged_helper() {
-        let size = RAD4_FINISH_SCRIPT.len();
-        assert!(received_expected(
-            &format!("Received {size} bytes in 0.0 seconds\r\n"),
-            size
-        ));
-        assert!(!received_expected("Error: transfer failed\r\n", size));
-    }
-
-    #[test]
-    fn rad4_helper_parses_as_shell() {
-        let status = std::process::Command::new("/bin/sh")
-            .args(["-n", "guest/irix/finish-rad4.sh"])
-            .status()
+    /// Serve `chunks` to an InstallConsole, pausing between them so each
+    /// arrives as its own read, then stay connected past the one-second
+    /// timeouts the tests use.
+    fn scripted_console(
+        chunks: Vec<&'static [u8]>,
+    ) -> (InstallConsole, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let writer = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            for chunk in chunks {
+                stream.write_all(chunk).unwrap();
+                stream.flush().unwrap();
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            std::thread::sleep(Duration::from_millis(1500));
+        });
+        let stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(100)))
             .unwrap();
-        assert!(status.success());
+        (InstallConsole { stream }, writer)
+    }
+
+    const PASS: &[u8] = b"Installing/removing files .. 22%\r\nChecking dependencies .. 100% Done.\r\nCalculating sizes .. 100% Done.\r\n";
+
+    #[test]
+    fn install_apply_waits_for_the_second_pass_to_return() {
+        // A prompt after the first pass does not end a two-pass install.
+        let (mut console, writer) = scripted_console(vec![PASS, b"\r\nInst> "]);
+        let error = console
+            .wait_for_install(2, Duration::from_secs(1))
+            .unwrap_err()
+            .to_string();
+        writer.join().unwrap();
+        assert!(error.contains("pass 1 of 2"), "{error}");
+
+        // As captured from IRIX 6.5.30 inst: the second pass starts reading
+        // with no prompt in between, and only the last pass returns to Inst>.
+        let (mut console, writer) = scripted_console(vec![
+            PASS,
+            b"\x07\x07\x07Reading product descriptions ..   0% 100% Done.\r\n",
+            PASS,
+            b"\r\nInst> ",
+        ]);
+        console.wait_for_install(2, Duration::from_secs(5)).unwrap();
+        writer.join().unwrap();
     }
 
     #[test]
-    fn install_finish_accepts_a_configured_hostname_login_prompt() {
+    fn install_apply_reports_a_conflict_in_the_second_pass() {
+        let (mut console, writer) = scripted_console(vec![
+            PASS,
+            b"Reading product descriptions .. 100% Done.\r\n",
+            b"ERROR: Conflicts must be resolved.\r\nrad4x.sw.driver cannot be installed\r\nInst> ",
+        ]);
+        let error = console
+            .wait_for_install(2, Duration::from_secs(5))
+            .unwrap_err()
+            .to_string();
+        writer.join().unwrap();
+        assert!(error.contains("conflicts"), "{error}");
+    }
+
+    #[test]
+    fn install_apply_stops_when_quit_never_reaches_restart() {
+        let (mut console, writer) = scripted_console(vec![b"Requickstarting ELF files .. 15% "]);
+        let error = console
+            .wait_for(RESTART_PROMPT, Duration::from_secs(1))
+            .unwrap_err()
+            .to_string();
+        writer.join().unwrap();
+        assert!(error.contains("machine remains running"), "{error}");
+    }
+
+    #[test]
+    fn install_apply_stops_on_an_lboot_message_at_quit() {
+        check_quit("Requickstarting ELF files .. 100% Done.\r\nAutomatically reconfiguring the operating system.\r\nReady to restart the system.  Restart? ").unwrap();
+        let error = check_quit("Automatically reconfiguring the operating system.\r\nlboot: Unresolved symbol rad4pci_init\r\nReady to restart the system.")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("rad4pci_init"), "{error}");
+    }
+
+    #[test]
+    fn restart_logs_in_and_reboots_after_a_first_boot_rebuild() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let guest = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut writer = stream.try_clone().unwrap();
+            let mut reader = io::BufReader::new(stream);
+            let mut received = Vec::new();
+            for reply in [
+                "The system is coming up.\r\nAutomatically reconfiguring the operating system.\r\nReboot to start using the reconfigured kernel.\r\nIRIS console login: ",
+                "IRIX Release 6.5 IP27 IRIS\r\nTERM = (vt100) ",
+                "IRIS 1# ",
+                "The system is shutting down.\r\nIRIS console login: ",
+            ] {
+                let mut line = String::new();
+                io::BufRead::read_line(&mut reader, &mut line).unwrap();
+                received.push(line.trim_end().to_owned());
+                writer.write_all(reply.as_bytes()).unwrap();
+            }
+            received
+        });
+        let mut console = InstallConsole {
+            stream: TcpStream::connect(address).unwrap(),
+        };
+        console.restart().unwrap();
+        assert_eq!(guest.join().unwrap(), ["y", "root", "", "reboot"]);
+    }
+
+    #[test]
+    fn restart_needs_no_login_when_quit_built_the_kernel() {
+        let (mut console, writer) = scripted_console(vec![
+            b"RAD4 driver 1.101\r\nThe system is coming up.\r\nIRIS console login: ",
+        ]);
+        console.restart().unwrap();
+        writer.join().unwrap();
+    }
+
+    #[test]
+    fn restart_accepts_a_configured_hostname_login_prompt() {
         let hostname = "origami-public-test";
         let expected = format!("{hostname} console login: ");
         let writer_expected = expected.clone();
@@ -1051,38 +1132,21 @@ mod tests {
             source.display().to_string()
         );
         assert_eq!(addon_set["layers"][0]["base"], "tablet-disc");
+        assert_eq!(addon_set["addon"], true);
         let script = &document["install_scripts"][1];
         assert_eq!(script["name"], "addon-tablet");
         assert_eq!(script["keep"], mipspro["keep"]);
-        assert!(script["install"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("c_fe.sw.c")));
-        assert!(script["install"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("tablet.sw.helper")));
+        // The first pass is the profile alone. The add-on waits for the
+        // second pass, so its files land after IRIX's own.
+        assert_eq!(script["install"], mipspro["install"]);
+        assert_eq!(script["then"]["sets"], json!(["addon-tablet"]));
+        assert_eq!(script["then"]["install"], json!(["tablet.sw.helper"]));
         let mut invalid = media.clone();
         invalid.addons[0].install = vec!["tablet.sw.helper\nquit".into()];
         assert!(config(&dir, &file, &invalid).is_err());
         invalid.addons[0].install = vec!["tablet.sw.helper".into()];
         invalid.addons.push(invalid.addons[0].clone());
         assert!(config(&dir, &file, &invalid).is_err());
-
-        let mut rad4 = media.clone();
-        rad4.addons[0].name = "rad4".into();
-        rad4.addons[0].install = vec!["rad4x".into()];
-        prepare_guest_scripts(&dir, &rad4).unwrap();
-        let script_path = dir.join("install/generated/rad4/dist/finish-rad4.sh");
-        assert_eq!(fs::read_to_string(script_path).unwrap(), RAD4_FINISH_SCRIPT);
-        let document = config(&dir, &file, &rad4).unwrap();
-        let layers = document["install_sets"][recipe("legacy-development").unwrap().sets.len()]
-            ["layers"]
-            .as_array()
-            .unwrap();
-        assert_eq!(layers.len(), 2);
-        assert_eq!(layers[1]["name"], "sgi-rad4-finish");
-        assert_eq!(layers[1]["dist"], "dist");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1153,7 +1217,6 @@ mod tests {
             },
             drive: vec![],
         };
-        prepare_guest_scripts(&dir, &configured).unwrap();
         let document = config(&dir, &file, &configured).unwrap();
         let addon_index = recipe("legacy-development").unwrap().sets.len();
         let addon_set = &document["install_sets"][addon_index];
@@ -1165,10 +1228,7 @@ mod tests {
             .iter()
             .find(|script| script["name"] == "addon-tablet")
             .unwrap();
-        assert!(script["install"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("tablet.sw.helper")));
+        assert_eq!(script["then"]["install"], json!(["tablet.sw.helper"]));
 
         add_addon(
             &dir,
@@ -1341,10 +1401,13 @@ mod tests {
         assert!(media.media.values().all(|source| source.ends_with(".iso")));
         assert_eq!(document["install_scripts"][0]["install"], json!([]));
         assert_eq!(
-            install_source_command(&media, None).unwrap(),
-            format!(
-                "admin source 10.98.0.2:/{}.cmds\n",
-                document["install_scripts"][0]["name"].as_str().unwrap()
+            install_script(&media, None).unwrap(),
+            (
+                format!(
+                    "admin source 10.98.0.2:/{}.cmds\n",
+                    document["install_scripts"][0]["name"].as_str().unwrap()
+                ),
+                1
             )
         );
         assert!(media.media.values().all(|source| source.ends_with(".iso")));
@@ -1397,10 +1460,13 @@ mod tests {
             assert_eq!(addon.name, "rad4");
             assert_eq!(addon.source, RAD4_ADDON_SOURCE);
             assert_eq!(addon.dist.as_deref(), Some("dist_6.5"));
-            assert_eq!(addon.install, ["rad4x"]);
             assert_eq!(
-                install_source_command(&media, Some("rad4")).unwrap(),
-                "admin source 10.98.0.2:/addon-rad4.cmds\n"
+                addon.install,
+                ["rad4x.sw.driver", "rad4x.sw.xserver", "rad4x.man"]
+            );
+            assert_eq!(
+                install_script(&media, Some("rad4")).unwrap(),
+                ("admin source 10.98.0.2:/addon-rad4.cmds\n".to_string(), 2)
             );
         }
     }

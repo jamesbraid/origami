@@ -10,7 +10,8 @@ drives and network settings are kept.
 
 - RAD4 installs keep the driver's DMA enabled, which makes window drags
   and resizes several times faster. To update an existing RAD4 install,
-  rerun `finish-rad4.sh /` as root in the guest and reboot.
+  set `rad4pci_no_dma = 0` in `/var/sysgen/master.d/rad4pci` as root in
+  the guest, run `autoconfig` and reboot.
 - The Origin 200 presets now create headless machines.
 - New preset `origin200-rad4`: the two-CPU Origin 200 with RAD4 graphics.
   `install-init` configures the RAD4 add-on on RAD4 machines.
@@ -18,6 +19,14 @@ drives and network settings are kept.
 - QEMU updated to c97bfd9.
 - `network-set --mode tap` (Linux, Windows) and `--mode vmnet` (macOS, through
   socket_vmnet) put the guest on a host network.
+- `install-apply --addon` installs IRIX first and the add-on in a second
+  pass, then quits `inst` and restarts the guest to its login prompt.
+  `install-finish` and the RAD4 finish script are gone: a RAD4 install
+  now keeps IRIX's own kernel and X configuration links, and the kernel
+  is relinked with the driver when `inst` exits.
+- The documented RAD4 selection is `rad4x.sw.driver`, `rad4x.sw.xserver`
+  and `rad4x.man`, leaving out PsiTech's 1998 kernel patch.
+- Instigator updated to v0.4.0.
 
 ## 0.2.1
 

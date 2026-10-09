@@ -85,7 +85,6 @@ origami run my-origin
 origami run my-origin --display vnc --vnc-port 5991
 origami run my-origin --background
 origami install-apply my-origin --addon rad4
-origami install-finish my-origin
 origami status my-origin
 origami console my-origin
 origami stop my-origin
@@ -130,17 +129,23 @@ Instigator's existing remote-media support. The add-on remains outside the
 emulator archive and is configured in the machine's media manifest.
 
 On a machine with RAD4 graphics, such as one created from `origin200-rad4`,
-`install-init` also configures the RAD4 driver as add-on `rad4`. It takes
-package `rad4x` from distribution `dist_6.5` of the public archive, as this
-command would for another machine:
+`install-init` also configures the RAD4 driver as add-on `rad4`. It selects
+the driver, X server and manual pages from distribution `dist_6.5` of the
+public archive, as this command would for another machine:
 
 ```sh
 origami install-addon my-origin \
   --name rad4 \
   --source https://origami-dist.irix.fans/irix/addons/rad4/rad4x_65_13k.tar.gz \
-  --install rad4x \
+  --install rad4x.sw.driver \
+  --install rad4x.sw.xserver \
+  --install rad4x.man \
   --dist dist_6.5
 ```
+
+Do not select all of `rad4x`. Its `rad4x.sw.kernel_patch` replaces two IRIX
+6.5.30 kernel objects with 1998 copies, and `rad4x.sw.prom` only installs a
+PROM image file.
 
 `install-check` uses the packaged Instigator to open every named source,
 including selected development inputs and any add-on, and assemble the install tree without opening
@@ -175,8 +180,7 @@ origami console my-origin
 ```
 
 The install commands use the background run's serial and control connections.
-A foreground `origami run` cannot be controlled by `install-apply` or
-`install-finish`.
+A foreground `origami run` cannot be controlled by `install-apply`.
 
 The generated Instigator server listens at `10.98.0.2` and offers
 `10.98.0.65` to the configured MAC. On a new Origin 200 disk, enter the PROM
@@ -204,50 +208,45 @@ origami install-apply my-origin --addon rad4
 ```
 
 The command streams the installer output and waits through package transfer,
-the dependency check, and the final `Inst>` prompt. It leaves the guest running
-if those steps do not complete. Inspect the output for package errors before
-finishing the installation. Omit `--addon` to install the selected profile
-alone. Use `--addon tablet` or `--addon rad4` when that add-on is configured.
-The script combines the selected profile with the add-on. MIPSpro is included
-only with a development profile. The generated RAD4 helper below is required after package transfer to build the guest kernel
-and enable graphical login. The same scripts can be loaded manually with
-`admin source 10.98.0.2:/mipspro.cmds` or
-`admin source 10.98.0.2:/addon-NAME.cmds`.
+the dependency check and the return to `Inst>`. With `--addon`, IRIX installs
+first and the add-on installs in a second `go` from the same script, so the
+command waits for `Inst>` twice. Omit `--addon` to install the selected
+profile alone. Use `--addon tablet` or `--addon rad4` when that add-on is
+configured. MIPSpro is included only with a development profile.
 
-For the RAD4 1.3k add-on, `install-check` also generates
-`my-origin/install/generated/rad4/dist/finish-rad4.sh`. It builds the installed
-kernel with the RAD4 driver, keeps the driver's DMA enabled, selects the working
-input devices, and enables graphical login. Rerunning it on a guest finished by
-an earlier version turns DMA back on, which makes window drags and resizes
-much faster. When package installation returns to `Inst>`, keep
-`install-serve` running and use `origami install-finish my-origin` from another host
-terminal. The command fetches the helper over TFTP, checks its length and guest
-checksum, checks shell syntax and exit status, then restarts the guest and waits
-for serial login. The machine stays running if a check fails so the guest can
-be inspected.
+After installation the command leaves `inst` with `quit`, which relinks the
+kernel with any driver the add-on installed, answers the restart prompt and
+waits for the serial login prompt. If the first boot instead rebuilds the
+kernel, the command logs in as `root`, which has no password on a new
+install, and restarts the guest once more. It stops and leaves the guest
+running if `inst` reports a conflict, if `quit` prints an `lboot` message, or
+if a step does not finish. Inspect the serial output, then continue by hand.
+
+The same scripts can be loaded manually with
+`admin source 10.98.0.2:/mipspro.cmds` or
+`admin source 10.98.0.2:/addon-NAME.cmds`. Wait for the second `go` to return
+before entering `quit`. The RAD4 package's miniroot exit command reports
+`autoconfig: cannot find /usr/sbin/lboot`. The kernel is relinked at `quit`
+instead, so the message needs no action.
+
+With RAD4, the guest boots to PsiTech's unbuffered X server and the graphical
+login. PsiTech's documented choices are made on the running system with
+`chkconfig`: `rad4X_buffered_server on` selects the buffered server, and
+`rad4X_usekm_devs on` selects a RAD4-KM keyboard and mouse. The driver keeps
+its shipped DMA setting.
+
+A machine left at `Inst>` by an earlier release's single-pass RAD4 script
+installed the driver before IRIX's own files, and this release cannot finish
+it. Finish it with that release's `install-finish`, or reinstall.
+
+A RAD4 guest finished by an earlier release's helper runs with the driver's
+DMA turned off. To turn it back on, which makes window drags and resizes much
+faster, set `rad4pci_no_dma = 0` in `/var/sysgen/master.d/rad4pci` as root,
+run `autoconfig` and reboot.
 
 After the guest restarts, stop the machine before using
 `origami network-set my-origin --mode user` to return it to QEMU user networking.
 `--mode none` disconnects it.
-The same sequence can be entered manually:
-
-```text
-Inst> shroot
-IRIS# ifconfig ef0 10.98.0.65 netmask 255.255.255.0 up
-IRIS# tftp 10.98.0.2
-tftp> binary
-tftp> get /addon-rad4/dist/finish-rad4.sh /tmp/finish-rad4.sh
-tftp> quit
-IRIS# cksum /tmp/finish-rad4.sh
-IRIS# /bin/sh /tmp/finish-rad4.sh /
-IRIS# exit
-Inst> quit
-Restart? y
-```
-
-The current script's `cksum` is `81179983 2674`. Stop if the guest reports
-a different value. The RAD4 package's miniroot exit command reports a missing
-`/usr/sbin/lboot`. The helper builds the kernel from the installed target.
 The PROM boot, disk preparation and first-run questions remain interactive.
 
 A forward binds only to the host loopback address. The example sends host TCP
@@ -358,7 +357,7 @@ origami upgrade my-origin --prom ip27prom.img
 origami upgrade my-onyx2 --io-prom io6prom.img
 ```
 
-The CLI starts an existing disk or CD-ROM image and prepares the Instigator server. The PROM, disk formatter, and first-run questions remain interactive. `install-apply` runs the generated `inst` package-selection script, and `install-finish` automates the RAD4 installer handoff.
+The CLI starts an existing disk or CD-ROM image and prepares the Instigator server. The PROM, disk formatter, and first-run questions remain interactive. `install-apply` runs the generated `inst` package-selection script and restarts the installed system.
 
 The development media profile includes MIPSpro and development packages.
 

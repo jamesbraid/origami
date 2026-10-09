@@ -375,12 +375,6 @@ fn command(action: Action) -> Result<()> {
             validate(&machines()?, &dir, &file)?;
             install::apply(&dir, &file, addon.as_deref())?;
         }
-        Action::InstallFinish(args) => {
-            let dir = directory(&args.dir)?;
-            let file = read_machine(&dir)?;
-            validate(&machines()?, &dir, &file)?;
-            install::finish_rad4(&dir, &file)?;
-        }
         Action::InstallCheck(args) => {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
