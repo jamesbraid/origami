@@ -27,6 +27,7 @@ drives and network settings are kept.
 - The documented RAD4 selection is `rad4x.sw.driver`, `rad4x.sw.xserver`
   and `rad4x.man`, leaving out PsiTech's 1998 kernel patch.
 - Instigator updated to v0.4.0.
+- User networking offers the machine directory's name as the DHCP hostname.
 
 ## 0.2.1
 

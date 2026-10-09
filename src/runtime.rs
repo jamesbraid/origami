@@ -159,9 +159,21 @@ pub fn check_state(dir: &Path, offering: &Offering) -> Result<()> {
     Ok(())
 }
 
-fn user_network(forward: &[PortForward]) -> String {
+fn user_network(dir: &Path, forward: &[PortForward]) -> String {
     let mut option =
         "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15".to_string();
+    // DHCP offers the directory name as the guest's hostname when it is a
+    // valid one; IRIX keeps its own name otherwise.
+    if let Some(name) = dir.file_name().and_then(|name| name.to_str()) {
+        if !name.is_empty()
+            && name.len() <= 63
+            && !name.starts_with('-')
+            && !name.ends_with('-')
+            && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        {
+            option.push_str(&format!(",hostname={name}"));
+        }
+    }
     for rule in forward {
         option.push_str(&format!(
             ",hostfwd={}:127.0.0.1:{}-:{}",
@@ -336,11 +348,11 @@ pub fn arguments(
         }
         "user" if matches!(offering.product.as_str(), "octane" | "octane2") => args.extend([
             "-netdev".into(),
-            user_network(&file.network.forward),
+            user_network(dir, &file.network.forward),
             "-net".into(),
             "nic,model=sgi-ioc3-eth,netdev=net0".into(),
         ]),
-        "user" => args.extend(["-nic".into(), user_network(&file.network.forward)]),
+        "user" => args.extend(["-nic".into(), user_network(dir, &file.network.forward)]),
         _ => return Err("network mode must be user, none, private, tap or vmnet".into()),
     }
     Ok(args)
@@ -769,7 +781,7 @@ mod tests {
                 guest_port: 53,
             },
         ];
-        let expected = "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15,hostfwd=tcp:127.0.0.1:2222-:22,hostfwd=udp:127.0.0.1:5353-:53";
+        let expected = "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15,hostname=machine,hostfwd=tcp:127.0.0.1:2222-:22,hostfwd=udp:127.0.0.1:5353-:53";
         let origin200 = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(origin200, "rad4");
         file.network.forward = rules.clone();
