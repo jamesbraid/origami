@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+Origin 200, Origin 2000 and Onyx2 machines created by 0.2.1 or earlier
+lack the new module controller NVRAM file and are refused. Create a new
+machine and attach the old machine's disks.
+
+- RAD4 installs keep the driver's DMA enabled, which makes window drags
+  and resizes several times faster. To update an existing RAD4 install,
+  rerun `finish-rad4.sh /` as root in the guest and reboot.
+- Origin 200 boots with more memory sizes, up to 1664 MiB per node.
+- QEMU updated to c97bfd9.
+
 ## 0.2.1
 
 - QEMU updated to fa81284.
