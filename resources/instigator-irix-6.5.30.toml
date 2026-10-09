@@ -3,7 +3,18 @@ base_url = "https://origami-dist.irix.fans/irix/"
 sets = ["6.5.30", "foundations", "development", "applications", "complementary"]
 [package_selections.base]
 install = []
-keep = []
+# The standard selection picks these, but their prerequisites are not on
+# the base discs. The overlay discs carry only 6.5.30 updates of
+# MediaWarehouse and WebViewer, and inst will not install an update whose
+# original product, on the Applications disc, is absent.
+keep = [
+    # Needs media_warehouse.sw.viewers from the Applications disc.
+    "desktop_base.sw.dso6_2",
+    # Needs webviewer.sw.eoe from the Applications disc.
+    "insight.sw.sgihelp",
+    # Inventor SDK: needs the Development Foundation and Libraries discs.
+    "inventor_dev",
+]
 
 [package_selections.desktop]
 install = []

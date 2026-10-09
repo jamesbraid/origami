@@ -1501,7 +1501,14 @@ mod tests {
             ]
         );
 
-        assert_eq!(recipe("base").unwrap().keep, Vec::<String>::new());
+        assert_eq!(
+            recipe("base").unwrap().keep,
+            [
+                "desktop_base.sw.dso6_2",
+                "insight.sw.sgihelp",
+                "inventor_dev"
+            ]
+        );
         assert_eq!(
             recipe("development").unwrap().install,
             [

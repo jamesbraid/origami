@@ -28,6 +28,7 @@ drives and network settings are kept.
   and `rad4x.man`, leaving out PsiTech's 1998 kernel patch.
 - Instigator updated to v0.4.0.
 - User networking offers the machine directory's name as the DHCP hostname.
+- `--profile base` installs no longer stop at package conflicts.
 
 ## 0.2.1
 
