@@ -214,8 +214,10 @@ and enable graphical login. The same scripts can be loaded manually with
 
 For the RAD4 1.3k add-on, `install-check` also generates
 `my-origin/install/generated/rad4/dist/finish-rad4.sh`. It builds the installed
-kernel with the RAD4 driver, disables DMA, selects the working input devices,
-and enables graphical login. When package installation returns to `Inst>`, keep
+kernel with the RAD4 driver, keeps the driver's DMA enabled, selects the working
+input devices, and enables graphical login. Rerunning it on a guest finished by
+an earlier version turns DMA back on, which makes window drags and resizes
+much faster. When package installation returns to `Inst>`, keep
 `install-serve` running and use `origami install-finish my-origin` from another host
 terminal. The command fetches the helper over TFTP, checks its length and guest
 checksum, checks shell syntax and exit status, then restarts the guest and waits
@@ -241,7 +243,7 @@ Inst> quit
 Restart? y
 ```
 
-The current script's `cksum` is `2973792095 2550`. Stop if the guest reports
+The current script's `cksum` is `81179983 2674`. Stop if the guest reports
 a different value. The RAD4 package's miniroot exit command reports a missing
 `/usr/sbin/lboot`. The helper builds the kernel from the installed target.
 The PROM boot, disk preparation and first-run questions remain interactive.

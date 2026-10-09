@@ -41,11 +41,13 @@ for source in "$stock"/*; do
     fi
 done
 
-if grep 'rad4pci_no_dma = 0' "$master" >/dev/null; then
-    sed 's/rad4pci_no_dma = 0/rad4pci_no_dma = 1/' "$master" > "$master.sgi-new"
+# Keep the driver's shipped DMA setting. Earlier versions of this script
+# disabled DMA, so turn it back on where they did.
+if grep 'rad4pci_no_dma = 1' "$master" >/dev/null; then
+    sed 's/rad4pci_no_dma = 1/rad4pci_no_dma = 0/' "$master" > "$master.sgi-new"
     mv "$master.sgi-new" "$master"
     needs_kernel=yes
-elif ! grep 'rad4pci_no_dma = 1' "$master" >/dev/null; then
+elif ! grep 'rad4pci_no_dma = 0' "$master" >/dev/null; then
     echo "RAD4 DMA setting not found: $master" >&2
     exit 1
 fi
