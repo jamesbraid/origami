@@ -96,10 +96,14 @@ pub enum Action {
         dir: PathBuf,
         #[arg(long, value_enum)]
         mode: NetworkMode,
-        #[arg(long, required_if_eq("mode", "private"))]
+        /// Private network or socket_vmnet socket
+        #[arg(long, required_if_eq_any([("mode", "private"), ("mode", "vmnet")]))]
         endpoint: Option<String>,
+        /// Tap device on Linux, or TAP-Windows6 adapter name on Windows
+        #[arg(long, required_if_eq("mode", "tap"))]
+        interface: Option<String>,
         /// Machine MAC, when it has none yet
-        #[arg(long, requires = "endpoint")]
+        #[arg(long)]
         mac: Option<String>,
     },
     /// Forward a host loopback port to a guest port
@@ -307,6 +311,8 @@ pub enum NetworkMode {
     User,
     None,
     Private,
+    Tap,
+    Vmnet,
 }
 impl NetworkMode {
     pub fn as_str(self) -> &'static str {
@@ -314,6 +320,8 @@ impl NetworkMode {
             Self::User => "user",
             Self::None => "none",
             Self::Private => "private",
+            Self::Tap => "tap",
+            Self::Vmnet => "vmnet",
         }
     }
 }

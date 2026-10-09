@@ -16,6 +16,8 @@ drives and network settings are kept.
   `install-init` configures the RAD4 add-on on RAD4 machines.
 - Origin 200 boots with more memory sizes, up to 1664 MiB per node.
 - QEMU updated to c97bfd9.
+- `network-set --mode tap` (Linux, Windows) and `--mode vmnet` (macOS, through
+  socket_vmnet) put the guest on a host network.
 
 ## 0.2.1
 

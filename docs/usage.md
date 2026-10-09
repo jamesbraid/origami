@@ -257,6 +257,41 @@ port 2222 to guest port 22 while user networking is active. Use
 selected, and become active again with `network-set --mode user`. Stop the
 machine before changing its network or forwards.
 
+To put the guest on a real LAN or the host's vmnet subnet, connect it to a
+host network device instead. These modes need the machine's MAC, so supply
+`--mac` if it has none. The guest gets its own address there, from that
+network's DHCP server or by hand, and forwards stay inactive. Origami runs no
+setup scripts and needs no administrator rights itself: the host device is
+created once, as root, beforehand.
+
+```sh
+origami network-set my-origin --mode tap --interface tap0                    # Linux
+origami network-set my-origin --mode tap --interface "OpenVPN TAP-Windows6"  # Windows
+origami network-set my-origin --mode vmnet --endpoint /opt/homebrew/var/run/socket_vmnet  # macOS
+```
+
+- **Linux:** create a tap device owned by your user and add it to a bridge
+  that holds the host's Ethernet interface:
+  `sudo ip tuntap add dev tap0 mode tap user $USER` then
+  `sudo ip link set tap0 master br0 up`. Setting up `br0` itself depends on
+  the distribution's network manager; see the
+  [QEMU networking documentation](https://wiki.qemu.org/Documentation/Networking#Tap).
+  Each running machine needs its own tap device.
+- **Windows:** install a TAP-Windows6 adapter, from OpenVPN or
+  [tap-windows6](https://github.com/OpenVPN/tap-windows6), as an administrator.
+  `--interface` is the adapter's name in Network Connections. Use Bridge
+  Connections there to join it to the LAN. To run without administrator rights,
+  set the adapter's Non-Admin Access property to Allowed.
+- **macOS:** install and start [socket_vmnet](https://github.com/lima-vm/socket_vmnet):
+  `brew install socket_vmnet && sudo brew services start socket_vmnet`.
+  `--endpoint` is its socket. The default socket gives a shared NAT subnet;
+  socket_vmnet's bridged mode gives a socket such as
+  `socket_vmnet.bridged.en0` that joins the LAN. `run` refuses to start if
+  nothing answers on the socket. Tap mode is not available on macOS, and vmnet
+  mode only on macOS.
+
+If QEMU cannot open the device, `run` shows QEMU's message and a hint.
+
 `origami machines` lists 13 starter presets for Origin 200, Origin 2000,
 Onyx2, Origin 300, Octane, Octane2 and Fuel, each with its default graphics.
 `origin200-1`, `origin200-2` and `origin200-dual` are headless.

@@ -313,6 +313,54 @@ pub fn offering<'a>(machines: &'a Machines, machine: &Machine) -> Result<&'a Off
         .ok_or_else(|| "unsupported machine and processor population".into())
 }
 
+/// Check the network choice against what this host's QEMU can run. Tap
+/// stores its interface name in `endpoint`, the host side the guest's
+/// Ethernet connects to.
+pub(crate) fn validate_network(file: &MachineFile) -> Result<()> {
+    let mode = file.network.mode.as_str();
+    match mode {
+        "none" | "user" if file.network.endpoint.is_none() => return Ok(()),
+        "private" => {
+            let endpoint = file
+                .network
+                .endpoint
+                .as_deref()
+                .ok_or("private network needs endpoint")?;
+            if endpoint.is_empty() {
+                return Err("private network endpoint cannot be empty".into());
+            }
+            let tcp = tcp_endpoint(endpoint)?;
+            if cfg!(windows) && tcp.is_none() {
+                return Err("Windows private network requires a loopback TCP endpoint".into());
+            }
+        }
+        // tap-bsd needs a third-party kernel extension that Apple silicon
+        // does not load, so macOS uses vmnet instead.
+        "tap" if cfg!(target_os = "macos") => {
+            return Err("tap networking is unavailable on macOS; use --mode vmnet".into())
+        }
+        "tap" => {
+            if file.network.endpoint.as_deref().unwrap_or("").is_empty() {
+                return Err("tap network needs --interface".into());
+            }
+        }
+        "vmnet" if !cfg!(target_os = "macos") => return Err("vmnet networking needs macOS".into()),
+        "vmnet" => {
+            let endpoint = file.network.endpoint.as_deref().unwrap_or("");
+            if endpoint.is_empty() || endpoint.starts_with("tcp:") {
+                return Err("vmnet network needs the socket_vmnet socket path".into());
+            }
+        }
+        _ => return Err("network mode must be user, none, private, tap or vmnet".into()),
+    }
+    // Installation serves the guest by its Ethernet address, and machines
+    // sharing a LAN or vmnet subnet would collide on QEMU's default one.
+    if file.identity.is_none() {
+        return Err(format!("{mode} networking needs the machine's MAC; supply --mac").into());
+    }
+    Ok(())
+}
+
 pub fn validate<'a>(
     machines: &'a Machines,
     dir: &Path,
@@ -338,29 +386,7 @@ pub fn validate<'a>(
     profiles::validate_graphics(offering, &file.machine.graphics)?;
     profiles::validate_inputs(offering, &file.machine.inputs)?;
     runtime::console_line(offering, file.machine.console.as_deref())?;
-    match file.network.mode.as_str() {
-        "none" | "user" if file.network.endpoint.is_none() => (),
-        "private" => {
-            let endpoint = file
-                .network
-                .endpoint
-                .as_deref()
-                .ok_or("private network needs endpoint")?;
-            if endpoint.is_empty() {
-                return Err("private network endpoint cannot be empty".into());
-            }
-            let tcp = tcp_endpoint(endpoint)?;
-            if cfg!(windows) && tcp.is_none() {
-                return Err("Windows private network requires a loopback TCP endpoint".into());
-            }
-            // Installation serves the guest by its Ethernet address, which
-            // QEMU takes from the machine's identity.
-            if file.identity.is_none() {
-                return Err("private networking needs the machine's MAC; supply --mac".into());
-            }
-        }
-        _ => return Err("network mode must be user, none, or private".into()),
-    }
+    validate_network(file)?;
     let mut names = std::collections::HashSet::new();
     let mut host_ports = std::collections::HashSet::new();
     for forward in &file.network.forward {

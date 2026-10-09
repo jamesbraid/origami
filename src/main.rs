@@ -252,23 +252,34 @@ fn command(action: Action) -> Result<()> {
             dir,
             mode,
             endpoint,
+            interface,
             mac,
         } => {
-            if mode != NetworkMode::Private && (endpoint.is_some() || mac.is_some()) {
-                return Err("--endpoint and --mac require --mode private".into());
+            use NetworkMode::{Private, Tap, Vmnet};
+            if endpoint.is_some() && !matches!(mode, Private | Vmnet) {
+                return Err("--endpoint requires --mode private or vmnet".into());
+            }
+            if interface.is_some() && mode != Tap {
+                return Err("--interface requires --mode tap".into());
+            }
+            if mac.is_some() && !matches!(mode, Private | Tap | Vmnet) {
+                return Err("--mac requires --mode private, tap or vmnet".into());
             }
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
             file.network = Network {
                 mode: mode.as_str().into(),
-                endpoint,
+                endpoint: endpoint.or(interface),
                 forward: file.network.forward.clone(),
             };
             origami::set_machine_mac(&mut file, mac.as_deref())?;
             validate(&machines()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("network: {}", mode.as_str());
+            if mode != NetworkMode::User && !file.network.forward.is_empty() {
+                println!("forwards inactive in {} mode", mode.as_str());
+            }
         }
         Action::NetworkForwardAdd {
             dir,
