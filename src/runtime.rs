@@ -340,6 +340,7 @@ pub fn start_background(dir: &Path, display: Display) -> Result<()> {
         .create(true)
         .append(true)
         .open(&log_path)?;
+    let log_start = log.metadata()?.len();
     let display_name = match display {
         Display::Local => "local",
         Display::Vnc { .. } => "vnc",
@@ -387,7 +388,8 @@ pub fn start_background(dir: &Path, display: Display) -> Result<()> {
         }
         if let Some(status) = child.try_wait()? {
             return Err(format!(
-                "machine failed to start ({status}); see {}",
+                "machine failed to start ({status}):\n{}\nfull log: {}",
+                log_tail(&log_path, log_start),
                 log_path.display()
             )
             .into());
@@ -520,6 +522,18 @@ fn run_inner(
     child.kill()?;
     child.wait()?;
     Err("QEMU did not open its QMP control endpoint".into())
+}
+
+/// The last few lines written to the runner log since `start`, which hold
+/// QEMU's own error and the launcher's reply to it.
+fn log_tail(path: &Path, start: u64) -> String {
+    let text = fs::read(path).unwrap_or_default();
+    let text = String::from_utf8_lossy(text.get(start as usize..).unwrap_or_default());
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    lines[lines.len().saturating_sub(6)..].join("\n")
 }
 
 fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
