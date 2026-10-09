@@ -76,6 +76,10 @@ class ProductSmoke(unittest.TestCase):
         self.run_binary("bin/instigator", "--help")
         self.run_binary("libexec/origami/qemu-system-mips64", "--version")
         self.assertIn("sdl", self.run_binary("libexec/origami/qemu-system-mips64", "-display", "help"))
+        netdevs = self.run_binary("libexec/origami/qemu-system-mips64", "-netdev", "help").split()
+        # tap and vmnet modes use these; vmnet-shared shows the macOS build kept vmnet.
+        for backend in ["tap", "stream"] + (["vmnet-shared"] if sys.platform == "darwin" else []):
+            self.assertIn(backend, netdevs)
         self.run_binary("libexec/origami/qemu-img", "--version")
         self.run_binary("libexec/origami/qemu-sgi-machine-init", "--machine", "help")
 

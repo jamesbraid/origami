@@ -100,7 +100,7 @@ if(PRODUCT_PLATFORM STREQUAL "linux")
   # sndio is rarely installed on Linux hosts, and QEMU links every enabled driver.
   list(APPEND qemu_flags --enable-alsa --enable-pa --disable-sndio)
 elseif(PRODUCT_PLATFORM STREQUAL "macos")
-  list(APPEND qemu_flags --enable-coreaudio)
+  list(APPEND qemu_flags --enable-coreaudio --enable-vmnet)
 else()
   list(APPEND qemu_flags --enable-dsound --extra-cflags=-DBUILDING_LIBSLIRP)
 endif()
