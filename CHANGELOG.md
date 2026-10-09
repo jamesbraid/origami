@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-Origin 200, Origin 2000 and Onyx2 machines created by 0.2.1 or earlier
-lack the new module controller NVRAM file and are refused. Create a new
-machine and attach the old machine's disks.
+Machines created by 0.2.x must be upgraded once before use:
+`origami upgrade DIR`. Origin 200, Origin 2000 and Onyx2 machines gain the
+new module controller NVRAM file, which needs their PROMs: the upgrade
+downloads them, or takes `--prom FILE` and `--io-prom FILE`. Flash, NVRAM,
+drives and network settings are kept.
 
 - RAD4 installs keep the driver's DMA enabled, which makes window drags
   and resizes several times faster. To update an existing RAD4 install,
