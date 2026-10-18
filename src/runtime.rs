@@ -174,15 +174,16 @@ fn user_network(forward: &[PortForward]) -> String {
 /// One fixed suggestion per host-backed mode, shown beside QEMU's own error.
 fn network_hint(file: &MachineFile) -> Option<String> {
     let endpoint = file.network.endpoint.as_deref().unwrap_or("");
+    let interface = file.network.interface.as_deref().unwrap_or("");
     match file.network.mode.as_str() {
         "tap" if cfg!(windows) => Some(format!(
-            "hint: tap mode needs a TAP-Windows6 adapter named {endpoint} in Network \
+            "hint: tap mode needs a TAP-Windows6 adapter named {interface} in Network \
              Connections; without administrator rights, set its Non-Admin Access"
         )),
         "tap" => Some(format!(
             "hint: tap mode needs a tap device you own; once, as root:\n      \
-             ip tuntap add dev {endpoint} mode tap user $USER && \
-             ip link set {endpoint} master br0 up"
+             ip tuntap add dev {interface} mode tap user $USER && \
+             ip link set {interface} master br0 up"
         )),
         "vmnet" => Some(format!(
             "hint: no socket_vmnet daemon at {endpoint}; \
@@ -289,12 +290,12 @@ pub fn arguments(
     match file.network.mode.as_str() {
         "none" => args.extend(["-nic".into(), "none".into()]),
         mode @ ("private" | "vmnet" | "tap") => {
-            let endpoint = file
-                .network
-                .endpoint
-                .as_deref()
-                .ok_or_else(|| format!("{mode} network needs endpoint"))?;
             let address = if mode == "tap" {
+                let interface = file
+                    .network
+                    .interface
+                    .as_deref()
+                    .ok_or("tap network needs interface")?;
                 // Origami runs no host scripts; the user sets up the device.
                 let scripts = if cfg!(windows) {
                     ""
@@ -303,24 +304,31 @@ pub fn arguments(
                 };
                 format!(
                     "tap,id=net0,ifname={}{scripts}",
-                    endpoint.replace(',', ",,")
+                    interface.replace(',', ",,")
                 )
-            } else if let Some(address) = tcp_endpoint(endpoint)? {
-                format!(
+            } else {
+                let endpoint = file
+                    .network
+                    .endpoint
+                    .as_deref()
+                    .ok_or_else(|| format!("{mode} network needs endpoint"))?;
+                if let Some(address) = tcp_endpoint(endpoint)? {
+                    format!(
                     "stream,id=net0,server=off,addr.type=inet,addr.host={},addr.port={},reconnect-ms=1000",
                     address.ip(), address.port()
                 )
-            } else {
-                // socket_vmnet is a daemon that can restart under the guest.
-                format!(
-                    "stream,id=net0,server=off,addr.type=unix,addr.path={}{}",
-                    qemu_path_option(&resolve(dir, endpoint)),
-                    if mode == "vmnet" {
-                        ",reconnect-ms=1000"
-                    } else {
-                        ""
-                    }
-                )
+                } else {
+                    // socket_vmnet is a daemon that can restart under the guest.
+                    format!(
+                        "stream,id=net0,server=off,addr.type=unix,addr.path={}{}",
+                        qemu_path_option(&resolve(dir, endpoint)),
+                        if mode == "vmnet" {
+                            ",reconnect-ms=1000"
+                        } else {
+                            ""
+                        }
+                    )
+                }
             };
             args.extend(["-netdev".into(), address]);
             // The adapter takes the machine's mac= from QEMU.
@@ -802,6 +810,7 @@ mod tests {
         file.network = Network {
             mode: "private".into(),
             endpoint: Some("install,one.sock".into()),
+            interface: None,
             forward: vec![],
         };
         file.identity = Some(crate::Identity {
@@ -829,6 +838,7 @@ mod tests {
         file.network = Network {
             mode: "private".into(),
             endpoint: Some("tcp:127.0.0.1:49173".into()),
+            interface: None,
             forward: vec![],
         };
         file.identity = Some(crate::Identity {
@@ -859,7 +869,8 @@ mod tests {
         };
         file.network = Network {
             mode: "tap".into(),
-            endpoint: Some("TAP,lab".into()),
+            endpoint: None,
+            interface: Some("TAP,lab".into()),
             forward: vec![],
         };
         let expected = if cfg!(windows) {
@@ -877,6 +888,7 @@ mod tests {
         file.network = Network {
             mode: "vmnet".into(),
             endpoint: Some("/opt/homebrew/var/run/socket_vmnet".into()),
+            interface: None,
             forward: vec![],
         };
         assert_eq!(
@@ -896,7 +908,7 @@ mod tests {
             let error = crate::validate_network(&file).unwrap_err().to_string();
             assert!(error.contains(mode), "{error}");
         }
-        file.network.endpoint = None;
+        file.network.interface = None;
         file.network.mode = "tap".into();
         if !cfg!(target_os = "macos") {
             let error = crate::validate_network(&file).unwrap_err().to_string();

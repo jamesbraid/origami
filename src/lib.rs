@@ -147,6 +147,9 @@ pub struct Network {
     pub mode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
+    /// Host interface a tap network attaches to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interface: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forward: Vec<PortForward>,
 }
@@ -169,6 +172,7 @@ impl Default for Network {
         Self {
             mode: default_network_mode(),
             endpoint: None,
+            interface: None,
             forward: vec![],
         }
     }
@@ -314,12 +318,13 @@ pub fn offering<'a>(machines: &'a Machines, machine: &Machine) -> Result<&'a Off
 }
 
 /// Check the network choice against what this host's QEMU can run. Tap
-/// stores its interface name in `endpoint`, the host side the guest's
-/// Ethernet connects to.
+/// names the host interface in `interface`; private and vmnet use `endpoint`.
 pub(crate) fn validate_network(file: &MachineFile) -> Result<()> {
     let mode = file.network.mode.as_str();
     match mode {
-        "none" | "user" if file.network.endpoint.is_none() => return Ok(()),
+        "none" | "user" if file.network.endpoint.is_none() && file.network.interface.is_none() => {
+            return Ok(())
+        }
         "private" => {
             let endpoint = file
                 .network
@@ -340,7 +345,7 @@ pub(crate) fn validate_network(file: &MachineFile) -> Result<()> {
             return Err("tap networking is unavailable on macOS; use --mode vmnet".into())
         }
         "tap" => {
-            if file.network.endpoint.as_deref().unwrap_or("").is_empty() {
+            if file.network.interface.as_deref().unwrap_or("").is_empty() {
                 return Err("tap network needs --interface".into());
             }
         }
@@ -706,6 +711,7 @@ mod tests {
         file.network = Network {
             mode: "private".into(),
             endpoint: Some("tcp:127.0.0.1:4242".into()),
+            interface: None,
             forward: vec![],
         };
         validate(&machines, &machine, &file).unwrap();

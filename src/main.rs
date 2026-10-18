@@ -270,7 +270,8 @@ fn command(action: Action) -> Result<()> {
             let mut file = read_machine(&dir)?;
             file.network = Network {
                 mode: mode.as_str().into(),
-                endpoint: endpoint.or(interface),
+                endpoint,
+                interface,
                 forward: file.network.forward.clone(),
             };
             origami::set_machine_mac(&mut file, mac.as_deref())?;

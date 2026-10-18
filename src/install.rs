@@ -203,6 +203,7 @@ fn init_sources(
     file.network = crate::Network {
         mode: "private".into(),
         endpoint: Some(endpoint),
+        interface: None,
         forward: old_network.forward.clone(),
     };
     if let Err(error) =
@@ -1019,6 +1020,7 @@ mod tests {
             network: Network {
                 mode: "private".into(),
                 endpoint: Some("install/network.sock".into()),
+                interface: None,
                 forward: vec![],
             },
             drive: vec![],
@@ -1146,6 +1148,7 @@ mod tests {
             network: Network {
                 mode: "private".into(),
                 endpoint: Some("install/network.sock".into()),
+                interface: None,
                 forward: vec![],
             },
             drive: vec![],
