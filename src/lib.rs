@@ -506,10 +506,9 @@ pub fn create_configured(
     init: &MachineInit<'_>,
     memory_per_node: Option<u32>,
     mac: Option<&str>,
-    graphics: Option<&str>,
+    graphics: &str,
     inputs: std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
-    let graphics = graphics.unwrap_or(profiles::default_graphics(offering));
     let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
     let arguments =
         runtime::init_arguments(offering, init.boot_prom, init.io_prom, &dir.join("state"));
@@ -609,7 +608,7 @@ mod tests {
             &init,
             Some(128),
             None,
-            None,
+            "none",
             Default::default(),
         )
         .unwrap();
@@ -628,7 +627,7 @@ mod tests {
             &broken,
             None,
             None,
-            None,
+            "none",
             Default::default()
         )
         .is_err());
@@ -672,7 +671,7 @@ mod tests {
             &init,
             None,
             Some("02:00:5d:aa:bb:cc"),
-            None,
+            "none",
             Default::default(),
         )
         .unwrap();

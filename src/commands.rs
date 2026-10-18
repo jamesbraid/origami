@@ -13,11 +13,9 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
     let graphics = options
         .graphics
         .as_deref()
-        .or_else(|| args.preset.ends_with("-impact").then_some("si"));
-    origami::profiles::validate_graphics(
-        offer,
-        graphics.unwrap_or(origami::profiles::default_graphics(offer)),
-    )?;
+        .or(origami::profiles::preset_graphics(&args.preset))
+        .unwrap_or("none");
+    origami::profiles::validate_graphics(offer, graphics)?;
     let inputs = options.hardware.inputs()?;
     origami::profiles::validate_inputs(offer, &inputs)?;
     validate_create_inputs(

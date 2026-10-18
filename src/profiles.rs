@@ -13,6 +13,8 @@ pub struct Profile {
     pub id: &'static str,
     pub topology: &'static str,
     pub population: &'static [u32],
+    /// The graphics a machine gets unless `create --graphics` names others.
+    pub graphics: &'static str,
 }
 
 pub const STARTERS: &[Profile] = &[
@@ -20,61 +22,73 @@ pub const STARTERS: &[Profile] = &[
         id: "origin200-1",
         topology: "origin200",
         population: &[1],
+        graphics: "rad4",
     },
     Profile {
         id: "origin200-2",
         topology: "origin200",
         population: &[2],
+        graphics: "none",
     },
     Profile {
         id: "origin200-dual",
         topology: "origin200-dual",
         population: &[2, 2],
+        graphics: "none",
     },
     Profile {
         id: "origin2000-8",
         topology: "origin2000-rack",
         population: &[2, 2, 2, 2],
+        graphics: "none",
     },
     Profile {
         id: "origin300-2",
         topology: "origin300",
         population: &[2],
+        graphics: "none",
     },
     Profile {
         id: "origin200-impact",
         topology: "origin200-gigachannel",
         population: &[1],
+        graphics: "si",
     },
     Profile {
         id: "octane-impact",
         topology: "octane",
         population: &[1],
+        graphics: "si",
     },
     Profile {
         id: "octane2-impact",
         topology: "octane2",
         population: &[1],
+        graphics: "si",
     },
     Profile {
         id: "onyx2-infinite-reality",
         topology: "onyx2-deskside",
         population: &[2, 2],
+        graphics: "infinite-reality",
     },
     Profile {
         id: "fuel-1",
         topology: "fuel",
         population: &[1],
+        graphics: "none",
     },
     Profile {
         id: "origin300-v12-direct-2",
         topology: "origin300-v12-direct",
         population: &[2],
+        graphics: "vpro",
     },
     Profile {
         id: "origin300-vbrick-2",
         topology: "origin300-vbrick",
         population: &[2],
+        graphics: "vpro",
     },
 ];
 
@@ -91,13 +105,12 @@ pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
         .collect()
 }
 
-pub fn default_graphics(offering: &Offering) -> &'static str {
-    match offering.topology.as_str() {
-        "onyx2-deskside" | "onyx2-rack" => "infinite-reality",
-        "origin300-v12-direct" | "origin300-vbrick" => "vpro",
-        "origin200" if offering.smp == 1 => "rad4",
-        _ => "none",
-    }
+/// The graphics a preset selects, or None for an unknown preset.
+pub fn preset_graphics(name: &str) -> Option<&'static str> {
+    STARTERS
+        .iter()
+        .find(|profile| profile.id == name)
+        .map(|profile| profile.graphics)
 }
 
 pub fn graphics(offering: &Offering) -> Vec<&'static str> {
@@ -282,8 +295,7 @@ mod tests {
     fn heterogeneous_cpu_populations_are_explicit() {
         let machines = crate::test_machines();
         for o in machines.offerings.iter() {
-            let graphics = default_graphics(o);
-            let f = file(o, graphics);
+            let f = file(o, graphics(o)[0]);
             let args =
                 runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
             assert!(args

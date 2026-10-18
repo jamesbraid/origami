@@ -1209,8 +1209,16 @@ mod tests {
             boot_prom: &prom,
             io_prom: None,
         };
-        crate::create_configured(&machine, offer, &init, None, None, None, Default::default())
-            .unwrap();
+        crate::create_configured(
+            &machine,
+            offer,
+            &init,
+            None,
+            None,
+            "none",
+            Default::default(),
+        )
+        .unwrap();
         let mut file = crate::read_machine(&machine).unwrap();
         init_profile(
             &machines,
@@ -1270,7 +1278,8 @@ mod tests {
             boot_prom: &prom,
             io_prom: None,
         };
-        crate::create_configured(&dir, offer, &init, None, None, None, Default::default()).unwrap();
+        crate::create_configured(&dir, offer, &init, None, None, "none", Default::default())
+            .unwrap();
         let mut file = crate::read_machine(&dir).unwrap();
         init_remote_profile(
             &machines,
