@@ -67,9 +67,10 @@ fn command(action: Action) -> Result<()> {
         Action::Machines => {
             for (name, offer) in presets(&machines()?) {
                 println!(
-                    "{name:36} {} CPUs, {} nodes, graphics: {} (experimental)",
+                    "{name:36} {} CPUs, {} nodes, graphics: {} (accepts {}) (experimental)",
                     offer.smp,
                     offer.nodes,
+                    origami::profiles::preset_graphics(&name).unwrap_or("none"),
                     origami::profiles::graphics(offer).join("|")
                 );
             }

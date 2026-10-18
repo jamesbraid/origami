@@ -36,6 +36,13 @@ pub const STARTERS: &[Profile] = &[
         population: &[2, 2],
         graphics: "none",
     },
+    // The two-CPU Origin 200 desktop, set up for a RAD4 install.
+    Profile {
+        id: "origin200-rad4",
+        topology: "origin200",
+        population: &[2],
+        graphics: "rad4",
+    },
     Profile {
         id: "origin2000-8",
         topology: "origin2000-rack",
@@ -385,5 +392,20 @@ mod tests {
         assert!(validate_graphics(o, "vpro").is_err());
         assert!(preset(&machines, "origin350-2").is_err());
         assert!(preset(&machines, "tezro-4").is_err());
+    }
+
+    #[test]
+    fn origin200_rad4_is_origin200_2_with_rad4_graphics() {
+        let starter = |id| STARTERS.iter().find(|p| p.id == id).unwrap();
+        let (rad4, headless) = (starter("origin200-rad4"), starter("origin200-2"));
+        assert_eq!(rad4.topology, headless.topology);
+        assert_eq!(rad4.population, headless.population);
+        assert_eq!(preset_graphics("origin200-rad4"), Some("rad4"));
+        for name in ["origin200-1", "origin200-2", "origin200-dual"] {
+            assert_eq!(preset_graphics(name), Some("none"), "{name}");
+        }
+        let machines = crate::test_machines();
+        let origin200 = preset(&machines, "origin200-1").unwrap();
+        assert!(validate_graphics(origin200, "rad4").is_ok());
     }
 }

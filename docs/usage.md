@@ -72,7 +72,7 @@ Unknown options and invalid argument values are rejected before the command runs
 
 ```text
 origami machines
-origami create my-origin --preset origin200-1 --memory-per-node 128
+origami create my-origin --preset origin200-rad4 --memory-per-node 128
 origami create my-o300 --preset origin300-2
 origami drive-create my-origin 4096
 origami drive-attach my-origin /path/to/irix-install.iso --type cdrom --target 4
@@ -255,9 +255,11 @@ port 2222 to guest port 22 while user networking is active. Use
 selected, and become active again with `network-set --mode user`. Stop the
 machine before changing its network or forwards.
 
-`origami machines` lists 12 starter presets for Origin 200, Origin 2000,
-Onyx2, Origin 300, Octane, Octane2 and Fuel. The IMPACT shortcuts select SI.
-Onyx2 selects InfiniteReality. Origin 300 has direct V12 and V-brick choices.
+`origami machines` lists 13 starter presets for Origin 200, Origin 2000,
+Onyx2, Origin 300, Octane, Octane2 and Fuel, each with its default graphics.
+`origin200-1`, `origin200-2` and `origin200-dual` are headless.
+`origin200-rad4` is the two-CPU Origin 200 with RAD4 graphics, the setup for
+an IRIX desktop. The IMPACT shortcuts select SI. Onyx2 selects InfiniteReality. Origin 300 has direct V12 and V-brick choices.
 Fuel currently has a serial console. Octane VPro and Fuel VPro are unavailable.
 
 The console uses the serial line QEMU's machine list marks as the machine's
@@ -334,7 +336,7 @@ workflow, including custom IP27 PROMs. Running an existing machine never fetches
 firmware.
 
 ```sh
-origami create my-origin --preset origin200-1
+origami create my-origin --preset origin200-rad4
 origami install-init my-origin --mac 08:00:69:12:34:56
 ```
 

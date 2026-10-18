@@ -12,6 +12,7 @@ drives and network settings are kept.
   and resizes several times faster. To update an existing RAD4 install,
   rerun `finish-rad4.sh /` as root in the guest and reboot.
 - The Origin 200 presets now create headless machines.
+- New preset `origin200-rad4`: the two-CPU Origin 200 with RAD4 graphics.
 - Origin 200 boots with more memory sizes, up to 1664 MiB per node.
 - QEMU updated to c97bfd9.
 
