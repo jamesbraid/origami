@@ -111,6 +111,20 @@ const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
 
 const RAD4_FINISH_SCRIPT: &str = include_str!("../guest/irix/finish-rad4.sh");
 
+/// The RAD4 driver archive and selection the user guide gives.
+const RAD4_ADDON_SOURCE: &str =
+    "https://origami-dist.irix.fans/irix/addons/rad4/rad4x_65_13k.tar.gz";
+
+fn rad4_addon() -> InstallAddon {
+    InstallAddon {
+        name: "rad4".into(),
+        source: RAD4_ADDON_SOURCE.into(),
+        base: None,
+        dist: Some("dist_6.5".into()),
+        install: vec!["rad4x".into()],
+    }
+}
+
 pub fn init_profile(
     machines: &Machines,
     dir: &Path,
@@ -175,7 +189,12 @@ fn init_sources(
         format: 1,
         profile: profile.into(),
         media,
-        addons: vec![],
+        // A RAD4 machine needs the driver to reach a graphical login.
+        addons: if file.machine.graphics == "rad4" {
+            vec![rad4_addon()]
+        } else {
+            vec![]
+        },
     };
     let old_network = file.network.clone();
     let old_identity = file.identity.clone();
@@ -1336,6 +1355,51 @@ mod tests {
             assert!(config(&dir, &file, &media).is_err(), "{invalid}");
         }
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rad4_machine_init_configures_the_rad4_addon() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path();
+        let prom = root.join("synthetic-prom.bin");
+        fs::write(&prom, [0u8; 1]).unwrap();
+        let machines = crate::test_machines();
+        let offer = crate::preset(&machines, "origin200-1").unwrap();
+        let tool = crate::test_support::init_tool(root);
+        let init = crate::MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: None,
+        };
+        for graphics in ["none", "rad4"] {
+            let dir = root.join(graphics);
+            crate::create_configured(&dir, offer, &init, None, None, graphics, Default::default())
+                .unwrap();
+            let mut file = crate::read_machine(&dir).unwrap();
+            init_remote_profile(
+                &machines,
+                &dir,
+                Some("08:00:69:12:34:56"),
+                &mut file,
+                "desktop",
+            )
+            .unwrap();
+            let media = read_media(&dir).unwrap();
+            if graphics == "none" {
+                assert!(media.addons.is_empty());
+                continue;
+            }
+            let addon = &media.addons[0];
+            assert_eq!(addon.name, "rad4");
+            assert_eq!(addon.source, RAD4_ADDON_SOURCE);
+            assert_eq!(addon.dist.as_deref(), Some("dist_6.5"));
+            assert_eq!(addon.install, ["rad4x"]);
+            assert_eq!(
+                install_source_command(&media, Some("rad4")).unwrap(),
+                "admin source 10.98.0.2:/addon-rad4.cmds\n"
+            );
+        }
     }
 
     #[test]

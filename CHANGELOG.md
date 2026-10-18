@@ -13,6 +13,7 @@ drives and network settings are kept.
   rerun `finish-rad4.sh /` as root in the guest and reboot.
 - The Origin 200 presets now create headless machines.
 - New preset `origin200-rad4`: the two-CPU Origin 200 with RAD4 graphics.
+  `install-init` configures the RAD4 add-on on RAD4 machines.
 - Origin 200 boots with more memory sizes, up to 1664 MiB per node.
 - QEMU updated to c97bfd9.
 

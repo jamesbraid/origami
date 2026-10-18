@@ -331,6 +331,9 @@ fn command(action: Action) -> Result<()> {
                 )?
             };
             println!("created {}", path.display());
+            if file.machine.graphics == "rad4" {
+                println!("configured add-on rad4 for the RAD4 graphics");
+            }
         }
         Action::InstallAddon {
             dir,

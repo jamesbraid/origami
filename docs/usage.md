@@ -129,8 +129,10 @@ A source can be a local SGI image, extracted tree, `.tar`, `.tar.gz`, `.tgz`,
 Instigator's existing remote-media support. The add-on remains outside the
 emulator archive and is configured in the machine's media manifest.
 
-To add the optional RAD4 driver from its public archive, select package `rad4x`
-from distribution `dist_6.5`:
+On a machine with RAD4 graphics, such as one created from `origin200-rad4`,
+`install-init` also configures the RAD4 driver as add-on `rad4`. It takes
+package `rad4x` from distribution `dist_6.5` of the public archive, as this
+command would for another machine:
 
 ```sh
 origami install-addon my-origin \
