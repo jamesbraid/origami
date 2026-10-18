@@ -109,6 +109,12 @@ fn recipe(profile: &str) -> Result<InstallRecipe> {
 
 const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
 
+/// Commands every install script runs in the installed system after its
+/// last go. proclaim, IRIX's DHCP client, runs at boot when this flag is on.
+/// IRIX 6.5.30 ships it on, but proclaim has been seen to turn it off when
+/// it boots with a lease and gets no answer, as on the installation network.
+const POST_INSTALL: &[&str] = &["chkconfig -f autoconfig_ipaddress on"];
+
 /// The RAD4 driver archive and selection the user guide gives.
 const RAD4_ADDON_SOURCE: &str =
     "https://origami-dist.irix.fans/irix/addons/rad4/rad4x_65_13k.tar.gz";
@@ -346,7 +352,8 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
     let mut scripts = vec![json!({
         "name": STANDARD_INSTALL_SCRIPT,
         "install": recipe.install,
-        "keep": recipe.keep
+        "keep": recipe.keep,
+        "post_install": POST_INSTALL,
     })];
     let mut addon_names = HashSet::new();
     for addon in &media.addons {
@@ -386,6 +393,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
             "install": recipe.install,
             "keep": recipe.keep,
             "then": { "sets": [name], "install": addon.install },
+            "post_install": POST_INSTALL,
         }));
     }
     Ok(json!({
@@ -1141,6 +1149,12 @@ mod tests {
         assert_eq!(script["install"], mipspro["install"]);
         assert_eq!(script["then"]["sets"], json!(["addon-tablet"]));
         assert_eq!(script["then"]["install"], json!(["tablet.sw.helper"]));
+        for script in [mipspro, script] {
+            assert_eq!(
+                script["post_install"],
+                json!(["chkconfig -f autoconfig_ipaddress on"])
+            );
+        }
         let mut invalid = media.clone();
         invalid.addons[0].install = vec!["tablet.sw.helper\nquit".into()];
         assert!(config(&dir, &file, &invalid).is_err());

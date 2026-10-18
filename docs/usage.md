@@ -224,7 +224,10 @@ if a step does not finish. Inspect the serial output, then continue by hand.
 
 The same scripts can be loaded manually with
 `admin source 10.98.0.2:/mipspro.cmds` or
-`admin source 10.98.0.2:/addon-NAME.cmds`. Wait for the second `go` to return
+`admin source 10.98.0.2:/addon-NAME.cmds`. After the last `go`, each script
+runs `chkconfig -f autoconfig_ipaddress on` in the installed system, so the
+restarted guest asks for its address by DHCP, and prints
+`instigator: post-install commands finished`. Wait for that line and `Inst>`
 before entering `quit`. The RAD4 package's miniroot exit command reports
 `autoconfig: cannot find /usr/sbin/lboot`. The kernel is relinked at `quit`
 instead, so the message needs no action.

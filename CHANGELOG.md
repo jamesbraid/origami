@@ -29,6 +29,7 @@ drives and network settings are kept.
 - Instigator updated to v0.4.0.
 - User networking offers the machine directory's name as the DHCP hostname.
 - `--profile base` installs no longer stop at package conflicts.
+- Every guided install turns on IRIX's DHCP client before `inst` exits.
 
 ## 0.2.1
 
