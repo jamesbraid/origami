@@ -11,6 +11,7 @@ drives and network settings are kept.
 - RAD4 installs keep the driver's DMA enabled, which makes window drags
   and resizes several times faster. To update an existing RAD4 install,
   rerun `finish-rad4.sh /` as root in the guest and reboot.
+- The Origin 200 presets now create headless machines.
 - Origin 200 boots with more memory sizes, up to 1664 MiB per node.
 - QEMU updated to c97bfd9.
 

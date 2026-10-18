@@ -22,7 +22,7 @@ pub const STARTERS: &[Profile] = &[
         id: "origin200-1",
         topology: "origin200",
         population: &[1],
-        graphics: "rad4",
+        graphics: "none",
     },
     Profile {
         id: "origin200-2",
