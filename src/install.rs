@@ -114,6 +114,10 @@ const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
 /// IRIX 6.5.30 ships it on, but proclaim has been seen to turn it off when
 /// it boots with a lease and gets no answer, as on the installation network.
 const POST_INSTALL: &[&str] = &["chkconfig -f autoconfig_ipaddress on"];
+/// Instigator's post-install file prints this once every command succeeded.
+const POST_INSTALL_DONE: &[u8] = b"instigator: post-install commands finished";
+/// inst prints this for a failing command and skips the rest of the file.
+const COMMAND_FAILED: &[u8] = b"(command failed)";
 
 /// The RAD4 driver archive and selection the user guide gives.
 const RAD4_ADDON_SOURCE: &str =
@@ -592,6 +596,8 @@ struct InstallProgress {
     conflict_pending: Vec<u8>,
     conflict_seen: bool,
     conflict_prompt_pending: Vec<u8>,
+    post_install_pending: Vec<u8>,
+    post_install_done: bool,
 }
 
 impl InstallProgress {
@@ -609,7 +615,37 @@ impl InstallProgress {
             conflict_pending: Vec::new(),
             conflict_seen: false,
             conflict_prompt_pending: Vec::new(),
+            post_install_pending: Vec::new(),
+            post_install_done: false,
         }
+    }
+
+    /// Watch for the post-install result. A failed command stops the
+    /// command file, so the done line never follows it.
+    fn observe_post_install(&mut self, bytes: &[u8]) -> Result<()> {
+        if self.post_install_done {
+            return Ok(());
+        }
+        self.post_install_pending.extend_from_slice(bytes);
+        let contains = |pending: &[u8], marker: &[u8]| {
+            pending.windows(marker.len()).any(|window| window == marker)
+        };
+        if contains(&self.post_install_pending, COMMAND_FAILED) {
+            return Err(
+                "an inst command failed; post-install commands did not finish; guest remains running"
+                    .into(),
+            );
+        }
+        if contains(&self.post_install_pending, POST_INSTALL_DONE) {
+            self.post_install_done = true;
+            return Ok(());
+        }
+        let keep = POST_INSTALL_DONE.len().max(COMMAND_FAILED.len()) - 1;
+        if self.post_install_pending.len() > keep {
+            self.post_install_pending
+                .drain(..self.post_install_pending.len() - keep);
+        }
+        Ok(())
     }
 
     fn distribution_choice(&mut self, bytes: &[u8]) -> Option<u8> {
@@ -731,7 +767,11 @@ impl InstallConsole {
                     if conflict_prompt {
                         return Err("IRIX reported unresolved installation conflicts; guest remains running".into());
                     }
+                    progress.observe_post_install(&chunk[..count])?;
                     if progress.observe(&chunk[..count]) {
+                        if !progress.post_install_done {
+                            return Err("inst returned without finishing the post-install commands; guest remains running".into());
+                        }
                         return Ok(());
                     }
                 }
@@ -938,6 +978,8 @@ mod tests {
     }
 
     const PASS: &[u8] = b"Installing/removing files .. 22%\r\nChecking dependencies .. 100% Done.\r\nCalculating sizes .. 100% Done.\r\n";
+    // As captured from IRIX 6.5.30 inst after the last go.
+    const POST_INSTALL_OUTPUT: &[u8] = b"\x07\x07\x07\r\nchrooting to /root\r\n\r\nCalculating sizes ..   0% 100% Done.\r\n\r\ninstigator: post-install commands finished\r\n\r\n\r\n";
 
     #[test]
     fn install_apply_waits_for_the_second_pass_to_return() {
@@ -956,10 +998,42 @@ mod tests {
             PASS,
             b"\x07\x07\x07Reading product descriptions ..   0% 100% Done.\r\n",
             PASS,
-            b"\r\nInst> ",
+            POST_INSTALL_OUTPUT,
+            b"Inst> ",
         ]);
         console.wait_for_install(2, Duration::from_secs(5)).unwrap();
         writer.join().unwrap();
+    }
+
+    #[test]
+    fn install_apply_requires_the_post_install_commands_to_finish() {
+        let (mut console, writer) = scripted_console(vec![
+            PASS,
+            b"\r\nchrooting to /root\r\nchkconfig: not found\r\n(command fa",
+            b"iled)\r\nInst> ",
+        ]);
+        let error = console
+            .wait_for_install(1, Duration::from_secs(5))
+            .unwrap_err()
+            .to_string();
+        writer.join().unwrap();
+        assert!(error.contains("post-install"), "{error}");
+
+        let (mut console, writer) = scripted_console(vec![PASS, b"\r\nInst> "]);
+        let error = console
+            .wait_for_install(1, Duration::from_secs(5))
+            .unwrap_err()
+            .to_string();
+        writer.join().unwrap();
+        assert!(error.contains("post-install"), "{error}");
+
+        let marker = POST_INSTALL_DONE;
+        for split in 0..=marker.len() {
+            let mut progress = InstallProgress::new(1);
+            progress.observe_post_install(&marker[..split]).unwrap();
+            progress.observe_post_install(&marker[split..]).unwrap();
+            assert!(progress.post_install_done, "split {split}");
+        }
     }
 
     #[test]

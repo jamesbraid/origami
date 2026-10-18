@@ -219,7 +219,8 @@ kernel with any driver the add-on installed, answers the restart prompt and
 waits for the serial login prompt. If the first boot instead rebuilds the
 kernel, the command logs in as `root`, which has no password on a new
 install, and restarts the guest once more. It stops and leaves the guest
-running if `inst` reports a conflict, if `quit` prints an `lboot` message, or
+running if `inst` reports a conflict or a failed command, if the
+post-install commands do not finish, if `quit` prints an `lboot` message, or
 if a step does not finish. Inspect the serial output, then continue by hand.
 
 The same scripts can be loaded manually with
