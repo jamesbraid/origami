@@ -4,6 +4,9 @@
 
 - `origami --version` reports Instigator as v0.4.0. The 0.3.0 archives
   showed a pseudo-version for the same code.
+- QEMU moves to sgi-origami 47542527ab, which adds the Origin 200's
+  processor modules to its machine list. Presets and existing machines
+  keep the 180 MHz R10000 module with 1 MB cache and need no upgrade.
 
 ## 0.3.0
 
