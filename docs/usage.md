@@ -184,10 +184,12 @@ A foreground `origami run` cannot be controlled by `install-apply`.
 
 The generated Instigator server listens at `10.98.0.2` and offers
 `10.98.0.65` to the configured MAC. On a new Origin 200 disk, enter the PROM
-command monitor from the System Maintenance Menu and boot the disk formatter:
+command monitor from the System Maintenance Menu, turn on automatic booting
+for later starts, and boot the disk formatter:
 
 ```text
 setenv netaddr 10.98.0.65
+setenv AutoLoad Yes
 boot -f bootp():/6.5.30/stand/fx.64
 ```
 
@@ -226,8 +228,9 @@ if a step does not finish. Inspect the serial output, then continue by hand.
 The same scripts can be loaded manually with
 `admin source 10.98.0.2:/mipspro.cmds` or
 `admin source 10.98.0.2:/addon-NAME.cmds`. After the last `go`, each script
-runs `chkconfig -f autoconfig_ipaddress on` in the installed system, so the
-restarted guest asks for its address by DHCP, and prints
+runs `chkconfig -f autoconfig_ipaddress on` and `nvram AutoLoad Yes` in the
+installed system, so the guest asks for its address by DHCP and the PROM boots
+IRIX without waiting at its menu, then prints
 `instigator: post-install commands finished`. Wait for that line and `Inst>`
 before entering `quit`. The RAD4 package's miniroot exit command reports
 `autoconfig: cannot find /usr/sbin/lboot`. The kernel is relinked at `quit`
@@ -252,6 +255,17 @@ After the guest restarts, stop the machine before using
 `origami network-set my-origin --mode user` to return it to QEMU user networking.
 `--mode none` disconnects it.
 The PROM boot, disk preparation and first-run questions remain interactive.
+
+An installed guest has DHCP and automatic booting turned on. With user
+networking it takes its address, default route and DNS server from QEMU by
+DHCP, and its hostname from the machine directory's name when that is a valid
+hostname. A cold start, `origami stop` then `origami run`, boots straight to
+IRIX. Press Esc while the PROM prints "Starting up the system" to stop at its
+System Maintenance Menu instead. After a panic the machine may restart and boot
+IRIX again on its own, as IRIX's `reboot_on_panic` setting decides. A real
+Origin 200 waits at that menu until `AutoLoad` is set. To turn it off again,
+run `nvram AutoLoad No` as root, or `setenv AutoLoad No` in the command
+monitor.
 
 A forward binds only to the host loopback address. The example sends host TCP
 port 2222 to guest port 22 while user networking is active. Use

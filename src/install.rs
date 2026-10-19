@@ -113,7 +113,9 @@ const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
 /// last go. proclaim, IRIX's DHCP client, runs at boot when this flag is on.
 /// IRIX 6.5.30 ships it on, but proclaim has been seen to turn it off when
 /// it boots with a lease and gets no answer, as on the installation network.
-const POST_INSTALL: &[&str] = &["chkconfig -f autoconfig_ipaddress on"];
+/// The PROM waits at its System Maintenance Menu unless AutoLoad is set,
+/// and installation leaves it unset; the machine keeps the setting in NVRAM.
+const POST_INSTALL: &[&str] = &["chkconfig -f autoconfig_ipaddress on", "nvram AutoLoad Yes"];
 /// Instigator's post-install file prints this once every command succeeded.
 const POST_INSTALL_DONE: &[u8] = b"instigator: post-install commands finished";
 /// inst prints this for a failing command and skips the rest of the file.
@@ -1226,7 +1228,7 @@ mod tests {
         for script in [mipspro, script] {
             assert_eq!(
                 script["post_install"],
-                json!(["chkconfig -f autoconfig_ipaddress on"])
+                json!(["chkconfig -f autoconfig_ipaddress on", "nvram AutoLoad Yes"])
             );
         }
         let mut invalid = media.clone();
