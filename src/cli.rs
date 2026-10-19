@@ -133,23 +133,27 @@ pub enum Action {
         /// Machine MAC, when it has none yet
         #[arg(long)]
         mac: Option<String>,
-        #[arg(long, value_enum, default_value = "desktop")]
+        #[arg(long, value_enum, default_value = "standard")]
         profile: Profile,
     },
     /// Add an optional package source to an installation
     InstallAddon {
         #[arg(value_name = "DIR")]
         dir: PathBuf,
+        /// Add-on name; mipspro and rad4 need no --source
         #[arg(long)]
         name: String,
-        #[arg(long, value_name = "PATH-OR-URL")]
-        source: String,
-        #[arg(long, required = true, action = clap::ArgAction::Append)]
+        #[arg(long, value_name = "PATH-OR-URL", requires = "install")]
+        source: Option<String>,
+        #[arg(long, action = clap::ArgAction::Append, requires = "source")]
         install: Vec<String>,
-        #[arg(long)]
+        #[arg(long, requires = "source")]
         base: Option<String>,
-        #[arg(long)]
+        #[arg(long, requires = "source")]
         dist: Option<String>,
+        /// Local media for a named add-on, the directory containing mipspro/
+        #[arg(long, value_name = "DIR", conflicts_with = "source")]
+        media_root: Option<PathBuf>,
     },
     /// Open media and assemble the install tree without installing IRIX
     InstallCheck(MachineArgs),
@@ -338,18 +342,30 @@ impl Protocol {
 }
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Profile {
+    Minimal,
+    Standard,
+    #[value(hide = true)]
     Base,
+    #[value(hide = true)]
     Desktop,
+    #[value(hide = true)]
     Development,
-    LegacyDevelopment,
 }
 impl Profile {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Base => "base",
-            Self::Desktop => "desktop",
+            Self::Minimal | Self::Base => "minimal",
+            Self::Standard | Self::Desktop => "standard",
             Self::Development => "development",
-            Self::LegacyDevelopment => "legacy-development",
+        }
+    }
+
+    /// The name an earlier release used, when this is one.
+    pub fn old_name(self) -> Option<&'static str> {
+        match self {
+            Self::Base => Some("base"),
+            Self::Desktop => Some("desktop"),
+            _ => None,
         }
     }
 }

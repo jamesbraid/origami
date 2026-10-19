@@ -321,6 +321,11 @@ fn command(action: Action) -> Result<()> {
             mac,
             profile,
         } => {
+            if let Some(old) = profile.old_name() {
+                return Err(
+                    format!("--profile {old} is now --profile {}", profile.as_str()).into(),
+                );
+            }
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
@@ -354,19 +359,23 @@ fn command(action: Action) -> Result<()> {
             install: selections,
             base,
             dist,
+            media_root,
         } => {
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing its install add-ons")?;
             let file = read_machine(&dir)?;
             validate(&machines()?, &dir, &file)?;
-            let path = install::add_addon(
-                &dir,
-                &name,
-                &source,
-                base.as_deref(),
-                dist.as_deref(),
-                &selections,
-            )?;
+            let path = match source {
+                Some(source) => install::add_addon(
+                    &dir,
+                    &name,
+                    &source,
+                    base.as_deref(),
+                    dist.as_deref(),
+                    &selections,
+                )?,
+                None => install::add_known_addon(&dir, &name, media_root.as_deref())?,
+            };
             println!("configured add-on {name} in {}", path.display());
         }
         Action::InstallApply { dir, addon } => {

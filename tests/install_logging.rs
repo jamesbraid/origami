@@ -55,7 +55,7 @@ exit 7
             "--mac",
             "08:00:69:12:34:56",
             "--profile",
-            "desktop",
+            "standard",
         ],
     ] {
         let output = run(&executable, root.path(), &args);

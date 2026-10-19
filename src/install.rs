@@ -62,10 +62,10 @@ struct InstallRecipe {
     keep: Vec<String>,
     package_selections: BTreeMap<String, PackageSelection>,
     layers: Vec<Layer>,
-    collisions: BTreeMap<String, BTreeMap<String, String>>,
-    replacements: BTreeMap<String, BTreeMap<String, String>>,
 }
 
+/// A media.toml from before install profiles has none. It installed
+/// MIPSpro with IRIX, which no profile does now, so recipe() rejects it.
 fn legacy_profile() -> String {
     "legacy-development".into()
 }
@@ -73,20 +73,25 @@ fn legacy_profile() -> String {
 fn recipe(profile: &str) -> Result<InstallRecipe> {
     let mut recipe: InstallRecipe =
         toml::from_str(include_str!("../resources/instigator-irix-6.5.30.toml"))?;
-    let (selection_profile, sets): (&str, Option<&[&str]>) = match profile {
-        "base" => ("base", Some(&["6.5.30", "foundations"])),
-        "desktop" => (
-            "desktop",
-            Some(&[
+    // A media.toml from an earlier release can still name base or desktop.
+    let (selection_profile, sets): (&str, &[&str]) = match profile {
+        "minimal" | "base" => ("minimal", &["6.5.30", "foundations"]),
+        "standard" | "desktop" => (
+            "standard",
+            &[
                 "6.5.30",
                 "foundations",
                 "development",
                 "applications",
                 "complementary",
-            ]),
+            ],
         ),
-        "development" => ("development", None),
-        "legacy-development" => ("development", None),
+        "development" | "legacy-development" => {
+            return Err(format!(
+                "install profile {profile} was removed. Remove install/media.toml, run install-init with --profile standard, then add MIPSpro with install-addon DIR --name mipspro"
+            )
+            .into())
+        }
         _ => return Err(format!("unknown install profile: {profile}").into()),
     };
     let selection = recipe
@@ -95,19 +100,14 @@ fn recipe(profile: &str) -> Result<InstallRecipe> {
         .ok_or_else(|| format!("missing package selections for profile: {selection_profile}"))?;
     recipe.install = selection.install;
     recipe.keep = selection.keep;
-    let Some(sets) = sets else {
-        return Ok(recipe);
-    };
     recipe.sets.retain(|set| sets.contains(&set.as_str()));
     recipe
         .layers
-        .retain(|layer| sets.contains(&layer.set.as_str()) && !layer.path.ends_with(".tar.gz"));
-    recipe.collisions.clear();
-    recipe.replacements.clear();
+        .retain(|layer| sets.contains(&layer.set.as_str()));
     Ok(recipe)
 }
 
-const STANDARD_INSTALL_SCRIPT: &str = "mipspro";
+const STANDARD_INSTALL_SCRIPT: &str = "irix";
 
 /// Commands every install script runs in the installed system after its
 /// last go. proclaim, IRIX's DHCP client, runs at boot when this flag is on.
@@ -124,6 +124,49 @@ const COMMAND_FAILED: &[u8] = b"(command failed)";
 /// The RAD4 driver archive and selection the user guide gives.
 const RAD4_ADDON_SOURCE: &str =
     "https://origami-dist.irix.fans/irix/addons/rad4/rad4x_65_13k.tar.gz";
+
+/// The MIPSpro 7.4.4 archive holds the whole compiler distribution and its
+/// 7.4.2m and 7.4.4m overlays. The separate MIPSpro C archive repeats the
+/// same c_fe product byte for byte, so it is not needed.
+const MIPSPRO_ADDON_PATH: &str = "mipspro/7.4.4/mipspro744update.tar.gz";
+
+fn mipspro_addon(media_root: Option<&Path>) -> Result<InstallAddon> {
+    let source = match media_root {
+        Some(root) => root
+            .canonicalize()?
+            .join(MIPSPRO_ADDON_PATH)
+            .display()
+            .to_string(),
+        None => format!("{}{MIPSPRO_ADDON_PATH}", recipe("standard")?.base_url),
+    };
+    Ok(InstallAddon {
+        name: "mipspro".into(),
+        source,
+        base: Some("MIPSPro7.4.4".into()),
+        dist: Some(".".into()),
+        // The standard profile installs older C, C++ and Fortran compilers
+        // from the Development Foundation disc. inst refuses to upgrade
+        // compiler_dev under the old C++ and Fortran compilers, so the
+        // add-on upgrades every compiler product in the archive, as its
+        // instructions do with inst's Upgrade keyword.
+        install: [
+            "c++_dev",
+            "c++_fe",
+            "c_dev",
+            "c_fe",
+            "compiler_dev",
+            "ftn77_dev",
+            "ftn77_fe",
+            "ftn90_dev",
+            "ftn90_fe",
+            "ftn_dev",
+            "langtools",
+            "modules",
+        ]
+        .map(String::from)
+        .to_vec(),
+    })
+}
 
 fn rad4_addon() -> InstallAddon {
     InstallAddon {
@@ -158,9 +201,6 @@ pub fn init_remote_profile(
     file: &mut MachineFile,
     profile: &str,
 ) -> Result<PathBuf> {
-    if profile == "legacy-development" {
-        return Err("legacy-development requires a local --media-root".into());
-    }
     init_sources(machines, dir, mac, file, None, profile)
 }
 
@@ -247,6 +287,32 @@ fn valid_install_selection(item: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b"._+-".contains(&byte))
 }
 
+/// Configure an add-on Origami knows by name: mipspro, from the public
+/// archive or a local media root, or rad4, from the public archive.
+pub fn add_known_addon(dir: &Path, name: &str, media_root: Option<&Path>) -> Result<PathBuf> {
+    let addon = match (name, media_root) {
+        ("mipspro", root) => mipspro_addon(root)?,
+        ("rad4", None) => rad4_addon(),
+        ("rad4", Some(_)) => {
+            return Err("the rad4 add-on has no local media; omit --media-root".into())
+        }
+        _ => {
+            return Err(format!(
+                "no known add-on {name}; give its --source and --install selections"
+            )
+            .into())
+        }
+    };
+    add_addon(
+        dir,
+        &addon.name,
+        &addon.source,
+        addon.base.as_deref(),
+        addon.dist.as_deref(),
+        &addon.install,
+    )
+}
+
 pub fn add_addon(
     dir: &Path,
     name: &str,
@@ -293,7 +359,7 @@ pub fn add_addon(
 pub fn read_media(dir: &Path) -> Result<InstallMedia> {
     let path = dir.join("install/media.toml");
     let text = fs::read_to_string(&path).map_err(|error| {
-        format!("cannot read {}: {error}. Configure installation first with origami install-init {} --mac MAC --profile desktop", path.display(), dir.display())
+        format!("cannot read {}: {error}. Configure installation first with origami install-init {} --mac MAC --profile standard", path.display(), dir.display())
     })?;
     let file: InstallMedia = toml::from_str(&text)
         .map_err(|error| format!("invalid install configuration {}: {error}", path.display()))?;
@@ -346,14 +412,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
             }
             layers.push(entry);
         }
-        let mut set = json!({ "name": name, "layers": layers });
-        if let Some(collisions) = recipe.collisions.get(name) {
-            set["collisions"] = json!(collisions);
-        }
-        if let Some(replacements) = recipe.replacements.get(name) {
-            set["replacements"] = json!(replacements);
-        }
-        sets.push(set);
+        sets.push(json!({ "name": name, "layers": layers }));
     }
     let mut scripts = vec![json!({
         "name": STANDARD_INSTALL_SCRIPT,
@@ -867,11 +926,12 @@ mod tests {
 
     #[test]
     fn embedded_recipe_has_https_layer_urls() {
-        let recipe = recipe("legacy-development").unwrap();
+        let recipe = recipe("standard").unwrap();
         for layer in &recipe.layers {
             let path = layer.remote_path.as_deref().unwrap_or(&layer.path);
             crate::assets::validate_https_url(&format!("{}{path}", recipe.base_url)).unwrap();
         }
+        crate::assets::validate_https_url(&mipspro_addon(None).unwrap().source).unwrap();
     }
 
     #[test]
@@ -1134,7 +1194,7 @@ mod tests {
     }
 
     #[test]
-    fn addon_script_selects_mipspro_and_local_package() {
+    fn addon_scripts_install_after_the_profile() {
         use crate::{Machine, Network};
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1151,8 +1211,8 @@ mod tests {
         fs::write(&source, b"synthetic source").unwrap();
         let media = InstallMedia {
             format: 1,
-            profile: legacy_profile(),
-            media: recipe("development")
+            profile: "standard".into(),
+            media: recipe("standard")
                 .unwrap()
                 .layers
                 .iter()
@@ -1191,25 +1251,10 @@ mod tests {
             drive: vec![],
         };
         let document = config(&dir, &file, &media).unwrap();
-        let development = document["install_sets"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|set| set["name"] == "development")
-            .unwrap();
-        assert_eq!(
-            development["replacements"]["devfoundation"],
-            "mipspro744update"
-        );
-        let mipspro = &document["install_scripts"][0];
-        assert_eq!(
-            mipspro["keep"],
-            json!([
-                "java2_plugin.sw32.mozilla_freeware",
-                "java_dev.sw32.binaries"
-            ])
-        );
-        let addon_set = &document["install_sets"][recipe("legacy-development").unwrap().sets.len()];
+        let irix = &document["install_scripts"][0];
+        assert_eq!(irix["name"], "irix");
+        assert_eq!(irix["keep"], json!(recipe("standard").unwrap().keep));
+        let addon_set = &document["install_sets"][recipe("standard").unwrap().sets.len()];
         assert_eq!(addon_set["name"], "addon-tablet");
         assert_eq!(
             addon_set["layers"][0]["source"],
@@ -1219,13 +1264,13 @@ mod tests {
         assert_eq!(addon_set["addon"], true);
         let script = &document["install_scripts"][1];
         assert_eq!(script["name"], "addon-tablet");
-        assert_eq!(script["keep"], mipspro["keep"]);
+        assert_eq!(script["keep"], irix["keep"]);
         // The first pass is the profile alone. The add-on waits for the
         // second pass, so its files land after IRIX's own.
-        assert_eq!(script["install"], mipspro["install"]);
+        assert_eq!(script["install"], irix["install"]);
         assert_eq!(script["then"]["sets"], json!(["addon-tablet"]));
         assert_eq!(script["then"]["install"], json!(["tablet.sw.helper"]));
-        for script in [mipspro, script] {
+        for script in [irix, script] {
             assert_eq!(
                 script["post_install"],
                 json!(["chkconfig -f autoconfig_ipaddress on", "nvram AutoLoad Yes"])
@@ -1258,8 +1303,8 @@ mod tests {
         fs::write(&source, b"synthetic source").unwrap();
         let media = InstallMedia {
             format: 1,
-            profile: legacy_profile(),
-            media: recipe("development")
+            profile: "standard".into(),
+            media: recipe("standard")
                 .unwrap()
                 .layers
                 .iter()
@@ -1308,7 +1353,7 @@ mod tests {
             drive: vec![],
         };
         let document = config(&dir, &file, &configured).unwrap();
-        let addon_index = recipe("legacy-development").unwrap().sets.len();
+        let addon_index = recipe("standard").unwrap().sets.len();
         let addon_set = &document["install_sets"][addon_index];
         assert_eq!(addon_set["layers"][0]["source"], url);
         assert_eq!(addon_set["layers"][0]["base"], "tablet-disc");
@@ -1369,7 +1414,8 @@ mod tests {
                 .as_nanos()
         ));
         let media_root = root.join("media");
-        fs::create_dir_all(&media_root).unwrap();
+        fs::create_dir_all(media_root.join("mipspro/7.4.4")).unwrap();
+        fs::write(media_root.join(MIPSPRO_ADDON_PATH), b"synthetic archive").unwrap();
         let prom = root.join("prom.bin");
         fs::write(&prom, vec![0; 1048576]).unwrap();
         let machine = root.join("machine");
@@ -1398,9 +1444,10 @@ mod tests {
             &media_root,
             Some("08:00:69:12:34:56"),
             &mut file,
-            "development",
+            "standard",
         )
         .unwrap();
+        add_known_addon(&machine, "mipspro", Some(&media_root)).unwrap();
         let manifest = read_media(&machine).unwrap();
         assert!(file
             .network
@@ -1417,9 +1464,9 @@ mod tests {
                 .to_string()
         );
         assert_eq!(
-            manifest.media["mipspro_c"],
+            manifest.addons[0].source,
             expected_root
-                .join("mipspro/7.4.4/mipspro_c.tar.gz")
+                .join("mipspro/7.4.4/mipspro744update.tar.gz")
                 .display()
                 .to_string()
         );
@@ -1458,7 +1505,7 @@ mod tests {
             &dir,
             Some("08:00:69:12:34:56"),
             &mut file,
-            "desktop",
+            "standard",
         )
         .unwrap();
         let mut media = read_media(&dir).unwrap();
@@ -1482,8 +1529,6 @@ mod tests {
             .map(|layer| layer["name"].as_str().unwrap())
             .collect();
         assert_eq!(runtime_layers, ["devlibs", "devfoundation"]);
-        assert!(development["replacements"].is_null());
-        assert!(development["collisions"].is_null());
         assert!(sets
             .iter()
             .flat_map(|set| set["layers"].as_array().unwrap())
@@ -1538,7 +1583,7 @@ mod tests {
                 &dir,
                 Some("08:00:69:12:34:56"),
                 &mut file,
-                "desktop",
+                "standard",
             )
             .unwrap();
             let media = read_media(&dir).unwrap();
@@ -1562,8 +1607,8 @@ mod tests {
     }
 
     #[test]
-    fn base_and_desktop_profiles_use_discs_and_standard_selections() {
-        for (name, count) in [("base", 6), ("desktop", 10)] {
+    fn minimal_and_standard_profiles_use_discs_and_standard_selections() {
+        for (name, count) in [("minimal", 6), ("standard", 10)] {
             let recipe = recipe(name).unwrap();
             assert_eq!(recipe.layers.len(), count);
             assert!(recipe.layers.iter().all(|layer| layer
@@ -1572,72 +1617,40 @@ mod tests {
                 .unwrap()
                 .ends_with(".iso")));
             assert!(recipe.install.is_empty());
-            assert!(recipe.replacements.is_empty());
             assert!(recipe.layers.iter().any(|layer| layer.boot));
         }
         assert!(recipe("missing").is_err());
+        assert_eq!(
+            recipe("base").unwrap().keep,
+            recipe("minimal").unwrap().keep
+        );
+        assert_eq!(
+            recipe("desktop").unwrap().keep,
+            recipe("standard").unwrap().keep
+        );
+        for removed in ["development", "legacy-development"] {
+            let error = recipe(removed).err().unwrap().to_string();
+            assert!(error.contains("--name mipspro"), "{error}");
+        }
     }
 
     #[test]
-    fn desktop_profile_deselects_conflicting_products() {
-        let desktop = recipe("desktop").unwrap();
-        assert_eq!(desktop.install, Vec::<String>::new());
+    fn profiles_deselect_conflicting_products() {
         assert_eq!(
-            desktop.keep,
+            recipe("standard").unwrap().keep,
             [
                 "inventor_dev",
                 "java2_plugin.sw32.mozilla_freeware",
                 "java_dev.sw32.binaries"
             ]
         );
-
         assert_eq!(
-            recipe("base").unwrap().keep,
+            recipe("minimal").unwrap().keep,
             [
                 "desktop_base.sw.dso6_2",
                 "insight.sw.sgihelp",
                 "inventor_dev"
             ]
         );
-        assert_eq!(
-            recipe("development").unwrap().install,
-            [
-                "c_fe.sw.c",
-                "c_dev.sw.c",
-                "compiler_dev.sw.base",
-                "compiler_dev.sw.ld",
-                "dev.sw.lib"
-            ]
-        );
-        assert_eq!(
-            recipe("development").unwrap().keep,
-            [
-                "java2_plugin.sw32.mozilla_freeware",
-                "java_dev.sw32.binaries"
-            ]
-        );
-        assert_eq!(
-            recipe("legacy-development").unwrap().install,
-            recipe("development").unwrap().install
-        );
-    }
-
-    #[test]
-    fn development_profile_contains_mipspro_media() {
-        assert_eq!(
-            recipe("development")
-                .unwrap()
-                .layers
-                .iter()
-                .filter(|layer| layer.set == "development" && layer.name.starts_with("mipspro"))
-                .count(),
-            2
-        );
-        assert!(recipe("development")
-            .unwrap()
-            .layers
-            .iter()
-            .any(|layer| layer.name == "overlays1" && layer.boot));
-        assert_eq!(recipe("development").unwrap().sets.len(), 5);
     }
 }

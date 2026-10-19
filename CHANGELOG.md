@@ -31,6 +31,9 @@ drives and network settings are kept.
 - `--profile base` installs no longer stop at package conflicts.
 - Every guided install turns on IRIX's DHCP client before `inst` exits.
 - Guided installs set `AutoLoad`, so a cold start boots straight to IRIX.
+- Install profiles are now `minimal` and `standard` (the old `base` and
+  `desktop`, still accepted). `development` is gone: use `--profile standard`
+  and `install-addon --name mipspro`.
 
 ## 0.2.1
 

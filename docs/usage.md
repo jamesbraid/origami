@@ -109,19 +109,25 @@ output and appends the raw primary serial output to `logs/serial.log`.
 For an IRIX 6.5.30 network install, prepare the media manifest and private network:
 
 ```sh
-origami install-init my-origin --mac 08:00:69:12:34:56 --profile desktop
+origami install-init my-origin --mac 08:00:69:12:34:56 --profile standard
+origami install-addon my-origin --name mipspro
 origami install-addon my-origin --name tablet --source /path/to/tablet.tardist --install PRODUCT.SUBSYSTEM
 origami install-check my-origin
 origami install-serve my-origin
 ```
 
-This configures the public IRIX 6.5.30 desktop media. Use `--profile base`
-for a smaller installation or `--profile development` to include MIPSpro.
-For local media, add `--media-root /path/to/media`, naming the directory
-containing `6.5.30/`, `6.5-base/`, and `mipspro/` for the development profile.
-`install-init` writes sources to `my-origin/install/media.toml`.
+This configures the public IRIX 6.5.30 media for IRIX's standard selection.
+Use `--profile minimal` for a smaller installation. For local media, add
+`--media-root /path/to/media`, naming the directory containing `6.5.30/` and
+`6.5-base/`. `install-init` writes sources to `my-origin/install/media.toml`.
 
 `install-addon` is optional. Stop the machine before changing add-ons.
+`--name mipspro` configures the MIPSpro 7.4.4 compilers from the public
+archive. Add `--media-root /path/to/media` to use `mipspro/7.4.4/` from local
+media instead. Use it with the standard profile: it upgrades compiler
+packages that profile installs from the development discs. `cc` prints a
+FLEXlm message that the compiler needs a license password, then compiles and
+exits 0.
 Replace `PRODUCT.SUBSYSTEM` with the package selection named by the add-on.
 A source can be a local SGI image, extracted tree, `.tar`, `.tar.gz`, `.tgz`,
 `.tardist`, or `.tardist.gz`, or a public HTTPS URL. HTTPS sources use
@@ -148,7 +154,7 @@ Do not select all of `rad4x`. Its `rad4x.sw.kernel_patch` replaces two IRIX
 PROM image file.
 
 `install-check` uses the packaged Instigator to open every named source,
-including selected development inputs and any add-on, and assemble the install tree without opening
+including any add-on, and assemble the install tree without opening
 network ports. It catches invalid media and missing collision winners before
 `install-serve`. It also checks that each named script's selected products have
 `.sw` or `.man` files in an enabled distribution. Local images stay in place.
@@ -213,8 +219,8 @@ The command streams the installer output and waits through package transfer,
 the dependency check and the return to `Inst>`. With `--addon`, IRIX installs
 first and the add-on installs in a second `go` from the same script, so the
 command waits for `Inst>` twice. Omit `--addon` to install the selected
-profile alone. Use `--addon tablet` or `--addon rad4` when that add-on is
-configured. MIPSpro is included only with a development profile.
+profile alone. Use `--addon mipspro`, `--addon tablet` or `--addon rad4` when
+that add-on is configured.
 
 After installation the command leaves `inst` with `quit`, which relinks the
 kernel with any driver the add-on installed, answers the restart prompt and
@@ -226,7 +232,7 @@ post-install commands do not finish, if `quit` prints an `lboot` message, or
 if a step does not finish. Inspect the serial output, then continue by hand.
 
 The same scripts can be loaded manually with
-`admin source 10.98.0.2:/mipspro.cmds` or
+`admin source 10.98.0.2:/irix.cmds` or
 `admin source 10.98.0.2:/addon-NAME.cmds`. After the last `go`, each script
 runs `chkconfig -f autoconfig_ipaddress on` and `nvram AutoLoad Yes` in the
 installed system, so the guest asks for its address by DHCP and the PROM boots
@@ -377,8 +383,6 @@ origami upgrade my-onyx2 --io-prom io6prom.img
 
 The CLI starts an existing disk or CD-ROM image and prepares the Instigator server. The PROM, disk formatter, and first-run questions remain interactive. `install-apply` runs the generated `inst` package-selection script and restarts the installed system.
 
-The development media profile includes MIPSpro and development packages.
-
 ## Firmware and remote installation media
 
 Omit `--prom` and `--io-prom` to fetch the pinned PROM images the machine
@@ -399,20 +403,23 @@ Instigator fetches disc ranges and archive entries as needed during installation
 If the server refuses range requests, it can download a whole disc instead.
 Initialization itself downloads nothing.
 
-Choose `--profile base` for the six IRIX 6.5.30 overlay, foundation and NFS discs,
-`--profile desktop` (the default) for ten discs including applications,
-complementary software and their development-library dependencies, or
-`--profile development` to add the existing MIPSpro 7.4.4 update and C compiler
-tarballs. Remote disc objects use `.iso` filenames
-and retain the original SGI disc bytes. The RAD4 driver is a separate add-on
-that can use a local path or public HTTPS source.
+Choose `--profile minimal` for the six IRIX 6.5.30 overlay, foundation and NFS
+discs, or `--profile standard` (the default) for all ten discs, adding
+applications, complementary software and the development discs. Both install
+IRIX's standard selection from their discs. Remote disc objects use `.iso`
+filenames and retain the original SGI disc bytes. MIPSpro and the RAD4 driver
+are add-ons that can use a local path or public HTTPS source.
 
 Use `--media-root /path/to/media` for local installation. Its disc paths retain
-`.image` filenames. Existing media configurations keep their original full
-recipe. `--profile legacy-development` is available for that local recipe.
+`.image` filenames. The `base` and `desktop` profiles are now `minimal` and
+`standard`. A media configuration that names an old one keeps working. The
+`development` profile is gone, as is the recipe that a media configuration
+without a profile used: both installed MIPSpro, which is now the `mipspro`
+add-on. Remove `install/media.toml`, run `install-init` again and add MIPSpro
+with `install-addon`.
 
 PROM downloads have pinned checksums. Instigator's remote installation sources
-do not verify a whole-image checksum before serving them. The public desktop
+do not verify a whole-image checksum before serving them. The public standard
 media with RAD4 completed a fresh Linux Origin 200 installation and reached
 an IRIX 6.5.30 serial root shell. Other profiles and machines remain
 experimental. Desktop responsiveness was not established by that check.

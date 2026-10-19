@@ -1,10 +1,10 @@
 format = 1
 base_url = "https://origami-dist.irix.fans/irix/"
 sets = ["6.5.30", "foundations", "development", "applications", "complementary"]
-[package_selections.base]
+[package_selections.minimal]
 install = []
 # The standard selection picks these, but their prerequisites are not on
-# the base discs. The overlay discs carry only 6.5.30 updates of
+# the minimal profile's discs. The overlay discs carry only 6.5.30 updates of
 # MediaWarehouse and WebViewer, and inst will not install an update whose
 # original product, on the Applications disc, is absent.
 keep = [
@@ -16,19 +16,9 @@ keep = [
     "inventor_dev",
 ]
 
-[package_selections.desktop]
+[package_selections.standard]
 install = []
 keep = ["inventor_dev", "java2_plugin.sw32.mozilla_freeware", "java_dev.sw32.binaries"]
-
-[package_selections.development]
-install = ["c_fe.sw.c", "c_dev.sw.c", "compiler_dev.sw.base", "compiler_dev.sw.ld", "dev.sw.lib"]
-keep = ["java2_plugin.sw32.mozilla_freeware", "java_dev.sw32.binaries"]
-
-[collisions.development]
-"development/dist/inst.README" = "mipspro744update"
-
-[replacements.development]
-devfoundation = "mipspro744update"
 
 [[layers]]
 set = "6.5.30"
@@ -87,22 +77,6 @@ path = "6.5-base/devfoundation.image"
 remote_path = "6.5-base/devfoundation.iso"
 boot = false
 dist = "dist/dist6.5"
-
-[[layers]]
-set = "development"
-name = "mipspro744update"
-path = "mipspro/7.4.4/mipspro744update.tar.gz"
-boot = false
-base = "MIPSPro7.4.4"
-dist = "."
-
-[[layers]]
-set = "development"
-name = "mipspro_c"
-path = "mipspro/7.4.4/mipspro_c.tar.gz"
-boot = false
-base = "mipspro_c"
-dist = "dist"
 
 [[layers]]
 set = "applications"
