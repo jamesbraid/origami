@@ -108,6 +108,9 @@ fn recipe(profile: &str) -> Result<InstallRecipe> {
 }
 
 const STANDARD_INSTALL_SCRIPT: &str = "irix";
+/// The script that installs the profile, then every configured add-on in
+/// one second pass.
+const ALL_ADDONS_SCRIPT: &str = "addons";
 
 /// Commands every install script runs in the installed system after its
 /// last go. proclaim, IRIX's DHCP client, runs at boot when this flag is on.
@@ -421,6 +424,8 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         "post_install": POST_INSTALL,
     })];
     let mut addon_names = HashSet::new();
+    let mut all_sets = Vec::new();
+    let mut all_install = Vec::new();
     for addon in &media.addons {
         if !addon_names.insert(&addon.name) {
             return Err(format!("duplicate add-on name: {}", addon.name).into());
@@ -458,6 +463,17 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
             "install": recipe.install,
             "keep": recipe.keep,
             "then": { "sets": [name], "install": addon.install },
+            "post_install": POST_INSTALL,
+        }));
+        all_sets.push(name);
+        all_install.extend(addon.install.iter().cloned());
+    }
+    if !all_sets.is_empty() {
+        scripts.push(json!({
+            "name": ALL_ADDONS_SCRIPT,
+            "install": recipe.install,
+            "keep": recipe.keep,
+            "then": { "sets": all_sets, "install": all_install },
             "post_install": POST_INSTALL,
         }));
     }
@@ -860,6 +876,12 @@ fn install_script(media: &InstallMedia, addon: Option<&str>) -> Result<(String, 
         }
         // The add-on script installs IRIX, then the add-on in a second go.
         return Ok((format!("admin source 10.98.0.2:/addon-{name}.cmds\n"), 2));
+    }
+    if !media.addons.is_empty() {
+        return Ok((
+            format!("admin source 10.98.0.2:/{ALL_ADDONS_SCRIPT}.cmds\n"),
+            2,
+        ));
     }
     Ok((
         format!("admin source 10.98.0.2:/{STANDARD_INSTALL_SCRIPT}.cmds\n"),
@@ -1270,7 +1292,29 @@ mod tests {
         assert_eq!(script["install"], irix["install"]);
         assert_eq!(script["then"]["sets"], json!(["addon-tablet"]));
         assert_eq!(script["then"]["install"], json!(["tablet.sw.helper"]));
-        for script in [irix, script] {
+
+        // With no --addon, install-apply installs every add-on together.
+        let mut two = media.clone();
+        two.addons.push(mipspro_addon(Some(&dir)).unwrap());
+        two.addons[1].source = source.display().to_string();
+        let document = config(&dir, &file, &two).unwrap();
+        let all = document["install_scripts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|script| script["name"] == "addons")
+            .unwrap();
+        assert_eq!(
+            all["then"]["sets"],
+            json!(["addon-tablet", "addon-mipspro"])
+        );
+        assert_eq!(all["then"]["install"][0], "tablet.sw.helper");
+        assert_eq!(all["then"]["install"][1], "c++_dev");
+        assert_eq!(
+            install_script(&two, None).unwrap(),
+            ("admin source 10.98.0.2:/addons.cmds\n".to_string(), 2)
+        );
+        for script in [irix, script, all] {
             assert_eq!(
                 script["post_install"],
                 json!(["chkconfig -f autoconfig_ipaddress on", "nvram AutoLoad Yes"])

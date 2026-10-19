@@ -159,10 +159,11 @@ pub enum Action {
     InstallCheck(MachineArgs),
     /// Serve installation media until stopped
     InstallServe(MachineArgs),
-    /// At Inst>, install the selected profile and optional add-on, then restart
+    /// At Inst>, install the selected profile and its add-ons, then restart
     InstallApply {
         #[arg(value_name = "DIR")]
         dir: PathBuf,
+        /// Install only this add-on instead of every configured one
         #[arg(long)]
         addon: Option<String>,
     },

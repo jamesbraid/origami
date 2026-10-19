@@ -33,7 +33,8 @@ drives and network settings are kept.
 - Guided installs set `AutoLoad`, so a cold start boots straight to IRIX.
 - Install profiles are now `minimal` and `standard` (the old `base` and
   `desktop`, still accepted). `development` is gone: use `--profile standard`
-  and `install-addon --name mipspro`.
+  and `install-addon --name mipspro`. `install-apply` without `--addon` now
+  installs every configured add-on.
 
 ## 0.2.1
 

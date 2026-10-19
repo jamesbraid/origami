@@ -84,7 +84,7 @@ origami show-command my-origin
 origami run my-origin
 origami run my-origin --display vnc --vnc-port 5991
 origami run my-origin --background
-origami install-apply my-origin --addon rad4
+origami install-apply my-origin
 origami status my-origin
 origami console my-origin
 origami stop my-origin
@@ -212,15 +212,14 @@ At the guest's `Inst>` prompt, disconnect `origami console` and load the
 packaged install script from another host terminal:
 
 ```sh
-origami install-apply my-origin --addon rad4
+origami install-apply my-origin
 ```
 
 The command streams the installer output and waits through package transfer,
-the dependency check and the return to `Inst>`. With `--addon`, IRIX installs
-first and the add-on installs in a second `go` from the same script, so the
-command waits for `Inst>` twice. Omit `--addon` to install the selected
-profile alone. Use `--addon mipspro`, `--addon tablet` or `--addon rad4` when
-that add-on is configured.
+the dependency check and the return to `Inst>`. With add-ons configured, IRIX
+installs first and every add-on installs in a second `go` from the same
+script, so the command waits for `Inst>` twice. Use `--addon rad4` to install
+only that add-on.
 
 After installation the command leaves `inst` with `quit`, which relinks the
 kernel with any driver the add-on installed, answers the restart prompt and
@@ -232,7 +231,8 @@ post-install commands do not finish, if `quit` prints an `lboot` message, or
 if a step does not finish. Inspect the serial output, then continue by hand.
 
 The same scripts can be loaded manually with
-`admin source 10.98.0.2:/irix.cmds` or
+`admin source 10.98.0.2:/irix.cmds` for the profile alone,
+`admin source 10.98.0.2:/addons.cmds` or
 `admin source 10.98.0.2:/addon-NAME.cmds`. After the last `go`, each script
 runs `chkconfig -f autoconfig_ipaddress on` and `nvram AutoLoad Yes` in the
 installed system, so the guest asks for its address by DHCP and the PROM boots
