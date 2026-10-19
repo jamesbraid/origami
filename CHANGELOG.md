@@ -1,40 +1,38 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
-Machines created by 0.2.x must be upgraded once before use:
-`origami upgrade DIR`. Origin 200, Origin 2000 and Onyx2 machines gain the
-new module controller NVRAM file, which needs their PROMs: the upgrade
-downloads them, or takes `--prom FILE` and `--io-prom FILE`. Flash, NVRAM,
-drives and network settings are kept.
+Machines created by 0.2.x must be upgraded once: `origami upgrade DIR`.
+Origin 200, Origin 2000 and Onyx2 machines gain a module controller NVRAM
+file built from their PROMs, which the upgrade downloads or takes from
+`--prom FILE` and `--io-prom FILE`. Flash, NVRAM, drives and network
+settings are kept.
 
-- RAD4 installs keep the driver's DMA enabled, which makes window drags
-  and resizes several times faster. To update an existing RAD4 install,
-  set `rad4pci_no_dma = 0` in `/var/sysgen/master.d/rad4pci` as root in
-  the guest, run `autoconfig` and reboot.
-- The Origin 200 presets now create headless machines.
-- New preset `origin200-rad4`: the two-CPU Origin 200 with RAD4 graphics.
-  `install-init` configures the RAD4 add-on on RAD4 machines.
-- Origin 200 boots with more memory sizes, up to 1664 MiB per node.
-- QEMU updated to c97bfd9.
-- `network-set --mode tap` (Linux, Windows) and `--mode vmnet` (macOS, through
+Install profiles are now `minimal` and `standard`; `base`, `desktop` and
+`development` are gone. The MIPSpro compiler is an add-on:
+`--profile standard` with `install-addon --name mipspro`.
+
+Source checkouts: QEMU now comes from github.com/jamesbraid/qemu-sgi-origami.
+Run `git submodule sync && git submodule update` once.
+
+- Origin 200 presets are headless. The new `origin200-rad4` preset is the
+  two-CPU Origin 200 with RAD4 graphics, and `install-init` adds the RAD4
+  add-on for it.
+- Add-ons install in a second `inst` pass after IRIX, and `install-apply`
+  restarts the guest to its login prompt. `install-finish` is gone.
+  Without `--addon`, `install-apply` installs every configured add-on.
+- RAD4 keeps the driver's DMA on, which makes window drags and resizes
+  several times faster. On an existing RAD4 install, set
+  `rad4pci_no_dma = 0` in `/var/sysgen/master.d/rad4pci`, run `autoconfig`
+  and reboot.
+- Guided installs turn on DHCP and `AutoLoad`. A cold start boots straight
+  to IRIX, which gets its address and its hostname (the machine directory's
+  name) from user networking.
+- `minimal` installs no longer stop at package conflicts.
+- `network-set --mode tap` (Linux, Windows) and `--mode vmnet` (macOS, via
   socket_vmnet) put the guest on a host network.
-- `install-apply --addon` installs IRIX first and the add-on in a second
-  pass, then quits `inst` and restarts the guest to its login prompt.
-  `install-finish` and the RAD4 finish script are gone: a RAD4 install
-  now keeps IRIX's own kernel and X configuration links, and the kernel
-  is relinked with the driver when `inst` exits.
-- The documented RAD4 selection is `rad4x.sw.driver`, `rad4x.sw.xserver`
-  and `rad4x.man`, leaving out PsiTech's 1998 kernel patch.
-- Instigator updated to v0.4.0.
-- User networking offers the machine directory's name as the DHCP hostname.
-- `--profile base` installs no longer stop at package conflicts.
-- Every guided install turns on IRIX's DHCP client before `inst` exits.
-- Guided installs set `AutoLoad`, so a cold start boots straight to IRIX.
-- Install profiles are now `minimal` and `standard` (the old `base` and
-  `desktop`, still accepted). `development` is gone: use `--profile standard`
-  and `install-addon --name mipspro`. `install-apply` without `--addon` now
-  installs every configured add-on.
+- Origin 200 accepts more memory sizes, up to 1664 MiB per node.
+- QEMU updated to 24b27ce. Instigator updated to v0.4.0.
 
 ## 0.2.1
 
