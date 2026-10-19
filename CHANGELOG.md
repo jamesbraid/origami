@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `origami --version` reports Instigator as v0.4.0. The 0.3.0 archives
+  showed a pseudo-version for the same code.
+
 ## 0.3.0
 
 Machines created by 0.2.x must be upgraded once: `origami upgrade DIR`.
