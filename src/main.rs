@@ -11,6 +11,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
+    // Rust ignores SIGPIPE, so printing to a closed pipe such as
+    // `origami machines | head` panics. Exit the way other Unix tools do.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     if std::env::args_os().any(|arg| arg.to_str().is_none()) {
         eprintln!("origami: arguments must be valid UTF-8");
         return ExitCode::FAILURE;
