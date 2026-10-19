@@ -49,7 +49,7 @@ serves the installation media.
 
 The CLI has fewer presets than QEMU has configurations. The
 [user guide](docs/usage.md) covers the built in options, and the
-[QEMU machine reference](https://github.com/jamesbraid/qemu/blob/sgi-origami/docs/specs/sgi-sn.rst) covers the rest.
+[QEMU machine reference](https://github.com/jamesbraid/qemu-sgi-origami/blob/sgi-origami/docs/specs/sgi-sn.rst) covers the rest.
 
 Some combinations boot to a desktop.  Others are an opportunity to stare at a
 serial console. This is a vibe coded experimental playground. Expect broken

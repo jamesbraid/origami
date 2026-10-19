@@ -193,10 +193,11 @@ git checkout RELEASE_TAG
 git submodule update --init
 ```
 
-The pinned QEMU and Instigator commits must be available in sibling GitHub
-repositories. GitHub's automatic source ZIP omits submodule contents. Use the
-Git clone when building from source. The platform build commands above use
-these exact checkouts.
+The pinned QEMU commit comes from the public
+[QEMU repository](https://github.com/jamesbraid/qemu-sgi-origami).
+Instigator comes from a sibling of the product repository. GitHub's automatic
+source ZIP omits submodule contents. Use the Git clone when building from
+source. The platform build commands above use these exact checkouts.
 
 CI build checkouts use `fetch-depth: 0` so native version descriptions can
 reach release tags in the product and its submodules. A normal initial
@@ -204,11 +205,14 @@ reach release tags in the product and its submodules. A normal initial
 shallow clones need their history fetched explicitly.
 
 To refresh an existing macOS checkout, finish any active install first, then
-run these commands from the product repository. Fetching history and tags
+run these commands from the product repository. Pull the product commit first,
+then synchronize QEMU's URL before updating its pin. Fetching history and tags
 does not change the dependency commits selected by the product pin.
 
 ```sh
-git pull --recurse-submodules
+git pull --no-recurse-submodules
+git submodule sync -- qemu
+git submodule update --init
 for component in qemu instigator; do
   if [ "$(git -C "$component" rev-parse --is-shallow-repository)" = true ]; then
     git -C "$component" fetch --unshallow --tags origin

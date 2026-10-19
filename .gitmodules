@@ -1,6 +1,6 @@
 [submodule "qemu"]
 	path = qemu
-	url = ../qemu.git
+	url = https://github.com/jamesbraid/qemu-sgi-origami.git
 [submodule "instigator"]
 	path = instigator
 	url = ../instigator.git

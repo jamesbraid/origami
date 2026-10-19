@@ -315,7 +315,7 @@ The full QEMU machine list also validates additional topologies and processor
 populations configured in `machine.toml`. Use `topology` and `population` to
 identify those configurations. Support remains experimental: a selectable
 configuration does not imply that firmware, installation or graphics work.
-The [QEMU machine documentation](https://github.com/jamesbraid/qemu/blob/sgi-origami/docs/specs/sgi-sn.rst)
+The [QEMU machine documentation](https://github.com/jamesbraid/qemu-sgi-origami/blob/sgi-origami/docs/specs/sgi-sn.rst)
 describes topology and board options. QEMU's machine list gives each machine its
 board and processor values, such as Fuel's `board-id-word` or Octane2's
 `r12000-prid`. `create --set PROPERTY=VALUE` overrides one; QEMU checks the

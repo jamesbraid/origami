@@ -28,6 +28,11 @@ jobs:
       image: ${{ vars.CI_JOB_IMAGE }}
     timeout-minutes: 360
     steps:
+      - name: Use canonical QEMU repository
+        run: |
+          git config --global \
+            "url.${{ github.server_url }}/jamesb/qemu.git.insteadOf" \
+            "https://github.com/jamesbraid/qemu-sgi-origami.git"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -119,6 +124,11 @@ jobs:
       image: ${{ vars.CI_JOB_IMAGE }}
     timeout-minutes: 360
     steps:
+      - name: Use canonical QEMU repository
+        run: |
+          git config --global \
+            "url.${{ github.server_url }}/jamesb/qemu.git.insteadOf" \
+            "https://github.com/jamesbraid/qemu-sgi-origami.git"
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
