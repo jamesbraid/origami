@@ -21,6 +21,32 @@ pub const MACHINE_FORMAT: u32 = 3;
 #[derive(Clone, Debug, Deserialize)]
 pub struct Machines {
     pub offerings: Vec<Offering>,
+    #[serde(default)]
+    pub topologies: Vec<Topology>,
+}
+
+/// A topology in the machine list, read for the processor modules it offers.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Topology {
+    pub name: String,
+    /// The modules `processor=` selects, the default first; empty where the
+    /// topology offers no choice.
+    #[serde(rename = "processor-options", default)]
+    pub processor_options: Vec<ProcessorOption>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ProcessorOption {
+    pub assembly: ProcessorAssembly,
+    #[serde(rename = "accepted-memory-mib")]
+    pub accepted_memory: Vec<u32>,
+    #[serde(rename = "cpus-per-node")]
+    pub cpus_per_node: Vec<u32>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ProcessorAssembly {
+    pub id: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -33,6 +59,7 @@ pub struct Offering {
     pub cpus_per_node: Vec<u32>,
     #[serde(rename = "default-cpu-model")]
     pub cpu: String,
+    pub processor: Processor,
     #[serde(rename = "memory-per-node-mib")]
     pub memory: Memory,
     /// The `-M` value selecting this product, topology and node count.
@@ -53,6 +80,29 @@ pub struct Offering {
     /// Serial lines in -serial order; the line of kind `console` is the
     /// primary console.
     pub consoles: Vec<Console>,
+}
+
+/// The processor every CPU of an offering is.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Processor {
+    pub id: String,
+    pub part: String,
+    #[serde(rename = "clock-hz")]
+    pub clock_hz: u64,
+    #[serde(rename = "cache-mib")]
+    pub cache_mib: u32,
+}
+
+impl std::fmt::Display for Processor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} MHz {}, {} MB secondary cache",
+            self.clock_hz / 1_000_000,
+            self.part,
+            self.cache_mib
+        )
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -190,6 +240,11 @@ pub struct Machine {
     pub model: String,
     pub nodes: u32,
     pub cpus_per_node: u32,
+    /// The processor module, where the topology offers a choice; absent
+    /// means its default. Each node's flash records the module when the
+    /// machine is created, so it never changes afterwards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub processor: Option<String>,
     pub memory_per_node: String,
     #[serde(default = "default_graphics")]
     pub graphics: String,
@@ -305,6 +360,10 @@ pub fn valid_mac(mac: &str) -> bool {
 
 /// The offering in the machine list a machine was created from.
 pub fn offering<'a>(machines: &'a Machines, machine: &Machine) -> Result<&'a Offering> {
+    let topology = machine.topology.as_deref().unwrap_or_default();
+    if let Some(id) = &machine.processor {
+        profiles::processor_option(machines, topology, id)?;
+    }
     machines
         .offerings
         .iter()
@@ -313,8 +372,40 @@ pub fn offering<'a>(machines: &'a Machines, machine: &Machine) -> Result<&'a Off
                 && o.nodes == machine.nodes
                 && machine.topology.as_ref() == Some(&o.topology)
                 && o.cpus_per_node == profiles::population(machine)
+                && match &machine.processor {
+                    Some(id) => &o.processor.id == id,
+                    None => profiles::fits_default_processor(machines, o),
+                }
         })
-        .ok_or_else(|| "unsupported machine and processor population".into())
+        .ok_or_else(|| match &machine.processor {
+            Some(id) => format!(
+                "{topology} does not offer {id} with {:?} CPUs per node",
+                profiles::population(machine)
+            )
+            .into(),
+            None => "unsupported machine and processor population".into(),
+        })
+}
+
+/// Refuse `memory` MiB per node unless `offering` accepts it.
+fn check_memory(offering: &Offering, memory: u32) -> Result<()> {
+    if offering.memory.accepted.contains(&memory) {
+        return Ok(());
+    }
+    let accepted: Vec<_> = offering
+        .memory
+        .accepted
+        .iter()
+        .map(u32::to_string)
+        .collect();
+    Err(format!(
+        "{memory} MiB per node is not offered for {} with {} MHz {}; choose {}",
+        offering.topology,
+        offering.processor.clock_hz / 1_000_000,
+        offering.processor.part,
+        accepted.join(", ")
+    )
+    .into())
 }
 
 /// Check the network choice against what this host's QEMU can run. Tap
@@ -381,13 +472,7 @@ pub fn validate<'a>(
         .ok_or("memory_per_node must use MiB")?
         .parse::<u32>()?;
     let offering = offering(machines, &file.machine)?;
-    if !offering.memory.accepted.contains(&memory) {
-        return Err(format!(
-            "{} MiB per node is not offered for {}",
-            memory, offering.topology
-        )
-        .into());
-    }
+    check_memory(offering, memory)?;
     profiles::validate_graphics(offering, &file.machine.graphics)?;
     profiles::validate_inputs(offering, &file.machine.inputs)?;
     runtime::console_line(offering, file.machine.console.as_deref())?;
@@ -474,14 +559,7 @@ pub fn validate_create_inputs(
     memory_per_node: Option<u32>,
     mac: Option<&str>,
 ) -> Result<()> {
-    let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
-    if !offering.memory.accepted.contains(&memory_per_node) {
-        return Err(format!(
-            "{} MiB per node is not offered for {}",
-            memory_per_node, offering.topology
-        )
-        .into());
-    }
+    check_memory(offering, memory_per_node.unwrap_or(offering.memory.default))?;
     match fs::symlink_metadata(dir) {
         Ok(_) => return Err(format!("destination already exists: {}", dir.display()).into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -561,6 +639,8 @@ pub fn create_configured(
                 model: offering.product.clone(),
                 nodes: offering.nodes,
                 cpus_per_node: offering.cpus_per_node[0],
+                processor: profiles::selects_processor(offering)
+                    .then(|| offering.processor.id.clone()),
                 memory_per_node: format!("{memory_per_node}MiB"),
                 graphics: graphics.into(),
                 console: None,

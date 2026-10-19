@@ -7,6 +7,10 @@
 - QEMU moves to sgi-origami 47542527ab, which adds the Origin 200's
   processor modules to its machine list. Presets and existing machines
   keep the 180 MHz R10000 module with 1 MB cache and need no upgrade.
+- `create --processor ID` gives an Origin 200 a 180 MHz R10000 module with
+  2 MB cache, a 225 MHz R10000 or a 270 MHz R12000; `origami machines` lists
+  them. The two faster modules hold two CPUs and allow up to 1792 MiB per
+  node. The module is fixed when the machine is created.
 
 ## 0.3.0
 

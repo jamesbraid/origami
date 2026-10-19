@@ -196,6 +196,9 @@ pub struct CreateOptions {
     /// Local IO PROM for presets with a BASEIO or GIGAchannel board
     #[arg(long, value_name = "FILE")]
     pub io_prom: Option<PathBuf>,
+    /// Processor module, for presets that offer a choice (see origami machines)
+    #[arg(long, value_name = "ID")]
+    pub processor: Option<String>,
     /// Memory per node in MiB
     #[arg(long, value_name = "MiB")]
     pub memory_per_node: Option<u32>,

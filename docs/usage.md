@@ -73,6 +73,7 @@ Unknown options and invalid argument values are rejected before the command runs
 ```text
 origami machines
 origami create my-origin --preset origin200-rad4 --memory-per-node 128
+origami create my-o200 --preset origin200-2 --processor r12000-270mhz-4mb
 origami create my-o300 --preset origin300-2
 origami drive-create my-origin 4096
 origami drive-attach my-origin /path/to/irix-install.iso --type cdrom --target 4
@@ -334,6 +335,24 @@ origami console-set my-fuel --port ioc3_a
 ```
 
 `create --memory-per-node MiB` selects one of the values accepted by the preset.
+
+Origin 200 presets take `create --processor ID` to fit one of the processor
+modules QEMU models; `origami machines` lists them. Without it a machine gets
+the 180 MHz R10000 module with 1 MB cache. The 225 MHz R10000 and 270 MHz
+R12000 modules hold two CPUs, so with them `origin200-1` and `origin200-impact`
+get two. Memory depends on the module: the PROM turns off 256 MB DIMM banks
+on a 180 MHz node, which therefore takes at most 1664 MiB and refuses sizes
+such as 1024 and 1536, while the faster modules take up to 1792 MiB. A
+refused size lists the accepted ones.
+
+`create` writes the module into each node's boot flash and records it as
+`processor` in `machine.toml`; a machine without that entry has the default
+module. The module cannot change afterwards. QEMU does not rewrite the flash,
+so an edited entry leaves the flash describing the old module, and the machine
+then starts with a silent console. To try another module, create a new
+machine and attach the disks. QEMU shows Hub revision 3 and the 180 MHz IP29 board in
+`hinv` for every module, where real 225 and 270 MHz machines have Hub
+revision 5 and IP29 030-1389-001.
 The full QEMU machine list also validates additional topologies and processor
 populations configured in `machine.toml`. Use `topology` and `population` to
 identify those configurations. Support remains experimental: a selectable

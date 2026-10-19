@@ -1,4 +1,4 @@
-use crate::{Machine, Machines, Offering, Result};
+use crate::{Machine, Machines, Offering, ProcessorOption, Result};
 use std::collections::BTreeMap;
 
 pub fn population(machine: &Machine) -> Vec<u32> {
@@ -106,10 +106,135 @@ pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
             machines
                 .offerings
                 .iter()
-                .find(|o| o.topology == profile.topology && o.cpus_per_node == profile.population)
+                .find(|o| {
+                    o.topology == profile.topology
+                        && o.cpus_per_node == profile.population
+                        && fits_default_processor(machines, o)
+                })
                 .map(|o| (profile.id.to_string(), o))
         })
         .collect()
+}
+
+/// The processor modules `topology` offers, its default first; empty where
+/// it offers no choice.
+pub fn processor_options<'a>(machines: &'a Machines, topology: &str) -> &'a [ProcessorOption] {
+    machines
+        .topologies
+        .iter()
+        .find(|t| t.name == topology)
+        .map_or(&[], |t| &t.processor_options)
+}
+
+pub fn processor_option<'a>(
+    machines: &'a Machines,
+    topology: &str,
+    id: &str,
+) -> Result<&'a ProcessorOption> {
+    let options = processor_options(machines, topology);
+    if options.is_empty() {
+        return Err(format!("{topology} offers no processor choice").into());
+    }
+    options
+        .iter()
+        .find(|option| option.assembly.id == id)
+        .ok_or_else(|| {
+            let ids: Vec<_> = options.iter().map(|o| o.assembly.id.as_str()).collect();
+            format!(
+                "{topology} has no processor module {id}; choose {}",
+                ids.join(", ")
+            )
+            .into()
+        })
+}
+
+/// Whether `offering` fits its topology's default module, as every
+/// offering of a topology without a choice does.
+pub fn fits_default_processor(machines: &Machines, offering: &Offering) -> bool {
+    processor_options(machines, &offering.topology)
+        .first()
+        .is_none_or(|default| default.assembly.id == offering.processor.id)
+}
+
+/// Whether `offering` selects a module other than its topology's default.
+pub fn selects_processor(offering: &Offering) -> bool {
+    offering
+        .machine_options
+        .split(',')
+        .any(|option| option.starts_with("processor="))
+}
+
+/// The offering like `offering` but fitting module `id`. A module that
+/// holds a fixed number of CPUs sets each node's count.
+pub fn with_processor<'a>(
+    machines: &'a Machines,
+    offering: &Offering,
+    id: &str,
+) -> Result<&'a Offering> {
+    let option = processor_option(machines, &offering.topology, id)?;
+    let mut population = offering.cpus_per_node.clone();
+    if !population
+        .iter()
+        .all(|count| option.cpus_per_node.contains(count))
+    {
+        match option.cpus_per_node[..] {
+            [count] => population.fill(count),
+            _ => {
+                return Err(format!("{id} does not fit {population:?} CPUs per node").into());
+            }
+        }
+    }
+    machines
+        .offerings
+        .iter()
+        .find(|o| {
+            o.topology == offering.topology && o.cpus_per_node == population && o.processor.id == id
+        })
+        .ok_or_else(|| {
+            format!(
+                "{} does not offer {id} with {population:?} CPUs per node",
+                offering.topology
+            )
+            .into()
+        })
+}
+
+/// The processor choices `origami machines` lists: for each set of presets
+/// offering the same modules, those presets and a line per module.
+pub fn processor_choices(machines: &Machines) -> Vec<(Vec<String>, Vec<String>)> {
+    let mut groups: Vec<(Vec<String>, Vec<String>)> = vec![];
+    for (name, offering) in presets(machines) {
+        let options = processor_options(machines, &offering.topology);
+        let lines: Vec<String> = options
+            .iter()
+            .enumerate()
+            .filter_map(|(index, option)| {
+                let processor = &machines
+                    .offerings
+                    .iter()
+                    .find(|o| {
+                        o.topology == offering.topology && o.processor.id == option.assembly.id
+                    })?
+                    .processor;
+                let counts: Vec<_> = option.cpus_per_node.iter().map(u32::to_string).collect();
+                Some(format!(
+                    "{:20} {processor}, {} CPUs per node, up to {} MiB per node{}",
+                    option.assembly.id,
+                    counts.join(" or "),
+                    option.accepted_memory.iter().max().unwrap_or(&0),
+                    if index == 0 { " (default)" } else { "" }
+                ))
+            })
+            .collect();
+        if lines.is_empty() {
+            continue;
+        }
+        match groups.iter_mut().find(|(_, group)| *group == lines) {
+            Some((names, _)) => names.push(name),
+            None => groups.push((vec![name], lines)),
+        }
+    }
+    groups
 }
 
 /// The graphics a preset selects, or None for an unknown preset.
@@ -245,6 +370,7 @@ mod tests {
                 inputs: BTreeMap::new(),
                 nodes: o.nodes,
                 cpus_per_node: o.cpus_per_node[0],
+                processor: None,
                 memory_per_node: format!("{}MiB", o.memory.default),
                 graphics: graphics.into(),
                 console: None,

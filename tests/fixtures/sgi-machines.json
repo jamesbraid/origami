@@ -5,6 +5,7 @@
   {
    "product": "origin200", "topology": "origin200", "nodes": 1, "smp": 1, "cpus-per-node": [1],
    "machine-options": "origin200,topology=origin200,nodes=1", "default-cpu-model": "R10000",
+   "processor": {"id": "r10000-180mhz-1mb", "part": "R10000", "clock-hz": 180000000, "cache-mib": 1},
    "memory-per-node-mib": {"accepted": [512, 256, 128, 64], "default": 64},
    "needs-debug-leds-off": true,
    "init-inputs": [{"kind": "ip27-prom", "name": "boot-prom", "required": true}],
@@ -27,8 +28,34 @@
    ]
   },
   {
+   "product": "origin200", "topology": "origin200", "nodes": 1, "smp": 2, "cpus-per-node": [2],
+   "machine-options": "origin200,topology=origin200,nodes=1,processor=r12000-270mhz-4mb", "default-cpu-model": "R12000",
+   "processor": {"id": "r12000-270mhz-4mb", "part": "R12000", "clock-hz": 270000000, "cache-mib": 4},
+   "memory-per-node-mib": {"accepted": [1792, 512, 256, 128, 64], "default": 64},
+   "needs-debug-leds-off": true,
+   "init-inputs": [{"kind": "ip27-prom", "name": "boot-prom", "required": true}],
+   "storage": [
+    {"name": "node0-flash", "size": 1048576, "initial": "boot-prom", "read-only": false},
+    {"name": "nvram0", "size": 32768, "initial": "ip27-nvram", "read-only": false},
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false},
+    {"name": "module0-nvram", "size": 2048, "initial": "controller-nvram", "read-only": false}
+   ],
+   "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7]}],
+   "consoles": [
+    {"argument": "-serial chardev:ioc3_a", "kind": "console", "node": 0},
+    {"argument": "-serial chardev:ioc3_b", "kind": "second-port", "node": 0},
+    {"argument": "-serial chardev:elsc", "kind": "system-controller", "node": 0}
+   ],
+   "hardware-inputs": [],
+   "overrides": [
+    {"property": "mac", "target": "machine"},
+    {"property": "r12000-prid", "target": "cpu"}
+   ]
+  },
+  {
    "product": "origin2000", "topology": "origin2000-rack", "nodes": 4, "smp": 8, "cpus-per-node": [2, 2, 2, 2],
    "machine-options": "origin2000,topology=origin2000-rack,nodes=4", "default-cpu-model": "R10000",
+   "processor": {"id": "r10000-180mhz-1mb", "part": "R10000", "clock-hz": 180000000, "cache-mib": 1},
    "memory-per-node-mib": {"accepted": [64], "default": 64},
    "init-inputs": [
     {"kind": "ip27-prom", "name": "boot-prom", "required": true},
@@ -59,6 +86,7 @@
   {
    "product": "onyx2", "topology": "onyx2-rack", "nodes": 2, "smp": 4, "cpus-per-node": [2, 2],
    "machine-options": "onyx2,topology=onyx2-rack,nodes=2", "default-cpu-model": "R10000",
+   "processor": {"id": "r10000-180mhz-1mb", "part": "R10000", "clock-hz": 180000000, "cache-mib": 1},
    "memory-per-node-mib": {"accepted": [64], "default": 64},
    "init-inputs": [
     {"kind": "ip27-prom", "name": "boot-prom", "required": true},
@@ -90,6 +118,7 @@
   {
    "product": "fuel", "topology": "fuel", "nodes": 1, "smp": 1, "cpus-per-node": [1],
    "machine-options": "fuel,topology=fuel,nodes=1", "default-cpu-model": "R14000",
+   "processor": {"id": "r14000-500mhz-2mb", "part": "R14000", "clock-hz": 500000000, "cache-mib": 2},
    "memory-per-node-mib": {"accepted": [512], "default": 512},
    "init-inputs": [{"kind": "ip35-prom", "name": "boot-prom", "required": true}],
    "storage": [
@@ -114,6 +143,7 @@
   {
    "product": "octane", "topology": "octane", "nodes": 1, "smp": 1, "cpus-per-node": [1],
    "machine-options": "octane,topology=octane,nodes=1", "default-cpu-model": "R10000",
+   "processor": {"id": "cpu0", "part": "R10000", "clock-hz": 195000000, "cache-mib": 1},
    "memory-per-node-mib": {"accepted": [128], "default": 128},
    "init-inputs": [{"kind": "ip30-prom", "name": "boot-prom", "required": true}],
    "storage": [
@@ -131,6 +161,15 @@
     {"property": "flash-select", "target": "machine"},
     {"property": "mac", "target": "machine"},
     {"property": "r10000-prid", "target": "cpu"}
+   ]
+  }
+ ],
+ "topologies": [
+  {
+   "name": "origin200",
+   "processor-options": [
+    {"assembly": {"id": "r10000-180mhz-1mb"}, "cpus-per-node": [1, 2], "accepted-memory-mib": [64, 128, 256, 512]},
+    {"assembly": {"id": "r12000-270mhz-4mb"}, "cpus-per-node": [2], "accepted-memory-mib": [64, 128, 256, 512, 1792]}
    ]
   }
  ]

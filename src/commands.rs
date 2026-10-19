@@ -8,8 +8,12 @@ use std::path::Path;
 use std::process::Command;
 
 pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
-    let offer = preset(machines, &args.preset)?;
     let options = &args.options;
+    let preset_offer = preset(machines, &args.preset)?;
+    let offer = match &options.processor {
+        Some(processor) => origami::profiles::with_processor(machines, preset_offer, processor)?,
+        None => preset_offer,
+    };
     let graphics = options
         .graphics
         .as_deref()
@@ -45,6 +49,12 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
         inputs,
     )?;
     println!("created {}", args.dir.display());
+    if offer.cpus_per_node != preset_offer.cpus_per_node {
+        println!(
+            "{} holds {} CPUs, so each node has {}",
+            offer.processor.id, offer.cpus_per_node[0], offer.cpus_per_node[0]
+        );
+    }
     Ok(())
 }
 

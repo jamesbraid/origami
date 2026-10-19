@@ -639,6 +639,7 @@ mod tests {
                 memory_per_node: format!("{}MiB", offering.memory.default),
                 graphics: graphics.into(),
                 console: None,
+                processor: None,
             },
             identity: None,
             network: Network::default(),

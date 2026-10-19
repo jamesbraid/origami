@@ -71,7 +71,8 @@ fn command(action: Action) -> Result<()> {
     match action {
         Action::Version => unreachable!(),
         Action::Machines => {
-            for (name, offer) in presets(&machines()?) {
+            let machines = machines()?;
+            for (name, offer) in presets(&machines) {
                 println!(
                     "{name:36} {} CPUs, {} nodes, graphics: {} (accepts {}) (experimental)",
                     offer.smp,
@@ -80,6 +81,15 @@ fn command(action: Action) -> Result<()> {
                     origami::profiles::graphics(offer).join("|")
                 );
             }
+            for (names, lines) in origami::profiles::processor_choices(&machines) {
+                println!(
+                    "\nProcessor modules for {} (create --processor ID):",
+                    names.join(", ")
+                );
+                for line in lines {
+                    println!("  {line}");
+                }
+            }
         }
         Action::Create(args) => commands::create_machine(&machines()?, &args)?,
         Action::Validate(args) => {
@@ -87,7 +97,13 @@ fn command(action: Action) -> Result<()> {
             let file = read_machine(&dir)?;
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
-            println!("valid: {} ({} CPUs)", offer.topology, offer.smp);
+            match &file.machine.processor {
+                Some(processor) => println!(
+                    "valid: {} ({} CPUs, {processor})",
+                    offer.topology, offer.smp
+                ),
+                None => println!("valid: {} ({} CPUs)", offer.topology, offer.smp),
+            }
         }
         Action::Upgrade { dir, prom, io_prom } => {
             let dir = directory(&dir)?;
@@ -110,6 +126,10 @@ fn command(action: Action) -> Result<()> {
                 file.machine.memory_per_node,
                 file.machine.graphics
             );
+            match &file.machine.processor {
+                Some(id) => println!("processor: {} ({id})", offer.processor),
+                None => println!("processor: {}", offer.processor),
+            }
             println!("state: {}", dir.join("state").display());
             let console = file.machine.console.as_deref();
             println!(
