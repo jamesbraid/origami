@@ -27,10 +27,12 @@ pub fn load(qemu: &Path) -> Result<Machines> {
     let reply = qmp
         .handshake()
         .and_then(|_| qmp.execute(&QuerySgiMachines {}));
-    // Quit only after the reply is read: QEMU can exit with the end of a
-    // long reply still unwritten.
-    let _ = qmp.execute(&qapi::qmp::quit {});
+    // Stop QEMU only after the reply is read: it can exit with the end of a
+    // long reply still unwritten. Kill it rather than send quit, because
+    // QEMU may exit before the rest of that command is written, and the
+    // write to its closed stdin then ends this process with SIGPIPE.
     drop(qmp);
+    let _ = child.kill();
     let output = child.wait_with_output()?;
     reply.map_err(|error| {
         format!(
