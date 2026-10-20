@@ -1,16 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
+- An Origin 200 can take any of its processor modules:
+  `create --processor ID` picks a 180 MHz R10000 with 1 MB (the default)
+  or 2 MB cache, a 225 MHz R10000 or a 270 MHz R12000, and `origami
+  machines` lists them. The two faster modules always hold two CPUs and
+  allow up to 1792 MiB per node. The module is fixed when the machine is
+  created. Existing machines keep the default module and need no upgrade.
+- Piping output, as in `origami machines | head`, ends quietly instead of
+  panicking.
 - `origami --version` reports Instigator as v0.4.0. The 0.3.0 archives
   showed a pseudo-version for the same code.
-- QEMU moves to sgi-origami 47542527ab, which adds the Origin 200's
-  processor modules to its machine list. Presets and existing machines
-  keep the 180 MHz R10000 module with 1 MB cache and need no upgrade.
-- `create --processor ID` gives an Origin 200 a 180 MHz R10000 module with
-  2 MB cache, a 225 MHz R10000 or a 270 MHz R12000; `origami machines` lists
-  them. The two faster modules hold two CPUs and allow up to 1792 MiB per
-  node. The module is fixed when the machine is created.
+- QEMU updated to 47542527ab.
 
 ## 0.3.0
 
