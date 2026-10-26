@@ -26,7 +26,7 @@ for InfiniteReality.
 - New Origin 2000 rack, Onyx2 rack and Onyx2 deskside machines get
   256 MiB per node, the smallest size SGI shipped, instead of 64 MiB.
   Existing machines keep their size.
-- QEMU updated to 1a27772bfe.
+- QEMU updated to 16b4488221.
 
 ## 0.3.1
 
