@@ -12,9 +12,11 @@ Archives target Linux x86-64 with glibc 2.39 or newer, Windows 11 x86-64 and
 macOS 15 on Apple Silicon. Verify the supplied SHA-256 before extracting.
 The binaries are unsigned. There is no package manager or automatic updater.
 
-Firmware, guest disks and installation media are not included. Supply your
-own, then start with `origami machines` and the
+Start with `origami machines` and the
 [user guide](https://github.com/jamesbraid/origami/blob/main/docs/usage.md).
+The CLI creates guest disks, and downloads and verifies the PROMs and IRIX 6.5.30
+installation media a machine needs on demand. The archives carry none of them.
+`--prom`, `--io-prom` and `--media-root` use local copies instead.
 
 Some configurations reach an IRIX desktop. Others remain unfinished. Graphics,
 input, firmware and guest support vary by machine and revision. Expect broken
