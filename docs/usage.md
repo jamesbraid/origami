@@ -320,7 +320,7 @@ If QEMU cannot open the device, `run` shows QEMU's message and a hint.
 Onyx2, Origin 300, Octane, Octane2 and Fuel, each with its default graphics.
 `origin200-1`, `origin200-2` and `origin200-dual` are headless.
 `origin200-rad4` is the two-CPU Origin 200 with RAD4 graphics, the setup for
-an IRIX desktop. The IMPACT shortcuts select SI. Onyx2 selects InfiniteReality. Origin 300 has direct V12 and V-brick choices.
+an IRIX desktop. The IMPACT shortcuts select SI. Onyx2 selects InfiniteReality.
 Fuel currently has a serial console. Octane VPro and Fuel VPro are unavailable.
 
 The console uses the serial line QEMU's machine list marks as the machine's
