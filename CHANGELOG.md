@@ -16,7 +16,8 @@ for InfiniteReality.
   setting and known approximation; a refused choice prints QEMU's reason.
 - New presets: `octane2-vpro` (V12), `origin2000-impact` (one-node Origin
   2000 deskside, SI in io3) and `onyx2-rack-infinite-reality` (one-node
-  Onyx2 rack, InfiniteReality3).
+  Onyx2 rack, InfiniteReality3), `onyx350-vpro` (four-CPU Onyx 350, V12)
+  and `tezro-vpro` (four-CPU Tezro tower, V12).
   `fuel-1` now has its VPro V12. The Origin 300 V12 and V-brick presets are
   gone with their topologies.
 - An Onyx2 deskside's InfiniteReality2 answers with its boards configured,

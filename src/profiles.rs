@@ -82,6 +82,15 @@ pub const STARTERS: &[Profile] = &[
     profile("fuel-1", "fuel", &[1], None, None),
     // The captured Onyx 350 module: four CPUs and its VPro at widget 12.
     profile("onyx350-vpro", "onyx350-compat", &[4], Some("v12"), None),
+    // A four-CPU Tezro tower. Its topology has no default pipe, so the
+    // preset names the V12 and the PIC widget it sits on.
+    profile(
+        "tezro-vpro",
+        "tezro-tower-multi",
+        &[4],
+        Some("v12"),
+        Some("widget-12"),
+    ),
 ];
 
 pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
