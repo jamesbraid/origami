@@ -2,30 +2,23 @@
 
 ## 0.4.0
 
-Machines created by 0.3.x must be upgraded once: `origami upgrade DIR`.
-The upgrade stores each machine's graphics as the board QEMU now builds and
-says when the guest will see a change. InfiniteReality on an Origin 2000 or
-Origin 200 GIGAchannel, and the `origin300-v12-direct` and `origin300-vbrick`
-topologies, are refused with the reason and left untouched; create an Onyx2
-for InfiniteReality.
+SGI graphics arrive. Nine machines now boot IRIX to a working GL desktop
+with their own graphics hardware: Octane with SI, Octane2, Fuel, Tezro and
+Onyx 350 with VPro V12, Origin 2000 with SI, Onyx2 with InfiniteReality2 or
+InfiniteReality3, and Origin 200 with RAD4. Pick one with a preset, or any
+board QEMU models with `create --graphics`.
 
-- Graphics choices come from QEMU's machine list. `create --graphics PRODUCT`
-  takes any board it lists (`si`, `esi`, `mxi`, `v12`, `ir2`, `ir3`, `rad4`
-  and others) or `none`, with `--graphics-slot SLOT` and repeatable
-  `--graphics-setting NAME=VALUE`. `origami machines` lists every slot, board,
-  setting and known approximation; a refused choice prints QEMU's reason.
-- New presets: `octane2-vpro` (V12), `origin2000-impact` (one-node Origin
-  2000 deskside, SI in io3) and `onyx2-rack-infinite-reality` (one-node
-  Onyx2 rack, InfiniteReality3), `onyx350-vpro` (four-CPU Onyx 350, V12)
-  and `tezro-vpro` (four-CPU Tezro tower, V12).
-  `fuel-1` now has its VPro V12. The Origin 300 V12 and V-brick presets are
-  gone with their topologies.
-- An Onyx2 deskside's InfiniteReality2 answers with its boards configured,
-  two RM7 raster managers and a DG5-8, so `hinv` and `gfxinfo` list them.
-- Graphics cannot change after a machine is created; `graphics-set` says so.
-- New Origin 2000 rack, Onyx2 rack and Onyx2 deskside machines get
-  256 MiB per node, the smallest size SGI shipped, instead of 64 MiB.
-  Existing machines keep their size.
+Machines created by 0.3.x must be upgraded once: `origami upgrade DIR`.
+An Origin 2000 or Origin 200 with InfiniteReality is refused, because that
+hardware is an Onyx2: create an Onyx2 instead.
+
+- New presets: `octane2-vpro`, `origin2000-impact`,
+  `onyx2-rack-infinite-reality`, `onyx350-vpro` and `tezro-vpro`.
+  `fuel-1` now comes with its VPro V12.
+- `origami machines` lists every graphics board each machine takes, and its
+  known limits.
+- New Origin 2000 and Onyx2 machines get 256 MiB per node, the smallest
+  SGI shipped, instead of 64 MiB. Existing machines keep their size.
 - QEMU updated to 16b4488221.
 
 ## 0.3.1
