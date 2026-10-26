@@ -22,7 +22,10 @@ for InfiniteReality.
 - An Onyx2 deskside's InfiniteReality2 answers with its boards configured,
   two RM7 raster managers and a DG5-8, so `hinv` and `gfxinfo` list them.
 - Graphics cannot change after a machine is created; `graphics-set` says so.
-- QEMU updated to d3c4767316.
+- New Origin 2000 rack, Onyx2 rack and Onyx2 deskside machines get
+  256 MiB per node, the smallest size SGI shipped, instead of 64 MiB.
+  Existing machines keep their size.
+- QEMU updated to 1a27772bfe.
 
 ## 0.3.1
 
