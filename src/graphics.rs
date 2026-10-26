@@ -19,6 +19,33 @@ pub struct Graphics {
     #[serde(rename = "headless-refused")]
     pub headless_refused: Option<String>,
     pub slots: Vec<Slot>,
+    /// Machine properties a machine with any pipe adds to `-M`.
+    #[serde(rename = "machine-properties")]
+    pub machine_properties: Option<MachineProperties>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MachineProperties {
+    pub properties: Vec<Property>,
+    pub reason: String,
+}
+
+/// The `-M` properties `topology` needs once it has a pipe.
+pub fn machine_properties<'a>(
+    machines: &'a Machines,
+    topology: &str,
+    pipes: &[Pipe],
+) -> &'a [Property] {
+    if pipes.is_empty() {
+        return &[];
+    }
+    machines
+        .topologies
+        .iter()
+        .find(|t| t.name == topology)
+        .and_then(|t| t.graphics.as_ref())
+        .and_then(|g| g.machine_properties.as_ref())
+        .map_or(&[], |m| m.properties.as_slice())
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -238,6 +238,9 @@ pub fn arguments(
     if offering.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");
     }
+    for property in crate::graphics::machine_properties(machines, &offering.topology, &file.pipe) {
+        machine.push_str(&format!(",{}={}", property.name, property.value));
+    }
     // Each store is a block node bound through the machine property of the
     // same name.
     let mut storage = Vec::new();
@@ -683,6 +686,30 @@ mod tests {
             .windows(2)
             .any(|pair| pair == ["-device", "psitech-rad4,bus=pci,addr=5,product=rad4"]));
         assert!(args.windows(2).any(|pair| pair == ["-serial", "stdio"]));
+    }
+
+    #[test]
+    fn a_pipe_adds_the_machine_properties_it_needs() {
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "origin2000-8").unwrap();
+        let machine_option = |file: &MachineFile| {
+            let args =
+                arguments(&machines, Path::new("/machine"), file, offer, Display::None).unwrap();
+            args[args.iter().position(|a| a == "-M").unwrap() + 1].clone()
+        };
+        let mut file = machine(offer);
+        assert!(!machine_option(&file).contains("baseio-preset"));
+        file.pipe = crate::graphics::select(
+            &machines,
+            &offer.topology,
+            offer.nodes,
+            &crate::graphics::Request {
+                product: Some("si"),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(machine_option(&file).contains(",baseio-preset=io6g"));
     }
 
     #[test]

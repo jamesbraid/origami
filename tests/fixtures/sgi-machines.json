@@ -201,7 +201,7 @@
   {
    "name": "origin2000-deskside",
    "graphics": {
-    "headless": true, "max-pipes": 1,
+    "headless": true, "max-pipes": 1, "machine-properties": {"properties": [{"name": "baseio-preset", "value": "io6g"}], "reason": "the plain BaseIO has no keyboard or mouse port, so a graphics console needs the BaseIO-G that an Onyx2 ships with"},
     "slots": [
      {"changeable": false, "description": "XIO slot 3", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "io3", "placement": [{"name": "slot", "value": "io3"}], "refusals": [{"family": "kona", "reason": "an Origin 2000 with an InfiniteReality pipe is an Onyx2, so use onyx2-deskside"}]}
     ]
@@ -210,7 +210,7 @@
   {
    "name": "origin2000-rack",
    "graphics": {
-    "headless": true, "max-pipes": 1,
+    "headless": true, "max-pipes": 1, "machine-properties": {"properties": [{"name": "baseio-preset", "value": "io6g"}], "reason": "the plain BaseIO has no keyboard or mouse port, so a graphics console needs the BaseIO-G that an Onyx2 ships with"},
     "slots": [
      {"changeable": false, "description": "XIO slot 2", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "io2", "placement": [{"name": "slot", "value": "io2"}], "refusals": [{"family": "kona", "reason": "an Origin 2000 with an InfiniteReality pipe is an Onyx2, so use onyx2-rack"}]},
      {"changeable": false, "description": "XIO slot 3", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "io3", "placement": [{"name": "slot", "value": "io3"}], "refusals": [{"family": "kona", "reason": "an Origin 2000 with an InfiniteReality pipe is an Onyx2, so use onyx2-rack"}]},
