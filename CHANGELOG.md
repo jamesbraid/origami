@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.4.0
+
+Machines created by 0.3.x must be upgraded once: `origami upgrade DIR`.
+The upgrade stores each machine's graphics as the board QEMU now builds and
+says when the guest will see a change. InfiniteReality on an Origin 2000 or
+Origin 200 GIGAchannel, and the `origin300-v12-direct` and `origin300-vbrick`
+topologies, are refused with the reason and left untouched; create an Onyx2
+for InfiniteReality.
+
+- Graphics choices come from QEMU's machine list. `create --graphics PRODUCT`
+  takes any board it lists (`si`, `esi`, `mxi`, `v12`, `ir2`, `ir3`, `rad4`
+  and others) or `none`, with `--graphics-slot SLOT` and repeatable
+  `--graphics-setting NAME=VALUE`. `origami machines` lists every slot, board,
+  setting and known approximation; a refused choice prints QEMU's reason.
+- New presets: `octane2-vpro` (V12), `origin2000-impact` (one-node Origin
+  2000 deskside, SI in io3) and `onyx2-rack-infinite-reality` (one-node
+  Onyx2 rack, InfiniteReality3).
+  `fuel-1` now has its VPro V12. The Origin 300 V12 and V-brick presets are
+  gone with their topologies.
+- An Onyx2 deskside's InfiniteReality2 answers with its boards configured,
+  two RM7 raster managers and a DG5-8, so `hinv` and `gfxinfo` list them.
+- Graphics cannot change after a machine is created; `graphics-set` says so.
+- QEMU updated to d3c4767316.
+
 ## 0.3.1
 
 - An Origin 200 can take any of its processor modules:

@@ -13,90 +13,73 @@ pub struct Profile {
     pub id: &'static str,
     pub topology: &'static str,
     pub population: &'static [u32],
-    /// The graphics a machine gets unless `create --graphics` names others.
-    pub graphics: &'static str,
+    /// The graphics product a machine gets unless `create --graphics` names
+    /// another; None for the topology's catalogue default, which is no
+    /// graphics where it has no default pipe.
+    pub graphics: Option<&'static str>,
+    /// The slot for that product; None for the catalogue's choice.
+    pub slot: Option<&'static str>,
+}
+
+const fn profile(
+    id: &'static str,
+    topology: &'static str,
+    population: &'static [u32],
+    graphics: Option<&'static str>,
+    slot: Option<&'static str>,
+) -> Profile {
+    Profile {
+        id,
+        topology,
+        population,
+        graphics,
+        slot,
+    }
 }
 
 pub const STARTERS: &[Profile] = &[
-    Profile {
-        id: "origin200-1",
-        topology: "origin200",
-        population: &[1],
-        graphics: "none",
-    },
-    Profile {
-        id: "origin200-2",
-        topology: "origin200",
-        population: &[2],
-        graphics: "none",
-    },
-    Profile {
-        id: "origin200-dual",
-        topology: "origin200-dual",
-        population: &[2, 2],
-        graphics: "none",
-    },
+    profile("origin200-1", "origin200", &[1], None, None),
+    profile("origin200-2", "origin200", &[2], None, None),
+    profile("origin200-dual", "origin200-dual", &[2, 2], None, None),
     // The two-CPU Origin 200 desktop, set up for a RAD4 install.
-    Profile {
-        id: "origin200-rad4",
-        topology: "origin200",
-        population: &[2],
-        graphics: "rad4",
-    },
-    Profile {
-        id: "origin2000-8",
-        topology: "origin2000-rack",
-        population: &[2, 2, 2, 2],
-        graphics: "none",
-    },
-    Profile {
-        id: "origin300-2",
-        topology: "origin300",
-        population: &[2],
-        graphics: "none",
-    },
-    Profile {
-        id: "origin200-impact",
-        topology: "origin200-gigachannel",
-        population: &[1],
-        graphics: "si",
-    },
-    Profile {
-        id: "octane-impact",
-        topology: "octane",
-        population: &[1],
-        graphics: "si",
-    },
-    Profile {
-        id: "octane2-impact",
-        topology: "octane2",
-        population: &[1],
-        graphics: "si",
-    },
-    Profile {
-        id: "onyx2-infinite-reality",
-        topology: "onyx2-deskside",
-        population: &[2, 2],
-        graphics: "infinite-reality",
-    },
-    Profile {
-        id: "fuel-1",
-        topology: "fuel",
-        population: &[1],
-        graphics: "none",
-    },
-    Profile {
-        id: "origin300-v12-direct-2",
-        topology: "origin300-v12-direct",
-        population: &[2],
-        graphics: "vpro",
-    },
-    Profile {
-        id: "origin300-vbrick-2",
-        topology: "origin300-vbrick",
-        population: &[2],
-        graphics: "vpro",
-    },
+    profile("origin200-rad4", "origin200", &[2], Some("rad4"), None),
+    profile("origin2000-8", "origin2000-rack", &[2, 2, 2, 2], None, None),
+    // io3, where Origin 2000 IMPACT boards were captured and the IRIX
+    // graphics disks were installed.
+    profile(
+        "origin2000-impact",
+        "origin2000-deskside",
+        &[2],
+        Some("si"),
+        Some("io3"),
+    ),
+    profile("origin300-2", "origin300", &[2], None, None),
+    profile(
+        "origin200-impact",
+        "origin200-gigachannel",
+        &[1],
+        Some("si"),
+        None,
+    ),
+    profile("octane-impact", "octane", &[1], Some("si"), None),
+    profile("octane2-impact", "octane2", &[1], Some("si"), None),
+    profile("octane2-vpro", "octane2", &[1], None, None),
+    profile(
+        "onyx2-infinite-reality",
+        "onyx2-deskside",
+        &[2, 2],
+        None,
+        None,
+    ),
+    // One node with its rack graphics module: the default InfiniteReality3.
+    profile(
+        "onyx2-rack-infinite-reality",
+        "onyx2-rack",
+        &[1],
+        None,
+        None,
+    ),
+    profile("fuel-1", "fuel", &[1], None, None),
 ];
 
 pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
@@ -237,37 +220,50 @@ pub fn processor_choices(machines: &Machines) -> Vec<(Vec<String>, Vec<String>)>
     groups
 }
 
-/// The graphics a preset selects, or None for an unknown preset.
-pub fn preset_graphics(name: &str) -> Option<&'static str> {
-    STARTERS
-        .iter()
-        .find(|profile| profile.id == name)
-        .map(|profile| profile.graphics)
+/// The preset named `name`.
+pub fn starter(name: &str) -> Option<&'static Profile> {
+    STARTERS.iter().find(|profile| profile.id == name)
 }
 
-pub fn graphics(offering: &Offering) -> Vec<&'static str> {
-    match offering.topology.as_str() {
-        "octane" | "octane2" => vec!["none", "si"],
-        "origin200-gigachannel" | "origin2000-deskside" | "origin2000-rack" => {
-            vec!["none", "si", "esi", "infinite-reality"]
+/// The graphics request a preset makes, with `product`, `slot` and
+/// `settings` from the command line in place of its own.
+pub fn graphics_request<'a>(
+    name: &str,
+    product: Option<&'a str>,
+    slot: Option<&'a str>,
+    settings: BTreeMap<String, String>,
+) -> crate::graphics::Request<'a> {
+    let profile = starter(name);
+    let product = product.or(profile.and_then(|p| p.graphics));
+    // The preset's slot goes with any product, and is overridden by a slot
+    // given; a machine without graphics has none.
+    let slot = slot.or_else(|| {
+        profile
+            .and_then(|p| p.slot)
+            .filter(|_| product != Some("none"))
+    });
+    crate::graphics::Request {
+        product,
+        slot,
+        settings,
+    }
+}
+
+/// The graphics choices `origami machines` lists: for each set of presets
+/// offering the same, those presets and the lines describing it.
+pub fn graphics_choices(machines: &Machines) -> Vec<(Vec<String>, Vec<String>)> {
+    let mut groups: Vec<(Vec<String>, Vec<String>)> = vec![];
+    for (name, offering) in presets(machines) {
+        let lines = crate::graphics::choice_lines(machines, &offering.topology, offering.nodes);
+        if lines.is_empty() {
+            continue;
         }
-        "onyx2-deskside" | "onyx2-rack" => vec!["infinite-reality"],
-        "origin300-v12-direct" | "origin300-vbrick" => vec!["vpro"],
-        "origin200" | "origin200-dual" => vec!["none", "rad4"],
-        _ => vec!["none"],
+        match groups.iter_mut().find(|(_, group)| *group == lines) {
+            Some((names, _)) => names.push(name),
+            None => groups.push((vec![name], lines)),
+        }
     }
-}
-
-pub fn validate_graphics(offering: &Offering, graphics: &str) -> Result<()> {
-    if !self::graphics(offering).contains(&graphics) {
-        return Err(format!(
-            "{} does not implement {graphics} graphics; choose {}",
-            offering.topology,
-            self::graphics(offering).join(", ")
-        )
-        .into());
-    }
-    Ok(())
+    groups
 }
 
 /// Where a launch input is set: `machine` (-M) or `cpu` (-cpu). The
@@ -338,29 +334,13 @@ pub fn takes_mac(offering: &Offering) -> bool {
     input_target(offering, "mac") == Some("machine")
 }
 
-pub fn add_graphics(args: &mut Vec<String>, offering: &Offering, graphics: &str) -> Result<()> {
-    validate_graphics(offering, graphics)?;
-    let device = match graphics {
-        "rad4" => Some("psitech-rad4,addr=5".to_string()),
-        "si" | "esi" if offering.product != "octane" && offering.product != "octane2" => {
-            Some(format!("sgi-mgras,slot=io3,board={graphics}"))
-        }
-        "infinite-reality" if offering.product != "onyx2" => Some("sgi-kona,slot=io3".to_string()),
-        _ => None,
-    };
-    if let Some(device) = device {
-        args.extend(["-device".into(), device]);
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{preset, runtime, MachineFile, Network};
     use std::path::Path;
 
-    fn file(o: &Offering, graphics: &str) -> MachineFile {
+    fn file(o: &Offering) -> MachineFile {
         MachineFile {
             format: crate::MACHINE_FORMAT,
             machine: Machine {
@@ -372,65 +352,49 @@ mod tests {
                 cpus_per_node: o.cpus_per_node[0],
                 processor: None,
                 memory_per_node: format!("{}MiB", o.memory.default),
-                graphics: graphics.into(),
                 console: None,
             },
             identity: None,
             network: Network::default(),
+            pipe: vec![],
             drive: vec![],
         }
     }
 
     #[test]
-    fn impact_boards_use_the_xio_slot_and_onyx2_its_fitted_pipe() {
-        let machines = crate::test_machines();
-        let o = preset(&machines, "origin2000-8").unwrap();
-        let args = runtime::arguments(
-            Path::new("/machine"),
-            &file(o, "si"),
-            o,
-            runtime::Display::Local,
-        )
-        .unwrap();
-        assert!(args
-            .windows(2)
-            .any(|p| p == ["-device", "sgi-mgras,slot=io3,board=si"]));
-        let mut args = vec![];
-        add_graphics(&mut args, o, "infinite-reality").unwrap();
-        assert_eq!(args, ["-device", "sgi-kona,slot=io3"]);
-        // An Onyx2 has its pipe built in, so no device is added for it.
-        let mut onyx2 = o.clone();
-        onyx2.product = "onyx2".into();
-        onyx2.topology = "onyx2-deskside".into();
-        let mut args = vec![];
-        add_graphics(&mut args, &onyx2, "infinite-reality").unwrap();
-        assert!(args.is_empty());
-    }
-
-    #[test]
-    fn octane_impact_uses_machine_graphics_and_embedded_network() {
+    fn octane_uses_embedded_network_and_no_population() {
         let machines = crate::test_machines();
         let o = preset(&machines, "octane-impact").unwrap();
         let args = runtime::arguments(
+            &machines,
             Path::new("/machine"),
-            &file(o, "si"),
+            &file(o),
             o,
             runtime::Display::Vnc { port: 5901 },
         )
         .unwrap();
-        assert!(args.windows(2).any(|p| p[0] == "-M"
-            && p[1].starts_with("octane,topology=octane,nodes=1,graphics-board=si,")));
+        let machine = &args.windows(2).find(|p| p[0] == "-M").unwrap()[1];
+        assert!(
+            machine.starts_with("octane,topology=octane,nodes=1,"),
+            "{machine}"
+        );
+        assert!(!machine.contains("population="), "{machine}");
         assert!(args.contains(&"nic,model=sgi-ioc3-eth,netdev=net0".into()));
-        assert!(validate_graphics(o, "vpro").is_err());
     }
 
     #[test]
     fn heterogeneous_cpu_populations_are_explicit() {
         let machines = crate::test_machines();
         for o in machines.offerings.iter() {
-            let f = file(o, graphics(o)[0]);
-            let args =
-                runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
+            let f = file(o);
+            let args = runtime::arguments(
+                &machines,
+                Path::new("/machine"),
+                &f,
+                o,
+                runtime::Display::None,
+            )
+            .unwrap();
             assert!(args
                 .windows(2)
                 .any(|p| p[0] == "-smp" && p[1] == o.smp.to_string()));
@@ -455,15 +419,21 @@ mod tests {
     fn listed_overrides_go_to_their_target() {
         let machines = crate::test_machines();
         let o = preset(&machines, "fuel-1").unwrap();
-        let mut f = file(o, "none");
+        let mut f = file(o);
         let option = |args: &[String], name: &str| {
             args.windows(2)
                 .find(|p| p[0] == name)
                 .map(|p| p[1].clone())
                 .unwrap()
         };
-        let args =
-            runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
+        let args = runtime::arguments(
+            &machines,
+            Path::new("/machine"),
+            &f,
+            o,
+            runtime::Display::None,
+        )
+        .unwrap();
         assert!(!option(&args, "-M").contains("board-id-word"));
         assert_eq!(option(&args, "-cpu"), o.cpu);
         f.machine.inputs = [
@@ -475,8 +445,14 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.into(), v.into()))
         .collect();
-        let args =
-            runtime::arguments(Path::new("/machine"), &f, o, runtime::Display::None).unwrap();
+        let args = runtime::arguments(
+            &machines,
+            Path::new("/machine"),
+            &f,
+            o,
+            runtime::Display::None,
+        )
+        .unwrap();
         let machine = option(&args, "-M");
         assert!(machine.contains(",board-id-word=0x4000"), "{machine}");
         assert!(machine.contains(",l1-revision=1.2.3"), "{machine}");
@@ -503,35 +479,39 @@ mod tests {
 
         // Octane takes its flash straps and processor words the same way.
         let octane = preset(&machines, "octane-impact").unwrap();
-        let mut f = file(octane, "si");
+        let mut f = file(octane);
         f.machine.inputs = [("flash-select", "on"), ("r10000-prid", "0xe24")]
             .into_iter()
             .map(|(k, v)| (k.into(), v.into()))
             .collect();
-        let args =
-            runtime::arguments(Path::new("/machine"), &f, octane, runtime::Display::None).unwrap();
+        let args = runtime::arguments(
+            &machines,
+            Path::new("/machine"),
+            &f,
+            octane,
+            runtime::Display::None,
+        )
+        .unwrap();
         assert!(option(&args, "-M").contains(",flash-select=on"));
         assert_eq!(option(&args, "-cpu"), "R10000,r10000-prid=0xe24");
         for o in machines.offerings.iter() {
             assert!(takes_mac(o), "{}", o.topology);
         }
-        assert!(validate_graphics(o, "vpro").is_err());
         assert!(preset(&machines, "origin350-2").is_err());
         assert!(preset(&machines, "tezro-4").is_err());
     }
 
     #[test]
     fn origin200_rad4_is_origin200_2_with_rad4_graphics() {
-        let starter = |id| STARTERS.iter().find(|p| p.id == id).unwrap();
-        let (rad4, headless) = (starter("origin200-rad4"), starter("origin200-2"));
+        let (rad4, headless) = (
+            starter("origin200-rad4").unwrap(),
+            starter("origin200-2").unwrap(),
+        );
         assert_eq!(rad4.topology, headless.topology);
         assert_eq!(rad4.population, headless.population);
-        assert_eq!(preset_graphics("origin200-rad4"), Some("rad4"));
+        assert_eq!(rad4.graphics, Some("rad4"));
         for name in ["origin200-1", "origin200-2", "origin200-dual"] {
-            assert_eq!(preset_graphics(name), Some("none"), "{name}");
+            assert_eq!(starter(name).unwrap().graphics, None, "{name}");
         }
-        let machines = crate::test_machines();
-        let origin200 = preset(&machines, "origin200-1").unwrap();
-        assert!(validate_graphics(origin200, "rad4").is_ok());
     }
 }

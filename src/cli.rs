@@ -81,6 +81,15 @@ pub enum Action {
         dir: PathBuf,
         name: String,
     },
+    /// Change a stopped machine's graphics, where its topology allows that
+    #[command(after_help = "No graphics can change after a machine is created yet; \
+                      create a new machine instead.")]
+    GraphicsSet {
+        #[arg(value_name = "DIR")]
+        dir: PathBuf,
+        #[command(flatten)]
+        graphics: GraphicsArgs,
+    },
     /// Choose the serial port a stopped guest's console uses
     ConsoleSet {
         #[arg(value_name = "DIR")]
@@ -202,14 +211,42 @@ pub struct CreateOptions {
     /// Memory per node in MiB
     #[arg(long, value_name = "MiB")]
     pub memory_per_node: Option<u32>,
-    /// Graphics device supported by the preset
-    #[arg(long)]
-    pub graphics: Option<String>,
+    #[command(flatten)]
+    pub graphics: GraphicsArgs,
     /// The machine's Ethernet address, for its identity and onboard network
     #[arg(long, help_heading = "Hardware options")]
     pub mac: Option<String>,
     #[command(flatten)]
     pub hardware: HardwareArgs,
+}
+
+/// A graphics pipe as `origami machines` lists them.
+#[derive(Debug, Default, Args)]
+#[command(next_help_heading = "Graphics options")]
+pub struct GraphicsArgs {
+    /// Graphics product, such as si, v12 or ir2, or none for no graphics;
+    /// omit for the preset's
+    #[arg(long, value_name = "PRODUCT")]
+    pub graphics: Option<String>,
+    /// Slot for the pipe, such as io3 or widget-11; omit for the preset's
+    /// or the machine's usual slot
+    #[arg(long, value_name = "SLOT")]
+    pub graphics_slot: Option<String>,
+    /// A pipe setting other than its default, such as rm-count=1; repeatable
+    #[arg(long = "graphics-setting", value_name = "NAME=VALUE", value_parser = parse_setting)]
+    pub graphics_settings: Vec<(String, String)>,
+}
+
+impl GraphicsArgs {
+    pub fn settings(&self) -> Result<BTreeMap<String, String>, String> {
+        let mut settings = BTreeMap::new();
+        for (key, value) in &self.graphics_settings {
+            if settings.insert(key.clone(), value.clone()).is_some() {
+                return Err(format!("--graphics-setting {key} given twice"));
+            }
+        }
+        Ok(settings)
+    }
 }
 
 #[derive(Debug, Default, Args)]
@@ -271,11 +308,11 @@ pub struct DisplayArgs {
 }
 
 impl DisplayArgs {
-    pub fn resolve(&self, graphics: &str) -> origami::Result<Display> {
-        let mode = self.display.unwrap_or(if graphics == "none" {
-            DisplayMode::None
-        } else {
+    pub fn resolve(&self, graphics: bool) -> origami::Result<Display> {
+        let mode = self.display.unwrap_or(if graphics {
             DisplayMode::Local
+        } else {
+            DisplayMode::None
         });
         if self.vnc_port.is_some() && mode != DisplayMode::Vnc {
             return Err("--vnc-port requires --display vnc".into());

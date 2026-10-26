@@ -1,6 +1,8 @@
 //! Upgrade machines from earlier formats. Format 1 kept a copy of the boot
 //! PROM and let the launcher build flash and NVRAM files under its own
 //! names. Format 2 machines predate the module controller NVRAM store.
+//! Formats 1 to 3 name their graphics with one word, which becomes the
+//! pipes the catalogue describes.
 
 use crate::{
     profiles, resolve, runtime, MachineFile, MachineInit, Machines, Offering, Result, StorageItem,
@@ -18,14 +20,15 @@ pub fn format(text: &str) -> Option<i64> {
 
 /// Bring the stopped machine in `dir` to the current format, reading PROMs
 /// from `prom` and `io_prom` or verified downloads where the upgrade needs
-/// them. Returns false for a machine that is already current, which is left
-/// untouched. On failure machine.toml is unchanged.
+/// them. Returns what changes for the guest, or None for a machine that is
+/// already current, which is left untouched. On failure machine.toml is
+/// unchanged.
 pub fn upgrade(
     dir: &Path,
     machines: &Machines,
     prom: Option<&Path>,
     io_prom: Option<&Path>,
-) -> Result<bool> {
+) -> Result<Option<Vec<String>>> {
     // A running machine, or another edit, holds this lock.
     let _lock = crate::control::lock_for_edit(dir, "upgrading it")?;
     let path = dir.join("machine.toml");
@@ -35,10 +38,11 @@ pub fn upgrade(
     let result = match format {
         Some(1) => from_format1(dir, machines, &text, prom, io_prom),
         Some(2) => from_format2(dir, machines, &text, prom, io_prom),
-        Some(current) if current == i64::from(crate::MACHINE_FORMAT) => return Ok(false),
+        Some(3) => from_format3(dir, machines, &text),
+        Some(current) if current == i64::from(crate::MACHINE_FORMAT) => return Ok(None),
         _ => return Err(format!("{} has an unsupported format", path.display()).into()),
     };
-    result.map(|()| true).map_err(|error| {
+    result.map(Some).map_err(|error| {
         format!(
             "cannot upgrade the format {} machine {}: {error}; its machine.toml is unchanged",
             format.unwrap_or_default(),
@@ -57,8 +61,8 @@ fn from_format1(
     text: &str,
     prom: Option<&Path>,
     io_prom: Option<&Path>,
-) -> Result<()> {
-    let (file, own_prom) = convert(dir, text)?;
+) -> Result<Vec<String>> {
+    let (file, own_prom, notes) = convert(dir, machines, text)?;
     let offering = crate::offering(machines, &file.machine)?;
     // Format 1 kept no IO PROM.
     let (prom, io_prom) = crate::firmware(offering, Some(prom.unwrap_or(&own_prom)), io_prom)?;
@@ -67,7 +71,8 @@ fn from_format1(
         boot_prom: &prom,
         io_prom: io_prom.as_deref(),
     };
-    install(dir, &file, offering, &init)
+    install(dir, &file, offering, &init)?;
+    Ok(notes)
 }
 
 /// Create the module controller NVRAM files a format 2 machine lacks. Their
@@ -80,8 +85,10 @@ fn from_format2(
     text: &str,
     prom: Option<&Path>,
     io_prom: Option<&Path>,
-) -> Result<()> {
-    let mut file: MachineFile = toml::from_str(text)?;
+) -> Result<Vec<String>> {
+    let mut table: toml::Table = toml::from_str(text)?;
+    let notes = upgrade_graphics(machines, &mut table)?;
+    let file: MachineFile = toml::Value::Table(table).try_into()?;
     let offering = crate::offering(machines, &file.machine)?;
     let state = dir.join("state");
     let raw = |root: &Path, item: &StorageItem| root.join(format!("{}.raw", item.name));
@@ -118,15 +125,125 @@ fn from_format2(
         let _ = fs::remove_dir_all(&staging);
         result?;
     }
-    file.format = crate::MACHINE_FORMAT;
-    let temporary = dir.join("machine.toml.format3");
-    fs::write(&temporary, toml::to_string_pretty(&file)?)?;
+    replace_file(dir, &file)?;
+    Ok(notes)
+}
+
+/// Store each format 3 graphics value as the pipes it now is.
+fn from_format3(dir: &Path, machines: &Machines, text: &str) -> Result<Vec<String>> {
+    let mut table: toml::Table = toml::from_str(text)?;
+    let notes = upgrade_graphics(machines, &mut table)?;
+    let file: MachineFile = toml::Value::Table(table).try_into()?;
+    let offering = crate::offering(machines, &file.machine)?;
+    crate::graphics::validate(machines, &offering.topology, offering.nodes, &file.pipe)?;
+    replace_file(dir, &file)?;
+    Ok(notes)
+}
+
+fn replace_file(dir: &Path, file: &MachineFile) -> Result<()> {
+    let temporary = dir.join("machine.toml.upgrade");
+    fs::write(&temporary, toml::to_string_pretty(file)?)?;
     fs::rename(temporary, dir.join("machine.toml"))?;
     Ok(())
 }
 
-/// The current machine file for format 1 `text`, and its boot PROM.
-fn convert(dir: &Path, text: &str) -> Result<(MachineFile, PathBuf)> {
+/// Topologies the catalogue renamed, each applied once the catalogue no
+/// longer lists the old name.
+const RENAMED: &[(&str, &str)] = &[
+    ("fuel-vpro", "fuel"),
+    ("tezro-rack-base", "tezro-rack"),
+    (
+        "tezro-deskside-700mhz-4mib-serial-trial",
+        "tezro-tower-multi",
+    ),
+    (
+        "origin300-numalink-pci-expansion-experiment",
+        "origin300-numalink-pci-expansion",
+    ),
+    (
+        "origin300-pci-expansion-configuration-storage-experiment",
+        "origin300-pci-expansion",
+    ),
+    (
+        "origin300-pci-expansion-experiment",
+        "origin300-pci-expansion",
+    ),
+    (
+        "origin300-pci-expansion-pending-register-experiment",
+        "origin300-pci-expansion",
+    ),
+    (
+        "origin300-pci-expansion-unconnected-uart-experiment",
+        "origin300-pci-expansion",
+    ),
+];
+
+/// Topologies removed with nothing in their place, and why.
+const REMOVED: &[(&str, &str)] = &[
+    (
+        "origin300-v12-direct",
+        "a VPro V12 on an Origin 300 cable port is hardware SGI never built",
+    ),
+    (
+        "origin300-vbrick",
+        "an Origin 300 cabled to a V-brick was never an SGI configuration",
+    ),
+];
+
+/// The topology `name` is now in the catalogue.
+fn current_topology<'a>(machines: &Machines, name: &'a str) -> Result<&'a str> {
+    if let Some((_, reason)) = REMOVED.iter().find(|(old, _)| *old == name) {
+        return Err(format!("topology '{name}' was removed: {reason}").into());
+    }
+    let listed = |name: &str| machines.offerings.iter().any(|o| o.topology == name);
+    Ok(RENAMED
+        .iter()
+        .find(|(old, new)| *old == name && !listed(old) && listed(new))
+        .map_or(name, |(_, new)| new))
+}
+
+/// Replace the machine's `graphics` value in `table` with its pipes and
+/// rename its topology where the catalogue did, then mark `table` current.
+/// Returns what changes for the guest.
+fn upgrade_graphics(machines: &Machines, table: &mut toml::Table) -> Result<Vec<String>> {
+    let machine = table
+        .get_mut("machine")
+        .and_then(toml::Value::as_table_mut)
+        .ok_or("no [machine] table")?;
+    let graphics = match machine.remove("graphics") {
+        Some(value) => value
+            .as_str()
+            .ok_or("graphics is not a string")?
+            .to_string(),
+        None => "none".into(),
+    };
+    let topology = machine
+        .get("topology")
+        .and_then(toml::Value::as_str)
+        .ok_or("no machine topology")?
+        .to_string();
+    let topology = current_topology(machines, &topology)?.to_string();
+    let nodes = machine
+        .get("nodes")
+        .and_then(toml::Value::as_integer)
+        .and_then(|nodes| u32::try_from(nodes).ok())
+        .ok_or("no machine node count")?;
+    machine.insert("topology".into(), topology.clone().into());
+    let (pipes, note) = crate::graphics::from_legacy(machines, &topology, nodes, &graphics)?;
+    if !pipes.is_empty() {
+        table.insert("pipe".into(), toml::Value::try_from(pipes)?);
+    }
+    table.insert("format".into(), i64::from(crate::MACHINE_FORMAT).into());
+    Ok(note.map(String::from).into_iter().collect())
+}
+
+/// The current machine file for format 1 `text`, its boot PROM and what
+/// changes for the guest.
+fn convert(
+    dir: &Path,
+    machines: &Machines,
+    text: &str,
+) -> Result<(MachineFile, PathBuf, Vec<String>)> {
     let mut table: toml::Table = toml::from_str(text)?;
     let prom = table
         .remove("firmware")
@@ -174,8 +291,8 @@ fn convert(dir: &Path, text: &str) -> Result<(MachineFile, PathBuf)> {
             .map(|(key, value)| (key.strip_prefix("fuel-").unwrap_or(&key).into(), value))
             .collect();
     }
-    table.insert("format".into(), i64::from(crate::MACHINE_FORMAT).into());
-    Ok((toml::Value::Table(table).try_into()?, prom))
+    let notes = upgrade_graphics(machines, &mut table)?;
+    Ok((toml::Value::Table(table).try_into()?, prom, notes))
 }
 
 /// Where format 1 kept the contents of storage item `name`.

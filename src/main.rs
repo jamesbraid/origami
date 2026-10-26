@@ -4,7 +4,7 @@ mod commands;
 use clap::Parser;
 use cli::{Action, DriveKind, NetworkMode};
 use origami::runtime;
-use origami::{control, install};
+use origami::{control, graphics, install};
 use origami::{machines, presets, read_machine, validate, Drive, Network, PortForward, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -73,13 +73,31 @@ fn command(action: Action) -> Result<()> {
         Action::Machines => {
             let machines = machines()?;
             for (name, offer) in presets(&machines) {
+                let request =
+                    origami::profiles::graphics_request(&name, None, None, Default::default());
+                let graphics =
+                    match graphics::select(&machines, &offer.topology, offer.nodes, &request) {
+                        Ok(pipes) if pipes.is_empty() => "none".into(),
+                        Ok(pipes) => pipes
+                            .iter()
+                            .map(|pipe| graphics::describe(&machines, &offer.topology, pipe))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        Err(error) => format!("unavailable: {error}"),
+                    };
                 println!(
-                    "{name:36} {} CPUs, {} nodes, graphics: {} (accepts {}) (experimental)",
-                    offer.smp,
-                    offer.nodes,
-                    origami::profiles::preset_graphics(&name).unwrap_or("none"),
-                    origami::profiles::graphics(offer).join("|")
+                    "{name:28} {} CPUs, {} nodes, graphics: {graphics} (experimental)",
+                    offer.smp, offer.nodes,
                 );
+            }
+            for (names, lines) in origami::profiles::graphics_choices(&machines) {
+                println!(
+                    "\nGraphics for {} (create --graphics PRODUCT [--graphics-slot SLOT]):",
+                    names.join(", ")
+                );
+                for line in lines {
+                    println!("{line}");
+                }
             }
             for (names, lines) in origami::profiles::processor_choices(&machines) {
                 println!(
@@ -107,10 +125,19 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Upgrade { dir, prom, io_prom } => {
             let dir = directory(&dir)?;
-            if origami::migrate::upgrade(&dir, &machines()?, prom.as_deref(), io_prom.as_deref())? {
-                println!("upgraded {}", dir.display());
-            } else {
-                println!("{} is current; it needs no upgrade", dir.display());
+            match origami::migrate::upgrade(
+                &dir,
+                &machines()?,
+                prom.as_deref(),
+                io_prom.as_deref(),
+            )? {
+                Some(notes) => {
+                    println!("upgraded {}", dir.display());
+                    for note in notes {
+                        println!("note: {note}; the guest sees this at its next boot");
+                    }
+                }
+                None => println!("{} is current; it needs no upgrade", dir.display()),
             }
         }
         Action::Show(args) => {
@@ -119,13 +146,12 @@ fn command(action: Action) -> Result<()> {
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
             println!(
-                "{}: {} CPUs, {} nodes, {} per node, {} graphics",
-                file.machine.model,
-                offer.smp,
-                offer.nodes,
-                file.machine.memory_per_node,
-                file.machine.graphics
+                "{}: {} CPUs, {} nodes, {} per node",
+                file.machine.model, offer.smp, offer.nodes, file.machine.memory_per_node,
             );
+            for line in graphics::show_lines(&machines, &offer.topology, &file.pipe) {
+                println!("{line}");
+            }
             match &file.machine.processor {
                 Some(id) => println!("processor: {} ({id})", offer.processor),
                 None => println!("processor: {}", offer.processor),
@@ -163,9 +189,9 @@ fn command(action: Action) -> Result<()> {
             let file = read_machine(&dir)?;
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
-            let display = args.display.resolve(&file.machine.graphics)?;
+            let display = args.display.resolve(!file.pipe.is_empty())?;
             let exe = runtime::qemu_path()?;
-            let arguments = runtime::arguments(&dir, &file, offer, display)?;
+            let arguments = runtime::arguments(&machines, &dir, &file, offer, display)?;
             println!("{}", exe.display());
             for arg in arguments {
                 println!("  {arg}");
@@ -176,11 +202,11 @@ fn command(action: Action) -> Result<()> {
             let file = read_machine(&dir)?;
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
-            let display = args.launch.display.resolve(&file.machine.graphics)?;
+            let display = args.launch.display.resolve(!file.pipe.is_empty())?;
             if args.background {
                 runtime::start_background(&dir, display)?;
             } else {
-                let status = runtime::run(&dir, &file, offer, display)?;
+                let status = runtime::run(&machines, &dir, &file, offer, display)?;
                 if !status.success() {
                     return Err(format!("QEMU exited with {status}").into());
                 }
@@ -191,8 +217,8 @@ fn command(action: Action) -> Result<()> {
             let file = read_machine(&dir)?;
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
-            let display = args.display.resolve(&file.machine.graphics)?;
-            let status = runtime::serve(&dir, &file, offer, display)?;
+            let display = args.display.resolve(!file.pipe.is_empty())?;
+            let status = runtime::serve(&machines, &dir, &file, offer, display)?;
             if !status.success() {
                 return Err(format!("QEMU exited with {status}").into());
             }
@@ -212,6 +238,10 @@ fn command(action: Action) -> Result<()> {
         Action::Stop(args) => {
             control::stop(&directory(&args.dir)?)?;
             println!("stop requested");
+        }
+        Action::GraphicsSet { dir, graphics } => {
+            let dir = directory(&dir)?;
+            commands::set_graphics(&machines()?, &dir, &graphics)?
         }
         Action::DriveCreate { dir, size } => {
             let dir = directory(&dir)?;
@@ -374,7 +404,7 @@ fn command(action: Action) -> Result<()> {
                 )?
             };
             println!("created {}", path.display());
-            if file.machine.graphics == "rad4" {
+            if install::needs_rad4_driver(&file) {
                 println!("configured add-on rad4 for the RAD4 graphics");
             }
         }

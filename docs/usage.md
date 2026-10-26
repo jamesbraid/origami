@@ -75,6 +75,7 @@ origami machines
 origami create my-origin --preset origin200-rad4 --memory-per-node 128
 origami create my-o200 --preset origin200-2 --processor r12000-270mhz-4mb
 origami create my-o300 --preset origin300-2
+origami create my-onyx2 --preset onyx2-infinite-reality --graphics-setting rm-count=1
 origami drive-create my-origin 4096
 origami drive-attach my-origin /path/to/irix-install.iso --type cdrom --target 4
 origami drive-attach my-origin /path/to/tape.image --type tape --target 5
@@ -316,12 +317,60 @@ origami network-set my-origin --mode vmnet --endpoint /opt/homebrew/var/run/sock
 
 If QEMU cannot open the device, `run` shows QEMU's message and a hint.
 
-`origami machines` lists 13 starter presets for Origin 200, Origin 2000,
-Onyx2, Origin 300, Octane, Octane2 and Fuel, each with its default graphics.
-`origin200-1`, `origin200-2` and `origin200-dual` are headless.
+`origami machines` lists 14 starter presets for Origin 200, Origin 2000,
+Onyx2, Origin 300, Octane, Octane2 and Fuel, each with its graphics, and then
+every graphics choice those machines offer.
+`origin200-1`, `origin200-2`, `origin200-dual`, `origin2000-8` and
+`origin300-2` are headless.
 `origin200-rad4` is the two-CPU Origin 200 with RAD4 graphics, the setup for
-an IRIX desktop. The IMPACT shortcuts select SI. Onyx2 selects InfiniteReality.
-Fuel currently has a serial console. Octane VPro and Fuel VPro are unavailable.
+an IRIX desktop. The IMPACT presets fit an SI board; `origin2000-impact` is a
+one-node Origin 2000 deskside with its SI in XIO slot 3. `octane2-vpro` and
+`fuel-1` have VPro V12.
+`onyx2-infinite-reality` is an Onyx2 deskside with InfiniteReality2, and
+`onyx2-rack-infinite-reality` a one-node Onyx2 rack with InfiniteReality3.
+Origin 300 has no graphics.
+
+### Graphics
+
+QEMU's machine list describes each machine's graphics: its slots, the boards
+each slot takes, every setting a board leaves open with the values on offer,
+what QEMU approximates, and why a combination is refused. Origami offers only
+what that list offers. A preset gives a machine its graphics unless `create`
+names others:
+
+- `--graphics PRODUCT` picks a board by its product name, such as `si`, `esi`,
+  `v12`, `ir2`, `ir3` or `rad4`, or `none` for no graphics.
+- `--graphics-slot SLOT` puts it in another slot, such as `io5` on an Origin
+  2000 or `widget-9` on an Octane. Without it the board goes in the slot the
+  preset names, else the machine's default graphics slot, else the first slot
+  that takes it.
+- `--graphics-setting NAME=VALUE`, repeatable, changes one setting from its
+  default, such as `rm-count=1` or `display=dg5-2` for InfiniteReality.
+
+```sh
+origami create my-octane2 --preset octane2-vpro
+origami create my-octane --preset octane-impact --graphics esi --graphics-slot widget-9
+origami create my-onyx2 --preset onyx2-infinite-reality --graphics ir2 \
+  --graphics-setting geometry=ge14-2 --graphics-setting display=dg5-2
+```
+
+A refused choice prints the reason the machine list gives, such as four raster
+managers on an Onyx2 deskside or a V12 on an Octane. Onyx2 and Fuel are not
+offered without graphics. Machines that have no graphics by default, such as
+the Origin 200, are headless unless a board is chosen.
+
+Two IRIX desktops do not start yet. An Origin 2000's BaseIO board has no
+keyboard or mouse ports, so the X server stops at "Couldn't find core keyboard
+device" although `hinv` lists the SI board. On the Onyx2 deskside IRIX reports
+"IR0: Fatal error" for the InfiniteReality2 pipe and starts no X server; the
+Onyx2 rack's InfiniteReality3 reaches the desktop.
+
+`machine.toml` records each board as a `[[pipe]]` with its slot, family,
+product and every setting, so a later release that changes a default does not
+change an existing machine. `show` lists the board, its settings and any
+approximation. Graphics cannot change after a machine is created yet:
+`graphics-set` refuses, and the way to try other graphics is a new machine
+with the old machine's disks attached.
 
 The console uses the serial line QEMU's machine list marks as the machine's
 console: the L1 on Origin 300 and Fuel, and IOC3 port A elsewhere. A Fuel
@@ -386,13 +435,29 @@ settings the guest saves persist in these files.
 Origami never rebuilds a missing state file, because that would discard what
 the guest saved. A missing file is an error naming its path. Restore it from a
 backup, or create a new machine and attach the old machine's disks.
-Other commands refuse a machine created by Origami 0.1 or 0.2 until it is
-upgraded in place, which keeps its flash, NVRAM, drives, network and MAC. Stop
-the machine first. Upgrading a 0.2 Origin 200, Origin 2000 or Onyx2 adds the
-module controller NVRAM file those machines now have, in the state `create`
+Other commands refuse a machine created by Origami 0.1, 0.2 or 0.3 until it
+is upgraded in place, which keeps its flash, NVRAM, drives, network and MAC.
+Stop the machine first. Upgrading a 0.2 Origin 200, Origin 2000 or Onyx2 adds
+the module controller NVRAM file those machines now have, in the state `create`
 gives a new machine. The upgrade reads the machine's PROMs to build that
 file. It downloads them as `create` does, or takes local files. Upgrading a
 machine that is already current changes nothing.
+
+The upgrade also turns the old one-word `graphics` value into the board it
+built, with the machine list's defaults for every setting. A few machines
+change what the guest sees at its next boot, and the upgrade says so: an
+Origin 200 GIGAchannel's IMPACT board moves from io3 to io6, where real
+GIGAchannel machines carry graphics; a dual Origin 200's RAD4 moves to module
+0; a Fuel gains the VPro V12 every Fuel has; and an Onyx2 deskside's pipe
+answers with its raster manager, texture and display boards configured.
+
+Some old machines have no upgrade, and the upgrade refuses them with the
+reason, leaving `machine.toml` unchanged. InfiniteReality on an Origin 2000
+or an Origin 200 GIGAchannel is refused, because an Origin 2000 with an
+InfiniteReality pipe is an Onyx2: create an `onyx2-deskside` or `onyx2-rack`
+machine and attach the disks. The `origin300-v12-direct` and
+`origin300-vbrick` topologies are gone, because they modelled hardware SGI
+never built.
 
 ```sh
 origami upgrade my-origin

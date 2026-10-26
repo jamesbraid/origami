@@ -189,8 +189,12 @@ fn origin200_upgrades_once_and_keeps_its_nvram_drives_and_forwards() {
     assert_eq!(state("module0-nvram.raw").len(), 2048);
     assert_eq!(state("nvram0.raw.clock"), [0x3c; 16]);
     let text = fs::read_to_string(machine.join("machine.toml")).unwrap();
-    assert!(text.starts_with("format = 3"), "{text}");
+    assert!(text.starts_with("format = 4"), "{text}");
     assert!(!text.contains("firmware"), "{text}");
+    assert!(
+        text.contains("[[pipe]]\nslot = \"pci-5\"\nfamily = \"psitech\"\nproduct = \"rad4\""),
+        "{text}"
+    );
     let output = origami(root.path(), &["show", path]);
     assert!(output.status.success(), "{}", stderr(&output));
     let shown = String::from_utf8_lossy(&output.stdout);
@@ -507,8 +511,10 @@ fn format2_origin200_gains_module_nvram_and_keeps_everything_else() {
     let text = fs::read_to_string(machine.join("machine.toml")).unwrap();
     assert_eq!(
         text.parse::<toml::Table>().unwrap(),
-        ORIGIN200_FORMAT2
-            .replace("format = 2", "format = 3")
+        (ORIGIN200_FORMAT2
+            .replace("format = 2", "format = 4")
+            .replace("graphics = \"rad4\"\n", "")
+            + "\n[[pipe]]\nslot = \"pci-5\"\nfamily = \"psitech\"\nproduct = \"rad4\"\n")
             .parse::<toml::Table>()
             .unwrap()
     );
@@ -670,9 +676,63 @@ fn format2_origin2000_reads_both_proms_and_a_fuel_needs_none() {
     let before = snapshot(&fuel);
     let output = origami(root.path(), &["upgrade", fuel.to_str().unwrap()]);
     assert!(output.status.success(), "{}", stderr(&output));
+    // Its old topology left out the VPro board every Fuel has.
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("gains the VPro V12"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
     let after = snapshot(&fuel);
     assert_eq!(after.len(), before.len());
-    assert!(fs::read_to_string(fuel.join("machine.toml"))
-        .unwrap()
-        .starts_with("format = 3"));
+    let text = fs::read_to_string(fuel.join("machine.toml")).unwrap();
+    assert!(text.starts_with("format = 4"), "{text}");
+    assert!(text.contains("slot = \"widget-13\""), "{text}");
+}
+
+/// A format 3 machine as Origami 0.3.1's create left it, with storage.
+fn format3(root: &Path, name: &str, machine: &str) -> PathBuf {
+    let dir = root.join(name);
+    for sub in ["drives", "state", "logs"] {
+        fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+    fs::write(dir.join("machine.toml"), format!("format = 3\n\n{machine}")).unwrap();
+    fs::write(dir.join("state/machine.lock"), b"").unwrap();
+    dir
+}
+
+#[test]
+fn format3_graphics_become_pipes_or_the_upgrade_is_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let rack = |graphics: &str| {
+        format!(
+            "[machine]\ntopology = \"origin2000-rack\"\npopulation = [2, 2, 2, 2]\n\
+             model = \"origin2000\"\nnodes = 4\ncpus_per_node = 2\n\
+             memory_per_node = \"64MiB\"\ngraphics = \"{graphics}\"\n"
+        )
+    };
+    let machine = format3(root.path(), "impact", &rack("esi"));
+    let output = origami(root.path(), &["upgrade", machine.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let text = fs::read_to_string(machine.join("machine.toml")).unwrap();
+    assert!(text.starts_with("format = 4"), "{text}");
+    assert!(
+        text.contains("[[pipe]]\nslot = \"io3\"\nfamily = \"mgras\"\nproduct = \"esi\""),
+        "{text}"
+    );
+    assert!(!text.contains("graphics"), "{text}");
+
+    let machine = format3(root.path(), "kona", &rack("infinite-reality"));
+    let before = snapshot(&machine);
+    let output = origami(root.path(), &["upgrade", machine.to_str().unwrap()]);
+    assert!(!output.status.success());
+    assert_eq!(
+        stderr(&output).trim(),
+        format!(
+            "origami: cannot upgrade the format 3 machine {}: topology 'origin2000-rack' does \
+             not take an InfiniteReality pipe in io3: an Origin 2000 with an InfiniteReality \
+             pipe is an Onyx2, so use onyx2-rack; its machine.toml is unchanged",
+            fs::canonicalize(&machine).unwrap().display()
+        )
+    );
+    assert_eq!(snapshot(&machine), before);
 }

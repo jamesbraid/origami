@@ -171,6 +171,12 @@ fn mipspro_addon(media_root: Option<&Path>) -> Result<InstallAddon> {
     })
 }
 
+/// Whether the machine has a RAD4, whose driver it needs to reach a
+/// graphical login.
+pub fn needs_rad4_driver(file: &MachineFile) -> bool {
+    file.pipe.iter().any(|pipe| pipe.product == "rad4")
+}
+
 fn rad4_addon() -> InstallAddon {
     InstallAddon {
         name: "rad4".into(),
@@ -247,7 +253,7 @@ fn init_sources(
         profile: profile.into(),
         media,
         // A RAD4 machine needs the driver to reach a graphical login.
-        addons: if file.machine.graphics == "rad4" {
+        addons: if needs_rad4_driver(file) {
             vec![rad4_addon()]
         } else {
             vec![]
@@ -1255,7 +1261,6 @@ mod tests {
                 nodes: 1,
                 cpus_per_node: 1,
                 memory_per_node: "256MiB".into(),
-                graphics: "rad4".into(),
                 console: None,
                 processor: None,
                 topology: None,
@@ -1271,6 +1276,12 @@ mod tests {
                 interface: None,
                 forward: vec![],
             },
+            pipe: vec![crate::graphics::Pipe {
+                slot: "pci-5".into(),
+                family: "psitech".into(),
+                product: "rad4".into(),
+                settings: Default::default(),
+            }],
             drive: vec![],
         };
         let document = config(&dir, &file, &media).unwrap();
@@ -1380,7 +1391,6 @@ mod tests {
                 nodes: 1,
                 cpus_per_node: 1,
                 memory_per_node: "256MiB".into(),
-                graphics: "rad4".into(),
                 console: None,
                 processor: None,
                 topology: None,
@@ -1396,6 +1406,12 @@ mod tests {
                 interface: None,
                 forward: vec![],
             },
+            pipe: vec![crate::graphics::Pipe {
+                slot: "pci-5".into(),
+                family: "psitech".into(),
+                product: "rad4".into(),
+                settings: Default::default(),
+            }],
             drive: vec![],
         };
         let document = config(&dir, &file, &configured).unwrap();
@@ -1479,7 +1495,7 @@ mod tests {
             &init,
             None,
             None,
-            "none",
+            vec![],
             Default::default(),
         )
         .unwrap();
@@ -1543,7 +1559,7 @@ mod tests {
             boot_prom: &prom,
             io_prom: None,
         };
-        crate::create_configured(&dir, offer, &init, None, None, "none", Default::default())
+        crate::create_configured(&dir, offer, &init, None, None, vec![], Default::default())
             .unwrap();
         let mut file = crate::read_machine(&dir).unwrap();
         init_remote_profile(
@@ -1621,7 +1637,17 @@ mod tests {
         };
         for graphics in ["none", "rad4"] {
             let dir = root.join(graphics);
-            crate::create_configured(&dir, offer, &init, None, None, graphics, Default::default())
+            let pipes = crate::graphics::select(
+                &machines,
+                &offer.topology,
+                offer.nodes,
+                &crate::graphics::Request {
+                    product: Some(graphics),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            crate::create_configured(&dir, offer, &init, None, None, pipes, Default::default())
                 .unwrap();
             let mut file = crate::read_machine(&dir).unwrap();
             init_remote_profile(

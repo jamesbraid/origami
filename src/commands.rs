@@ -1,5 +1,5 @@
-use crate::cli::CreateArgs;
-use origami::{control, runtime};
+use crate::cli::{CreateArgs, GraphicsArgs};
+use origami::{control, graphics, runtime};
 use origami::{
     preset, read_machine, validate, validate_create_inputs, Drive, MachineInit, Machines, Result,
 };
@@ -14,12 +14,13 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
         Some(processor) => origami::profiles::with_processor(machines, preset_offer, processor)?,
         None => preset_offer,
     };
-    let graphics = options
-        .graphics
-        .as_deref()
-        .or(origami::profiles::preset_graphics(&args.preset))
-        .unwrap_or("none");
-    origami::profiles::validate_graphics(offer, graphics)?;
+    let request = origami::profiles::graphics_request(
+        &args.preset,
+        options.graphics.graphics.as_deref(),
+        options.graphics.graphics_slot.as_deref(),
+        options.graphics.settings()?,
+    );
+    let pipes = graphics::select(machines, &offer.topology, offer.nodes, &request)?;
     let inputs = options.hardware.inputs()?;
     origami::profiles::validate_inputs(offer, &inputs)?;
     validate_create_inputs(
@@ -45,7 +46,7 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
         },
         options.memory_per_node,
         options.mac.as_deref(),
-        graphics,
+        pipes,
         inputs,
     )?;
     println!("created {}", args.dir.display());
@@ -55,6 +56,43 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
             offer.processor.id, offer.cpus_per_node[0], offer.cpus_per_node[0]
         );
     }
+    Ok(())
+}
+
+/// Change the graphics of the stopped machine in `dir`, where every slot
+/// and setting the change touches may change between boots.
+pub fn set_graphics(machines: &Machines, dir: &Path, args: &GraphicsArgs) -> Result<()> {
+    let _lock = control::lock_for_edit(dir, "changing its graphics")?;
+    let mut file = read_machine(dir)?;
+    let offer = validate(machines, dir, &file)?;
+    if args.graphics.is_none() {
+        return Err("name the graphics with --graphics PRODUCT or --graphics none".into());
+    }
+    let mut request = graphics::Request {
+        product: args.graphics.as_deref(),
+        slot: args.graphics_slot.as_deref(),
+        settings: args.settings()?,
+    };
+    // Changing a setting of the pipe it has keeps that pipe's other values.
+    if let Some(current) = file.pipe.iter().find(|pipe| {
+        request.product == Some(pipe.product.as_str())
+            && request.slot.is_none_or(|slot| slot == pipe.slot)
+    }) {
+        let mut settings = current.settings.clone();
+        settings.append(&mut request.settings);
+        request.settings = settings;
+        request.slot = Some(&current.slot);
+    }
+    let pipes = graphics::select(machines, &offer.topology, offer.nodes, &request)?;
+    if pipes == file.pipe {
+        println!("graphics unchanged");
+        return Ok(());
+    }
+    graphics::check_change(machines, &offer.topology, &file.pipe, &pipes)?;
+    file.pipe = pipes;
+    validate(machines, dir, &file)?;
+    fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+    println!("graphics changed; the guest sees them at its next boot");
     Ok(())
 }
 

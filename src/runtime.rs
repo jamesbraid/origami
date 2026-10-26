@@ -1,6 +1,6 @@
 use crate::{
-    control, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Offering, PortForward,
-    Result, StorageItem,
+    control, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Machines, Offering,
+    PortForward, Result, StorageItem,
 };
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
@@ -206,6 +206,7 @@ fn network_hint(file: &MachineFile) -> Option<String> {
 }
 
 pub fn arguments(
+    machines: &Machines,
     dir: &Path,
     file: &MachineFile,
     offering: &Offering,
@@ -220,8 +221,6 @@ pub fn arguments(
             .collect::<Vec<_>>()
             .join(":");
         machine.push_str(&format!(",population={population}"));
-    } else {
-        machine.push_str(&format!(",graphics-board={}", file.machine.graphics));
     }
     crate::profiles::validate_inputs(offering, &file.machine.inputs)?;
     let mut cpu = offering.cpu.clone();
@@ -289,7 +288,11 @@ pub fn arguments(
         Display::None => args.extend(["-display".into(), "none".into()]),
     }
     args.extend(["-audio".into(), "none".into()]);
-    crate::profiles::add_graphics(&mut args, offering, &file.machine.graphics)?;
+    args.extend(crate::graphics::arguments(
+        machines,
+        &offering.topology,
+        &file.pipe,
+    )?);
     for (index, drive) in file.drive.iter().enumerate() {
         add_drive(&mut args, dir, drive, index);
     }
@@ -462,24 +465,27 @@ pub fn start_background(dir: &Path, display: Display) -> Result<()> {
 }
 
 pub fn run(
+    machines: &Machines,
     dir: &Path,
     file: &MachineFile,
     offering: &Offering,
     display: Display,
 ) -> Result<ExitStatus> {
-    run_inner(dir, file, offering, display, false)
+    run_inner(machines, dir, file, offering, display, false)
 }
 
 pub fn serve(
+    machines: &Machines,
     dir: &Path,
     file: &MachineFile,
     offering: &Offering,
     display: Display,
 ) -> Result<ExitStatus> {
-    run_inner(dir, file, offering, display, true)
+    run_inner(machines, dir, file, offering, display, true)
 }
 
 fn run_inner(
+    machines: &Machines,
     dir: &Path,
     file: &MachineFile,
     offering: &Offering,
@@ -497,7 +503,7 @@ fn run_inner(
     // A machine without its storage is not started, and gains nothing.
     check_state(dir, offering)?;
     let _lock = control::lock_for_edit(dir, "starting it again")?;
-    let mut args = arguments(dir, file, offering, display)?;
+    let mut args = arguments(machines, dir, file, offering, display)?;
     let mode = file.network.mode.as_str();
     if matches!(mode, "private" | "vmnet") {
         let endpoint = file
@@ -626,7 +632,7 @@ mod tests {
     use super::*;
     use crate::{preset, Machine, Network};
 
-    fn machine(offering: &Offering, graphics: &str) -> MachineFile {
+    fn machine(offering: &Offering) -> MachineFile {
         MachineFile {
             format: crate::MACHINE_FORMAT,
             machine: Machine {
@@ -637,12 +643,12 @@ mod tests {
                 nodes: offering.nodes,
                 cpus_per_node: offering.cpus_per_node[0],
                 memory_per_node: format!("{}MiB", offering.memory.default),
-                graphics: graphics.into(),
                 console: None,
                 processor: None,
             },
             identity: None,
             network: Network::default(),
+            pipe: vec![],
             drive: vec![],
         }
     }
@@ -651,9 +657,21 @@ mod tests {
     fn local_graphics_uses_sdl_and_rad4() {
         let machines = crate::test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
+        let mut file = machine(offer);
+        file.pipe = crate::graphics::select(
+            &machines,
+            &offer.topology,
+            offer.nodes,
+            &crate::graphics::Request {
+                product: Some("rad4"),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let args = arguments(
+            &machines,
             Path::new("/machine"),
-            &machine(offer, "rad4"),
+            &file,
             offer,
             Display::Local,
         )
@@ -663,7 +681,7 @@ mod tests {
             .any(|pair| pair == ["-display", "sdl,window-close=off"]));
         assert!(args
             .windows(2)
-            .any(|pair| pair == ["-device", "psitech-rad4,addr=5"]));
+            .any(|pair| pair == ["-device", "psitech-rad4,bus=pci,addr=5,product=rad4"]));
         assert!(args.windows(2).any(|pair| pair == ["-serial", "stdio"]));
     }
 
@@ -683,11 +701,11 @@ mod tests {
             console_ports(fuel).collect::<Vec<_>>(),
             [(0, "l1", true), (1, "ioc3_a", false), (2, "ioc3_b", false)]
         );
-        let mut file = machine(fuel, "none");
-        let args = arguments(Path::new("/machine"), &file, fuel, Display::None).unwrap();
+        let mut file = machine(fuel);
+        let args = arguments(&machines, Path::new("/machine"), &file, fuel, Display::None).unwrap();
         assert_eq!(serial(&args), ["stdio"]);
         file.machine.console = Some("ioc3_a".into());
-        let args = arguments(Path::new("/machine"), &file, fuel, Display::None).unwrap();
+        let args = arguments(&machines, Path::new("/machine"), &file, fuel, Display::None).unwrap();
         assert_eq!(serial(&args), ["none", "stdio"]);
         for chardev in [
             "stdio,id=origami-console,logfile=logs/serial.log,logappend=on",
@@ -712,13 +730,26 @@ mod tests {
             console_ports(origin2000).collect::<Vec<_>>(),
             [(0, "ioc3_a", true), (1, "ioc3_b", false)]
         );
-        let mut file = machine(origin2000, "none");
-        let args = arguments(Path::new("/machine"), &file, origin2000, Display::None).unwrap();
+        let mut file = machine(origin2000);
+        let args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            origin2000,
+            Display::None,
+        )
+        .unwrap();
         assert_eq!(serial(&args), ["stdio"]);
         file.machine.console = Some("elsc".into());
-        let error = arguments(Path::new("/machine"), &file, origin2000, Display::None)
-            .unwrap_err()
-            .to_string();
+        let error = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            origin2000,
+            Display::None,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("ioc3_a or ioc3_b"), "{error}");
     }
 
@@ -727,8 +758,9 @@ mod tests {
         let machines = crate::test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
         let mut args = arguments(
+            &machines,
             Path::new("/machine"),
-            &machine(offer, "rad4"),
+            &machine(offer),
             offer,
             Display::None,
         )
@@ -754,8 +786,9 @@ mod tests {
         let offer = preset(&machines, "origin200-1").unwrap();
         let display = Display::Vnc { port: 5991 };
         let args = arguments(
+            &machines,
             Path::new("/machine"),
-            &machine(offer, "rad4"),
+            &machine(offer),
             offer,
             display,
         )
@@ -784,18 +817,32 @@ mod tests {
         ];
         let expected = "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15,hostname=machine,hostfwd=tcp:127.0.0.1:2222-:22,hostfwd=udp:127.0.0.1:5353-:53";
         let origin200 = preset(&machines, "origin200-1").unwrap();
-        let mut file = machine(origin200, "rad4");
+        let mut file = machine(origin200);
         file.network.forward = rules.clone();
-        let args = arguments(Path::new("/machine"), &file, origin200, Display::None).unwrap();
+        let args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            origin200,
+            Display::None,
+        )
+        .unwrap();
         assert!(args.windows(2).any(|pair| pair == ["-nic", expected]));
 
         let origin2000 = preset(&machines, "origin2000-8").unwrap();
-        let mut file = machine(origin2000, "none");
+        let mut file = machine(origin2000);
         file.network.forward = rules;
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
         });
-        let args = arguments(Path::new("/machine"), &file, origin2000, Display::None).unwrap();
+        let args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            origin2000,
+            Display::None,
+        )
+        .unwrap();
         assert!(args.windows(2).any(|pair| pair == ["-nic", expected]));
     }
 
@@ -803,11 +850,18 @@ mod tests {
     fn identity_mac_is_a_machine_property() {
         let machines = crate::test_machines();
         let offer = preset(&machines, "origin2000-8").unwrap();
-        let mut file = machine(offer, "none");
+        let mut file = machine(offer);
         file.identity = Some(crate::Identity {
             mac: "02:00:5d:aa:bb:cc".into(),
         });
-        let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
+        let args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            offer,
+            Display::None,
+        )
+        .unwrap();
         let machine = &args.windows(2).find(|pair| pair[0] == "-M").unwrap()[1];
         assert!(machine.contains(",mac=02:00:5d:aa:bb:cc"), "{machine}");
         assert!(!args.iter().any(|arg| arg.contains("eeprom")));
@@ -819,7 +873,7 @@ mod tests {
     fn private_network_uses_qemu_stream_client() {
         let machines = crate::test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
-        let mut file = machine(offer, "rad4");
+        let mut file = machine(offer);
         file.network = Network {
             mode: "private".into(),
             endpoint: Some("install,one.sock".into()),
@@ -829,7 +883,14 @@ mod tests {
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
         });
-        let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
+        let args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            offer,
+            Display::None,
+        )
+        .unwrap();
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-netdev",
@@ -847,7 +908,7 @@ mod tests {
     fn private_tcp_network_uses_loopback_stream_client() {
         let machines = crate::test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
-        let mut file = machine(offer, "rad4");
+        let mut file = machine(offer);
         file.network = Network {
             mode: "private".into(),
             endpoint: Some("tcp:127.0.0.1:49173".into()),
@@ -857,7 +918,14 @@ mod tests {
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
         });
-        let args = arguments(Path::new("/machine"), &file, offer, Display::None).unwrap();
+        let args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            offer,
+            Display::None,
+        )
+        .unwrap();
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-netdev",
@@ -869,12 +937,13 @@ mod tests {
     fn host_networks_attach_the_ioc3_to_a_tap_or_socket_vmnet() {
         let machines = crate::test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
-        let mut file = machine(offer, "rad4");
+        let mut file = machine(offer);
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
         });
         let netdev = |file: &MachineFile| {
-            let args = arguments(Path::new("/machine"), file, offer, Display::None).unwrap();
+            let args =
+                arguments(&machines, Path::new("/machine"), file, offer, Display::None).unwrap();
             assert!(args
                 .windows(2)
                 .any(|pair| pair == ["-net", "nic,model=sgi-ioc3-eth,netdev=net0"]));

@@ -170,7 +170,99 @@
    "processor-options": [
     {"assembly": {"id": "r10000-180mhz-1mb"}, "cpus-per-node": [1, 2], "accepted-memory-mib": [64, 128, 256, 512]},
     {"assembly": {"id": "r12000-270mhz-4mb"}, "cpus-per-node": [2], "accepted-memory-mib": [64, 128, 256, 512, 1792]}
-   ]
+   ],
+   "graphics": {
+    "headless": true, "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "description": "PCI option slot, device 5, on the system board's Bridge", "families": [{"device": "psitech-rad4", "family": "psitech", "name": "PsiTech", "products": [{"description": "PCI 12d1:0104", "fidelity": "validated", "name": "RAD4", "pairing": "established", "product": "rad4", "settings": []}, {"description": "PCI 12d1:0105, keyboard and mouse", "fidelity": "implemented", "name": "RAD4-KM", "pairing": "established", "product": "rad4-km", "settings": []}]}], "name": "pci-5", "placement": [{"name": "bus", "value": "pci"}, {"name": "addr", "value": "5"}]},
+     {"changeable": false, "description": "PCI option slot, device 6, on the system board's Bridge", "families": [{"device": "psitech-rad4", "family": "psitech", "name": "PsiTech", "products": [{"description": "PCI 12d1:0104", "fidelity": "implemented", "name": "RAD4", "pairing": "established", "product": "rad4", "settings": []}, {"description": "PCI 12d1:0105, keyboard and mouse", "fidelity": "implemented", "name": "RAD4-KM", "pairing": "established", "product": "rad4-km", "settings": []}]}], "name": "pci-6", "placement": [{"name": "bus", "value": "pci"}, {"name": "addr", "value": "6"}]}
+    ]
+   }
+  },
+  {
+   "name": "origin200-dual",
+   "graphics": {
+    "headless": true, "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "description": "PCI option slot, device 5, on the system board's Bridge", "families": [{"device": "psitech-rad4", "family": "psitech", "name": "PsiTech", "products": [{"description": "PCI 12d1:0104", "fidelity": "validated", "name": "RAD4", "pairing": "established", "product": "rad4", "settings": []}, {"description": "PCI 12d1:0105, keyboard and mouse", "fidelity": "implemented", "name": "RAD4-KM", "pairing": "established", "product": "rad4-km", "settings": []}]}], "name": "m0-pci-5", "placement": [{"name": "bus", "value": "pci"}, {"name": "addr", "value": "5"}]}
+    ]
+   }
+  },
+  {
+   "name": "origin200-gigachannel",
+   "graphics": {
+    "headless": true, "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "description": "GIGAchannel XIO position io6, Crossbow widget 15", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "io6", "placement": [{"name": "slot", "value": "io6"}], "refusals": [{"family": "kona", "reason": "SGI did not offer InfiniteReality on the Origin 200, and the known GIGAchannel pipe is an owner conversion the model does not build"}]},
+     {"changeable": false, "description": "PCI option slot, device 5, on the system board's Bridge", "families": [{"device": "psitech-rad4", "family": "psitech", "name": "PsiTech", "products": [{"description": "PCI 12d1:0104", "fidelity": "validated", "name": "RAD4", "pairing": "established", "product": "rad4", "settings": []}, {"description": "PCI 12d1:0105, keyboard and mouse", "fidelity": "implemented", "name": "RAD4-KM", "pairing": "established", "product": "rad4-km", "settings": []}]}], "name": "pci-5", "placement": [{"name": "bus", "value": "pci"}, {"name": "addr", "value": "5"}]}
+    ]
+   }
+  },
+  {
+   "name": "origin2000-deskside",
+   "graphics": {
+    "headless": true, "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "description": "XIO slot 3", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "io3", "placement": [{"name": "slot", "value": "io3"}], "refusals": [{"family": "kona", "reason": "an Origin 2000 with an InfiniteReality pipe is an Onyx2, so use onyx2-deskside"}]}
+    ]
+   }
+  },
+  {
+   "name": "origin2000-rack",
+   "graphics": {
+    "headless": true, "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "description": "XIO slot 2", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "io2", "placement": [{"name": "slot", "value": "io2"}], "refusals": [{"family": "kona", "reason": "an Origin 2000 with an InfiniteReality pipe is an Onyx2, so use onyx2-rack"}]},
+     {"changeable": false, "description": "XIO slot 3", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "io3", "placement": [{"name": "slot", "value": "io3"}], "refusals": [{"family": "kona", "reason": "an Origin 2000 with an InfiniteReality pipe is an Onyx2, so use onyx2-rack"}]},
+     {"changeable": false, "description": "XIO slot 7", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "io7", "placement": [{"name": "slot", "value": "io7"}], "refusals": [{"family": "kona", "reason": "an Origin 2000 with an InfiniteReality pipe is an Onyx2, so use onyx2-rack"}], "requires": {"min-nodes": 2}}
+    ]
+   }
+  },
+  {
+   "name": "onyx2-deskside",
+   "graphics": {
+    "headless": false, "headless-refused": "SGI sold no Onyx2 without an InfiniteReality pipe, and an Onyx2 with no pipe is an Origin 2000, so use origin2000-deskside or origin2000-rack", "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "default": {"family": "kona", "product": "ir2", "settings": [{"name": "geometry", "value": "ge14-4"}, {"name": "rm-type", "value": "rm7"}, {"name": "rm-count", "value": "2"}, {"name": "texture-mb", "value": "64"}, {"name": "display", "value": "dg5-8"}]}, "description": "XIO slot 4, Crossbow widget 8: the deskside's InfiniteReality pipe", "families": [{"device": "sgi-kona", "family": "kona", "name": "InfiniteReality", "products": [{"assembly": "030-1129-002", "description": "GE14 geometry board, RM7 raster managers, 64 MB texture per RM", "fidelity": "approximated", "limitations": ["a GE14-2 presents the GE14-4's board words"], "name": "InfiniteReality2", "pairing": "established", "product": "ir2", "settings": [{"changeable": false, "default": "ge14-4", "description": "geometry board", "name": "geometry", "values": [{"description": "GE14-4, four geometry engines", "evidence": "030-1129-002, whole-tetra", "value": "ge14-4"}, {"description": "GE14-2, two geometry engines", "evidence": "030-1051-002, fancy-akita", "value": "ge14-2"}]}, {"changeable": false, "default": "rm7", "description": "raster-manager board", "name": "rm-type", "values": [{"description": "RM7", "evidence": "030-1054-001, whole-tetra", "value": "rm7"}]}, {"changeable": false, "default": "2", "description": "raster-manager boards in the pipe", "name": "rm-count", "values": [{"description": "one raster manager", "value": "1"}, {"description": "two raster managers", "value": "2"}]}, {"changeable": false, "default": "64", "description": "texture memory on each raster manager, in MB", "name": "texture-mb", "values": [{"description": "64 MB", "evidence": "TM7 030-1053-001, whole-tetra", "value": "64"}]}, {"changeable": false, "default": "dg5-8", "description": "display generator board", "name": "display", "values": [{"description": "DG5-8, 8 channels", "evidence": "030-1087-001, whole-tetra", "value": "dg5-8"}, {"description": "DG5-2, 2 channels", "evidence": "030-1055-001, fancy-akita", "value": "dg5-2"}]}]}, {"description": "GE16 geometry board, RM9 raster managers, 64 MB texture per RM", "fidelity": "approximated", "limitations": ["presents the GE16-4 geometry board, since no InfiniteReality2E capture gives the GE16 variant", "presents the TM7 as its 64 MB texture board, which is inferred"], "name": "InfiniteReality2E", "pairing": "established", "product": "ir2e", "settings": [{"changeable": false, "default": "ge16-4", "description": "geometry board", "name": "geometry", "values": [{"description": "GE16-4, four geometry engines", "evidence": "030-1398-001, true-wombat", "value": "ge16-4"}]}, {"changeable": false, "default": "rm9", "description": "raster-manager board", "name": "rm-type", "values": [{"description": "RM9; gfxinfo names the InfiniteReality3 board RM10", "evidence": "030-1402-001, true-wombat", "value": "rm9"}]}, {"changeable": false, "default": "2", "description": "raster-manager boards in the pipe", "name": "rm-count", "values": [{"description": "one raster manager", "value": "1"}, {"description": "two raster managers", "value": "2"}]}, {"changeable": false, "default": "64", "description": "texture memory on each raster manager, in MB", "name": "texture-mb", "values": [{"description": "64 MB", "evidence": "TM7 030-1053-001, whole-tetra", "value": "64"}]}, {"changeable": false, "default": "dg5-8", "description": "display generator board", "name": "display", "values": [{"description": "DG5-8, 8 channels", "evidence": "030-1087-001, whole-tetra", "value": "dg5-8"}, {"description": "DG5-2, 2 channels", "evidence": "030-1055-001, fancy-akita", "value": "dg5-2"}]}]}]}], "name": "io4", "placement": [{"name": "slot", "value": "io4"}], "refusals": [{"family": "kona", "reason": "a pipe with no Ktown is an Onyx2 deskside pipe, which holds at most two raster managers", "settings": [{"name": "rm-count", "value": "4"}]}, {"family": "kona", "product": "ir3", "reason": "no manual or capture places an InfiniteReality3 in an Onyx2 deskside"}]}
+    ]
+   }
+  },
+  {
+   "name": "onyx2-rack",
+   "graphics": {
+    "headless": false, "headless-refused": "SGI sold no Onyx2 without an InfiniteReality pipe, and an Onyx2 with no pipe is an Origin 2000, so use origin2000-deskside or origin2000-rack", "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "default": {"family": "kona", "product": "ir3", "settings": [{"name": "geometry", "value": "ge16-4"}, {"name": "rm-type", "value": "rm9"}, {"name": "rm-count", "value": "1"}, {"name": "texture-mb", "value": "256"}, {"name": "display", "value": "dg5-2"}]}, "description": "Xtown in XIO slot 3, cabled to the graphics module's Ktown: the rack's InfiniteReality pipe", "families": [{"device": "sgi-kona", "family": "kona", "name": "InfiniteReality", "products": [{"assembly": "030-1398-001", "description": "GE16 geometry board, RM9 raster managers, 64 MB texture per RM", "fidelity": "approximated", "limitations": ["presents the GE16-4 geometry board, since no InfiniteReality2E capture gives the GE16 variant", "presents the TM7 as its 64 MB texture board, which is inferred", "a DG5-2 in a rack presents fancy-akita's 030-1055-001, since no capture shows a plain DG5-2 in an Onyx2 rack"], "name": "InfiniteReality2E", "pairing": "established", "product": "ir2e", "settings": [{"changeable": false, "default": "ge16-4", "description": "geometry board", "name": "geometry", "values": [{"description": "GE16-4, four geometry engines", "evidence": "030-1398-001, true-wombat", "value": "ge16-4"}]}, {"changeable": false, "default": "rm9", "description": "raster-manager board", "name": "rm-type", "values": [{"description": "RM9; gfxinfo names the InfiniteReality3 board RM10", "evidence": "030-1402-001, true-wombat", "value": "rm9"}]}, {"changeable": false, "default": "1", "description": "raster-manager boards in the pipe", "name": "rm-count", "values": [{"description": "one raster manager", "value": "1"}, {"description": "two raster managers", "value": "2"}, {"description": "four raster managers", "value": "4"}]}, {"changeable": false, "default": "64", "description": "texture memory on each raster manager, in MB", "name": "texture-mb", "values": [{"description": "64 MB", "evidence": "TM7 030-1053-001, whole-tetra", "value": "64"}]}, {"changeable": false, "default": "dg5-2", "description": "display generator board", "name": "display", "values": [{"description": "DG5-2, 2 channels", "evidence": "030-1055-001, fancy-akita", "value": "dg5-2"}, {"description": "DG5-8, 8 channels", "evidence": "030-1087-001, whole-tetra", "value": "dg5-8"}]}]}, {"assembly": "030-1398-001", "description": "GE16-4 geometry board, RM10 raster managers (RM9 in configmon), 256 MB texture per RM", "fidelity": "approximated", "limitations": ["a DG5-2 in a rack presents fancy-akita's 030-1055-001, since no capture shows a plain DG5-2 in an Onyx2 rack"], "name": "InfiniteReality3", "pairing": "established", "product": "ir3", "settings": [{"changeable": false, "default": "ge16-4", "description": "geometry board", "name": "geometry", "values": [{"description": "GE16-4, four geometry engines", "evidence": "030-1398-001, true-wombat", "value": "ge16-4"}]}, {"changeable": false, "default": "rm9", "description": "raster-manager board", "name": "rm-type", "values": [{"description": "RM9; gfxinfo names the InfiniteReality3 board RM10", "evidence": "030-1402-001, true-wombat", "value": "rm9"}]}, {"changeable": false, "default": "1", "description": "raster-manager boards in the pipe", "name": "rm-count", "values": [{"description": "one raster manager", "value": "1"}, {"description": "two raster managers", "value": "2"}, {"description": "four raster managers", "value": "4"}]}, {"changeable": false, "default": "256", "description": "texture memory on each raster manager, in MB", "name": "texture-mb", "values": [{"description": "256 MB", "evidence": "030-1588-001, true-wombat", "value": "256"}]}, {"changeable": false, "default": "dg5-2", "description": "display generator board", "name": "display", "values": [{"description": "DG5-2, 2 channels", "evidence": "030-1055-001, fancy-akita", "value": "dg5-2"}, {"description": "DG5-8, 8 channels", "evidence": "030-1087-001, whole-tetra", "value": "dg5-8"}]}]}]}], "name": "io3", "placement": [{"name": "slot", "value": "io3"}], "refusals": [{"family": "kona", "product": "ir2", "reason": "no manual or capture places a GE14 InfiniteReality2 in an Onyx2 rack"}]}
+    ]
+   }
+  },
+  {
+   "name": "octane",
+   "graphics": {
+    "headless": true, "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "default": {"family": "mgras", "product": "si", "settings": []}, "description": "Crossbow port 11, the default graphics port", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "widget-11", "placement": [{"name": "slot", "value": "widget-11"}], "refusals": [{"family": "odyssey", "reason": "VPro V12 needs Crossbow 1.4, the ER power supply 060-0035-00x and PROM 4.5 (007-4210-003), and this Octane presents Crossbow revision code 4 and the SR supply"}]},
+     {"changeable": false, "description": "Crossbow port 9, an XIO graphics slot", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "established", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "established", "product": "esi", "settings": []}]}], "name": "widget-9", "placement": [{"name": "slot", "value": "widget-9"}]}
+    ]
+   }
+  },
+  {
+   "name": "octane2",
+   "graphics": {
+    "headless": true, "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "default": {"family": "odyssey", "product": "v12", "settings": []}, "description": "Crossbow port 11, the default graphics port", "families": [{"device": "sgi-mgras", "family": "mgras", "name": "IMPACT", "products": [{"description": "1 GE11, 1 RE4, no texture", "fidelity": "implemented", "name": "Solid IMPACT (SI)", "pairing": "inferred", "product": "si", "settings": []}, {"description": "1 GE12, 1 RE4, no texture", "fidelity": "approximated", "limitations": ["renders the E-series GE12 and PP1 revision E as the first-generation GE11 and PP1"], "name": "ESI", "pairing": "inferred", "product": "esi", "settings": []}]}, {"device": "sgi-odyssey", "family": "odyssey", "name": "VPro", "products": [{"assembly": "030-1611-001", "description": "second generation, 128 MB board memory", "fidelity": "implemented", "name": "VPro V12", "pairing": "established", "product": "v12", "settings": []}]}], "name": "widget-11", "placement": [{"name": "slot", "value": "widget-11"}]}
+    ]
+   }
+  },
+  {
+   "name": "fuel",
+   "graphics": {
+    "headless": false, "headless-refused": "every Fuel has its VPro graphics slot at widget 13", "max-pipes": 1,
+    "slots": [
+     {"changeable": false, "default": {"family": "odyssey", "product": "v12", "settings": []}, "description": "the graphics connector at XBridge widget 13", "families": [{"device": "sgi-odyssey", "family": "odyssey", "name": "VPro", "products": [{"assembly": "030-1726", "description": "second generation, 128 MB board memory", "fidelity": "implemented", "name": "VPro V12", "pairing": "established", "product": "v12", "settings": []}]}], "name": "widget-13", "placement": [{"name": "slot", "value": "widget-13"}]}
+    ]
+   }
   }
  ]
 }

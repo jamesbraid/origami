@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 pub mod assets;
 pub mod control;
+pub mod graphics;
 pub mod install;
 pub mod machines;
 pub mod migrate;
@@ -15,8 +16,9 @@ pub mod runtime;
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 /// The machine.toml format. Format 2 machines keep QEMU-created storage;
-/// format 3 adds the module controller NVRAM.
-pub const MACHINE_FORMAT: u32 = 3;
+/// format 3 adds the module controller NVRAM; format 4 stores each graphics
+/// pipe in place of one graphics name.
+pub const MACHINE_FORMAT: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Machines {
@@ -25,7 +27,8 @@ pub struct Machines {
     pub topologies: Vec<Topology>,
 }
 
-/// A topology in the machine list, read for the processor modules it offers.
+/// A topology in the machine list, read for the processor modules and
+/// graphics pipes it offers.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Topology {
     pub name: String,
@@ -33,6 +36,9 @@ pub struct Topology {
     /// topology offers no choice.
     #[serde(rename = "processor-options", default)]
     pub processor_options: Vec<ProcessorOption>,
+    /// The graphics pipes it takes; absent where it has no graphics slot.
+    #[serde(default)]
+    pub graphics: Option<graphics::Graphics>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -167,6 +173,9 @@ pub struct MachineFile {
     pub identity: Option<Identity>,
     #[serde(default)]
     pub network: Network,
+    /// The graphics pipes; none for a machine without graphics.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pipe: Vec<graphics::Pipe>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drive: Vec<Drive>,
 }
@@ -246,16 +255,10 @@ pub struct Machine {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub processor: Option<String>,
     pub memory_per_node: String,
-    #[serde(default = "default_graphics")]
-    pub graphics: String,
     /// The chardev name of the console line, such as `ioc3_a`, when it
     /// differs from the machine list's primary console.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub console: Option<String>,
-}
-
-fn default_graphics() -> String {
-    "none".into()
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -300,6 +303,7 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
     let release = match migrate::format(&text) {
         Some(1) => Some("0.1"),
         Some(2) => Some("0.2"),
+        Some(3) => Some("0.3"),
         _ => None,
     };
     if let Some(release) = release {
@@ -473,7 +477,7 @@ pub fn validate<'a>(
         .parse::<u32>()?;
     let offering = offering(machines, &file.machine)?;
     check_memory(offering, memory)?;
-    profiles::validate_graphics(offering, &file.machine.graphics)?;
+    graphics::validate(machines, &offering.topology, offering.nodes, &file.pipe)?;
     profiles::validate_inputs(offering, &file.machine.inputs)?;
     runtime::console_line(offering, file.machine.console.as_deref())?;
     validate_network(file)?;
@@ -615,7 +619,7 @@ pub fn create_configured(
     init: &MachineInit<'_>,
     memory_per_node: Option<u32>,
     mac: Option<&str>,
-    graphics: &str,
+    pipes: Vec<graphics::Pipe>,
     inputs: std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
     let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
@@ -642,13 +646,13 @@ pub fn create_configured(
                 processor: profiles::selects_processor(offering)
                     .then(|| offering.processor.id.clone()),
                 memory_per_node: format!("{memory_per_node}MiB"),
-                graphics: graphics.into(),
                 console: None,
             },
             identity: mac.map(|mac| Identity {
                 mac: mac.to_ascii_lowercase(),
             }),
             network: Network::default(),
+            pipe: pipes,
             drive: vec![],
         };
         fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
@@ -719,7 +723,7 @@ mod tests {
             &init,
             Some(128),
             None,
-            "none",
+            vec![],
             Default::default(),
         )
         .unwrap();
@@ -738,7 +742,7 @@ mod tests {
             &broken,
             None,
             None,
-            "none",
+            vec![],
             Default::default()
         )
         .is_err());
@@ -782,7 +786,7 @@ mod tests {
             &init,
             None,
             Some("02:00:5d:aa:bb:cc"),
-            "none",
+            vec![],
             Default::default(),
         )
         .unwrap();
