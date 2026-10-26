@@ -80,6 +80,8 @@ pub const STARTERS: &[Profile] = &[
         None,
     ),
     profile("fuel-1", "fuel", &[1], None, None),
+    // The captured Onyx 350 module: four CPUs and its VPro at widget 12.
+    profile("onyx350-vpro", "onyx350-compat", &[4], Some("v12"), None),
 ];
 
 pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
