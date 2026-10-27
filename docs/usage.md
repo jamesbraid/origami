@@ -318,9 +318,13 @@ origami network-set my-origin --mode vmnet --endpoint /opt/homebrew/var/run/sock
 
 If QEMU cannot open the device, `run` shows QEMU's message and a hint.
 
-`origami machines` lists 16 starter presets for Origin 200, Origin 2000,
-Onyx2, Origin 300, Onyx 350, Octane, Octane2, Fuel and Tezro, each with its
-graphics, and then every graphics choice those machines offer.
+`origami machines` is a table of the 16 starter presets for Origin 200,
+Origin 2000, Onyx2, Origin 300, Onyx 350, Octane, Octane2, Fuel and Tezro,
+with each one's machine, CPU count and graphics. `origami machines PRESET`
+shows one preset: its memory and default graphics, every board it takes and
+the slots, what it refuses and why, and for an Origin 200 the processor
+modules. `origami machines --all` shows all of them. Every machine and board
+is experimental.
 `origin200-1`, `origin200-2`, `origin200-dual`, `origin2000-8` and
 `origin300-2` are headless.
 `origin200-rad4` is the two-CPU Origin 200 with RAD4 graphics, the setup for
@@ -388,7 +392,7 @@ origami console-set my-fuel --port ioc3_a
 `create --memory-per-node MiB` selects one of the values accepted by the preset.
 
 Origin 200 presets take `create --processor ID` to fit one of the processor
-modules QEMU models; `origami machines` lists them. Without it a machine gets
+modules QEMU models; `origami machines PRESET` lists them. Without it a machine gets
 the 180 MHz R10000 module with 1 MB cache. The 225 MHz R10000 and 270 MHz
 R12000 modules hold two CPUs, so with them `origin200-1` and `origin200-impact`
 get two. Memory depends on the module: the PROM turns off 256 MB DIMM banks

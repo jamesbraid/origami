@@ -34,12 +34,12 @@ fn create_fixes_the_processor_module_in_machine_toml() {
         origami(root, &args)
     };
 
-    let machines = origami(root, &["machines"]).unwrap();
+    let machines = origami(root, &["machines", "origin200-1"]).unwrap();
     assert!(
-        machines
-            .contains("r12000-270mhz-4mb    270 MHz R12000, 4 MB secondary cache, 2 CPUs per node"),
+        machines.contains("r10000-180mhz-1mb (default)"),
         "{machines}"
     );
+    assert!(machines.contains("r12000-270mhz-4mb"), "{machines}");
 
     let error = create(&["--processor", "r10000-195mhz"]).unwrap_err();
     assert!(

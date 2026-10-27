@@ -20,8 +20,16 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Action {
-    /// List available machine presets
-    Machines,
+    /// List machine presets, or show one preset's graphics and processor choices
+    #[command(after_help = "Example: origami machines octane2-vpro")]
+    Machines {
+        /// Show this preset in detail
+        #[arg(value_name = "PRESET", conflicts_with = "all")]
+        preset: Option<String>,
+        /// Show every preset in detail
+        #[arg(long)]
+        all: bool,
+    },
     /// Show version and Git identity for each bundled executable
     Version,
     /// Create a machine configuration and acquire its verified PROM

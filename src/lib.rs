@@ -8,6 +8,7 @@ pub mod assets;
 pub mod control;
 pub mod graphics;
 pub mod install;
+pub mod listing;
 pub mod machines;
 pub mod migrate;
 pub mod profiles;

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `origami machines` prints one table of the presets, and
+  `origami machines PRESET` or `--all` shows a preset's graphics choices,
+  slots, refusals and processor modules, in place of the long listing.
+
 ## 0.4.0
 
 SGI graphics arrive. Nine machines now boot IRIX to a working GL desktop

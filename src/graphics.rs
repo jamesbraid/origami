@@ -607,126 +607,8 @@ pub fn show_lines(machines: &Machines, topology: &str, pipes: &[Pipe]) -> Vec<St
     lines
 }
 
-/// A product's distinct detail lines, each with the slots it holds in.
-type Variants<'a> = Vec<(Vec<String>, Vec<&'a str>)>;
-
-/// What `machines` lists for `topology` with `nodes` nodes: each slot, or
-/// run of slots offering the same, with its products and refusals, then
-/// each product once with its settings and limitations.
-pub fn choice_lines(machines: &Machines, topology: &str, nodes: u32) -> Vec<String> {
-    let Some(graphics) = record(machines, topology) else {
-        return vec![];
-    };
-    let mut groups: Vec<(Vec<&Slot>, Vec<String>)> = vec![];
-    // Each product's detail lines, and the slots each variant is in.
-    let mut products: Vec<(&str, Variants<'_>)> = vec![];
-    for slot in slots(graphics, nodes) {
-        let default = slot.default.as_ref();
-        let offered: Vec<_> = slot
-            .families
-            .iter()
-            .flat_map(|f| &f.products)
-            .map(|p| {
-                if default.is_some_and(|d| d.product == p.product) {
-                    format!("{} (default)", p.product)
-                } else {
-                    p.product.clone()
-                }
-            })
-            .collect();
-        let mut body = vec![format!("    {}", offered.join(", "))];
-        for refusal in &slot.refusals {
-            let what = refusal.product.clone().unwrap_or_else(|| {
-                catalogue_family_name(machines, &refusal.family)
-                    .unwrap_or(&refusal.family)
-                    .to_string()
-            });
-            let settings: Vec<_> = refusal
-                .settings
-                .iter()
-                .map(|s| format!(" with {}={}", s.name, s.value))
-                .collect();
-            body.push(format!(
-                "    not {what}{}: {}",
-                settings.concat(),
-                refusal.reason
-            ));
-        }
-        match groups.iter_mut().find(|(_, lines)| *lines == body) {
-            Some((members, _)) => members.push(slot),
-            None => groups.push((vec![slot], body)),
-        }
-        for product in slot.families.iter().flat_map(|f| &f.products) {
-            let detail = product_lines(product, default.filter(|d| d.product == product.product));
-            let variants = match products
-                .iter_mut()
-                .find(|(name, _)| *name == product.product)
-            {
-                Some((_, variants)) => variants,
-                None => {
-                    products.push((&product.product, vec![]));
-                    &mut products.last_mut().unwrap().1
-                }
-            };
-            match variants.iter_mut().find(|(lines, _)| *lines == detail) {
-                Some((_, slots)) => slots.push(&slot.name),
-                None => variants.push((detail, vec![&slot.name])),
-            }
-        }
-    }
-    let mut lines = vec![];
-    for (members, body) in groups {
-        lines.push(match members[..] {
-            [slot] => format!("  {}: {}", slot.name, slot.description),
-            _ => {
-                let names: Vec<_> = members.iter().map(|s| s.name.as_str()).collect();
-                format!("  {}", names.join(", "))
-            }
-        });
-        lines.extend(body);
-    }
-    if graphics.headless {
-        lines.push("  none: no graphics".into());
-    } else if let Some(reason) = &graphics.headless_refused {
-        lines.push(format!("  not without graphics: {reason}"));
-    }
-    for (_, variants) in products {
-        let several = variants.len() > 1;
-        for (mut detail, slots) in variants {
-            if several {
-                detail[0].push_str(&format!(" (in {})", slots.join(", ")));
-            }
-            lines.extend(detail);
-        }
-    }
-    lines
-}
-
-/// A product's line, its open settings and its limitations.
-fn product_lines(product: &Product, default: Option<&DefaultPipe>) -> Vec<String> {
-    let mut lines = vec![format!(
-        "  {:8} {}: {}; {}",
-        product.product, product.name, product.description, product.fidelity
-    )];
-    for setting in product.settings.iter().filter(|s| s.values.len() > 1) {
-        let chosen = default
-            .and_then(|d| d.settings.iter().find(|s| s.name == setting.name))
-            .map_or(setting.default.as_str(), |s| s.value.as_str());
-        let offered: Vec<_> = setting.values.iter().map(|v| v.value.as_str()).collect();
-        lines.push(format!(
-            "           --graphics-setting {}={} ({}; default {chosen})",
-            setting.name,
-            offered.join("|"),
-            setting.description
-        ));
-    }
-    for limitation in &product.limitations {
-        lines.push(format!("           limitation: {limitation}"));
-    }
-    lines
-}
-
-fn catalogue_family_name<'a>(machines: &'a Machines, family: &str) -> Option<&'a str> {
+/// The name of `family` wherever the catalogue offers it.
+pub fn family_name<'a>(machines: &'a Machines, family: &str) -> Option<&'a str> {
     machines
         .topologies
         .iter()
@@ -735,6 +617,11 @@ fn catalogue_family_name<'a>(machines: &'a Machines, family: &str) -> Option<&'a
         .flat_map(|s| &s.families)
         .find(|f| f.family == family)
         .map(|f| f.name.as_str())
+}
+
+/// The name of `product` wherever the catalogue offers it.
+pub fn product_name<'a>(machines: &'a Machines, product: &str) -> Option<&'a str> {
+    catalogue_product(machines, product).map(|(_, p)| p.name.as_str())
 }
 
 /// The pipes for a format 3 machine's `graphics` value, and what changes

@@ -193,44 +193,6 @@ pub fn with_processor<'a>(
         })
 }
 
-/// The processor choices `origami machines` lists: for each set of presets
-/// offering the same modules, those presets and a line per module.
-pub fn processor_choices(machines: &Machines) -> Vec<(Vec<String>, Vec<String>)> {
-    let mut groups: Vec<(Vec<String>, Vec<String>)> = vec![];
-    for (name, offering) in presets(machines) {
-        let options = processor_options(machines, &offering.topology);
-        let lines: Vec<String> = options
-            .iter()
-            .enumerate()
-            .filter_map(|(index, option)| {
-                let processor = &machines
-                    .offerings
-                    .iter()
-                    .find(|o| {
-                        o.topology == offering.topology && o.processor.id == option.assembly.id
-                    })?
-                    .processor;
-                let counts: Vec<_> = option.cpus_per_node.iter().map(u32::to_string).collect();
-                Some(format!(
-                    "{:20} {processor}, {} CPUs per node, up to {} MiB per node{}",
-                    option.assembly.id,
-                    counts.join(" or "),
-                    option.accepted_memory.iter().max().unwrap_or(&0),
-                    if index == 0 { " (default)" } else { "" }
-                ))
-            })
-            .collect();
-        if lines.is_empty() {
-            continue;
-        }
-        match groups.iter_mut().find(|(_, group)| *group == lines) {
-            Some((names, _)) => names.push(name),
-            None => groups.push((vec![name], lines)),
-        }
-    }
-    groups
-}
-
 /// The preset named `name`.
 pub fn starter(name: &str) -> Option<&'static Profile> {
     STARTERS.iter().find(|profile| profile.id == name)
@@ -258,23 +220,6 @@ pub fn graphics_request<'a>(
         slot,
         settings,
     }
-}
-
-/// The graphics choices `origami machines` lists: for each set of presets
-/// offering the same, those presets and the lines describing it.
-pub fn graphics_choices(machines: &Machines) -> Vec<(Vec<String>, Vec<String>)> {
-    let mut groups: Vec<(Vec<String>, Vec<String>)> = vec![];
-    for (name, offering) in presets(machines) {
-        let lines = crate::graphics::choice_lines(machines, &offering.topology, offering.nodes);
-        if lines.is_empty() {
-            continue;
-        }
-        match groups.iter_mut().find(|(_, group)| *group == lines) {
-            Some((names, _)) => names.push(name),
-            None => groups.push((vec![name], lines)),
-        }
-    }
-    groups
 }
 
 /// Where a launch input is set: `machine` (-M) or `cpu` (-cpu). The

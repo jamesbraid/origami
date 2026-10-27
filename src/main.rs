@@ -4,8 +4,8 @@ mod commands;
 use clap::Parser;
 use cli::{Action, DriveKind, NetworkMode};
 use origami::runtime;
-use origami::{control, graphics, install};
-use origami::{machines, presets, read_machine, validate, Drive, Network, PortForward, Result};
+use origami::{control, graphics, install, listing};
+use origami::{machines, read_machine, validate, Drive, Network, PortForward, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -70,44 +70,14 @@ fn command(action: Action) -> Result<()> {
     }
     match action {
         Action::Version => unreachable!(),
-        Action::Machines => {
+        Action::Machines { preset, all } => {
             let machines = machines()?;
-            for (name, offer) in presets(&machines) {
-                let request =
-                    origami::profiles::graphics_request(&name, None, None, Default::default());
-                let graphics =
-                    match graphics::select(&machines, &offer.topology, offer.nodes, &request) {
-                        Ok(pipes) if pipes.is_empty() => "none".into(),
-                        Ok(pipes) => pipes
-                            .iter()
-                            .map(|pipe| graphics::describe(&machines, &offer.topology, pipe))
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                        Err(error) => format!("unavailable: {error}"),
-                    };
-                println!(
-                    "{name:28} {} CPUs, {} nodes, graphics: {graphics} (experimental)",
-                    offer.smp, offer.nodes,
-                );
-            }
-            for (names, lines) in origami::profiles::graphics_choices(&machines) {
-                println!(
-                    "\nGraphics for {} (create --graphics PRODUCT [--graphics-slot SLOT]):",
-                    names.join(", ")
-                );
-                for line in lines {
-                    println!("{line}");
-                }
-            }
-            for (names, lines) in origami::profiles::processor_choices(&machines) {
-                println!(
-                    "\nProcessor modules for {} (create --processor ID):",
-                    names.join(", ")
-                );
-                for line in lines {
-                    println!("  {line}");
-                }
-            }
+            let text = match (preset, all) {
+                (Some(preset), _) => listing::detail(&machines, &preset)?,
+                (None, true) => listing::all(&machines)?,
+                (None, false) => listing::table(&machines)?,
+            };
+            print!("{text}");
         }
         Action::Create(args) => commands::create_machine(&machines()?, &args)?,
         Action::Validate(args) => {
