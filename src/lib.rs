@@ -11,6 +11,7 @@ pub mod install;
 pub mod listing;
 pub mod machines;
 pub mod migrate;
+pub mod nvram;
 pub mod profiles;
 pub mod runtime;
 

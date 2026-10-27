@@ -8,6 +8,8 @@
 - `show-command` prints a QEMU command you can copy, edit and run.
   `[qemu] extra-args` in `machine.toml` and `--qemu-arg` on `run` append
   your own QEMU options.
+- `origami nvram DIR` reads and changes a stopped machine's PROM
+  environment, such as `console` and `AutoLoad`.
 
 ## 0.4.0
 

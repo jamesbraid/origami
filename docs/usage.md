@@ -494,6 +494,21 @@ origami upgrade my-onyx2 --io-prom io6prom.img
 
 The CLI starts an existing disk or CD-ROM image and prepares the Instigator server. The PROM, disk formatter, and first-run questions remain interactive. `install-apply` runs the generated `inst` package-selection script and restarts the installed system.
 
+## PROM environment
+
+`origami nvram` reads and changes the PROM's environment while the machine is
+stopped. Boot the machine once first so the PROM writes its defaults.
+
+```sh
+origami nvram my-octane                    # list
+origami nvram my-octane get console
+origami nvram my-octane set console=d AutoLoad=Yes
+```
+
+`console` is `d` for serial or `g` for graphics. Octane and Octane2 keep their
+boot settings (`OSLoader` and friends) in flash: set those at the Command
+Monitor.
+
 ## Firmware and remote installation media
 
 Omit `--prom` and `--io-prom` to fetch the pinned PROM images the machine

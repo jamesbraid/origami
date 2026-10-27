@@ -107,6 +107,11 @@ pub enum Action {
         #[arg(long)]
         port: Option<String>,
     },
+    /// List or change a stopped machine's PROM environment in its NVRAM
+    #[command(after_help = "Examples:\n  origami nvram octane\n  \
+                      origami nvram octane get console\n  \
+                      origami nvram octane set console=d AutoLoad=Yes")]
+    Nvram(NvramArgs),
     /// Change networking on a stopped guest
     NetworkSet {
         #[arg(value_name = "DIR")]
@@ -191,6 +196,26 @@ pub struct MachineArgs {
     /// Machine directory
     #[arg(value_name = "DIR")]
     pub dir: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct NvramArgs {
+    /// Machine directory
+    #[arg(value_name = "DIR")]
+    pub dir: PathBuf,
+    #[command(subcommand)]
+    pub action: Option<NvramAction>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum NvramAction {
+    /// Show one variable
+    Get { name: String },
+    /// Set variables and recompute the checksum
+    Set {
+        #[arg(value_name = "NAME=VALUE", required = true, value_parser = parse_setting)]
+        settings: Vec<(String, String)>,
+    },
 }
 
 #[derive(Debug, Args)]

@@ -2,9 +2,9 @@ mod cli;
 mod commands;
 
 use clap::Parser;
-use cli::{Action, DriveKind, NetworkMode};
+use cli::{Action, DriveKind, NetworkMode, NvramAction};
 use origami::runtime;
-use origami::{control, graphics, install, listing};
+use origami::{control, graphics, install, listing, nvram};
 use origami::{machines, read_machine, validate, Drive, Network, PortForward, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -295,6 +295,36 @@ fn command(action: Action) -> Result<()> {
                 "console: {}",
                 console.map_or_else(|| runtime::default_console(offer), Ok)?
             );
+        }
+        Action::Nvram(args) => {
+            let dir = directory(&args.dir)?;
+            let _lock = control::lock_for_edit(&dir, "reading or changing its NVRAM")?;
+            let file = read_machine(&dir)?;
+            let machines = machines()?;
+            let offer = validate(&machines, &dir, &file)?;
+            let mut store = nvram::open(&dir, offer)?;
+            match args.action {
+                None => {
+                    for (name, value) in store.variables() {
+                        println!("{name}={value}");
+                    }
+                }
+                Some(NvramAction::Get { name }) => {
+                    let (name, value) = store.get(&name)?;
+                    println!("{name}={value}");
+                }
+                Some(NvramAction::Set { settings }) => {
+                    // Every setting is checked before the store is written.
+                    let mut names = Vec::new();
+                    for (name, value) in &settings {
+                        names.push(store.set(name, value)?);
+                    }
+                    nvram::save(&dir, &store)?;
+                    for name in names {
+                        println!("{name}={}", store.get(name)?.1);
+                    }
+                }
+            }
         }
         Action::NetworkSet {
             dir,
