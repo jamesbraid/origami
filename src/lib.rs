@@ -132,28 +132,6 @@ impl NetworkAdapter {
             .unwrap_or(&self.kind)
             .to_ascii_uppercase()
     }
-
-    /// Refuse `mac` for this adapter when its firmware needs another prefix.
-    pub fn check_mac(&self, product: &str, mac: &str) -> Result<()> {
-        let Some(prefix) = self.mac.as_ref().and_then(|m| m.required_prefix.as_deref()) else {
-            return Ok(());
-        };
-        if mac
-            .get(..prefix.len())
-            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
-        {
-            return Ok(());
-        }
-        Err(format!(
-            "{product}'s onboard Ethernet {}({}) needs an SGI address starting {prefix}, \
-             not {mac}; its PROM fails to bring it up otherwise",
-            self.interface
-                .as_deref()
-                .map_or_else(String::new, |name| format!("{name} ")),
-            self.chip()
-        )
-        .into())
-    }
 }
 
 /// Where an onboard Ethernet's address comes from.
@@ -163,9 +141,26 @@ pub struct AdapterMac {
     /// sets it.
     #[serde(default)]
     pub derived: bool,
-    /// The leading bytes its firmware accepts.
-    #[serde(rename = "required-prefix", default)]
-    pub required_prefix: Option<String>,
+}
+
+/// The leading bytes of every address SGI assigned to its hardware.
+const SGI_MAC_PREFIX: &str = "08:00:69";
+
+/// Refuse a machine MAC outside SGI's range. SGI PROMs reject other
+/// addresses: an IOC3 prints "bad ethernet address" and a BCM5701 fails to
+/// open.
+pub fn check_sgi_mac(product: &str, mac: &str) -> Result<()> {
+    if mac
+        .get(..SGI_MAC_PREFIX.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(SGI_MAC_PREFIX))
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "{product} needs an SGI Ethernet address starting {SGI_MAC_PREFIX}, \
+         not {mac}; SGI PROMs refuse other addresses"
+    )
+    .into())
 }
 
 /// The processor every CPU of an offering is.
@@ -443,9 +438,7 @@ pub fn set_machine_mac(
         return Err("--mac must contain six hexadecimal bytes".into());
     }
     if let Ok(offer) = offering(machines, &file.machine) {
-        if let Some(adapter) = offer.default_network() {
-            adapter.check_mac(&offer.product, mac)?;
-        }
+        check_sgi_mac(&offer.product, mac)?;
     }
     let mac = mac.to_ascii_lowercase();
     match &file.identity {
@@ -627,16 +620,12 @@ pub fn validate<'a>(
         }
         // An older machine may hold an address its PROM refuses. Say so,
         // rather than change the identity an installed guest knows.
-        if let Some(adapter) = offering.default_network() {
-            adapter
-                .check_mac(&offering.product, &identity.mac)
-                .map_err(|error| {
-                    format!(
-                        "{error}. Set [identity] mac in {} to an SGI address",
-                        dir.join("machine.toml").display()
-                    )
-                })?;
-        }
+        check_sgi_mac(&offering.product, &identity.mac).map_err(|error| {
+            format!(
+                "{error}. Set [identity] mac in {} to an SGI address",
+                dir.join("machine.toml").display()
+            )
+        })?;
     }
     let mut occupied = std::collections::HashSet::new();
     for drive in &file.drive {
@@ -695,8 +684,8 @@ pub fn validate_create_inputs(
     if mac.is_some() && !profiles::takes_mac(offering) {
         return Err(format!("{} takes no machine MAC", offering.topology).into());
     }
-    if let (Some(mac), Some(adapter)) = (mac, offering.default_network()) {
-        adapter.check_mac(&offering.product, mac)?;
+    if let Some(mac) = mac {
+        check_sgi_mac(&offering.product, mac)?;
     }
     Ok(())
 }
@@ -907,22 +896,24 @@ mod tests {
     }
 
     #[test]
-    fn a_nic_needing_an_sgi_address_refuses_another() {
+    fn every_machine_refuses_a_non_sgi_address() {
         let machines = test_machines();
-        let onyx = preset(&machines, "onyx350-vpro").unwrap();
         let absent = Path::new("/nonexistent/origami-mac-prefix");
-        let error = validate_create_inputs(absent, onyx, None, Some("52:54:00:12:34:56"))
-            .unwrap_err()
-            .to_string();
-        assert_eq!(
-            error,
-            "onyx350's onboard Ethernet tg0 (BCM5701) needs an SGI address starting \
-             08:00:69, not 52:54:00:12:34:56; its PROM fails to bring it up otherwise"
-        );
-        validate_create_inputs(absent, onyx, None, Some("08:00:69:AB:CD:EF")).unwrap();
-        // The IOC3 states no prefix.
+        let onyx = preset(&machines, "onyx350-vpro").unwrap();
         let origin = preset(&machines, "origin200-1").unwrap();
-        validate_create_inputs(absent, origin, None, Some("52:54:00:12:34:56")).unwrap();
+        for (offer, name) in [(onyx, "onyx350"), (origin, "origin200")] {
+            let error = validate_create_inputs(absent, offer, None, Some("52:54:00:12:34:56"))
+                .unwrap_err()
+                .to_string();
+            assert_eq!(
+                error,
+                format!(
+                    "{name} needs an SGI Ethernet address starting 08:00:69, \
+                     not 52:54:00:12:34:56; SGI PROMs refuse other addresses"
+                )
+            );
+            validate_create_inputs(absent, offer, None, Some("08:00:69:AB:CD:EF")).unwrap();
+        }
 
         let mut file = MachineFile {
             format: MACHINE_FORMAT,
@@ -946,7 +937,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("needs an SGI address starting 08:00:69"),
+            error.contains("needs an SGI Ethernet address starting 08:00:69"),
             "{error}"
         );
         assert!(file.identity.is_none());
@@ -976,13 +967,13 @@ mod tests {
             offer,
             &init,
             None,
-            Some("02:00:5d:aa:bb:cc"),
+            Some("08:00:69:aa:bb:cc"),
             vec![],
             Default::default(),
         )
         .unwrap();
         let mut file = read_machine(&machine).unwrap();
-        assert_eq!(file.identity.as_ref().unwrap().mac, "02:00:5d:aa:bb:cc");
+        assert_eq!(file.identity.as_ref().unwrap().mac, "08:00:69:aa:bb:cc");
         file.network = Network {
             mode: "private".into(),
             endpoint: Some("tcp:127.0.0.1:4242".into()),
@@ -993,8 +984,8 @@ mod tests {
         let error = set_machine_mac(&machines, &mut file, Some("08:00:69:12:34:56"))
             .unwrap_err()
             .to_string();
-        assert!(error.contains("02:00:5d:aa:bb:cc"), "{error}");
-        set_machine_mac(&machines, &mut file, Some("02:00:5D:AA:BB:CC")).unwrap();
+        assert!(error.contains("08:00:69:aa:bb:cc"), "{error}");
+        set_machine_mac(&machines, &mut file, Some("08:00:69:AA:BB:CC")).unwrap();
         file.identity = None;
         let error = validate(&machines, &machine, &file)
             .unwrap_err()

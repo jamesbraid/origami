@@ -427,10 +427,11 @@ need it. Without one, QEMU uses its own default address.
 Every network mode connects the onboard Ethernet that QEMU's machine list names
 as the machine's default, and `origami show` names it, such as
 `network: user (tg0, BCM5701)` on an Onyx 350 or Tezro, or `(ef0, IOC3)` on
-an IOC3 machine. The Onyx 350 and Tezro PROMs bring the BCM5701 up only with an
-SGI address, so these machines refuse a MAC that does not start `08:00:69`.
-`validate` and `run` refuse an existing machine that has one; set `mac` under
-`[identity]` in its `machine.toml` to an SGI address.
+an IOC3 machine. SGI PROMs reject addresses outside SGI's range (an IOC3 prints
+"bad ethernet address", a BCM5701 fails to open), so every machine refuses a
+MAC that does not start `08:00:69`. `validate` and `run` refuse an existing
+machine that has one; set `mac` under `[identity]` in its `machine.toml` to an
+SGI address. A machine created without `--mac` uses `08:00:69:12:34:56`.
 
 PROMs and media stay outside the repository. Local IP27 and IP35 PROM files
 may be SGI's original images or raw PROM payloads; Octane takes a raw image.

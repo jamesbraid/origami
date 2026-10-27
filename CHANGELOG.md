@@ -14,8 +14,9 @@
   RAD4 gets its X server from a manual install.
 - The Onyx 350 and Tezro now reach the network: every network mode connects
   the onboard Ethernet QEMU's machine list names (their BCM5701, `tg0`)
-  instead of an IOC3 they do not have. They refuse a MAC that does not start
-  `08:00:69`, which their PROM needs, and `show` names the interface.
+  instead of an IOC3 they do not have, and `show` names the interface. Every
+  machine now refuses a MAC that does not start `08:00:69`, since SGI PROMs
+  reject other addresses.
 
 ## 0.4.0
 

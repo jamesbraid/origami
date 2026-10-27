@@ -191,7 +191,7 @@
     {"property": "mac", "target": "machine"}
    ],
    "networks": [
-    {"argument": "-netdev ...,id=net0", "default": true, "index": 0, "interface": "tg0", "kind": "bcm5701-ethernet", "mac": {"default-address": "08:00:69:12:34:56", "derived": true, "machine-property": "mac", "offset": 0, "required-prefix": "08:00:69"}, "nic-mac-option": "macaddr", "nic-model": "bcm570x", "required": false}
+    {"argument": "-netdev ...,id=net0", "default": true, "index": 0, "interface": "tg0", "kind": "bcm5701-ethernet", "mac": {"default-address": "08:00:69:12:34:56", "derived": true, "machine-property": "mac", "offset": 0}, "nic-mac-option": "macaddr", "nic-model": "bcm570x", "required": false}
    ]
   }
  ],
