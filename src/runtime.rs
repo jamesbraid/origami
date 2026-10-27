@@ -205,6 +205,57 @@ fn network_hint(file: &MachineFile) -> Option<String> {
     }
 }
 
+/// Append the unsupported QEMU options last, so they override what the CLI
+/// generated: first those in machine.toml, then this run's `--qemu-arg`s.
+pub fn append_extra_args(
+    args: &mut Vec<String>,
+    file: &MachineFile,
+    once: &[String],
+) -> Result<()> {
+    check_extra_args(&file.qemu.extra_args)?;
+    check_extra_args(once)?;
+    args.extend(file.qemu.extra_args.iter().cloned());
+    args.extend(once.iter().cloned());
+    Ok(())
+}
+
+/// Options Origami itself relies on to find and drive the guest: its QMP
+/// endpoint, QEMU name and console. Overriding them cuts off `status`, `stop`
+/// and `console`, so they are refused.
+pub fn check_extra_args(extra: &[String]) -> Result<()> {
+    for (index, arg) in extra.iter().enumerate() {
+        let owned = matches!(
+            arg.as_str(),
+            "-name" | "--name" | "-qmp" | "--qmp" | "-serial" | "--serial"
+        ) || (matches!(arg.as_str(), "-chardev" | "--chardev")
+            && extra
+                .get(index + 1)
+                .is_some_and(|value| value.contains("id=origami-console")));
+        if owned {
+            return Err(format!(
+                "extra QEMU argument {arg} is refused: Origami uses it to control the machine"
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// `arg` quoted so a shell reads it back as one word.
+pub fn shell_quote(arg: &str) -> String {
+    let plain = !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c));
+    if plain {
+        arg.into()
+    } else if cfg!(windows) {
+        format!("\"{}\"", arg.replace('"', "\\\""))
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
+
 pub fn arguments(
     machines: &Machines,
     dir: &Path,
@@ -394,7 +445,7 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, drive: &Drive, index: usize) {
     ]);
 }
 
-pub fn start_background(dir: &Path, display: Display) -> Result<()> {
+pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result<()> {
     if control::is_locked(dir)? {
         return Err("machine is already running".into());
     }
@@ -418,6 +469,9 @@ pub fn start_background(dir: &Path, display: Display) -> Result<()> {
         .arg(display_name);
     if let Display::Vnc { port } = display {
         child.arg("--vnc-port").arg(port.to_string());
+    }
+    for arg in once {
+        child.arg(format!("--qemu-arg={arg}"));
     }
     // Windows passes every inheritable handle to a child, including this
     // process's own standard streams, so a caller reading them would wait
@@ -473,8 +527,9 @@ pub fn run(
     file: &MachineFile,
     offering: &Offering,
     display: Display,
+    once: &[String],
 ) -> Result<ExitStatus> {
-    run_inner(machines, dir, file, offering, display, false)
+    run_inner(machines, dir, file, offering, display, once, false)
 }
 
 pub fn serve(
@@ -483,8 +538,9 @@ pub fn serve(
     file: &MachineFile,
     offering: &Offering,
     display: Display,
+    once: &[String],
 ) -> Result<ExitStatus> {
-    run_inner(machines, dir, file, offering, display, true)
+    run_inner(machines, dir, file, offering, display, once, true)
 }
 
 fn run_inner(
@@ -493,6 +549,7 @@ fn run_inner(
     file: &MachineFile,
     offering: &Offering,
     display: Display,
+    once: &[String],
     background: bool,
 ) -> Result<ExitStatus> {
     let qemu = qemu_path()?;
@@ -545,6 +602,7 @@ fn run_inner(
             &mut args,
             "stdio,id=origami-console,logfile=logs/serial.log,logappend=on".into(),
         )?;
+        append_extra_args(&mut args, file, once)?;
         let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
         let status = child.wait()?;
         if let (false, Some(hint)) = (status.success(), network_hint(file)) {
@@ -572,6 +630,7 @@ fn run_inner(
         "-name".into(),
         name.clone(),
     ]);
+    append_extra_args(&mut args, file, once)?;
     let record = control::Record {
         pid: std::process::id(),
         qmp_port,
@@ -653,6 +712,7 @@ mod tests {
             network: Network::default(),
             pipe: vec![],
             drive: vec![],
+            qemu: Default::default(),
         }
     }
 
@@ -710,6 +770,56 @@ mod tests {
         )
         .unwrap();
         assert!(machine_option(&file).contains(",baseio-preset=io6g"));
+    }
+
+    #[test]
+    fn extra_args_come_last_machine_toml_before_command_line() {
+        let machines = crate::test_machines();
+        let offering = preset(&machines, "fuel-1").unwrap();
+        let mut file = machine(offering);
+        file.qemu.extra_args = vec!["-global".into(), "bcm570x.mac=08:00:69:12:34:56".into()];
+        let mut args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            offering,
+            Display::None,
+        )
+        .unwrap();
+        let generated = args.len();
+        append_extra_args(&mut args, &file, &["-d".into(), "guest_errors".into()]).unwrap();
+        assert_eq!(
+            args[generated..],
+            [
+                "-global",
+                "bcm570x.mac=08:00:69:12:34:56",
+                "-d",
+                "guest_errors"
+            ]
+        );
+    }
+
+    #[test]
+    fn extra_args_cannot_take_over_control_options() {
+        let bad = |args: &[&str]| {
+            let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+            check_extra_args(&args).is_err()
+        };
+        assert!(bad(&["-name", "x"]));
+        assert!(bad(&["-qmp", "tcp:127.0.0.1:1"]));
+        assert!(bad(&["-serial", "stdio"]));
+        assert!(bad(&["-chardev", "socket,id=origami-console,host=h"]));
+        assert!(!bad(&["-chardev", "null,id=mine", "-msg", "timestamp=on"]));
+    }
+
+    #[test]
+    fn shell_quote_survives_spaces_and_quotes() {
+        assert_eq!(shell_quote("-nodefaults"), "-nodefaults");
+        assert_eq!(shell_quote("a=b,c/d"), "a=b,c/d");
+        assert_eq!(shell_quote(""), "''");
+        if !cfg!(windows) {
+            assert_eq!(shell_quote("/my dir/it's"), "'/my dir/it'\\''s'");
+        }
     }
 
     #[test]

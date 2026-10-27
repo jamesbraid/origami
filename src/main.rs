@@ -133,6 +133,17 @@ fn command(action: Action) -> Result<()> {
                 console.map_or_else(|| runtime::default_console(offer), Ok)?
             );
             println!("network: {}", file.network.mode);
+            if !file.qemu.extra_args.is_empty() {
+                println!(
+                    "qemu extra-args (unsupported): {}",
+                    file.qemu
+                        .extra_args
+                        .iter()
+                        .map(|arg| runtime::shell_quote(arg))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                );
+            }
             for forward in &file.network.forward {
                 let status = if file.network.mode == "user" {
                     ""
@@ -162,10 +173,14 @@ fn command(action: Action) -> Result<()> {
             let display = args.display.resolve(!file.pipe.is_empty())?;
             let exe = runtime::qemu_path()?;
             let arguments = runtime::arguments(&machines, &dir, &file, offer, display)?;
-            println!("{}", exe.display());
+            let mut arguments = arguments;
+            runtime::append_extra_args(&mut arguments, &file, &args.qemu_args)?;
+            // One line, runnable as printed: one shell word per argument.
+            print!("{}", runtime::shell_quote(&exe.display().to_string()));
             for arg in arguments {
-                println!("  {arg}");
+                print!(" {}", runtime::shell_quote(&arg));
             }
+            println!();
         }
         Action::Run(args) => {
             let dir = directory(&args.launch.machine.dir)?;
@@ -174,9 +189,16 @@ fn command(action: Action) -> Result<()> {
             let offer = validate(&machines, &dir, &file)?;
             let display = args.launch.display.resolve(!file.pipe.is_empty())?;
             if args.background {
-                runtime::start_background(&dir, display)?;
+                runtime::start_background(&dir, display, &args.launch.qemu_args)?;
             } else {
-                let status = runtime::run(&machines, &dir, &file, offer, display)?;
+                let status = runtime::run(
+                    &machines,
+                    &dir,
+                    &file,
+                    offer,
+                    display,
+                    &args.launch.qemu_args,
+                )?;
                 if !status.success() {
                     return Err(format!("QEMU exited with {status}").into());
                 }
@@ -188,7 +210,7 @@ fn command(action: Action) -> Result<()> {
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
             let display = args.display.resolve(!file.pipe.is_empty())?;
-            let status = runtime::serve(&machines, &dir, &file, offer, display)?;
+            let status = runtime::serve(&machines, &dir, &file, offer, display, &args.qemu_args)?;
             if !status.success() {
                 return Err(format!("QEMU exited with {status}").into());
             }

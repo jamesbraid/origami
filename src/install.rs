@@ -1283,6 +1283,7 @@ mod tests {
                 settings: Default::default(),
             }],
             drive: vec![],
+            qemu: Default::default(),
         };
         let document = config(&dir, &file, &media).unwrap();
         let irix = &document["install_scripts"][0];
@@ -1413,6 +1414,7 @@ mod tests {
                 settings: Default::default(),
             }],
             drive: vec![],
+            qemu: Default::default(),
         };
         let document = config(&dir, &file, &configured).unwrap();
         let addon_index = recipe("standard").unwrap().sets.len();

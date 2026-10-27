@@ -429,6 +429,27 @@ PROMs and media stay outside the repository. Local IP27 and IP35 PROM files
 may be SGI's original images or raw PROM payloads; Octane takes a raw image.
 QEMU checks them when it creates the machine.
 
+## Working around a problem
+
+`origami show-command DIR` prints the full QEMU command on one line, ready to
+copy, edit and run.
+
+To append options instead, add them to `machine.toml`:
+
+```toml
+[qemu]
+extra-args = ["-global", "bcm570x.mac=08:00:69:12:34:56"]
+```
+
+or pass them for one run with `--qemu-arg` (also on `show-command`):
+
+```sh
+origami run my-onyx --qemu-arg=-global --qemu-arg=bcm570x.mac=08:00:69:12:34:56
+```
+
+They go after Origami's own options. `-name`, `-qmp`, `-serial` and the
+console `-chardev` are refused.
+
 ## Machine state
 
 A machine keeps its writable state under `state/`: one file per node boot

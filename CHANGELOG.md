@@ -5,6 +5,9 @@
 - `origami machines` prints one table of the presets, and
   `origami machines PRESET` or `--all` shows a preset's graphics choices,
   slots, refusals and processor modules, in place of the long listing.
+- `show-command` prints a QEMU command you can copy, edit and run.
+  `[qemu] extra-args` in `machine.toml` and `--qemu-arg` on `run` append
+  your own QEMU options.
 
 ## 0.4.0
 

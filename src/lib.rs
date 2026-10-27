@@ -179,6 +179,24 @@ pub struct MachineFile {
     pub pipe: Vec<graphics::Pipe>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drive: Vec<Drive>,
+    /// Escape hatch for QEMU options the CLI does not generate correctly.
+    #[serde(default, skip_serializing_if = "Qemu::is_empty")]
+    pub qemu: Qemu,
+}
+
+/// Raw QEMU options, unsupported: they are neither validated nor migrated.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Qemu {
+    /// Appended verbatim after every option the CLI generates.
+    #[serde(default, rename = "extra-args", skip_serializing_if = "Vec::is_empty")]
+    pub extra_args: Vec<String>,
+}
+
+impl Qemu {
+    fn is_empty(&self) -> bool {
+        self.extra_args.is_empty()
+    }
 }
 
 /// Identity QEMU builds into the machine's own records. An SN1 machine's L1
@@ -482,6 +500,7 @@ pub fn validate<'a>(
     profiles::validate_inputs(offering, &file.machine.inputs)?;
     runtime::console_line(offering, file.machine.console.as_deref())?;
     validate_network(file)?;
+    runtime::check_extra_args(&file.qemu.extra_args)?;
     let mut names = std::collections::HashSet::new();
     let mut host_ports = std::collections::HashSet::new();
     for forward in &file.network.forward {
@@ -655,6 +674,7 @@ pub fn create_configured(
             network: Network::default(),
             pipe: pipes,
             drive: vec![],
+            qemu: Default::default(),
         };
         fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
         Ok(())
@@ -681,6 +701,26 @@ pub(crate) mod test_support;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn qemu_section_round_trips_and_is_omitted_when_empty() {
+        let base = "format = 4\n[machine]\nmodel = \"origin200\"\nnodes = 1\ncpus_per_node = 1\nmemory_per_node = \"256MiB\"\n";
+        let plain: MachineFile = toml::from_str(base).unwrap();
+        assert!(plain.qemu.extra_args.is_empty());
+        let text = toml::to_string_pretty(&plain).unwrap();
+        assert!(!text.contains("qemu"), "{text}");
+
+        let with = format!(
+            "{base}[qemu]\nextra-args = [\"-global\", \"bcm570x.mac=08:00:69:12:34:56\"]\n"
+        );
+        let file: MachineFile = toml::from_str(&with).unwrap();
+        assert_eq!(
+            file.qemu.extra_args,
+            ["-global", "bcm570x.mac=08:00:69:12:34:56"]
+        );
+        let again: MachineFile = toml::from_str(&toml::to_string_pretty(&file).unwrap()).unwrap();
+        assert_eq!(again.qemu.extra_args, file.qemu.extra_args);
+    }
 
     #[test]
     fn private_tcp_endpoint_stays_on_loopback() {
