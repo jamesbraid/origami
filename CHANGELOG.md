@@ -19,7 +19,7 @@ hardware is an Onyx2: create an Onyx2 instead.
   known limits.
 - New Origin 2000 and Onyx2 machines get 256 MiB per node, the smallest
   SGI shipped, instead of 64 MiB. Existing machines keep their size.
-- QEMU updated to 16b4488221.
+- QEMU updated to 4013f9f84f.
 
 ## 0.3.1
 
