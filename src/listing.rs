@@ -196,6 +196,33 @@ fn refusals(machines: &Machines, offering: &Offering) -> Vec<String> {
     refused
 }
 
+/// A board's open settings as `name=a|b*|c`, the default starred. A slot
+/// that fits the board by default may set its own default values.
+fn settings(record: &graphics::Graphics, product: &Product) -> String {
+    let fitted = record
+        .slots
+        .iter()
+        .filter_map(|slot| slot.default.as_ref())
+        .find(|default| default.product == product.product);
+    product
+        .settings
+        .iter()
+        .filter(|setting| setting.values.len() > 1)
+        .map(|setting| {
+            let chosen = fitted
+                .and_then(|d| d.settings.iter().find(|s| s.name == setting.name))
+                .map_or(setting.default.as_str(), |s| s.value.as_str());
+            let values: Vec<_> = setting
+                .values
+                .iter()
+                .map(|v| format!("{}{}", v.value, if v.value == chosen { "*" } else { "" }))
+                .collect();
+            format!("{}={}", setting.name, values.join("|"))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// One preset: its defaults, the graphics it takes and refuses, and the
 /// processor modules it offers.
 pub fn detail(machines: &Machines, name: &str) -> Result<String> {
@@ -224,25 +251,33 @@ fn detail_of(machines: &Machines, name: &str, offering: &Offering) -> Result<Str
     let mut out = wrap(&header, 4) + "\n";
 
     if let Some(record) = graphics::record(machines, &offering.topology) {
-        let mut choices: Vec<(&str, &str)> = vec![];
+        let mut choices: Vec<(&str, &str, String)> = vec![];
         for slot in graphics::slots(record, offering.nodes) {
             for product in slot.families.iter().flat_map(|f| &f.products) {
-                if !choices.iter().any(|(id, _)| *id == product.product) {
-                    choices.push((&product.product, &product.name));
+                if !choices.iter().any(|(id, ..)| *id == product.product) {
+                    choices.push((&product.product, &product.name, settings(record, product)));
                 }
             }
         }
         if !choices.is_empty() || record.headless {
-            out.push_str("\nGraphics (create --graphics PRODUCT [--graphics-slot SLOT]):\n");
-            let id_width = choices.iter().map(|(id, _)| id.len()).max().unwrap_or(0);
+            out.push_str(
+                "\nGraphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):\n",
+            );
+            let id_width = choices.iter().map(|(id, ..)| id.len()).max().unwrap_or(0);
             let id_width = id_width.max("none".len());
             let marked = |chosen: bool| if chosen { " (default)" } else { "" };
-            for (id, product_name) in choices {
+            for (id, product_name, settings) in choices {
                 let chosen = pipes.iter().any(|pipe| pipe.product == id);
                 out.push_str(&format!(
                     "  {id:id_width$}  {product_name}{}\n",
                     marked(chosen)
                 ));
+                if !settings.is_empty() {
+                    let indent = id_width + 4;
+                    let line = format!("{}settings: {settings}", " ".repeat(indent));
+                    out.push_str(&wrap(&line, indent + "settings: ".len()));
+                    out.push('\n');
+                }
             }
             if record.headless {
                 out.push_str(&format!("  none{}\n", marked(pipes.is_empty())));
@@ -325,7 +360,7 @@ Details and graphics choices: origami machines PRESET
             "\
 octane-impact: Octane, 1 CPU, 128 MiB per node, SI in widget-11
 
-Graphics (create --graphics PRODUCT [--graphics-slot SLOT]):
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
   si    Solid IMPACT (SI) (default)
   esi   ESI
   none
@@ -350,5 +385,22 @@ Not offered:
         let first = all.find("origin200-1: ").unwrap();
         let last = all.find("fuel-1: ").unwrap();
         assert!(first < last && all.contains(&origin200), "{all}");
+    }
+
+    #[test]
+    fn settings_list_their_values_with_the_default_starred() {
+        let product: Product = serde_json::from_str(
+            r#"{"product":"p","name":"P","description":"","fidelity":"","settings":[
+              {"name":"rm-count","description":"","default":"2","changeable":true,
+               "values":[{"value":"1","description":""},{"value":"2","description":""}]},
+              {"name":"fixed","description":"","default":"a","changeable":false,
+               "values":[{"value":"a","description":""}]}]}"#,
+        )
+        .unwrap();
+        let record = crate::test_machines().topologies[0]
+            .graphics
+            .clone()
+            .unwrap();
+        assert_eq!(settings(&record, &product), "rm-count=1|2*");
     }
 }
