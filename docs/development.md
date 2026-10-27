@@ -271,7 +271,7 @@ QEMU checkout.
 
 The `Build release archives` workflow runs for version tags or manually
 requested builds. GitHub tag builds produce Linux, macOS and Windows
-archives, then publish a prerelease with their checksums. Windows is
+archives, then publish a release with their checksums. Windows is
 cross-compiled on Linux. Only assets produced in that workflow run are
 uploaded. Pull requests and `main` pushes do not build archives. GitHub jobs
 keep vcpkg's binary cache between runs.
