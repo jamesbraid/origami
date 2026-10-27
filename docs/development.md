@@ -13,11 +13,14 @@ the commit ID. Builds without Git metadata report `unknown`.
 
 Create an annotated `vX.Y.Z` tag on the product commit to select a release.
 That commit also selects the QEMU and Instigator pins, and its `CHANGELOG.md`
-needs an `## X.Y.Z` section, which becomes the top of the release notes. Build from the tag,
+needs an `## X.Y.Z` section, which becomes the release notes. Build from the tag,
 run the tests, then package those binaries. Rebuild after adding or changing
 a tag so the embedded version matches the archive version.
 Cargo's `0.0.0` is a package placeholder. The Git tag owns the release version,
-including CPack's package version.
+including CPack's package version. `cpack` reads the description when it runs and
+names the archive `origami-<version>-<platform>` and its top-level directory
+`origami-<version>`, where `<version>` is the description without the `v`
+(`0.4.1`, or `0.4.0-5-gabc1234` between releases).
 
 ## Build the product
 
@@ -95,8 +98,8 @@ ctest --preset macos
 cpack --preset macos
 ```
 
-The archive is `origami-macos-arm64-preview.tar.gz`, containing
-`macos-arm64-dev/`. Native guest graphics and input remain unqualified.
+The archive is `origami-<version>-macos-arm64.tar.gz`, containing
+`origami-<version>/`. Native guest graphics and input remain unqualified.
 
 ## Linux
 
@@ -114,7 +117,7 @@ podman run --rm --userns=keep-id -v "$PWD:$PWD" -w "$PWD" origami-builder sh -ec
 ```
 
 The runnable CLI is `out/linux/run/bin/origami`. The archive is
-`origami-linux-x86_64-preview.tar.gz`, containing `linux-dev/`.
+`origami-<version>-linux-x86_64.tar.gz`, containing `origami-<version>/`.
 The release target requires glibc 2.39 or newer and the host's PulseAudio and
 ALSA client libraries. The archive ships no shared libraries. Graphics
 drivers, audio, X11, Wayland and udev come from the host,
@@ -139,8 +142,8 @@ podman run --rm --userns=keep-id -v "$PWD:$PWD" -w "$PWD" origami-windows-builde
 '
 ```
 
-The archive is `origami-windows-x86_64-preview.zip`, containing
-`windows-dev/`. The runnable Windows CLI is `bin/origami.exe` inside that
+The archive is `origami-<version>-windows-x86_64.zip`, containing
+`origami-<version>/`. The runnable Windows CLI is `bin/origami.exe` inside that
 directory. Cross-build tests use native Linux test binaries. They do not
 replace launch, graphics or input checks on Windows 11.
 
@@ -288,7 +291,7 @@ an original synthetic MIPS loop. No firmware or guest media is needed.
 To run it against an extracted package:
 
 ```sh
-python3 build/smoke-test.py /path/to/linux-dev --scratch /path/to/scratch
+python3 build/smoke-test.py /path/to/origami-<version> --scratch /path/to/scratch
 ```
 
 This checks product integration, not firmware or guest compatibility. Run

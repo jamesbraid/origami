@@ -1,6 +1,7 @@
 # Using Origami
 
-[Back to the README](../README.md). Examples use an extracted preview archive.
+[Back to the README](../README.md). Examples use the 0.4.1 archives;
+substitute the version you downloaded.
 
 ## Downloaded previews
 
@@ -12,26 +13,26 @@ bundled executables, libraries and data beside it.
 On Linux:
 
 ```sh
-sha256sum -c origami-linux-x86_64-preview.tar.gz.sha256
-tar -xzf origami-linux-x86_64-preview.tar.gz
-./linux-dev/bin/origami machines
+sha256sum -c origami-0.4.1-linux-x86_64.tar.gz.sha256
+tar -xzf origami-0.4.1-linux-x86_64.tar.gz
+./origami-0.4.1/bin/origami machines
 ```
 
 On Windows, compare the displayed hash with the value in the `.sha256` file,
 then extract and start the CLI from PowerShell:
 
 ```powershell
-Get-FileHash -Algorithm SHA256 .\origami-windows-x86_64-preview.zip
-Expand-Archive .\origami-windows-x86_64-preview.zip -DestinationPath .\origami
-.\origami\windows-dev\bin\origami.exe machines
+Get-FileHash -Algorithm SHA256 .\origami-0.4.1-windows-x86_64.zip
+Expand-Archive .\origami-0.4.1-windows-x86_64.zip -DestinationPath .\origami
+.\origami\origami-0.4.1\bin\origami.exe machines
 ```
 
 On Apple Silicon macOS:
 
 ```sh
-shasum -a 256 -c origami-macos-arm64-preview.tar.gz.sha256
-tar -xzf origami-macos-arm64-preview.tar.gz
-./macos-arm64-dev/bin/origami machines
+shasum -a 256 -c origami-0.4.1-macos-arm64.tar.gz.sha256
+tar -xzf origami-0.4.1-macos-arm64.tar.gz
+./origami-0.4.1/bin/origami machines
 ```
 
 The archives are unsigned. Native Windows and macOS download warnings remain
