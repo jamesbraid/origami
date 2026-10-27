@@ -85,6 +85,9 @@ fn command(action: Action) -> Result<()> {
             let file = read_machine(&dir)?;
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
+            for warning in origami::mac::duplicate_warnings(&machines, &dir, &file) {
+                eprintln!("warning: {warning}");
+            }
             match &file.machine.processor {
                 Some(processor) => println!(
                     "valid: {} ({} CPUs, {processor})",
@@ -364,7 +367,7 @@ fn command(action: Action) -> Result<()> {
                 forward: file.network.forward.clone(),
             };
             let machines = machines()?;
-            origami::set_machine_mac(&machines, &mut file, mac.as_deref())?;
+            origami::set_machine_mac(&machines, &dir, &mut file, mac.as_deref())?;
             validate(&machines, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("network: {}", mode.as_str());

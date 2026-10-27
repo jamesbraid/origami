@@ -17,6 +17,9 @@
   instead of an IOC3 they do not have, and `show` names the interface. Every
   machine now refuses a MAC that does not start `08:00:69`, since SGI PROMs
   reject other addresses.
+- `create` now gives each new machine its own random `08:00:69` MAC instead of
+  leaving QEMU's shared default, and refuses a `--mac` that a machine beside
+  it already holds. `validate` warns about duplicates.
 
 ## 0.4.0
 

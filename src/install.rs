@@ -271,7 +271,7 @@ fn init_sources(
         interface: None,
         forward: old_network.forward.clone(),
     };
-    if let Err(error) = crate::set_machine_mac(machines, file, mac)
+    if let Err(error) = crate::set_machine_mac(machines, dir, file, mac)
         .and_then(|()| crate::validate(machines, dir, file))
     {
         file.network = old_network;
@@ -1639,8 +1639,10 @@ mod tests {
             boot_prom: &prom,
             io_prom: None,
         };
-        for graphics in ["none", "rad4"] {
+        for (index, graphics) in ["none", "rad4"].into_iter().enumerate() {
             let dir = root.join(graphics);
+            // Machines side by side need different addresses.
+            let mac = format!("08:00:69:12:34:5{index}");
             let pipes = crate::graphics::select(
                 &machines,
                 &offer.topology,
@@ -1654,14 +1656,7 @@ mod tests {
             crate::create_configured(&dir, offer, &init, None, None, pipes, Default::default())
                 .unwrap();
             let mut file = crate::read_machine(&dir).unwrap();
-            init_remote_profile(
-                &machines,
-                &dir,
-                Some("08:00:69:12:34:56"),
-                &mut file,
-                "standard",
-            )
-            .unwrap();
+            init_remote_profile(&machines, &dir, Some(&mac), &mut file, "standard").unwrap();
             let media = read_media(&dir).unwrap();
             let document = config(&dir, &file, &media).unwrap();
             let irix = &document["install_scripts"][0];

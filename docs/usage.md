@@ -422,7 +422,17 @@ to QEMU as the machine's `mac` property. QEMU reports it in the machine's
 identity records and gives it to the onboard Ethernet. `create`,
 `network-set` and `install-init` accept `--mac` to set it when the machine has
 none; a machine keeps the MAC it has. Private networking and installation
-need it. Without one, QEMU uses its own default address.
+need it. A machine created by an earlier release may have none; it then runs
+with QEMU's default address, which is harmless in user networking, and
+`network-set --mac` gives it one.
+
+`create` without `--mac` picks a random `08:00:69` address, leaving room above
+it for a second onboard NIC that QEMU derives from it. It looks at the other
+machine directories in the new machine's parent directory and in the current
+directory, and never reuses an address, or a derived one, that they hold. An
+explicit `--mac` that another machine holds is refused, naming that machine.
+`validate` warns about a duplicate, without refusing, so moving machines
+around never stops one from running.
 
 Every network mode connects the onboard Ethernet that QEMU's machine list names
 as the machine's default, and `origami show` names it, such as
@@ -431,7 +441,7 @@ an IOC3 machine. SGI PROMs reject addresses outside SGI's range (an IOC3 prints
 "bad ethernet address", a BCM5701 fails to open), so every machine refuses a
 MAC that does not start `08:00:69`. `validate` and `run` refuse an existing
 machine that has one; set `mac` under `[identity]` in its `machine.toml` to an
-SGI address. A machine created without `--mac` uses `08:00:69:12:34:56`.
+SGI address.
 
 PROMs and media stay outside the repository. Local IP27 and IP35 PROM files
 may be SGI's original images or raw PROM payloads; Octane takes a raw image.

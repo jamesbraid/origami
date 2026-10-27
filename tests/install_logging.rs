@@ -48,6 +48,8 @@ exit 7
             "origin200-1",
             "--prom",
             prom.to_str().unwrap(),
+            "--mac",
+            "08:00:69:12:34:56",
         ],
         vec![
             "install-init",

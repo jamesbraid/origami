@@ -9,6 +9,7 @@ pub mod control;
 pub mod graphics;
 pub mod install;
 pub mod listing;
+pub mod mac;
 pub mod machines;
 pub mod migrate;
 pub mod nvram;
@@ -141,10 +142,13 @@ pub struct AdapterMac {
     /// sets it.
     #[serde(default)]
     pub derived: bool,
+    /// What this NIC's address adds to the machine's MAC when `derived`.
+    #[serde(default)]
+    pub offset: u8,
 }
 
 /// The leading bytes of every address SGI assigned to its hardware.
-const SGI_MAC_PREFIX: &str = "08:00:69";
+pub(crate) const SGI_MAC_PREFIX: &str = "08:00:69";
 
 /// Refuse a machine MAC outside SGI's range. SGI PROMs reject other
 /// addresses: an IOC3 prints "bad ethernet address" and a BCM5701 fails to
@@ -430,6 +434,7 @@ pub fn tcp_endpoint(endpoint: &str) -> Result<Option<SocketAddrV4>> {
 /// changing it would change the identity an installed guest knows.
 pub fn set_machine_mac(
     machines: &Machines,
+    dir: &Path,
     file: &mut MachineFile,
     mac: Option<&str>,
 ) -> Result<()> {
@@ -447,7 +452,9 @@ pub fn set_machine_mac(
             identity.mac
         )
         .into()),
-        _ => {
+        Some(_) => Ok(()),
+        None => {
+            mac::check_free(machines, dir, offering(machines, &file.machine).ok(), &mac)?;
             file.identity = Some(Identity { mac });
             Ok(())
         }
@@ -933,15 +940,26 @@ mod tests {
             pipe: vec![],
             drive: vec![],
         };
-        let error = set_machine_mac(&machines, &mut file, Some("52:54:00:12:34:56"))
-            .unwrap_err()
-            .to_string();
+        let error = set_machine_mac(
+            &machines,
+            Path::new("/nonexistent/machine"),
+            &mut file,
+            Some("52:54:00:12:34:56"),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(
             error.contains("needs an SGI Ethernet address starting 08:00:69"),
             "{error}"
         );
         assert!(file.identity.is_none());
-        set_machine_mac(&machines, &mut file, Some("08:00:69:12:34:56")).unwrap();
+        set_machine_mac(
+            &machines,
+            Path::new("/nonexistent/machine"),
+            &mut file,
+            Some("08:00:69:12:34:56"),
+        )
+        .unwrap();
     }
 
     #[cfg(unix)]
@@ -981,17 +999,34 @@ mod tests {
             forward: vec![],
         };
         validate(&machines, &machine, &file).unwrap();
-        let error = set_machine_mac(&machines, &mut file, Some("08:00:69:12:34:56"))
-            .unwrap_err()
-            .to_string();
+        let error = set_machine_mac(
+            &machines,
+            Path::new("/nonexistent/machine"),
+            &mut file,
+            Some("08:00:69:12:34:56"),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("08:00:69:aa:bb:cc"), "{error}");
-        set_machine_mac(&machines, &mut file, Some("08:00:69:AA:BB:CC")).unwrap();
+        set_machine_mac(
+            &machines,
+            Path::new("/nonexistent/machine"),
+            &mut file,
+            Some("08:00:69:AA:BB:CC"),
+        )
+        .unwrap();
         file.identity = None;
         let error = validate(&machines, &machine, &file)
             .unwrap_err()
             .to_string();
         assert!(error.contains("--mac"), "{error}");
-        set_machine_mac(&machines, &mut file, Some("08:00:69:12:34:56")).unwrap();
+        set_machine_mac(
+            &machines,
+            Path::new("/nonexistent/machine"),
+            &mut file,
+            Some("08:00:69:12:34:56"),
+        )
+        .unwrap();
         validate(&machines, &machine, &file).unwrap();
         fs::remove_dir_all(root).unwrap();
     }

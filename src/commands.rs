@@ -29,6 +29,7 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
         options.memory_per_node,
         options.mac.as_deref(),
     )?;
+    let mac = origami::mac::assign(machines, &args.dir, offer, options.mac.as_deref())?;
     let tool = runtime::machine_init_path()?;
     // Check the tool before any download that it would consume.
     if !tool.is_file() {
@@ -45,7 +46,7 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
             io_prom: io_prom.as_deref(),
         },
         options.memory_per_node,
-        options.mac.as_deref(),
+        mac.as_deref(),
         pipes,
         inputs,
     )?;
