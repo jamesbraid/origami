@@ -22,7 +22,7 @@ jobs:
     concurrency:
       group: native-preview-${{ github.workflow }}-${{ github.ref }}-linux-x86_64
       cancel-in-progress: false
-    if: github.server_url != 'https://github.com' && github.event_name == 'workflow_dispatch' && inputs.platform == 'linux-x86_64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if: github.server_url != 'https://github.com' && github.event_name == 'workflow_dispatch' && inputs.platform == 'linux-x86_64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     container:
       image: ${{ vars.CI_JOB_IMAGE }}
@@ -65,7 +65,7 @@ jobs:
     concurrency:
       group: native-preview-${{ github.workflow }}-${{ github.ref }}-macos-arm64
       cancel-in-progress: false
-    if: github.server_url == 'https://github.com' && (github.event_name != 'workflow_dispatch' || (inputs.platform == 'macos-arm64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))))
+    if: github.server_url == 'https://github.com' && (github.event_name != 'workflow_dispatch' || (inputs.platform == 'macos-arm64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v'))))
     runs-on: macos-15
     timeout-minutes: 90
     steps:
@@ -118,7 +118,7 @@ jobs:
     concurrency:
       group: native-preview-${{ github.workflow }}-${{ github.ref }}-windows-x86_64
       cancel-in-progress: false
-    if: github.server_url != 'https://github.com' && github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-x86_64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if: github.server_url != 'https://github.com' && github.event_name == 'workflow_dispatch' && inputs.platform == 'windows-x86_64' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     container:
       image: ${{ vars.CI_JOB_IMAGE }}
