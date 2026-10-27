@@ -132,7 +132,18 @@ fn command(action: Action) -> Result<()> {
                 "console: {}",
                 console.map_or_else(|| runtime::default_console(offer), Ok)?
             );
-            println!("network: {}", file.network.mode);
+            match offer.default_network() {
+                Some(adapter) => println!(
+                    "network: {} ({}{})",
+                    file.network.mode,
+                    adapter
+                        .interface
+                        .as_deref()
+                        .map_or_else(String::new, |name| format!("{name}, ")),
+                    adapter.chip()
+                ),
+                None => println!("network: {}", file.network.mode),
+            }
             if !file.qemu.extra_args.is_empty() {
                 println!(
                     "qemu extra-args (unsupported): {}",
@@ -352,8 +363,9 @@ fn command(action: Action) -> Result<()> {
                 interface,
                 forward: file.network.forward.clone(),
             };
-            origami::set_machine_mac(&mut file, mac.as_deref())?;
-            validate(&machines()?, &dir, &file)?;
+            let machines = machines()?;
+            origami::set_machine_mac(&machines, &mut file, mac.as_deref())?;
+            validate(&machines, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("network: {}", mode.as_str());
             if mode != NetworkMode::User && !file.network.forward.is_empty() {

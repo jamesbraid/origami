@@ -88,6 +88,84 @@ pub struct Offering {
     /// Serial lines in -serial order; the line of kind `console` is the
     /// primary console.
     pub consoles: Vec<Console>,
+    /// The onboard Ethernets. A QEMU older than the catalogue's NIC fields
+    /// lists only each one's kind, and older still lists none.
+    #[serde(default)]
+    pub networks: Vec<NetworkAdapter>,
+}
+
+impl Offering {
+    /// The onboard Ethernet a launch binds and the PROM netboots from.
+    pub fn default_network(&self) -> Option<&NetworkAdapter> {
+        self.networks
+            .iter()
+            .find(|adapter| adapter.default)
+            .or(self.networks.first())
+    }
+}
+
+/// An onboard Ethernet, with what a launch needs to bind it.
+#[derive(Clone, Debug, Deserialize)]
+pub struct NetworkAdapter {
+    /// The chip, such as `bcm5701-ethernet`.
+    pub kind: String,
+    /// The `-net nic` model that binds it.
+    #[serde(rename = "nic-model", default)]
+    pub nic_model: Option<String>,
+    /// The `-net nic` option naming its address.
+    #[serde(rename = "nic-mac-option", default)]
+    pub nic_mac_option: Option<String>,
+    /// The guest's name for it, such as `tg0`.
+    #[serde(default)]
+    pub interface: Option<String>,
+    #[serde(default)]
+    pub default: bool,
+    #[serde(default)]
+    pub mac: Option<AdapterMac>,
+}
+
+impl NetworkAdapter {
+    /// The chip's name for people: `bcm5701-ethernet` is BCM5701.
+    pub fn chip(&self) -> String {
+        self.kind
+            .strip_suffix("-ethernet")
+            .unwrap_or(&self.kind)
+            .to_ascii_uppercase()
+    }
+
+    /// Refuse `mac` for this adapter when its firmware needs another prefix.
+    pub fn check_mac(&self, product: &str, mac: &str) -> Result<()> {
+        let Some(prefix) = self.mac.as_ref().and_then(|m| m.required_prefix.as_deref()) else {
+            return Ok(());
+        };
+        if mac
+            .get(..prefix.len())
+            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+        {
+            return Ok(());
+        }
+        Err(format!(
+            "{product}'s onboard Ethernet {}({}) needs an SGI address starting {prefix}, \
+             not {mac}; its PROM fails to bring it up otherwise",
+            self.interface
+                .as_deref()
+                .map_or_else(String::new, |name| format!("{name} ")),
+            self.chip()
+        )
+        .into())
+    }
+}
+
+/// Where an onboard Ethernet's address comes from.
+#[derive(Clone, Debug, Deserialize)]
+pub struct AdapterMac {
+    /// True when it follows the machine's `mac=`; false when the `-net nic`
+    /// sets it.
+    #[serde(default)]
+    pub derived: bool,
+    /// The leading bytes its firmware accepts.
+    #[serde(rename = "required-prefix", default)]
+    pub required_prefix: Option<String>,
 }
 
 /// The processor every CPU of an offering is.
@@ -355,10 +433,19 @@ pub fn tcp_endpoint(endpoint: &str) -> Result<Option<SocketAddrV4>> {
 /// Give the machine `mac`, the one Ethernet address QEMU uses for its
 /// identity records and onboard adapter. A machine keeps the address it has:
 /// changing it would change the identity an installed guest knows.
-pub fn set_machine_mac(file: &mut MachineFile, mac: Option<&str>) -> Result<()> {
+pub fn set_machine_mac(
+    machines: &Machines,
+    file: &mut MachineFile,
+    mac: Option<&str>,
+) -> Result<()> {
     let Some(mac) = mac else { return Ok(()) };
     if !valid_mac(mac) {
         return Err("--mac must contain six hexadecimal bytes".into());
+    }
+    if let Ok(offer) = offering(machines, &file.machine) {
+        if let Some(adapter) = offer.default_network() {
+            adapter.check_mac(&offer.product, mac)?;
+        }
     }
     let mac = mac.to_ascii_lowercase();
     match &file.identity {
@@ -538,6 +625,18 @@ pub fn validate<'a>(
         if !profiles::takes_mac(offering) {
             return Err(format!("{} takes no machine MAC", offering.topology).into());
         }
+        // An older machine may hold an address its PROM refuses. Say so,
+        // rather than change the identity an installed guest knows.
+        if let Some(adapter) = offering.default_network() {
+            adapter
+                .check_mac(&offering.product, &identity.mac)
+                .map_err(|error| {
+                    format!(
+                        "{error}. Set [identity] mac in {} to an SGI address",
+                        dir.join("machine.toml").display()
+                    )
+                })?;
+        }
     }
     let mut occupied = std::collections::HashSet::new();
     for drive in &file.drive {
@@ -595,6 +694,9 @@ pub fn validate_create_inputs(
     }
     if mac.is_some() && !profiles::takes_mac(offering) {
         return Err(format!("{} takes no machine MAC", offering.topology).into());
+    }
+    if let (Some(mac), Some(adapter)) = (mac, offering.default_network()) {
+        adapter.check_mac(&offering.product, mac)?;
     }
     Ok(())
 }
@@ -804,6 +906,53 @@ mod tests {
         assert!(!absent.exists());
     }
 
+    #[test]
+    fn a_nic_needing_an_sgi_address_refuses_another() {
+        let machines = test_machines();
+        let onyx = preset(&machines, "onyx350-vpro").unwrap();
+        let absent = Path::new("/nonexistent/origami-mac-prefix");
+        let error = validate_create_inputs(absent, onyx, None, Some("52:54:00:12:34:56"))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "onyx350's onboard Ethernet tg0 (BCM5701) needs an SGI address starting \
+             08:00:69, not 52:54:00:12:34:56; its PROM fails to bring it up otherwise"
+        );
+        validate_create_inputs(absent, onyx, None, Some("08:00:69:AB:CD:EF")).unwrap();
+        // The IOC3 states no prefix.
+        let origin = preset(&machines, "origin200-1").unwrap();
+        validate_create_inputs(absent, origin, None, Some("52:54:00:12:34:56")).unwrap();
+
+        let mut file = MachineFile {
+            format: MACHINE_FORMAT,
+            machine: Machine {
+                topology: Some(onyx.topology.clone()),
+                population: onyx.cpus_per_node.clone(),
+                inputs: Default::default(),
+                model: onyx.product.clone(),
+                nodes: onyx.nodes,
+                cpus_per_node: onyx.cpus_per_node[0],
+                processor: None,
+                memory_per_node: format!("{}MiB", onyx.memory.default),
+                console: None,
+            },
+            identity: None,
+            network: Network::default(),
+            pipe: vec![],
+            drive: vec![],
+        };
+        let error = set_machine_mac(&machines, &mut file, Some("52:54:00:12:34:56"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("needs an SGI address starting 08:00:69"),
+            "{error}"
+        );
+        assert!(file.identity.is_none());
+        set_machine_mac(&machines, &mut file, Some("08:00:69:12:34:56")).unwrap();
+    }
+
     #[cfg(unix)]
     #[cfg(unix)]
     #[test]
@@ -841,17 +990,17 @@ mod tests {
             forward: vec![],
         };
         validate(&machines, &machine, &file).unwrap();
-        let error = set_machine_mac(&mut file, Some("08:00:69:12:34:56"))
+        let error = set_machine_mac(&machines, &mut file, Some("08:00:69:12:34:56"))
             .unwrap_err()
             .to_string();
         assert!(error.contains("02:00:5d:aa:bb:cc"), "{error}");
-        set_machine_mac(&mut file, Some("02:00:5D:AA:BB:CC")).unwrap();
+        set_machine_mac(&machines, &mut file, Some("02:00:5D:AA:BB:CC")).unwrap();
         file.identity = None;
         let error = validate(&machines, &machine, &file)
             .unwrap_err()
             .to_string();
         assert!(error.contains("--mac"), "{error}");
-        set_machine_mac(&mut file, Some("08:00:69:12:34:56")).unwrap();
+        set_machine_mac(&machines, &mut file, Some("08:00:69:12:34:56")).unwrap();
         validate(&machines, &machine, &file).unwrap();
         fs::remove_dir_all(root).unwrap();
     }

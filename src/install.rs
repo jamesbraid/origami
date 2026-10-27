@@ -271,8 +271,8 @@ fn init_sources(
         interface: None,
         forward: old_network.forward.clone(),
     };
-    if let Err(error) =
-        crate::set_machine_mac(file, mac).and_then(|()| crate::validate(machines, dir, file))
+    if let Err(error) = crate::set_machine_mac(machines, file, mac)
+        .and_then(|()| crate::validate(machines, dir, file))
     {
         file.network = old_network;
         file.identity = old_identity;

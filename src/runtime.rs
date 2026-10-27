@@ -356,63 +356,82 @@ pub fn arguments(
         args.extend(["-serial".into(), "none".into()]);
     }
     args.extend(["-serial".into(), "stdio".into()]);
-    match file.network.mode.as_str() {
-        "none" => args.extend(["-nic".into(), "none".into()]),
-        mode @ ("private" | "vmnet" | "tap") => {
-            let address = if mode == "tap" {
-                let interface = file
-                    .network
-                    .interface
-                    .as_deref()
-                    .ok_or("tap network needs interface")?;
-                // Origami runs no host scripts; the user sets up the device.
-                let scripts = if cfg!(windows) {
-                    ""
-                } else {
-                    ",script=,downscript="
-                };
-                format!(
-                    "tap,id=net0,ifname={}{scripts}",
-                    interface.replace(',', ",,")
-                )
+    let backend = match file.network.mode.as_str() {
+        "none" => None,
+        "user" => Some(user_network(dir, &file.network.forward)),
+        mode @ ("private" | "vmnet" | "tap") => Some(if mode == "tap" {
+            let interface = file
+                .network
+                .interface
+                .as_deref()
+                .ok_or("tap network needs interface")?;
+            // Origami runs no host scripts; the user sets up the device.
+            let scripts = if cfg!(windows) {
+                ""
             } else {
-                let endpoint = file
-                    .network
-                    .endpoint
-                    .as_deref()
-                    .ok_or_else(|| format!("{mode} network needs endpoint"))?;
-                if let Some(address) = tcp_endpoint(endpoint)? {
-                    format!(
+                ",script=,downscript="
+            };
+            format!(
+                "tap,id=net0,ifname={}{scripts}",
+                interface.replace(',', ",,")
+            )
+        } else {
+            let endpoint = file
+                .network
+                .endpoint
+                .as_deref()
+                .ok_or_else(|| format!("{mode} network needs endpoint"))?;
+            if let Some(address) = tcp_endpoint(endpoint)? {
+                format!(
                     "stream,id=net0,server=off,addr.type=inet,addr.host={},addr.port={},reconnect-ms=1000",
                     address.ip(), address.port()
                 )
-                } else {
-                    // socket_vmnet is a daemon that can restart under the guest.
-                    format!(
-                        "stream,id=net0,server=off,addr.type=unix,addr.path={}{}",
-                        qemu_path_option(&resolve(dir, endpoint)),
-                        if mode == "vmnet" {
-                            ",reconnect-ms=1000"
-                        } else {
-                            ""
-                        }
-                    )
-                }
-            };
-            args.extend(["-netdev".into(), address]);
-            // The adapter takes the machine's mac= from QEMU.
-            args.extend(["-net".into(), "nic,model=sgi-ioc3-eth,netdev=net0".into()]);
-        }
-        "user" if matches!(offering.product.as_str(), "octane" | "octane2") => args.extend([
-            "-netdev".into(),
-            user_network(dir, &file.network.forward),
-            "-net".into(),
-            "nic,model=sgi-ioc3-eth,netdev=net0".into(),
-        ]),
-        "user" => args.extend(["-nic".into(), user_network(dir, &file.network.forward)]),
+            } else {
+                // socket_vmnet is a daemon that can restart under the guest.
+                format!(
+                    "stream,id=net0,server=off,addr.type=unix,addr.path={}{}",
+                    qemu_path_option(&resolve(dir, endpoint)),
+                    if mode == "vmnet" {
+                        ",reconnect-ms=1000"
+                    } else {
+                        ""
+                    }
+                )
+            }
+        }),
         _ => return Err("network mode must be user, none, private, tap or vmnet".into()),
+    };
+    match backend {
+        Some(backend) => args.extend([
+            "-netdev".into(),
+            backend,
+            "-net".into(),
+            nic_option(offering, file),
+        ]),
+        None => args.extend(["-nic".into(), "none".into()]),
     }
     Ok(args)
+}
+
+/// The `-net nic` binding net0 to the machine's default onboard Ethernet.
+/// Its address is the machine's mac= unless the machine list says the
+/// adapter takes its own. A model-less NIC binds the first onboard one, for
+/// a QEMU whose machine list does not name the model.
+fn nic_option(offering: &Offering, file: &MachineFile) -> String {
+    let adapter = offering.default_network();
+    let mut option = "nic".to_string();
+    if let Some(model) = adapter.and_then(|adapter| adapter.nic_model.as_deref()) {
+        option.push_str(&format!(",model={model}"));
+    }
+    option.push_str(",netdev=net0");
+    if let (Some(adapter), Some(identity)) = (adapter, &file.identity) {
+        if let (Some(mac), Some(name)) = (&adapter.mac, &adapter.nic_mac_option) {
+            if !mac.derived {
+                option.push_str(&format!(",{name}={}", identity.mac));
+            }
+        }
+    }
+    option
 }
 
 fn add_drive(args: &mut Vec<String>, dir: &Path, drive: &Drive, index: usize) {
@@ -964,7 +983,7 @@ mod tests {
             Display::None,
         )
         .unwrap();
-        assert!(args.windows(2).any(|pair| pair == ["-nic", expected]));
+        assert!(args.windows(2).any(|pair| pair == ["-netdev", expected]));
 
         let origin2000 = preset(&machines, "origin2000-8").unwrap();
         let mut file = machine(origin2000);
@@ -980,7 +999,49 @@ mod tests {
             Display::None,
         )
         .unwrap();
-        assert!(args.windows(2).any(|pair| pair == ["-nic", expected]));
+        assert!(args.windows(2).any(|pair| pair == ["-netdev", expected]));
+    }
+
+    #[test]
+    fn every_network_mode_binds_the_machine_lists_default_nic() {
+        let machines = crate::test_machines();
+        let nic = |name: &str, mode: &str| {
+            let offer = preset(&machines, name).unwrap();
+            let mut file = machine(offer);
+            file.identity = Some(crate::Identity {
+                mac: "08:00:69:12:34:56".into(),
+            });
+            file.network = Network {
+                mode: mode.into(),
+                endpoint: Some("tcp:127.0.0.1:49173".into()),
+                interface: None,
+                forward: vec![],
+            };
+            let args = arguments(
+                &machines,
+                Path::new("/machine"),
+                &file,
+                offer,
+                Display::None,
+            )
+            .unwrap();
+            let netdev = args.windows(2).find(|pair| pair[0] == "-netdev").unwrap()[1].clone();
+            assert!(netdev.contains(",id=net0"), "{netdev}");
+            args.windows(2).find(|pair| pair[0] == "-net").unwrap()[1].clone()
+        };
+        for mode in ["user", "private"] {
+            assert_eq!(nic("onyx350-vpro", mode), "nic,model=bcm570x,netdev=net0");
+            assert_eq!(
+                nic("origin200-1", mode),
+                "nic,model=sgi-ioc3-eth,netdev=net0"
+            );
+            assert_eq!(
+                nic("octane-impact", mode),
+                "nic,model=sgi-ioc3-eth,netdev=net0"
+            );
+            // A machine list naming no model: bind the first onboard NIC.
+            assert_eq!(nic("origin2000-8", mode), "nic,netdev=net0");
+        }
     }
 
     #[test]

@@ -424,6 +424,14 @@ identity records and gives it to the onboard Ethernet. `create`,
 none; a machine keeps the MAC it has. Private networking and installation
 need it. Without one, QEMU uses its own default address.
 
+Every network mode connects the onboard Ethernet that QEMU's machine list names
+as the machine's default, and `origami show` names it, such as
+`network: user (tg0, BCM5701)` on an Onyx 350 or Tezro, or `(ef0, IOC3)` on
+an IOC3 machine. The Onyx 350 and Tezro PROMs bring the BCM5701 up only with an
+SGI address, so these machines refuse a MAC that does not start `08:00:69`.
+`validate` and `run` refuse an existing machine that has one; set `mac` under
+`[identity]` in its `machine.toml` to an SGI address.
+
 PROMs and media stay outside the repository. Local IP27 and IP35 PROM files
 may be SGI's original images or raw PROM payloads; Octane takes a raw image.
 QEMU checks them when it creates the machine.

@@ -25,6 +25,9 @@
    "overrides": [
     {"property": "mac", "target": "machine"},
     {"property": "r10000-prid", "target": "cpu"}
+   ],
+   "networks": [
+    {"argument": "-netdev ...,id=net0", "default": true, "index": 0, "interface": "ef0", "kind": "ioc3-ethernet", "mac": {"default-address": "08:00:69:12:34:56", "derived": true, "machine-property": "mac", "offset": 0}, "nic-mac-option": "macaddr", "nic-model": "sgi-ioc3-eth", "required": false}
    ]
   },
   {
@@ -161,6 +164,34 @@
     {"property": "flash-select", "target": "machine"},
     {"property": "mac", "target": "machine"},
     {"property": "r10000-prid", "target": "cpu"}
+   ],
+   "networks": [
+    {"argument": "-netdev ...,id=net0", "default": true, "index": 0, "interface": "ef0", "kind": "ioc3-ethernet", "mac": {"default-address": "08:00:69:12:34:56", "derived": true, "machine-property": "mac", "offset": 0}, "nic-mac-option": "macaddr", "nic-model": "sgi-ioc3-eth", "required": false}
+   ]
+  },
+  {
+   "product": "onyx350", "topology": "onyx350-compat", "nodes": 1, "smp": 4, "cpus-per-node": [4],
+   "machine-options": "onyx350,topology=onyx350-compat,nodes=1", "default-cpu-model": "R16000",
+   "processor": {"id": "r16000-800mhz", "part": "R16000", "clock-hz": 800000000, "cache-mib": 8},
+   "memory-per-node-mib": {"accepted": [8192], "default": 8192},
+   "needs-debug-leds-off": false,
+   "init-inputs": [{"kind": "ip35-prom", "name": "boot-prom", "required": true}],
+   "storage": [
+    {"name": "node0-flash", "size": 16777216, "initial": "boot-prom", "read-only": false},
+    {"name": "nvram0", "size": 32768, "initial": "zero", "read-only": false},
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+   ],
+   "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]}],
+   "consoles": [
+    {"argument": "-serial chardev:l1", "kind": "console", "node": 0},
+    {"argument": "-serial chardev:ioc4_serial_0", "kind": "second-port", "node": 0}
+   ],
+   "hardware-inputs": [],
+   "overrides": [
+    {"property": "mac", "target": "machine"}
+   ],
+   "networks": [
+    {"argument": "-netdev ...,id=net0", "default": true, "index": 0, "interface": "tg0", "kind": "bcm5701-ethernet", "mac": {"default-address": "08:00:69:12:34:56", "derived": true, "machine-property": "mac", "offset": 0, "required-prefix": "08:00:69"}, "nic-mac-option": "macaddr", "nic-model": "bcm570x", "required": false}
    ]
   }
  ],
