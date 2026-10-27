@@ -15,10 +15,10 @@ Somehow, IRIX boots.
 My personal SGI era is the post-Indy, Origin/Octane/Onyx systems. So that's what I built.
 
 - **SN0:** Origin 200, Origin 2000, Onyx2.
-- **SN1:** Origin 300, Fuel (WIP).
-- **Other:** Octane / Octane2 (WIP).
+- **SN1:** Origin 300, Onyx 350, Fuel, Tezro.
+- **Other:** Octane / Octane2.
 
-Planning to implement Origin 350/Chimera (Tezro) as well as the Origin 3000 NUMAFlex "brick" based systems.
+Planning to implement the Origin 3000 NUMAFlex "brick" based systems.
 
 | Hardware | Emulated bits |
 |---|---|

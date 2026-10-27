@@ -50,3 +50,13 @@ Performer demo, not general OpenGL compatibility.
 - QEMU revision: `c6430d2dd712da4fc89133ed6511cf161647b317`.
 - Capture: `ivview_texture-b.png`, 29 September 2026.
 - Full 1280 × 1024 desktop with the Inventor viewer, copied unchanged.
+
+## install-prom-menu.png, install-remote-directory.png, install-inst-admin-source.png, install-first-desktop.png
+
+- Machine: `octane2-vpro`, Octane2 with VPro V12, a graphical IRIX 6.5.30
+  install over the private network from Instigator.
+- Captures taken with QMP `screendump`, in install order. The pointer is
+  not drawn in the capture.
+- The prompt capture is the miniroot's `Inst>` after `admin source`.
+- The desktop capture is the first login as `root`, with `hostname` and
+  `uname -R` in the Console window.

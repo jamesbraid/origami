@@ -162,9 +162,8 @@ archive is needed.
 The runnable tree contains `origami` and `instigator` under `bin/`, QEMU,
 `qemu-img` and `qemu-sgi-machine-init` under `libexec/origami/` (with the
 MinGW thread DLL on Windows) and QEMU keymaps under
-`share/origami/qemu/`. `origami --version` (also `origami version`) prints
-the version and Git identity carried by each executable. QEMU and Instigator
-are queried at their launch paths, including `ORIGAMI_RUNTIME_DIR` for QEMU.
+`share/origami/qemu/`. `origami --version` queries QEMU and Instigator at
+their launch paths, including `ORIGAMI_RUNTIME_DIR` for QEMU.
 Replacing a binary changes its reported identity. Local edits are marked
 dirty, and unavailable components are reported on their own lines.
 
