@@ -233,10 +233,9 @@ running if `inst` reports a conflict or a failed command, if the
 post-install commands do not finish, if `quit` prints an `lboot` message, or
 if a step does not finish. Inspect the serial output, then continue by hand.
 
-The same scripts can be loaded manually with
-`admin source 10.98.0.2:/irix.cmds` for the profile alone,
-`admin source 10.98.0.2:/addons.cmds` or
-`admin source 10.98.0.2:/addon-NAME.cmds`. After the last `go`, each script
+The same script can be loaded manually with
+`admin source 10.98.0.2:/irix.cmds`, which installs the profile and every
+add-on. After the last `go`, it
 runs `chkconfig -f autoconfig_ipaddress on` and `nvram AutoLoad Yes` in the
 installed system, so the guest asks for its address by DHCP and the PROM boots
 IRIX without waiting at its menu, then prints

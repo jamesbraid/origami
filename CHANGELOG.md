@@ -10,6 +10,8 @@
   your own QEMU options.
 - `origami nvram DIR` reads and changes a stopped machine's PROM
   environment, such as `console` and `AutoLoad`.
+- `/irix.cmds` installs the machine's add-ons too, so an Origin 200 with
+  RAD4 gets its X server from a manual install.
 
 ## 0.4.0
 

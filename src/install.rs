@@ -107,9 +107,11 @@ fn recipe(profile: &str) -> Result<InstallRecipe> {
     Ok(recipe)
 }
 
+/// The script the user guide names. It installs the profile, then every
+/// configured add-on in one second pass, so a machine whose graphics need a
+/// driver add-on, such as RAD4, gets it from the same entry point.
 const STANDARD_INSTALL_SCRIPT: &str = "irix";
-/// The script that installs the profile, then every configured add-on in
-/// one second pass.
+/// The same two passes under the name earlier releases gave them.
 const ALL_ADDONS_SCRIPT: &str = "addons";
 
 /// Commands every install script runs in the installed system after its
@@ -475,11 +477,13 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         all_install.extend(addon.install.iter().cloned());
     }
     if !all_sets.is_empty() {
+        let then = json!({ "sets": all_sets, "install": all_install });
+        scripts[0]["then"] = then.clone();
         scripts.push(json!({
             "name": ALL_ADDONS_SCRIPT,
             "install": recipe.install,
             "keep": recipe.keep,
-            "then": { "sets": all_sets, "install": all_install },
+            "then": then,
             "post_install": POST_INSTALL,
         }));
     }
@@ -883,15 +887,11 @@ fn install_script(media: &InstallMedia, addon: Option<&str>) -> Result<(String, 
         // The add-on script installs IRIX, then the add-on in a second go.
         return Ok((format!("admin source 10.98.0.2:/addon-{name}.cmds\n"), 2));
     }
-    if !media.addons.is_empty() {
-        return Ok((
-            format!("admin source 10.98.0.2:/{ALL_ADDONS_SCRIPT}.cmds\n"),
-            2,
-        ));
-    }
+    // irix.cmds runs a second go for the add-ons when any are configured.
+    let passes = if media.addons.is_empty() { 1 } else { 2 };
     Ok((
         format!("admin source 10.98.0.2:/{STANDARD_INSTALL_SCRIPT}.cmds\n"),
-        1,
+        passes,
     ))
 }
 
@@ -1305,6 +1305,7 @@ mod tests {
         assert_eq!(script["install"], irix["install"]);
         assert_eq!(script["then"]["sets"], json!(["addon-tablet"]));
         assert_eq!(script["then"]["install"], json!(["tablet.sw.helper"]));
+        assert_eq!(irix["then"], script["then"]);
 
         // With no --addon, install-apply installs every add-on together.
         let mut two = media.clone();
@@ -1323,9 +1324,10 @@ mod tests {
         );
         assert_eq!(all["then"]["install"][0], "tablet.sw.helper");
         assert_eq!(all["then"]["install"][1], "c++_dev");
+        assert_eq!(document["install_scripts"][0]["then"], all["then"]);
         assert_eq!(
             install_script(&two, None).unwrap(),
-            ("admin source 10.98.0.2:/addons.cmds\n".to_string(), 2)
+            ("admin source 10.98.0.2:/irix.cmds\n".to_string(), 2)
         );
         for script in [irix, script, all] {
             assert_eq!(
@@ -1661,8 +1663,12 @@ mod tests {
             )
             .unwrap();
             let media = read_media(&dir).unwrap();
+            let document = config(&dir, &file, &media).unwrap();
+            let irix = &document["install_scripts"][0];
+            assert_eq!(irix["name"], "irix");
             if graphics == "none" {
                 assert!(media.addons.is_empty());
+                assert!(irix.get("then").is_none());
                 continue;
             }
             let addon = &media.addons[0];
@@ -1676,6 +1682,14 @@ mod tests {
             assert_eq!(
                 install_script(&media, Some("rad4")).unwrap(),
                 ("admin source 10.98.0.2:/addon-rad4.cmds\n".to_string(), 2)
+            );
+            // irix.cmds is the script the user guide names, so on a RAD4
+            // machine it must install the driver too.
+            assert_eq!(irix["then"]["sets"], json!(["addon-rad4"]));
+            assert_eq!(irix["then"]["install"], json!(addon.install));
+            assert_eq!(
+                install_script(&media, None).unwrap(),
+                ("admin source 10.98.0.2:/irix.cmds\n".to_string(), 2)
             );
         }
     }
