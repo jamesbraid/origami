@@ -417,27 +417,10 @@ board and processor values, such as Fuel's `board-id-word` or Octane2's
 `r12000-prid`. `create --set PROPERTY=VALUE` overrides one; QEMU checks the
 value. An unknown property lists the ones the preset accepts.
 
-A machine has one MAC, stored under `[identity]` in `machine.toml` and passed
-to QEMU as the machine's `mac` property. QEMU reports it in the machine's
-identity records and gives it to the onboard Ethernet. `create`,
-`network-set` and `install-init` accept `--mac` to set it when the machine has
-none; a machine keeps the MAC it has. Private networking and installation
-need it. `network-set` (private, tap or vmnet) and `install-init` assign a
-generated MAC to a machine that has none.
-
-`create` without `--mac` picks a random address with the prefix the machine's
-PROM needs, leaving room above it for a second onboard NIC that QEMU derives
-from it. An address held by another machine in the same parent directory or the
-current directory, derived ones included, is never reused, and an explicit
-`--mac` that one holds is refused, naming that machine. `validate` warns about a
-duplicate without refusing.
-
-Every network mode connects the onboard Ethernet that QEMU's machine list names
-as the machine's default, and `origami show` names it, such as
-`network: user (tg0, BCM5701)` on an Onyx 350 or Tezro. A MAC must start with
-the prefix the machine list gives for the machine, `08:00:69` where it gives
-none; the Onyx 350 and Tezro PROMs do not open the interface otherwise. `validate` and `run` refuse an
-existing machine whose `[identity] mac` does not.
+Each machine has one SGI MAC (`08:00:69:…`) under `[identity]` in
+`machine.toml`. `create` picks a unique one, or takes `--mac`. Other machines
+in the same directory are checked for duplicates, and a non-SGI MAC is
+refused.
 
 PROMs and media stay outside the repository. Local IP27 and IP35 PROM files
 may be SGI's original images or raw PROM payloads; Octane takes a raw image.

@@ -12,10 +12,9 @@
   environment, such as `console` and `AutoLoad`.
 - `/irix.cmds` installs the machine's add-ons too, so an Origin 200 with
   RAD4 gets its X server from a manual install.
-- The Onyx 350 and Tezro now reach the network: each mode connects the
-  onboard Ethernet QEMU names (their BCM5701, `tg0`), and `show` names it.
-  `create` gives each machine its own `08:00:69` MAC and refuses one a
-  neighbouring machine holds or a PROM would reject; `validate` warns about duplicates.
+- Onyx 350 and Tezro networking works: Origami connects each machine's
+  onboard Ethernet.
+- `create` gives each machine a unique SGI MAC, and non-SGI MACs are refused.
 
 ## 0.4.0
 
