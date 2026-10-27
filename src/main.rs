@@ -367,9 +367,18 @@ fn command(action: Action) -> Result<()> {
                 forward: file.network.forward.clone(),
             };
             let machines = machines()?;
-            origami::set_machine_mac(&machines, &dir, &mut file, mac.as_deref())?;
+            // User and none networking run without one; the rest need it.
+            let assigned = if matches!(mode, Private | Tap | Vmnet) {
+                origami::ensure_machine_mac(&machines, &dir, &mut file, mac.as_deref())?
+            } else {
+                origami::set_machine_mac(&machines, &dir, &mut file, mac.as_deref())?;
+                None
+            };
             validate(&machines, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+            if let Some(mac) = assigned {
+                println!("assigned MAC {mac}");
+            }
             println!("network: {}", mode.as_str());
             if mode != NetworkMode::User && !file.network.forward.is_empty() {
                 println!("forwards inactive in {} mode", mode.as_str());

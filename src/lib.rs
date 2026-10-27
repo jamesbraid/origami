@@ -461,6 +461,27 @@ pub fn set_machine_mac(
     }
 }
 
+/// Like `set_machine_mac`, for a change that needs the machine to have a MAC:
+/// a machine with none and none asked for gets a generated one that no
+/// neighbouring machine holds. Returns the address it generated.
+pub fn ensure_machine_mac(
+    machines: &Machines,
+    dir: &Path,
+    file: &mut MachineFile,
+    mac: Option<&str>,
+) -> Result<Option<String>> {
+    if mac.is_some() || file.identity.is_some() {
+        set_machine_mac(machines, dir, file, mac)?;
+        return Ok(None);
+    }
+    let offer = offering(machines, &file.machine)?;
+    let generated = mac::assign(machines, dir, offer, None)?;
+    if let Some(mac) = &generated {
+        file.identity = Some(Identity { mac: mac.clone() });
+    }
+    Ok(generated)
+}
+
 pub fn valid_mac(mac: &str) -> bool {
     let parts: Vec<_> = mac.split(':').collect();
     parts.len() == 6
@@ -1029,5 +1050,67 @@ mod tests {
         .unwrap();
         validate(&machines, &machine, &file).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_machine_without_a_mac_is_assigned_one_where_networking_needs_it() {
+        let root = tempfile::tempdir().unwrap();
+        let machines = test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
+        let tool = test_support::init_tool(root.path());
+        let prom = root.path().join("prom.img");
+        let init = MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: None,
+        };
+        let machine = root.path().join("old");
+        create_configured(
+            &machine,
+            offer,
+            &init,
+            None,
+            None,
+            vec![],
+            Default::default(),
+        )
+        .unwrap();
+        let other = root.path().join("other");
+        create_configured(
+            &other,
+            offer,
+            &init,
+            None,
+            Some("08:00:69:01:02:03"),
+            vec![],
+            Default::default(),
+        )
+        .unwrap();
+        let mut file = read_machine(&machine).unwrap();
+        file.network = Network {
+            mode: "private".into(),
+            endpoint: Some("tcp:127.0.0.1:4242".into()),
+            interface: None,
+            forward: vec![],
+        };
+        let mac = ensure_machine_mac(&machines, &machine, &mut file, None)
+            .unwrap()
+            .unwrap();
+        assert!(
+            mac.starts_with("08:00:69:") && mac != "08:00:69:01:02:03",
+            "{mac}"
+        );
+        assert_eq!(file.identity.as_ref().unwrap().mac, mac);
+        validate(&machines, &machine, &file).unwrap();
+        // It keeps that address, and an explicit duplicate is still refused.
+        assert_eq!(
+            ensure_machine_mac(&machines, &machine, &mut file, None).unwrap(),
+            None
+        );
+        file.identity = None;
+        assert!(
+            ensure_machine_mac(&machines, &machine, &mut file, Some("08:00:69:01:02:03")).is_err()
+        );
     }
 }

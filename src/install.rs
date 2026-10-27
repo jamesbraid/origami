@@ -271,16 +271,22 @@ fn init_sources(
         interface: None,
         forward: old_network.forward.clone(),
     };
-    if let Err(error) = crate::set_machine_mac(machines, dir, file, mac)
-        .and_then(|()| crate::validate(machines, dir, file))
+    let assigned = match crate::ensure_machine_mac(machines, dir, file, mac)
+        .and_then(|assigned| crate::validate(machines, dir, file).map(|_| assigned))
     {
-        file.network = old_network;
-        file.identity = old_identity;
-        return Err(error);
-    }
+        Ok(assigned) => assigned,
+        Err(error) => {
+            file.network = old_network;
+            file.identity = old_identity;
+            return Err(error);
+        }
+    };
     fs::create_dir_all(&install_dir)?;
     fs::write(&manifest_path, toml::to_string_pretty(&manifest)?)?;
     fs::write(dir.join("machine.toml"), toml::to_string_pretty(file)?)?;
+    if let Some(mac) = assigned {
+        println!("assigned MAC {mac}");
+    }
     Ok(manifest_path)
 }
 

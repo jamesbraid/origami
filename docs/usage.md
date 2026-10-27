@@ -423,8 +423,9 @@ identity records and gives it to the onboard Ethernet. `create`,
 `network-set` and `install-init` accept `--mac` to set it when the machine has
 none; a machine keeps the MAC it has. Private networking and installation
 need it. A machine created by an earlier release may have none; it then runs
-with QEMU's default address, which is harmless in user networking, and
-`network-set --mac` gives it one.
+with QEMU's default address, which is harmless in user networking. When
+`network-set` (private, tap or vmnet) or `install-init` needs a MAC and the
+machine has none, it assigns a generated one, as `create` does, and says so.
 
 `create` without `--mac` picks a random `08:00:69` address, leaving room above
 it for a second onboard NIC that QEMU derives from it. It looks at the other

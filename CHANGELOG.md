@@ -19,7 +19,8 @@
   reject other addresses.
 - `create` now gives each new machine its own random `08:00:69` MAC instead of
   leaving QEMU's shared default, and refuses a `--mac` that a machine beside
-  it already holds. `validate` warns about duplicates.
+  it already holds. `validate` warns about duplicates. `network-set` and
+  `install-init` assign one the same way to an older machine that has none.
 
 ## 0.4.0
 
