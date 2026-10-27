@@ -180,8 +180,7 @@ fn generate_from(
         .checked_sub(reach)
         .filter(|room| *room > 0)
         .ok_or("the machine list derives NICs too far from the machine MAC")?;
-    let prefix = offering
-        .mac_prefix()
+    let prefix = Some(offering.mac_prefix())
         .filter(|prefix| prefix.len() == SGI_OUI.len())
         .unwrap_or(SGI_OUI);
     for _ in 0..256 {

@@ -435,8 +435,8 @@ duplicate without refusing.
 Every network mode connects the onboard Ethernet that QEMU's machine list names
 as the machine's default, and `origami show` names it, such as
 `network: user (tg0, BCM5701)` on an Onyx 350 or Tezro. A MAC must start with
-the prefix the machine list gives for the machine; the Onyx 350 and Tezro
-PROMs do not open the interface otherwise. `validate` and `run` refuse an
+the prefix the machine list gives for the machine, `08:00:69` where it gives
+none; the Onyx 350 and Tezro PROMs do not open the interface otherwise. `validate` and `run` refuse an
 existing machine whose `[identity] mac` does not.
 
 PROMs and media stay outside the repository. Local IP27 and IP35 PROM files

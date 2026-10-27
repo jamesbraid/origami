@@ -170,23 +170,25 @@ impl Offering {
 
     /// The prefix the machine's addresses must start with: the one the
     /// machine list says its PROM needs, else the one its default address
-    /// has. A machine whose NICs take their own addresses has none.
-    pub fn mac_prefix(&self) -> Option<&str> {
-        let mac = self.default_network()?.mac.as_ref()?;
-        mac.required_prefix.as_deref().or_else(|| {
-            mac.default_address
-                .as_deref()
-                .and_then(|address| address.get(..SGI_OUI.len()))
-        })
+    /// has, else SGI's own.
+    pub fn mac_prefix(&self) -> &str {
+        self.default_network()
+            .and_then(|adapter| adapter.mac.as_ref())
+            .and_then(|mac| {
+                mac.required_prefix.as_deref().or_else(|| {
+                    mac.default_address
+                        .as_deref()
+                        .and_then(|address| address.get(..SGI_OUI.len()))
+                })
+            })
+            .unwrap_or(SGI_OUI)
     }
 }
 
 /// Refuse a machine MAC the machine's PROM does not accept: one outside the
 /// prefix the machine list names.
 pub fn check_mac(offering: &Offering, mac: &str) -> Result<()> {
-    let Some(prefix) = offering.mac_prefix() else {
-        return Ok(());
-    };
+    let prefix = offering.mac_prefix();
     if mac
         .get(..prefix.len())
         .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
@@ -960,17 +962,18 @@ mod tests {
     fn the_machine_list_gives_the_mac_prefix_and_property() {
         let machines = test_machines();
         let mut offer = preset(&machines, "onyx350-vpro").unwrap().clone();
-        assert_eq!(offer.mac_prefix(), Some("08:00:69"));
+        assert_eq!(offer.mac_prefix(), "08:00:69");
         assert_eq!(offer.mac_property(), "mac");
         // A required prefix wins over the default address's.
         let mac = offer.networks[0].mac.as_mut().unwrap();
         mac.required_prefix = Some("08:00:6a".into());
         mac.machine_property = Some("identity-mac".into());
-        assert_eq!(offer.mac_prefix(), Some("08:00:6a"));
+        assert_eq!(offer.mac_prefix(), "08:00:6a");
         assert_eq!(offer.mac_property(), "identity-mac");
         assert!(check_mac(&offer, "08:00:69:00:00:01").is_err());
         check_mac(&offer, "08:00:6A:00:00:01").unwrap();
-        // NICs that take their own addresses name no prefix to check.
+        // NICs that take their own addresses, as on the Origin 300 NUMAlink
+        // topologies, still need SGI's prefix.
         let mac = offer.networks[0].mac.as_mut().unwrap();
         *mac = AdapterMac {
             derived: false,
@@ -979,8 +982,9 @@ mod tests {
             default_address: None,
             required_prefix: None,
         };
-        assert_eq!(offer.mac_prefix(), None);
-        check_mac(&offer, "52:54:00:12:34:56").unwrap();
+        assert_eq!(offer.mac_prefix(), "08:00:69");
+        assert!(check_mac(&offer, "52:54:00:12:34:56").is_err());
+        check_mac(&offer, "08:00:69:00:00:01").unwrap();
     }
 
     #[test]
