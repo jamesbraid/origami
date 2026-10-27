@@ -12,15 +12,10 @@
   environment, such as `console` and `AutoLoad`.
 - `/irix.cmds` installs the machine's add-ons too, so an Origin 200 with
   RAD4 gets its X server from a manual install.
-- The Onyx 350 and Tezro now reach the network: every network mode connects
-  the onboard Ethernet QEMU's machine list names (their BCM5701, `tg0`)
-  instead of an IOC3 they do not have, and `show` names the interface. Every
-  machine now refuses a MAC that does not start `08:00:69`, since SGI PROMs
-  reject other addresses.
-- `create` now gives each new machine its own random `08:00:69` MAC instead of
-  leaving QEMU's shared default, and refuses a `--mac` that a machine beside
-  it already holds. `validate` warns about duplicates. `network-set` and
-  `install-init` assign one the same way to an older machine that has none.
+- The Onyx 350 and Tezro now reach the network: each mode connects the
+  onboard Ethernet QEMU names (their BCM5701, `tg0`), and `show` names it.
+  `create` gives each machine its own `08:00:69` MAC and refuses one a
+  neighbouring machine holds or a PROM would reject; `validate` warns about duplicates.
 
 ## 0.4.0
 

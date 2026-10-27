@@ -284,7 +284,7 @@ pub fn arguments(
         target.push_str(&format!(",{key}={value}"));
     }
     if let Some(identity) = &file.identity {
-        machine.push_str(&format!(",mac={}", identity.mac));
+        machine.push_str(&format!(",{}={}", offering.mac_property(), identity.mac));
     }
     if offering.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");

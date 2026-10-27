@@ -138,31 +138,64 @@ impl NetworkAdapter {
 /// Where an onboard Ethernet's address comes from.
 #[derive(Clone, Debug, Deserialize)]
 pub struct AdapterMac {
-    /// True when it follows the machine's `mac=`; false when the `-net nic`
-    /// sets it.
+    /// True when it follows the machine's identity address; false when the
+    /// `-net nic` sets it.
     #[serde(default)]
     pub derived: bool,
-    /// What this NIC's address adds to the machine's MAC when `derived`.
+    /// The `-M` property that sets the identity address, when `derived`.
+    #[serde(rename = "machine-property", default)]
+    pub machine_property: Option<String>,
+    /// What this NIC's address adds to the identity address, when `derived`.
     #[serde(default)]
-    pub offset: u8,
+    pub offset: u32,
+    /// This NIC's address when the identity address is not set.
+    #[serde(rename = "default-address", default)]
+    pub default_address: Option<String>,
+    /// The prefix the PROM needs on this NIC's address.
+    #[serde(rename = "required-prefix", default)]
+    pub required_prefix: Option<String>,
 }
 
-/// The leading bytes of every address SGI assigned to its hardware.
-pub(crate) const SGI_MAC_PREFIX: &str = "08:00:69";
+/// The first three bytes of an address QEMU generates for a NIC, SGI's own.
+pub(crate) const SGI_OUI: &str = "08:00:69";
 
-/// Refuse a machine MAC outside SGI's range. SGI PROMs reject other
-/// addresses: an IOC3 prints "bad ethernet address" and a BCM5701 fails to
-/// open.
-pub fn check_sgi_mac(product: &str, mac: &str) -> Result<()> {
+impl Offering {
+    /// The `-M` property that sets the machine's identity address.
+    pub fn mac_property(&self) -> &str {
+        self.default_network()
+            .and_then(|adapter| adapter.mac.as_ref())
+            .and_then(|mac| mac.machine_property.as_deref())
+            .unwrap_or("mac")
+    }
+
+    /// The prefix the machine's addresses must start with: the one the
+    /// machine list says its PROM needs, else the one its default address
+    /// has. A machine whose NICs take their own addresses has none.
+    pub fn mac_prefix(&self) -> Option<&str> {
+        let mac = self.default_network()?.mac.as_ref()?;
+        mac.required_prefix.as_deref().or_else(|| {
+            mac.default_address
+                .as_deref()
+                .and_then(|address| address.get(..SGI_OUI.len()))
+        })
+    }
+}
+
+/// Refuse a machine MAC the machine's PROM does not accept: one outside the
+/// prefix the machine list names.
+pub fn check_mac(offering: &Offering, mac: &str) -> Result<()> {
+    let Some(prefix) = offering.mac_prefix() else {
+        return Ok(());
+    };
     if mac
-        .get(..SGI_MAC_PREFIX.len())
-        .is_some_and(|start| start.eq_ignore_ascii_case(SGI_MAC_PREFIX))
+        .get(..prefix.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
     {
         return Ok(());
     }
     Err(format!(
-        "{product} needs an SGI Ethernet address starting {SGI_MAC_PREFIX}, \
-         not {mac}; SGI PROMs refuse other addresses"
+        "{} needs an Ethernet address starting {prefix}, not {mac}; its PROM refuses other addresses",
+        listing::machine_name(&offering.topology)
     )
     .into())
 }
@@ -443,7 +476,7 @@ pub fn set_machine_mac(
         return Err("--mac must contain six hexadecimal bytes".into());
     }
     if let Ok(offer) = offering(machines, &file.machine) {
-        check_sgi_mac(&offer.product, mac)?;
+        check_mac(offer, mac)?;
     }
     let mac = mac.to_ascii_lowercase();
     match &file.identity {
@@ -648,9 +681,9 @@ pub fn validate<'a>(
         }
         // An older machine may hold an address its PROM refuses. Say so,
         // rather than change the identity an installed guest knows.
-        check_sgi_mac(&offering.product, &identity.mac).map_err(|error| {
+        check_mac(offering, &identity.mac).map_err(|error| {
             format!(
-                "{error}. Set [identity] mac in {} to an SGI address",
+                "{error}. Change [identity] mac in {}",
                 dir.join("machine.toml").display()
             )
         })?;
@@ -713,7 +746,7 @@ pub fn validate_create_inputs(
         return Err(format!("{} takes no machine MAC", offering.topology).into());
     }
     if let Some(mac) = mac {
-        check_sgi_mac(&offering.product, mac)?;
+        check_mac(offering, mac)?;
     }
     Ok(())
 }
@@ -924,20 +957,47 @@ mod tests {
     }
 
     #[test]
+    fn the_machine_list_gives_the_mac_prefix_and_property() {
+        let machines = test_machines();
+        let mut offer = preset(&machines, "onyx350-vpro").unwrap().clone();
+        assert_eq!(offer.mac_prefix(), Some("08:00:69"));
+        assert_eq!(offer.mac_property(), "mac");
+        // A required prefix wins over the default address's.
+        let mac = offer.networks[0].mac.as_mut().unwrap();
+        mac.required_prefix = Some("08:00:6a".into());
+        mac.machine_property = Some("identity-mac".into());
+        assert_eq!(offer.mac_prefix(), Some("08:00:6a"));
+        assert_eq!(offer.mac_property(), "identity-mac");
+        assert!(check_mac(&offer, "08:00:69:00:00:01").is_err());
+        check_mac(&offer, "08:00:6A:00:00:01").unwrap();
+        // NICs that take their own addresses name no prefix to check.
+        let mac = offer.networks[0].mac.as_mut().unwrap();
+        *mac = AdapterMac {
+            derived: false,
+            machine_property: None,
+            offset: 0,
+            default_address: None,
+            required_prefix: None,
+        };
+        assert_eq!(offer.mac_prefix(), None);
+        check_mac(&offer, "52:54:00:12:34:56").unwrap();
+    }
+
+    #[test]
     fn every_machine_refuses_a_non_sgi_address() {
         let machines = test_machines();
         let absent = Path::new("/nonexistent/origami-mac-prefix");
         let onyx = preset(&machines, "onyx350-vpro").unwrap();
         let origin = preset(&machines, "origin200-1").unwrap();
-        for (offer, name) in [(onyx, "onyx350"), (origin, "origin200")] {
+        for (offer, name) in [(onyx, "Onyx 350"), (origin, "Origin 200")] {
             let error = validate_create_inputs(absent, offer, None, Some("52:54:00:12:34:56"))
                 .unwrap_err()
                 .to_string();
             assert_eq!(
                 error,
                 format!(
-                    "{name} needs an SGI Ethernet address starting 08:00:69, \
-                     not 52:54:00:12:34:56; SGI PROMs refuse other addresses"
+                    "{name} needs an Ethernet address starting 08:00:69, \
+                     not 52:54:00:12:34:56; its PROM refuses other addresses"
                 )
             );
             validate_create_inputs(absent, offer, None, Some("08:00:69:AB:CD:EF")).unwrap();
@@ -960,6 +1020,7 @@ mod tests {
             network: Network::default(),
             pipe: vec![],
             drive: vec![],
+            qemu: Default::default(),
         };
         let error = set_machine_mac(
             &machines,
@@ -970,7 +1031,7 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(
-            error.contains("needs an SGI Ethernet address starting 08:00:69"),
+            error.contains("needs an Ethernet address starting 08:00:69"),
             "{error}"
         );
         assert!(file.identity.is_none());

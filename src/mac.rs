@@ -7,7 +7,7 @@
 //! largest offset. Machines are compared when they sit in the same parent
 //! directory, which is where `create` puts them, or in the working directory.
 
-use crate::{offering, MachineFile, Machines, Offering, Result, SGI_MAC_PREFIX};
+use crate::{offering, MachineFile, Machines, Offering, Result, SGI_OUI};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -34,7 +34,7 @@ impl Claim {
 }
 
 /// The largest offset the machine list derives a NIC at from the machine MAC.
-pub fn span(offering: &Offering) -> u8 {
+pub fn span(offering: &Offering) -> u32 {
     offering
         .networks
         .iter()
@@ -175,16 +175,21 @@ fn generate_from(
     claims: &[Claim],
     mut random: impl FnMut() -> Result<[u8; 3]>,
 ) -> Result<String> {
-    let room = 256 - u16::from(span(offering));
+    let reach = span(offering);
+    let room = 256u32
+        .checked_sub(reach)
+        .filter(|room| *room > 0)
+        .ok_or("the machine list derives NICs too far from the machine MAC")?;
+    let prefix = offering
+        .mac_prefix()
+        .filter(|prefix| prefix.len() == SGI_OUI.len())
+        .unwrap_or(SGI_OUI);
     for _ in 0..256 {
         let random = random()?;
-        let low = u8::try_from(u16::from(random[2]) % room).unwrap();
-        let mac = format!(
-            "{SGI_MAC_PREFIX}:{:02x}:{:02x}:{low:02x}",
-            random[0], random[1]
-        );
+        let low = u8::try_from(u32::from(random[2]) % room).unwrap();
+        let mac = format!("{prefix}:{:02x}:{:02x}:{low:02x}", random[0], random[1]);
         let first = number(&mac).unwrap();
-        if conflict(claims, first, first + u64::from(span(offering))).is_none() {
+        if conflict(claims, first, first + u64::from(reach)).is_none() {
             return Ok(mac);
         }
     }
@@ -248,7 +253,7 @@ mod tests {
         dir
     }
 
-    fn with_offset(offset: u8) -> Offering {
+    fn with_offset(offset: u32) -> Offering {
         let machines = test_machines();
         let mut offer = preset(&machines, "origin200-1").unwrap().clone();
         offer.networks[0].mac.as_mut().unwrap().offset = offset;

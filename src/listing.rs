@@ -27,7 +27,7 @@ const NAMES: &[(&str, &str)] = &[
     ("tezro-tower-multi", "Tezro"),
 ];
 
-fn machine_name(topology: &str) -> &str {
+pub(crate) fn machine_name(topology: &str) -> &str {
     NAMES
         .iter()
         .find(|(name, _)| *name == topology)
@@ -343,6 +343,7 @@ mod tests {
 PRESET         MACHINE           CPUS  GRAPHICS
 origin200-1    Origin 200           1  none
 origin2000-8   Origin 2000 rack     8  none
+onyx350-vpro   Onyx 350             4  VPro V12
 octane-impact  Octane               1  SI
 fuel-1         Fuel                 1  VPro V12
 
