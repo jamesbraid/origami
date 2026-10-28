@@ -1,22 +1,35 @@
 # Changelog
 
-## Unreleased
+## 0.4.1
 
-- `origami machines` prints one table of the presets, and
-  `origami machines PRESET` or `--all` shows a preset's graphics choices,
-  slots, refusals and processor modules, in place of the long listing.
-- `show-command` prints a QEMU command you can copy, edit and run.
-  `[qemu] extra-args` in `machine.toml` and `--qemu-arg` on `run` append
-  your own QEMU options.
-- `origami nvram DIR` reads and changes a stopped machine's PROM
-  environment, such as `console` and `AutoLoad`.
-- `/irix.cmds` installs the machine's add-ons too, so an Origin 200 with
-  RAD4 gets its X server from a manual install.
-- Onyx 350 and Tezro networking works: Origami connects each machine's
-  onboard Ethernet.
-- `create` gives each machine a unique SGI MAC, and non-SGI MACs are refused.
-- `install-check` probes remote install media with one request per URL
-  instead of reading it. `install-check --full` reads everything.
+Install IRIX on any graphics machine from its own console: the user guide
+now walks through it with screenshots. This release also fixes what 0.4.0
+left broken. Octane with SI shows its console, the Onyx 350 and Tezro
+reach the network, and the VPro pointer is visible. VPro and
+InfiniteReality are faster.
+
+- Fixed:
+  - Octane and Octane2 with SI no longer start to a black screen.
+  - The Onyx 350 and Tezro connect their onboard Ethernet.
+  - A new Onyx 350 starts on its graphics console.
+  - The VPro pointer shows in the PROM and in X.
+  - `/irix.cmds` installs the machine's add-ons too, so an Origin 200
+    with RAD4 gets its X server.
+- Faster:
+  - The VPro textport scrolls about 4x faster.
+  - Fuel, Tezro and Onyx 350 keep normal guest speed under heavy GL.
+  - InfiniteReality texture loads are about 11x faster.
+- New:
+  - `origami nvram DIR` reads and changes a stopped machine's PROM
+    environment, such as `console` and `AutoLoad`.
+  - `show-command` prints a QEMU command you can copy, edit and run, and
+    `[qemu] extra-args` or `--qemu-arg` add your own options.
+  - `origami machines` prints one table of the presets; `origami
+    machines PRESET` shows the detail.
+  - `install-check` probes remote media instead of downloading it.
+  - `create` gives each machine a unique SGI MAC. Non-SGI MACs are
+    refused.
+- QEMU updated to 319cb5227a.
 
 ## 0.4.0
 
