@@ -229,8 +229,8 @@ Press `5` for the Command Monitor, then start the disk formatter:
 boot -f bootp():/6.5.30/stand/fx.64
 ```
 
-`fx` starts in read-only safe mode. Press Enter at the three prompts,
-device name, controller and drive. It builds a default label. Then type
+Press Enter at each of `fx`'s four prompts: extended mode, device name,
+controller and drive. It builds a default label. Then type
 `exit` and press Enter at `write out changes? (yes)`. This erases the disk.
 
 ### 5. Start the installer
