@@ -94,7 +94,7 @@ class ProductSmoke(unittest.TestCase):
             prom.write_bytes(struct.pack(">II", 0x1000FFFF, 0) + bytes(1024 * 1024 - 8))
             machine = root / "remote install machine"
             self.cli("create", machine, "--preset", "origin200-1", "--prom", prom)
-            self.cli("install-init", machine, "--mac", "08:00:69:12:34:56")
+            self.cli("install-init", machine)
             media = tomllib.loads((machine / "install/media.toml").read_text())
             self.assertEqual(len(media["media"]), 10)
             self.assertTrue({"devlibs", "devfoundation"}.issubset(media["media"]))
