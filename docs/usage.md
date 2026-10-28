@@ -247,7 +247,7 @@ The miniroot loads and asks:
 
 - make a new file system: `yes`, then `y`
 - block size: `4096`
-- hostname, address `10.98.0.65` and netmask `255.255.255.0`
+- hostname and address `10.98.0.65`, then netmask `255.255.255.0` if it asks
 
 These apply to the miniroot only. The installed system takes its address
 from DHCP. The miniroot stops at `Inst>`.
