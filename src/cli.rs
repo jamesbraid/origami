@@ -177,8 +177,14 @@ pub enum Action {
         #[arg(long, value_name = "DIR", conflicts_with = "source")]
         media_root: Option<PathBuf>,
     },
-    /// Open media and assemble the install tree without installing IRIX
-    InstallCheck(MachineArgs),
+    /// Check install media without installing IRIX; remote media are only probed
+    InstallCheck {
+        #[command(flatten)]
+        machine: MachineArgs,
+        /// Also read remote media and assemble the install tree, as install-serve does
+        #[arg(long)]
+        full: bool,
+    },
     /// Serve installation media until stopped
     InstallServe(MachineArgs),
     /// At Inst>, install the selected profile and its add-ons, then restart

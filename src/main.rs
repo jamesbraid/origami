@@ -486,11 +486,11 @@ fn command(action: Action) -> Result<()> {
             validate(&machines()?, &dir, &file)?;
             install::apply(&dir, &file, addon.as_deref())?;
         }
-        Action::InstallCheck(args) => {
-            let dir = directory(&args.dir)?;
+        Action::InstallCheck { machine, full } => {
+            let dir = directory(&machine.dir)?;
             let file = read_machine(&dir)?;
             validate(&machines()?, &dir, &file)?;
-            install::check(&dir, &file)?;
+            install::check(&dir, &file, full)?;
             println!("install media validated");
         }
         Action::InstallServe(args) => {

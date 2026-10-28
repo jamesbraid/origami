@@ -15,6 +15,8 @@
 - Onyx 350 and Tezro networking works: Origami connects each machine's
   onboard Ethernet.
 - `create` gives each machine a unique SGI MAC, and non-SGI MACs are refused.
+- `install-check` probes remote install media with one request per URL
+  instead of reading it. `install-check --full` reads everything.
 
 ## 0.4.0
 

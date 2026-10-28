@@ -518,12 +518,20 @@ pub fn instigator_path() -> Result<PathBuf> {
     Ok(executable)
 }
 
-pub fn check(dir: &Path, file: &MachineFile) -> Result<()> {
+/// Runs Instigator's check on the generated configuration. Remote media are
+/// only probed for reachability unless `full` asks Instigator to read and
+/// assemble them as install-serve does.
+pub fn check(dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
     let media = read_media(dir)?;
     let document = config(dir, file, &media)?;
     fs::create_dir_all(dir.join("install/cache"))?;
+    let mut args = vec!["check"];
+    if full {
+        args.push("--full");
+    }
+    args.push("-");
     let mut child = Command::new(instigator_path()?)
-        .args(["check", "-"])
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

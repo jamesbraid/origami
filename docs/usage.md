@@ -183,8 +183,10 @@ origami install-check my-octane
 
 `install-init` writes the media list to `my-octane/install/media.toml` and
 switches the machine to the private installation network. `install-check`
-opens every source without opening network ports and reports unreadable
-media.
+opens no network ports. It assembles local media in full and sends each
+remote URL one HEAD request, reporting every URL that does not answer.
+`install-check --full` also reads the remote media, as `install-serve` does
+at start.
 
 - `--profile standard`, the default, installs all ten IRIX 6.5.30 discs.
   `--profile minimal` installs the six overlay, foundation and NFS discs.
