@@ -10,9 +10,11 @@ InfiniteReality are faster.
 
 - Fixed:
   - Octane and Octane2 with SI no longer start to a black screen.
+  - An Origin 200 with IMPACT installs X and reaches the 4Dwm desktop.
   - The Onyx 350 and Tezro connect their onboard Ethernet.
   - A new Onyx 350 starts on its graphics console.
   - The VPro pointer shows in the PROM and in X.
+  - VPro no longer draws lighter squares behind desktop icons.
   - `/irix.cmds` installs the machine's add-ons too, so an Origin 200
     with RAD4 gets its X server.
 - Faster:
@@ -29,7 +31,7 @@ InfiniteReality are faster.
   - `install-check` probes remote media instead of downloading it.
   - `create` gives each machine a unique SGI MAC. Non-SGI MACs are
     refused.
-- QEMU updated to 319cb5227a.
+- QEMU updated to 49b5ef3757.
 
 ## 0.4.0
 
