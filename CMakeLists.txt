@@ -152,7 +152,7 @@ ExternalProject_Add_Step(qemu-product refresh-libslirp
   DEPENDS "${CMAKE_SOURCE_DIR}/qemu/subprojects/libslirp.wrap" ${libslirp_patches})
 add_custom_target(frontend
   COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment} ${cargo_environment}
-    "${PRODUCT_CARGO}" build --locked ${cargo_flags}
+    "${PRODUCT_CARGO}" build --locked --workspace ${cargo_flags}
   WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" VERBATIM)
 add_custom_target(instigator-product
   COMMAND "${CMAKE_COMMAND}" -E env ${go_environment} ${go_platform}
@@ -167,7 +167,7 @@ add_custom_target(product ALL
 if(BUILD_TESTING)
   # Cross products are tested with native tools; target executables cannot run here.
   add_test(NAME frontend COMMAND "${CMAKE_COMMAND}" -E env ${cargo_environment}
-    "${PRODUCT_CARGO}" test --locked)
+    "${PRODUCT_CARGO}" test --locked --workspace)
   set_tests_properties(frontend PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
   add_test(NAME instigator COMMAND "${CMAKE_COMMAND}" -E env ${go_environment}
     "${PRODUCT_GO}" test -mod=readonly ./internal/qemunet ./cmd/instigator)

@@ -39,9 +39,9 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Record toolchain
         run: rustc -Vv
-      - name: Lint CLI
-        run: cargo clippy --locked --all-targets -- -D warnings
-      - name: Test CLI
-        run: cargo test --locked
+      - name: Lint CLI and NFS crate
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test CLI and NFS crate (replays the Instigator RPC transcripts)
+        run: cargo test --locked --workspace
       - name: Test build helpers
         run: python3 -m unittest discover -s build/tests -p 'test_*.py' -v
