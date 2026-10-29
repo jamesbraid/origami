@@ -197,6 +197,12 @@ impl Share {
             mtime: st.mtime,
             ctime: st.ctime,
         };
+        if st.mode & 0o170000 == 0o120000 {
+            // Hosts differ: Linux gives every symlink 0777, macOS applies
+            // the umask. The bits mean nothing for a link, so report
+            // Linux's.
+            attr.mode |= 0o777;
+        }
         if let Some(f) = &self.filter {
             f(&mut attr);
         }
