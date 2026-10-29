@@ -276,6 +276,10 @@ pub struct StorageItem {
 pub struct ScsiAdapter {
     pub bus: String,
     pub targets: Vec<u32>,
+    /// The bus's kind, such as `fc-loop` for a Fibre Channel private loop;
+    /// absent from a QEMU whose machine list does not name it.
+    #[serde(rename = "type", default)]
+    pub kind: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -348,7 +348,7 @@ pub fn arguments(
         &file.pipe,
     )?);
     for (index, drive) in file.drive.iter().enumerate() {
-        add_drive(&mut args, dir, drive, index);
+        add_drive(&mut args, dir, offering, drive, index);
     }
     // Lines before the console get no backend, so each device can tell it
     // has none. Later lines are left off.
@@ -434,7 +434,7 @@ fn nic_option(offering: &Offering, file: &MachineFile) -> String {
     option
 }
 
-fn add_drive(args: &mut Vec<String>, dir: &Path, drive: &Drive, index: usize) {
+fn add_drive(args: &mut Vec<String>, dir: &Path, offering: &Offering, drive: &Drive, index: usize) {
     let path = resolve(dir, &drive.image);
     let format = if path.extension().is_some_and(|ext| ext == "qcow2") {
         "qcow2"
@@ -455,11 +455,27 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, drive: &Drive, index: usize) {
         "tape" => "scsi-tape",
         _ => "scsi-hd",
     };
+    // A port on a Fibre Channel private loop needs names of its own. These
+    // are synthetic, NAA type 2 with no vendor part, and the loop ID keeps
+    // every port's apart.
+    let bus = format!("scsi.{}", drive.bus);
+    let loop_names = if offering
+        .scsi_adapters
+        .iter()
+        .any(|adapter| adapter.bus == bus && adapter.kind == "fc-loop")
+    {
+        format!(
+            ",port_wwn=0x21000000000000{0:02x},wwn=0x20000000000000{0:02x}",
+            drive.target
+        )
+    } else {
+        String::new()
+    };
     args.extend([
         "-device".into(),
         format!(
-            "{device},bus=scsi.{},scsi-id={},lun=0,drive={id}",
-            drive.bus, drive.target
+            "{device},bus={bus},scsi-id={},lun=0,drive={id}{loop_names}",
+            drive.target
         ),
     ]);
 }
@@ -815,6 +831,45 @@ mod tests {
                 "-d",
                 "guest_errors"
             ]
+        );
+    }
+
+    #[test]
+    fn a_fibre_channel_loop_disk_gets_port_names() {
+        let machines = crate::test_machines();
+        let device_for = |name: &str, target: u32| {
+            let offering = preset(&machines, name).unwrap();
+            let mut file = machine(offering);
+            file.drive.push(crate::Drive {
+                name: "system".into(),
+                kind: "disk".into(),
+                bus: 0,
+                target,
+                image: "system.qcow2".into(),
+                read_only: false,
+            });
+            let args = arguments(
+                &machines,
+                Path::new("/machine"),
+                &file,
+                offering,
+                Display::None,
+            )
+            .unwrap();
+            args[args.iter().position(|a| a.starts_with("scsi-hd")).unwrap()].clone()
+        };
+        // Loop IDs make the names, so no two ports share one.
+        assert_eq!(
+            device_for("origin3200", 1),
+            "scsi-hd,bus=scsi.0,scsi-id=1,lun=0,drive=drive0,\
+             port_wwn=0x2100000000000001,wwn=0x2000000000000001"
+        );
+        assert!(device_for("origin3200", 125)
+            .ends_with("port_wwn=0x210000000000007d,wwn=0x200000000000007d"));
+        // A parallel SCSI bus has no such names.
+        assert_eq!(
+            device_for("fuel-1", 1),
+            "scsi-hd,bus=scsi.0,scsi-id=1,lun=0,drive=drive0"
         );
     }
 
