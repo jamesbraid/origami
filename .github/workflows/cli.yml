@@ -35,10 +35,12 @@ jobs:
         run: |
           curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
             https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
-          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --component clippy --default-toolchain stable
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --component clippy,rustfmt --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Record toolchain
         run: rustc -Vv
+      - name: Check formatting
+        run: cargo fmt --all --check
       - name: Lint CLI and NFS crate
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test CLI and NFS crate (replays the Instigator RPC transcripts)
