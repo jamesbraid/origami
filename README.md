@@ -16,15 +16,13 @@ Somehow, IRIX boots.
 My personal SGI era is the post-Indy, Origin/Octane/Onyx systems. So that's what I built.
 
 - **SN0:** Origin 200, Origin 2000, Onyx2.
-- **SN1:** Origin 300, Onyx 350, Fuel, Tezro.
+- **SN1:** Origin 300, Origin 3200, 3400 and 3900, Onyx 3000, Onyx 350, Fuel, Tezro.
 - **Other:** Octane / Octane2.
-
-Planning to implement the Origin 3000 NUMAFlex "brick" based systems.
 
 | Hardware | Emulated bits |
 |---|---|
 | Configurations | Deskside, rack and GIGAchannel; SMP, multiple nodes and NUMA |
-| CPUs | R10000, R12000 and R14000 |
+| CPUs | R10000, R12000, R14000 and R16000 |
 | Graphics | PsiTech RAD1 / RAD4, IMPACT / SI (MGRAS), InfiniteReality (Kona), VPro (Odyssey) |
 | Interconnect | Hub, Bedrock, Crossbow, Bridge, XBridge, routers and CrayLink |
 | I/O boards | BaseIO, BaseIO-G / MediaIO, IO-8, MENET, MSCSI, PCI carriers and shoehorns |

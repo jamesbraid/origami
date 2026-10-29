@@ -110,6 +110,10 @@ Or attach a copy of an existing IRIX disk as the system disk. Use a disk
 prepared for the same kind of machine. The guest writes to it, so keep the
 original safe.
 
+An Origin 3000 disk installed on one Origin 3000 preset boots on the others.
+A new machine stops at the PROM menu, so run `origami nvram DIR set
+AutoLoad=Yes` to start the disk without a keypress.
+
 ```sh
 origami drive-attach my-origin /path/to/copied-guest-disk.qcow2 --type disk --target 1
 ```
@@ -168,6 +172,7 @@ server bundled in the archive. The media download from a public archive as
 needed. You drive the PROM, disk formatter and installer yourself, on the
 machine's console.
 
+The Origin 3000 presets install the same way over their serial console.
 The steps use an Octane2 with VPro graphics, whose PROM and installer run
 in the machine's window. `origin200-rad4` has no PROM console on its RAD4
 card, so it installs over the serial console and uses RAD4 once X starts.
@@ -392,7 +397,7 @@ origami create my-onyx2 --preset onyx2-infinite-reality --graphics ir2 \
 A refused choice prints the reason, such as four raster managers on an
 Onyx2 deskside or a V12 in an Octane. Onyx2 and Fuel always have graphics.
 The Origin 200 and Origin 2000 are headless unless you choose a board. The
-Origin 300 offers no graphics.
+Origin 300, 3200, 3400 and 3900 offer no graphics.
 
 Graphics are fixed once the machine exists. To try other graphics, create a
 new machine and attach the old machine's disk.
@@ -400,7 +405,7 @@ new machine and attach the old machine's disk.
 ### Which serial line is the console
 
 `origami console` and a foreground run use the machine's console serial
-line. That is the L1 on Origin 300, Onyx 350, Tezro and Fuel, and IOC3 port
+line. That is the L1 on Origin 300, Origin 3000, Onyx 3000, Onyx 350, Tezro and Fuel, and IOC3 port
 A on the others. On a machine with graphics, the PROM and IRIX may use the
 graphics head as the console instead, and the serial line stays quiet.
 

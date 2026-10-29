@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- New presets: `origin3200`, `origin3400`, `origin3900` and `onyx3000-vpro`.
+  IRIX 6.5.30 installs on an Origin 3200 over its serial console, and the
+  installed disk boots on the other Origin 3000 presets.
+- `origami nvram` reads and changes the PROM environment of the Origin 3000
+  presets.
+- QEMU updated to 12ef44dec9.
+
 ## 0.4.1
 
 Install IRIX on any graphics machine from its own console: the user guide
