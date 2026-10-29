@@ -1,14 +1,14 @@
 //! The switch: two listening sockets for QEMU's stream netdevs and the
 //! rule that moves frames between them and the stack.
 
-use std::io::{self, BufReader};
+use std::io::{self, BufReader, Write};
 use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use origami_nfs::Server;
 
-use crate::frame::{read_frame, route, write_frame, Route};
+use crate::frame::{push_frame, read_frames, route, Route};
 use crate::stack::{Stack, StackConfig};
 
 /// Configures [`Switch::start`].
@@ -37,10 +37,14 @@ impl SwitchConfig {
 struct Slot(Mutex<Option<TcpStream>>);
 
 impl Slot {
-    fn send(&self, frame: &[u8]) {
+    /// Sends frames already carrying their lengths, in one write.
+    fn send_framed(&self, framed: &[u8]) {
+        if framed.is_empty() {
+            return;
+        }
         let mut g = self.0.lock().unwrap();
         if let Some(s) = g.as_mut() {
-            if write_frame(s, frame).is_err() {
+            if s.write_all(framed).is_err() {
                 // The peer went away; its reader notices and clears the
                 // slot. Frames sent meanwhile are lost, as on a dead link.
                 let _ = s.shutdown(Shutdown::Both);
@@ -91,7 +95,11 @@ impl Switch {
             cfg: cfg.stack,
         });
         let out = shared.clone();
-        let stack = Stack::start(cfg.stack, server, move |f| out.guest.send(&f));
+        let stack = Stack::start(cfg.stack, server, move |f| {
+            let mut framed = Vec::with_capacity(4 + f.len());
+            push_frame(&mut framed, &f);
+            out.guest.send_framed(&framed)
+        });
         *shared.stack.lock().unwrap() = Some(stack);
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let threads = vec![
@@ -164,11 +172,15 @@ fn spawn_accept(
             readers.retain(|r| !r.is_finished());
             readers.push(thread::spawn(move || {
                 let mut r = BufReader::with_capacity(1 << 16, read_half);
-                while let Ok(Some(frame)) = read_frame(&mut r) {
+                while let Ok(Some(frames)) = read_frames(&mut r) {
                     if guest {
-                        from_guest(&shared, frame);
+                        from_guest(&shared, frames);
                     } else {
-                        shared.guest.send(&frame);
+                        let mut framed = Vec::new();
+                        for f in &frames {
+                            push_frame(&mut framed, f);
+                        }
+                        shared.guest.send_framed(&framed);
                     }
                 }
             }));
@@ -179,13 +191,21 @@ fn spawn_accept(
     })
 }
 
-fn from_guest(shared: &Shared, frame: Vec<u8>) {
-    let r = route(&frame, shared.cfg.mac, shared.cfg.ip);
-    if matches!(r, Route::Network | Route::Both) {
-        shared.network.send(&frame);
+fn from_guest(shared: &Shared, frames: Vec<Vec<u8>>) {
+    let mut to_network = Vec::new();
+    let mut to_stack = Vec::new();
+    for frame in frames {
+        let r = route(&frame, shared.cfg.mac, shared.cfg.ip);
+        if matches!(r, Route::Network | Route::Both) {
+            push_frame(&mut to_network, &frame);
+        }
+        if matches!(r, Route::Stack | Route::Both) {
+            to_stack.push(frame);
+        }
     }
-    if matches!(r, Route::Stack | Route::Both) {
-        if let Some(s) = shared.stack.lock().unwrap().as_ref() {
+    shared.network.send_framed(&to_network);
+    if let Some(s) = shared.stack.lock().unwrap().as_ref() {
+        for frame in to_stack {
             s.receive(frame);
         }
     }

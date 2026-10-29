@@ -1,6 +1,6 @@
 //! QEMU stream framing and the switch's forwarding rule.
 
-use std::io::{self, Read, Write};
+use std::io::{self, BufReader, Read};
 use std::net::Ipv4Addr;
 
 /// The longest frame accepted. QEMU's own limit is far lower.
@@ -26,12 +26,34 @@ pub fn read_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     Ok(Some(frame))
 }
 
-/// Writes one frame with its length, in a single write.
-pub fn write_frame<W: Write>(w: &mut W, frame: &[u8]) -> io::Result<()> {
-    let mut buf = Vec::with_capacity(4 + frame.len());
+/// Appends a frame and its length to `buf`.
+pub fn push_frame(buf: &mut Vec<u8>, frame: &[u8]) {
     buf.extend_from_slice(&(frame.len() as u32).to_be_bytes());
     buf.extend_from_slice(frame);
-    w.write_all(&buf)
+}
+
+/// Reads a frame, then every further whole frame already buffered, so the
+/// caller can pass the lot on with one write instead of one each.
+pub fn read_frames<R: Read>(r: &mut BufReader<R>) -> io::Result<Option<Vec<Vec<u8>>>> {
+    let Some(first) = read_frame(r)? else {
+        return Ok(None);
+    };
+    let mut frames = vec![first];
+    loop {
+        let held = r.buffer();
+        if held.len() < 4 {
+            break;
+        }
+        let len = u32::from_be_bytes(held[..4].try_into().unwrap()) as usize;
+        if len > MAX_FRAME || held.len() < 4 + len {
+            break;
+        }
+        match read_frame(r)? {
+            Some(f) => frames.push(f),
+            None => break,
+        }
+    }
+    Ok(Some(frames))
 }
 
 /// Where a frame from the guest goes.
@@ -112,13 +134,19 @@ mod tests {
     #[test]
     fn framing_round_trips() {
         let mut buf = Vec::new();
-        write_frame(&mut buf, b"hello").unwrap();
-        write_frame(&mut buf, b"").unwrap();
+        push_frame(&mut buf, b"hello");
+        push_frame(&mut buf, b"");
         assert_eq!(&buf[..4], &[0, 0, 0, 5]);
         let mut r = &buf[..];
         assert_eq!(read_frame(&mut r).unwrap().unwrap(), b"hello");
         assert_eq!(read_frame(&mut r).unwrap().unwrap(), b"");
         assert!(read_frame(&mut r).unwrap().is_none());
+        // Whole frames already buffered come together; a partial one waits.
+        push_frame(&mut buf, b"third");
+        let mut r = BufReader::new(&buf[..]);
+        let frames = read_frames(&mut r).unwrap().unwrap();
+        assert_eq!(frames, [&b"hello"[..], b"", b"third"]);
+        assert!(read_frames(&mut r).unwrap().is_none());
         let huge = [0xffu8, 0xff, 0xff, 0xff];
         assert!(read_frame(&mut &huge[..]).is_err());
     }
