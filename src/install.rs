@@ -1614,7 +1614,10 @@ mod tests {
             .flat_map(|set| set["layers"].as_array().unwrap())
             .all(|layer| !layer["source"].as_str().unwrap().ends_with(".tar.gz")));
         assert!(media.media.values().all(|source| source.ends_with(".iso")));
-        assert_eq!(document["install_scripts"][0]["install"], json!(["nfs.sw.nfs"]));
+        assert_eq!(
+            document["install_scripts"][0]["install"],
+            json!(["nfs.sw.nfs"])
+        );
         assert_eq!(
             install_script(&media, None).unwrap(),
             (
