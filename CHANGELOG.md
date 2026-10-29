@@ -8,6 +8,11 @@ left broken. Octane with SI shows its console, the Onyx 350 and Tezro
 reach the network, and the VPro pointer is visible. VPro and
 InfiniteReality are faster.
 
+![Onyx 350 PROM menu](https://raw.githubusercontent.com/jamesbraid/origami/v0.4.1/docs/images/gallery/onyx350-vpro-prom.png)
+![Onyx2 InfiniteReality2 desktop with hinv](https://raw.githubusercontent.com/jamesbraid/origami/v0.4.1/docs/images/gallery/onyx2-infinite-reality-hinv.png)
+
+Every machine is in the [gallery](https://github.com/jamesbraid/origami/blob/v0.4.1/docs/gallery.md).
+
 - Fixed:
   - Octane and Octane2 with SI no longer start to a black screen.
   - An Origin 200 with IMPACT installs X and reaches the 4Dwm desktop.

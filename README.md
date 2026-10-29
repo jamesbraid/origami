@@ -8,6 +8,7 @@ Somehow, IRIX boots.
 
 * [A website also stuck in the late ’90s](https://origami.irix.fans) ·
 * [User guide](docs/usage.md) ·
+* [Gallery](docs/gallery.md) ·
 * [Contributing](.github/CONTRIBUTING.md)
 
 ## Machines

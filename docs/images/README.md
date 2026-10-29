@@ -60,3 +60,11 @@ Performer demo, not general OpenGL compatibility.
 - The prompt capture is the miniroot's `Inst>` after `admin source`.
 - The desktop capture is the first login as `root`, with `hostname` and
   `uname -R` in the Console window.
+
+## gallery/
+
+- One capture set per graphics preset on Origami 0.4.1 (QEMU
+  `49b5ef37570c17c4fe0dc7a93d696e2aeba4e653`), IRIX 6.5.30.
+- Full 1280 × 1024 QMP `screendump` captures, unedited.
+- `*-prom.png` is the PROM menu on the graphics head. `*-hinv.png` is the
+  root 4Dwm desktop with `hinv` in an `xwsh` window.
