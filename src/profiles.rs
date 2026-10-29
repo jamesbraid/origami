@@ -54,6 +54,9 @@ pub const STARTERS: &[Profile] = &[
         Some("io3"),
     ),
     profile("origin300-2", "origin300", &[2], None, None),
+    profile("origin3200", "origin3200", &[4, 4], None, None),
+    profile("origin3400", "origin3400", &[4, 4, 4, 4], None, None),
+    profile("origin3900", "origin3900", &[4, 4, 4, 4], None, None),
     profile(
         "origin200-impact",
         "origin200-gigachannel",
@@ -82,6 +85,8 @@ pub const STARTERS: &[Profile] = &[
     profile("fuel-1", "fuel", &[1], None, None),
     // The captured Onyx 350 module: four CPUs and its VPro at widget 12.
     profile("onyx350-vpro", "onyx350-compat", &[4], Some("v12"), None),
+    // Two C-bricks, an I-brick and the V-brick's VPro V12, its only pipe.
+    profile("onyx3000-vpro", "onyx3000", &[4, 4], None, None),
     // A four-CPU Tezro tower. Its topology has no default pipe, so the
     // preset names the V12 and the PIC widget it sits on.
     profile(

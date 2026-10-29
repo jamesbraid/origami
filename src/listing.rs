@@ -20,7 +20,11 @@ const NAMES: &[(&str, &str)] = &[
     ("onyx2-deskside", "Onyx2 deskside"),
     ("onyx2-rack", "Onyx2 rack"),
     ("origin300", "Origin 300"),
+    ("origin3200", "Origin 3200"),
+    ("origin3400", "Origin 3400"),
+    ("origin3900", "Origin 3900"),
     ("onyx350-compat", "Onyx 350"),
+    ("onyx3000", "Onyx 3000"),
     ("octane", "Octane"),
     ("octane2", "Octane2"),
     ("fuel", "Fuel"),
@@ -343,6 +347,7 @@ mod tests {
 PRESET         MACHINE           CPUS  GRAPHICS
 origin200-1    Origin 200           1  none
 origin2000-8   Origin 2000 rack     8  none
+origin3200     Origin 3200          8  none
 onyx350-vpro   Onyx 350             4  VPro V12
 octane-impact  Octane               1  SI
 fuel-1         Fuel                 1  VPro V12

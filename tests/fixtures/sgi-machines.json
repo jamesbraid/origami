@@ -170,6 +170,34 @@
    ]
   },
   {
+   "product": "origin3000", "topology": "origin3200", "nodes": 2, "smp": 8, "cpus-per-node": [4, 4],
+   "machine-options": "origin3000,topology=origin3200,nodes=2", "default-cpu-model": "R12000",
+   "processor": {"id": "r12000-400mhz-8mb", "part": "R12000", "clock-hz": 400000000, "cache-mib": 8},
+   "memory-per-node-mib": {"accepted": [4096], "default": 4096},
+   "needs-debug-leds-off": false,
+   "init-inputs": [{"kind": "ip35-prom", "name": "boot-prom", "required": true}],
+   "storage": [
+    {"name": "node0-flash", "size": 16777216, "initial": "boot-prom", "read-only": false},
+    {"name": "node1-flash", "size": 16777216, "initial": "boot-prom", "read-only": false},
+    {"name": "nvram0", "size": 32768, "initial": "zero", "read-only": false},
+    {"name": "nvram0-clock", "size": 16, "initial": "zero", "read-only": false}
+   ],
+   "scsi-adapters": [{"bus": "scsi.0", "targets": [0, 1, 2, 3, 4, 5, 6, 7, 125], "type": "fc-loop"}],
+   "consoles": [
+    {"argument": "-serial chardev:l1", "kind": "console", "node": 0},
+    {"argument": "-serial chardev:l1_node1", "kind": "system-controller", "node": 1}
+   ],
+   "hardware-inputs": [],
+   "overrides": [
+    {"property": "l1-revision", "target": "machine"},
+    {"property": "mac", "target": "machine"},
+    {"property": "r12000-prid", "target": "cpu"}
+   ],
+   "networks": [
+    {"argument": "-netdev ...,id=net0", "default": true, "index": 0, "interface": "ef0", "kind": "ioc3-ethernet", "mac": {"derived": false}, "nic-mac-option": "macaddr", "nic-model": "sgi-ioc3-eth", "required": false}
+   ]
+  },
+  {
    "product": "onyx350", "topology": "onyx350-compat", "nodes": 1, "smp": 4, "cpus-per-node": [4],
    "machine-options": "onyx350,topology=onyx350-compat,nodes=1", "default-cpu-model": "R16000",
    "processor": {"id": "r16000-800mhz", "part": "R16000", "clock-hz": 800000000, "cache-mib": 8},
