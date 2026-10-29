@@ -15,6 +15,10 @@ pub struct InstallMedia {
     pub format: u32,
     #[serde(default = "legacy_profile")]
     pub profile: String,
+    /// The IRIX release whose recipe built this list. A media.toml from before
+    /// releases were selectable has none and means 6.5.30.
+    #[serde(default = "default_release")]
+    pub release: String,
     pub media: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub addons: Vec<InstallAddon>,
@@ -35,6 +39,8 @@ pub struct InstallAddon {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PackageSelection {
+    /// The media sets the profile installs, in order.
+    sets: Vec<String>,
     install: Vec<String>,
     keep: Vec<String>,
 }
@@ -52,10 +58,30 @@ struct Layer {
     dist: Option<String>,
 }
 
+/// An optional package Origami knows by name. path is relative to base_url
+/// and to a --media-root.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AddonDefinition {
+    path: String,
+    /// Whether a --media-root can hold the archive.
+    #[serde(default = "yes")]
+    local: bool,
+    base: Option<String>,
+    dist: Option<String>,
+    install: Vec<String>,
+}
+
+fn yes() -> bool {
+    true
+}
+
 #[derive(Deserialize)]
 struct InstallRecipe {
     base_url: String,
     sets: Vec<String>,
+    #[serde(default)]
+    addons: BTreeMap<String, AddonDefinition>,
     #[serde(skip)]
     install: Vec<String>,
     #[serde(skip)]
@@ -70,22 +96,27 @@ fn legacy_profile() -> String {
     "legacy-development".into()
 }
 
-fn recipe(profile: &str) -> Result<InstallRecipe> {
-    let mut recipe: InstallRecipe =
-        toml::from_str(include_str!("../resources/instigator-irix-6.5.30.toml"))?;
+/// The release a media.toml without one was built for, and the one
+/// install-init uses unless told otherwise.
+pub const DEFAULT_RELEASE: &str = "6.5.30";
+
+fn default_release() -> String {
+    DEFAULT_RELEASE.into()
+}
+
+fn release_recipe(release: &str) -> Result<&'static str> {
+    match release {
+        "6.5.30" => Ok(include_str!("../resources/instigator-irix-6.5.30.toml")),
+        _ => Err(format!("unknown IRIX release: {release}").into()),
+    }
+}
+
+fn recipe(release: &str, profile: &str) -> Result<InstallRecipe> {
+    let mut recipe: InstallRecipe = toml::from_str(release_recipe(release)?)?;
     // A media.toml from an earlier release can still name base or desktop.
-    let (selection_profile, sets): (&str, &[&str]) = match profile {
-        "minimal" | "base" => ("minimal", &["6.5.30", "foundations"]),
-        "standard" | "desktop" => (
-            "standard",
-            &[
-                "6.5.30",
-                "foundations",
-                "development",
-                "applications",
-                "complementary",
-            ],
-        ),
+    let selection_profile = match profile {
+        "minimal" | "base" => "minimal",
+        "standard" | "desktop" => "standard",
         "development" | "legacy-development" => {
             return Err(format!(
                 "install profile {profile} was removed. Remove install/media.toml, run install-init with --profile standard, then add MIPSpro with install-addon DIR --name mipspro"
@@ -100,11 +131,37 @@ fn recipe(profile: &str) -> Result<InstallRecipe> {
         .ok_or_else(|| format!("missing package selections for profile: {selection_profile}"))?;
     recipe.install = selection.install;
     recipe.keep = selection.keep;
-    recipe.sets.retain(|set| sets.contains(&set.as_str()));
-    recipe
-        .layers
-        .retain(|layer| sets.contains(&layer.set.as_str()));
+    let sets = selection.sets;
+    recipe.sets.retain(|set| sets.contains(set));
+    recipe.layers.retain(|layer| sets.contains(&layer.set));
     Ok(recipe)
+}
+
+/// Build an add-on from the release's recipe, from a local media root or the
+/// public archive.
+fn named_addon(release: &str, name: &str, media_root: Option<&Path>) -> Result<InstallAddon> {
+    let recipe = recipe(release, "standard")?;
+    let definition = recipe.addons.get(name).ok_or_else(|| {
+        format!("no known add-on {name}; give its --source and --install selections")
+    })?;
+    let source = match media_root {
+        Some(_) if !definition.local => {
+            return Err(format!("the {name} add-on has no local media; omit --media-root").into())
+        }
+        Some(root) => root
+            .canonicalize()?
+            .join(&definition.path)
+            .display()
+            .to_string(),
+        None => format!("{}{}", recipe.base_url, definition.path),
+    };
+    Ok(InstallAddon {
+        name: name.into(),
+        source,
+        base: definition.base.clone(),
+        dist: definition.dist.clone(),
+        install: definition.install.clone(),
+    })
 }
 
 /// The script the user guide names. It installs the profile, then every
@@ -126,71 +183,10 @@ const POST_INSTALL_DONE: &[u8] = b"instigator: post-install commands finished";
 /// inst prints this for a failing command and skips the rest of the file.
 const COMMAND_FAILED: &[u8] = b"(command failed)";
 
-/// The RAD4 driver archive and selection the user guide gives.
-const RAD4_ADDON_SOURCE: &str =
-    "https://origami-dist.irix.fans/irix/addons/rad4/rad4x_65_13k.tar.gz";
-
-/// The MIPSpro 7.4.4 archive holds the whole compiler distribution and its
-/// 7.4.2m and 7.4.4m overlays. The separate MIPSpro C archive repeats the
-/// same c_fe product byte for byte, so it is not needed.
-const MIPSPRO_ADDON_PATH: &str = "mipspro/7.4.4/mipspro744update.tar.gz";
-
-fn mipspro_addon(media_root: Option<&Path>) -> Result<InstallAddon> {
-    let source = match media_root {
-        Some(root) => root
-            .canonicalize()?
-            .join(MIPSPRO_ADDON_PATH)
-            .display()
-            .to_string(),
-        None => format!("{}{MIPSPRO_ADDON_PATH}", recipe("standard")?.base_url),
-    };
-    Ok(InstallAddon {
-        name: "mipspro".into(),
-        source,
-        base: Some("MIPSPro7.4.4".into()),
-        dist: Some(".".into()),
-        // The standard profile installs older C, C++ and Fortran compilers
-        // from the Development Foundation disc. inst refuses to upgrade
-        // compiler_dev under the old C++ and Fortran compilers, so the
-        // add-on upgrades every compiler product in the archive, as its
-        // instructions do with inst's Upgrade keyword.
-        install: [
-            "c++_dev",
-            "c++_fe",
-            "c_dev",
-            "c_fe",
-            "compiler_dev",
-            "ftn77_dev",
-            "ftn77_fe",
-            "ftn90_dev",
-            "ftn90_fe",
-            "ftn_dev",
-            "langtools",
-            "modules",
-        ]
-        .map(String::from)
-        .to_vec(),
-    })
-}
-
 /// Whether the machine has a RAD4, whose driver it needs to reach a
 /// graphical login.
 pub fn needs_rad4_driver(file: &MachineFile) -> bool {
     file.pipe.iter().any(|pipe| pipe.product == "rad4")
-}
-
-fn rad4_addon() -> InstallAddon {
-    InstallAddon {
-        name: "rad4".into(),
-        source: RAD4_ADDON_SOURCE.into(),
-        base: None,
-        dist: Some("dist_6.5".into()),
-        install: vec![
-            "rad4x.sw.driver".into(),
-            "rad4x.sw.xserver".into(),
-            "rad4x.man".into(),
-        ],
-    }
 }
 
 pub fn init_profile(
@@ -199,10 +195,11 @@ pub fn init_profile(
     media_root: &Path,
     mac: Option<&str>,
     file: &mut MachineFile,
+    release: &str,
     profile: &str,
 ) -> Result<PathBuf> {
     let root = media_root.canonicalize()?;
-    init_sources(machines, dir, mac, file, Some(&root), profile)
+    init_sources(machines, dir, mac, file, Some(&root), release, profile)
 }
 
 pub fn init_remote_profile(
@@ -210,9 +207,10 @@ pub fn init_remote_profile(
     dir: &Path,
     mac: Option<&str>,
     file: &mut MachineFile,
+    release: &str,
     profile: &str,
 ) -> Result<PathBuf> {
-    init_sources(machines, dir, mac, file, None, profile)
+    init_sources(machines, dir, mac, file, None, release, profile)
 }
 
 fn init_sources(
@@ -221,9 +219,10 @@ fn init_sources(
     mac: Option<&str>,
     file: &mut MachineFile,
     root: Option<&Path>,
+    release: &str,
     profile: &str,
 ) -> Result<PathBuf> {
-    let recipe = recipe(profile)?;
+    let recipe = recipe(release, profile)?;
     let install_dir = dir.join("install");
     let manifest_path = install_dir.join("media.toml");
     if manifest_path.exists() {
@@ -253,10 +252,11 @@ fn init_sources(
     let manifest = InstallMedia {
         format: 1,
         profile: profile.into(),
+        release: release.into(),
         media,
         // A RAD4 machine needs the driver to reach a graphical login.
         addons: if needs_rad4_driver(file) {
-            vec![rad4_addon()]
+            vec![named_addon(release, "rad4", None)?]
         } else {
             vec![]
         },
@@ -307,19 +307,7 @@ fn valid_install_selection(item: &str) -> bool {
 /// Configure an add-on Origami knows by name: mipspro, from the public
 /// archive or a local media root, or rad4, from the public archive.
 pub fn add_known_addon(dir: &Path, name: &str, media_root: Option<&Path>) -> Result<PathBuf> {
-    let addon = match (name, media_root) {
-        ("mipspro", root) => mipspro_addon(root)?,
-        ("rad4", None) => rad4_addon(),
-        ("rad4", Some(_)) => {
-            return Err("the rad4 add-on has no local media; omit --media-root".into())
-        }
-        _ => {
-            return Err(format!(
-                "no known add-on {name}; give its --source and --install selections"
-            )
-            .into())
-        }
-    };
+    let addon = named_addon(&read_media(dir)?.release, name, media_root)?;
     add_addon(
         dir,
         &addon.name,
@@ -399,7 +387,7 @@ fn media_source(dir: &Path, value: &str) -> Result<String> {
 }
 
 pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Value> {
-    let recipe = recipe(&media.profile)?;
+    let recipe = recipe(&media.release, &media.profile)?;
     if file.network.mode != "private" {
         return Err("installation requires a private network".into());
     }
@@ -968,12 +956,17 @@ mod tests {
 
     #[test]
     fn embedded_recipe_has_https_layer_urls() {
-        let recipe = recipe("standard").unwrap();
+        let recipe = recipe(DEFAULT_RELEASE, "standard").unwrap();
         for layer in &recipe.layers {
             let path = layer.remote_path.as_deref().unwrap_or(&layer.path);
             crate::assets::validate_https_url(&format!("{}{path}", recipe.base_url)).unwrap();
         }
-        crate::assets::validate_https_url(&mipspro_addon(None).unwrap().source).unwrap();
+        crate::assets::validate_https_url(
+            &named_addon(DEFAULT_RELEASE, "mipspro", None)
+                .unwrap()
+                .source,
+        )
+        .unwrap();
     }
 
     #[test]
@@ -1254,7 +1247,8 @@ mod tests {
         let media = InstallMedia {
             format: 1,
             profile: "standard".into(),
-            media: recipe("standard")
+            release: DEFAULT_RELEASE.into(),
+            media: recipe(DEFAULT_RELEASE, "standard")
                 .unwrap()
                 .layers
                 .iter()
@@ -1302,8 +1296,12 @@ mod tests {
         let document = config(&dir, &file, &media).unwrap();
         let irix = &document["install_scripts"][0];
         assert_eq!(irix["name"], "irix");
-        assert_eq!(irix["keep"], json!(recipe("standard").unwrap().keep));
-        let addon_set = &document["install_sets"][recipe("standard").unwrap().sets.len()];
+        assert_eq!(
+            irix["keep"],
+            json!(recipe(DEFAULT_RELEASE, "standard").unwrap().keep)
+        );
+        let addon_set =
+            &document["install_sets"][recipe(DEFAULT_RELEASE, "standard").unwrap().sets.len()];
         assert_eq!(addon_set["name"], "addon-tablet");
         assert_eq!(
             addon_set["layers"][0]["source"],
@@ -1323,7 +1321,8 @@ mod tests {
 
         // With no --addon, install-apply installs every add-on together.
         let mut two = media.clone();
-        two.addons.push(mipspro_addon(Some(&dir)).unwrap());
+        two.addons
+            .push(named_addon(DEFAULT_RELEASE, "mipspro", Some(&dir)).unwrap());
         two.addons[1].source = source.display().to_string();
         let document = config(&dir, &file, &two).unwrap();
         let all = document["install_scripts"]
@@ -1377,7 +1376,8 @@ mod tests {
         let media = InstallMedia {
             format: 1,
             profile: "standard".into(),
-            media: recipe("standard")
+            release: DEFAULT_RELEASE.into(),
+            media: recipe(DEFAULT_RELEASE, "standard")
                 .unwrap()
                 .layers
                 .iter()
@@ -1433,7 +1433,7 @@ mod tests {
             qemu: Default::default(),
         };
         let document = config(&dir, &file, &configured).unwrap();
-        let addon_index = recipe("standard").unwrap().sets.len();
+        let addon_index = recipe(DEFAULT_RELEASE, "standard").unwrap().sets.len();
         let addon_set = &document["install_sets"][addon_index];
         assert_eq!(addon_set["layers"][0]["source"], url);
         assert_eq!(addon_set["layers"][0]["base"], "tablet-disc");
@@ -1495,7 +1495,11 @@ mod tests {
         ));
         let media_root = root.join("media");
         fs::create_dir_all(media_root.join("mipspro/7.4.4")).unwrap();
-        fs::write(media_root.join(MIPSPRO_ADDON_PATH), b"synthetic archive").unwrap();
+        fs::write(
+            media_root.join("mipspro/7.4.4/mipspro744update.tar.gz"),
+            b"synthetic archive",
+        )
+        .unwrap();
         let prom = root.join("prom.bin");
         fs::write(&prom, vec![0; 1048576]).unwrap();
         let machine = root.join("machine");
@@ -1524,6 +1528,7 @@ mod tests {
             &media_root,
             Some("08:00:69:12:34:56"),
             &mut file,
+            DEFAULT_RELEASE,
             "standard",
         )
         .unwrap();
@@ -1585,6 +1590,7 @@ mod tests {
             &dir,
             Some("08:00:69:12:34:56"),
             &mut file,
+            DEFAULT_RELEASE,
             "standard",
         )
         .unwrap();
@@ -1673,7 +1679,15 @@ mod tests {
             crate::create_configured(&dir, offer, &init, None, None, pipes, Default::default())
                 .unwrap();
             let mut file = crate::read_machine(&dir).unwrap();
-            init_remote_profile(&machines, &dir, Some(&mac), &mut file, "standard").unwrap();
+            init_remote_profile(
+                &machines,
+                &dir,
+                Some(&mac),
+                &mut file,
+                DEFAULT_RELEASE,
+                "standard",
+            )
+            .unwrap();
             let media = read_media(&dir).unwrap();
             let document = config(&dir, &file, &media).unwrap();
             let irix = &document["install_scripts"][0];
@@ -1685,7 +1699,10 @@ mod tests {
             }
             let addon = &media.addons[0];
             assert_eq!(addon.name, "rad4");
-            assert_eq!(addon.source, RAD4_ADDON_SOURCE);
+            assert_eq!(
+                addon.source,
+                "https://origami-dist.irix.fans/irix/addons/rad4/rad4x_65_13k.tar.gz"
+            );
             assert_eq!(addon.dist.as_deref(), Some("dist_6.5"));
             assert_eq!(
                 addon.install,
@@ -1709,7 +1726,7 @@ mod tests {
     #[test]
     fn minimal_and_standard_profiles_use_discs_and_standard_selections() {
         for (name, count) in [("minimal", 6), ("standard", 10)] {
-            let recipe = recipe(name).unwrap();
+            let recipe = recipe(DEFAULT_RELEASE, name).unwrap();
             assert_eq!(recipe.layers.len(), count);
             assert!(recipe.layers.iter().all(|layer| layer
                 .remote_path
@@ -1719,17 +1736,17 @@ mod tests {
             assert_eq!(recipe.install, ["nfs.sw.nfs"]);
             assert!(recipe.layers.iter().any(|layer| layer.boot));
         }
-        assert!(recipe("missing").is_err());
+        assert!(recipe(DEFAULT_RELEASE, "missing").is_err());
         assert_eq!(
-            recipe("base").unwrap().keep,
-            recipe("minimal").unwrap().keep
+            recipe(DEFAULT_RELEASE, "base").unwrap().keep,
+            recipe(DEFAULT_RELEASE, "minimal").unwrap().keep
         );
         assert_eq!(
-            recipe("desktop").unwrap().keep,
-            recipe("standard").unwrap().keep
+            recipe(DEFAULT_RELEASE, "desktop").unwrap().keep,
+            recipe(DEFAULT_RELEASE, "standard").unwrap().keep
         );
         for removed in ["development", "legacy-development"] {
-            let error = recipe(removed).err().unwrap().to_string();
+            let error = recipe(DEFAULT_RELEASE, removed).err().unwrap().to_string();
             assert!(error.contains("--name mipspro"), "{error}");
         }
     }
@@ -1737,7 +1754,7 @@ mod tests {
     #[test]
     fn profiles_deselect_conflicting_products() {
         assert_eq!(
-            recipe("standard").unwrap().keep,
+            recipe(DEFAULT_RELEASE, "standard").unwrap().keep,
             [
                 "inventor_dev",
                 "java2_plugin.sw32.mozilla_freeware",
@@ -1745,12 +1762,93 @@ mod tests {
             ]
         );
         assert_eq!(
-            recipe("minimal").unwrap().keep,
+            recipe(DEFAULT_RELEASE, "minimal").unwrap().keep,
             [
                 "desktop_base.sw.dso6_2",
                 "insight.sw.sgihelp",
                 "inventor_dev"
             ]
         );
+    }
+
+    fn golden_config(profile: &str, with_addons: bool) -> Value {
+        use crate::{Machine, Network};
+        let recipe = recipe(DEFAULT_RELEASE, profile).unwrap();
+        let media = InstallMedia {
+            format: 1,
+            profile: profile.into(),
+            release: DEFAULT_RELEASE.into(),
+            media: recipe
+                .layers
+                .iter()
+                .map(|layer| {
+                    (
+                        layer.name.clone(),
+                        format!(
+                            "{}{}",
+                            recipe.base_url,
+                            layer.remote_path.as_deref().unwrap_or(&layer.path)
+                        ),
+                    )
+                })
+                .collect(),
+            addons: if with_addons {
+                vec![
+                    named_addon(DEFAULT_RELEASE, "mipspro", None).unwrap(),
+                    named_addon(DEFAULT_RELEASE, "rad4", None).unwrap(),
+                ]
+            } else {
+                vec![]
+            },
+        };
+        let file = MachineFile {
+            format: crate::MACHINE_FORMAT,
+            machine: Machine {
+                model: "origin200".into(),
+                nodes: 1,
+                cpus_per_node: 1,
+                memory_per_node: "256MiB".into(),
+                console: None,
+                processor: None,
+                topology: None,
+                population: vec![],
+                inputs: Default::default(),
+            },
+            identity: Some(crate::Identity {
+                mac: "08:00:69:12:34:56".into(),
+            }),
+            network: Network {
+                mode: "private".into(),
+                endpoint: Some("install/network.sock".into()),
+                interface: None,
+                forward: vec![],
+            },
+            pipe: vec![],
+            drive: vec![],
+            qemu: Default::default(),
+        };
+        config(Path::new("/machine"), &file, &media).unwrap()
+    }
+
+    /// The Instigator configuration for 6.5.30 is the contract with the
+    /// installer, so the recipe file moving or growing must not change it.
+    #[test]
+    fn release_6_5_30_config_is_unchanged() {
+        let mut all = serde_json::Map::new();
+        for profile in ["minimal", "standard"] {
+            for addons in [false, true] {
+                all.insert(
+                    format!("{profile}-{}", if addons { "addons" } else { "plain" }),
+                    golden_config(profile, addons),
+                );
+            }
+        }
+        let text = serde_json::to_string_pretty(&Value::Object(all)).unwrap() + "\n";
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/install-6.5.30-config.json");
+        if std::env::var_os("ORIGAMI_WRITE_FIXTURE").is_some() {
+            fs::write(&path, &text).unwrap();
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
     }
 }

@@ -438,6 +438,7 @@ fn command(action: Action) -> Result<()> {
                     &root,
                     mac.as_deref(),
                     &mut file,
+                    install::DEFAULT_RELEASE,
                     profile.as_str(),
                 )?
             } else {
@@ -446,6 +447,7 @@ fn command(action: Action) -> Result<()> {
                     &dir,
                     mac.as_deref(),
                     &mut file,
+                    install::DEFAULT_RELEASE,
                     profile.as_str(),
                 )?
             };
