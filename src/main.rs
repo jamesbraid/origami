@@ -478,6 +478,7 @@ fn command(action: Action) -> Result<()> {
             media_root,
             mac,
             profile,
+            release,
         } => {
             if let Some(old) = profile.old_name() {
                 return Err(
@@ -494,7 +495,7 @@ fn command(action: Action) -> Result<()> {
                     &root,
                     mac.as_deref(),
                     &mut file,
-                    install::DEFAULT_RELEASE,
+                    release.as_str(),
                     profile.as_str(),
                 )?
             } else {
@@ -503,7 +504,7 @@ fn command(action: Action) -> Result<()> {
                     &dir,
                     mac.as_deref(),
                     &mut file,
-                    install::DEFAULT_RELEASE,
+                    release.as_str(),
                     profile.as_str(),
                 )?
             };

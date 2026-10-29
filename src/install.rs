@@ -82,6 +82,10 @@ struct InstallRecipe {
     sets: Vec<String>,
     #[serde(default)]
     addons: BTreeMap<String, AddonDefinition>,
+    /// For a set whose layers carry different copies of one file: the layer
+    /// whose copy wins, by served path. Instigator refuses to guess.
+    #[serde(default)]
+    collisions: BTreeMap<String, BTreeMap<String, String>>,
     #[serde(skip)]
     install: Vec<String>,
     #[serde(skip)]
@@ -106,6 +110,7 @@ fn default_release() -> String {
 
 fn release_recipe(release: &str) -> Result<&'static str> {
     match release {
+        "6.5.22" => Ok(include_str!("../resources/instigator-irix-6.5.22.toml")),
         "6.5.30" => Ok(include_str!("../resources/instigator-irix-6.5.30.toml")),
         _ => Err(format!("unknown IRIX release: {release}").into()),
     }
@@ -128,7 +133,7 @@ fn recipe(release: &str, profile: &str) -> Result<InstallRecipe> {
     let selection = recipe
         .package_selections
         .remove(selection_profile)
-        .ok_or_else(|| format!("missing package selections for profile: {selection_profile}"))?;
+        .ok_or_else(|| format!("IRIX {release} has no {selection_profile} install profile"))?;
     recipe.install = selection.install;
     recipe.keep = selection.keep;
     let sets = selection.sets;
@@ -418,7 +423,11 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
             }
             layers.push(entry);
         }
-        sets.push(json!({ "name": name, "layers": layers }));
+        let mut set = json!({ "name": name, "layers": layers });
+        if let Some(winners) = recipe.collisions.get(name) {
+            set["collisions"] = json!(winners);
+        }
+        sets.push(set);
     }
     let mut scripts = vec![json!({
         "name": STANDARD_INSTALL_SCRIPT,
@@ -1776,13 +1785,11 @@ mod tests {
         );
     }
 
-    fn golden_config(profile: &str, with_addons: bool) -> Value {
-        use crate::{Machine, Network};
-        let recipe = recipe(DEFAULT_RELEASE, profile).unwrap();
-        let media = InstallMedia {
+    fn golden_media(release: &str, recipe: &InstallRecipe) -> InstallMedia {
+        InstallMedia {
             format: 1,
-            profile: profile.into(),
-            release: DEFAULT_RELEASE.into(),
+            profile: "standard".into(),
+            release: release.into(),
             media: recipe
                 .layers
                 .iter()
@@ -1797,15 +1804,12 @@ mod tests {
                     )
                 })
                 .collect(),
-            addons: if with_addons {
-                vec![
-                    named_addon(DEFAULT_RELEASE, "mipspro", None).unwrap(),
-                    named_addon(DEFAULT_RELEASE, "rad4", None).unwrap(),
-                ]
-            } else {
-                vec![]
-            },
-        };
+            addons: vec![],
+        }
+    }
+
+    fn golden_document(media: &InstallMedia) -> Value {
+        use crate::{Machine, Network};
         let file = MachineFile {
             format: crate::MACHINE_FORMAT,
             machine: Machine {
@@ -1834,7 +1838,20 @@ mod tests {
             share: vec![],
             qemu: Default::default(),
         };
-        config(Path::new("/machine"), &file, &media).unwrap()
+        config(Path::new("/machine"), &file, media).unwrap()
+    }
+
+    fn golden_config(profile: &str, with_addons: bool) -> Value {
+        let recipe = recipe(DEFAULT_RELEASE, profile).unwrap();
+        let mut media = golden_media(DEFAULT_RELEASE, &recipe);
+        media.profile = profile.into();
+        if with_addons {
+            media.addons = vec![
+                named_addon(DEFAULT_RELEASE, "mipspro", None).unwrap(),
+                named_addon(DEFAULT_RELEASE, "rad4", None).unwrap(),
+            ];
+        }
+        golden_document(&media)
     }
 
     /// The Instigator configuration for 6.5.30 is the contract with the
@@ -1857,5 +1874,78 @@ mod tests {
             fs::write(&path, &text).unwrap();
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn release_6_5_22_loads_and_names_its_own_discs() {
+        let recipe = recipe("6.5.22", "standard").unwrap();
+        assert_eq!(recipe.layers.len(), 10);
+        let mut urls = Vec::new();
+        for layer in &recipe.layers {
+            let path = layer.remote_path.as_deref().unwrap();
+            let url = format!("{}{path}", recipe.base_url);
+            crate::assets::validate_https_url(&url).unwrap();
+            urls.push(url);
+        }
+        for disc in [
+            "overlays1",
+            "overlays2",
+            "overlays3",
+            "applications",
+            "complementary",
+        ] {
+            let url = format!("https://origami-dist.irix.fans/irix/6.5.22/{disc}.iso");
+            assert!(urls.contains(&url), "{url}");
+        }
+        assert!(!urls.iter().any(|url| url.contains("6.5.30")));
+        assert_eq!(recipe.install, ["nfs.sw.nfs"]);
+        // Products inst could not install on the full media set, from its own
+        // conflict list. 6.5.30's keep list names others.
+        assert_eq!(
+            recipe.keep,
+            [
+                "java2_plugin.sw32.mozilla_freeware",
+                "java_dev.sw32.binaries",
+                "sgimeeting.sw.sgitools"
+            ]
+        );
+        let error = super::recipe("6.5.22", "minimal")
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains("6.5.22 has no minimal"), "{error}");
+        assert!(super::recipe("6.5.7", "standard").is_err());
+    }
+
+    #[test]
+    fn release_6_5_22_config_resolves_the_overlay_collision_and_adds_addons() {
+        let recipe = recipe("6.5.22", "standard").unwrap();
+        let mut media = golden_media("6.5.22", &recipe);
+        media.addons = vec![
+            named_addon("6.5.22", "mipspro", None).unwrap(),
+            named_addon("6.5.22", "rad4", None).unwrap(),
+        ];
+        assert_eq!(media.addons[0].install.len(), 12);
+        assert_eq!(media.addons[1].install[0], "rad4x.sw.driver");
+        let document = golden_document(&media);
+        let sets = document["install_sets"].as_array().unwrap();
+        assert_eq!(sets[0]["name"], "6.5.22");
+        assert_eq!(sets[0]["layers"][0]["boot"], true);
+        assert_eq!(
+            sets[0]["collisions"],
+            json!({ "6.5.22/dist/.prereq_hints": "overlays1" })
+        );
+        // Only the set with a collision carries the field.
+        assert!(sets[1].get("collisions").is_none());
+        assert_eq!(document["install_scripts"][0]["keep"], json!(recipe.keep));
+    }
+
+    #[test]
+    fn media_toml_without_a_release_means_6_5_30() {
+        let media: InstallMedia = toml::from_str(
+            "format = 1\nprofile = \"standard\"\n[media]\noverlays1 = \"https://example.invalid/a.iso\"\n",
+        )
+        .unwrap();
+        assert_eq!(media.release, "6.5.30");
     }
 }

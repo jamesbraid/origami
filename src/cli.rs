@@ -178,6 +178,9 @@ pub enum Action {
         mac: Option<String>,
         #[arg(long, value_enum, default_value = "standard")]
         profile: Profile,
+        /// IRIX release to install
+        #[arg(long, value_enum, default_value = "6.5.30")]
+        release: Release,
     },
     /// Add an optional package source to an installation
     InstallAddon {
@@ -442,6 +445,21 @@ impl Protocol {
         match self {
             Self::Tcp => "tcp",
             Self::Udp => "udp",
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum Release {
+    #[value(name = "6.5.22")]
+    R6_5_22,
+    #[value(name = "6.5.30")]
+    R6_5_30,
+}
+impl Release {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::R6_5_22 => "6.5.22",
+            Self::R6_5_30 => "6.5.30",
         }
     }
 }

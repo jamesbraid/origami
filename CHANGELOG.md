@@ -13,6 +13,9 @@
 - `onyx3400-infinite-reality` is an Onyx 3400 with four C-bricks, 16 CPUs
   and one InfiniteReality3 pipe. IRIX 6.5.30 installs on it and 4Dwm runs
   with a keyboard and mouse.
+- `origami install-init --release 6.5.22` installs IRIX 6.5.22, with the
+  MIPSpro and RAD4 add-ons, from discs hosted beside the 6.5.30 ones. The
+  default stays 6.5.30.
 - QEMU updated to cf2948f095.
 - `origami share` makes a host folder appear in IRIX over NFS, with no
   host NFS server or administrator rights. The guest mounts it with

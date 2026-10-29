@@ -202,6 +202,8 @@ at start.
 
 - `--profile standard`, the default, installs all ten IRIX 6.5.30 discs.
   `--profile minimal` installs the six overlay, foundation and NFS discs.
+- `--release 6.5.22` installs IRIX 6.5.22 instead, standard profile only. Use
+  `6.5.22` where this guide says `6.5.30`, in paths and `--media-root`.
 - `--media-root DIR` reads local discs from `DIR/6.5.30/` and
   `DIR/6.5-base/`, named `.image`.
 
