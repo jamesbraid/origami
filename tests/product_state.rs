@@ -79,14 +79,16 @@ fn every_preset_creates_reopens_and_starts() {
     let machines = origami::machines().unwrap();
     let mut failures = Vec::new();
     // Each starter must name an offering of this QEMU, and the registry
-    // must have every image kind an offering reads.
+    // must have every image kind a preset's offering reads.
     for profile in origami::profiles::STARTERS {
         if let Err(error) = origami::preset(&machines, profile.id) {
             failures.push(format!("{}: {error}", profile.id));
         }
     }
     let manifest = origami::assets::manifest().unwrap();
-    for offering in &machines.offerings {
+    // Only presets create machines, so an offering with no preset, such as
+    // the O2 whose PROM has no download, needs none.
+    for (_, offering) in origami::presets(&machines) {
         for input in &offering.init_inputs {
             if manifest.get(&input.kind).is_err() {
                 failures.push(format!("{}: no {} download", offering.topology, input.kind));
