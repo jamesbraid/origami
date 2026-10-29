@@ -120,6 +120,18 @@ fn every_preset_creates_reopens_and_starts() {
         }
         let result = run(root, "validate", &machine, &[])
             .and_then(|_| run(root, "show-command", &machine, &[]))
+            .and_then(|shown| {
+                // Only an Origin 3000, whose I-brick has no PS/2, gets USB
+                // input; Fuel and Tezro keep theirs.
+                let shown = String::from_utf8_lossy(&shown.stdout).into_owned();
+                let usb = shown
+                    .contains(" -device usb-kbd,bus=usb-bus.0 -device usb-mouse,bus=usb-bus.0");
+                if usb == (offering.product == "origin3000") && !shown.contains("usb-tablet") {
+                    Ok(())
+                } else {
+                    Err(format!("show-command USB input is {usb}: {shown}"))
+                }
+            })
             .and_then(|_| start_and_stop(root, &machine));
         if let Err(error) = result {
             failures.push(format!("{name}: {error}"));

@@ -347,6 +347,18 @@ pub fn arguments(
         &offering.topology,
         &file.pipe,
     )?);
+    // IRIX numbers a keyboard and mouse into /etc/ioconfig.conf at boot, and
+    // one plugged in later keeps ID -1, which X never opens. So they are
+    // present from power-on on every run. A relative mouse: IRIX reads a
+    // tablet's absolute coordinates as signed relative motion.
+    if crate::profiles::usb_input_only(offering) {
+        args.extend([
+            "-device".into(),
+            "usb-kbd,bus=usb-bus.0".into(),
+            "-device".into(),
+            "usb-mouse,bus=usb-bus.0".into(),
+        ]);
+    }
     for (index, drive) in file.drive.iter().enumerate() {
         add_drive(&mut args, dir, offering, drive, index);
     }
@@ -805,6 +817,34 @@ mod tests {
         )
         .unwrap();
         assert!(machine_option(&file).contains(",baseio-preset=io6g"));
+    }
+
+    #[test]
+    fn only_usb_input_machines_get_a_usb_keyboard_and_mouse() {
+        let machines = crate::test_machines();
+        let devices = |name: &str| {
+            let offer = preset(&machines, name).unwrap();
+            let args = arguments(
+                &machines,
+                Path::new("/machine"),
+                &machine(offer),
+                offer,
+                Display::None,
+            )
+            .unwrap();
+            args.windows(2)
+                .filter(|pair| pair[0] == "-device" && pair[1].starts_with("usb-"))
+                .map(|pair| pair[1].clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            devices("origin3200"),
+            ["usb-kbd,bus=usb-bus.0", "usb-mouse,bus=usb-bus.0"]
+        );
+        // Fuel, Octane and Origin 200 keep their PS/2 ports.
+        for name in ["fuel-1", "octane-impact", "origin200-1"] {
+            assert!(devices(name).is_empty(), "{name}");
+        }
     }
 
     #[test]

@@ -295,6 +295,14 @@ pub fn takes_mac(offering: &Offering) -> bool {
     input_target(offering, "mac") == Some("machine")
 }
 
+/// Whether the machine takes its keyboard and mouse over USB alone, so a
+/// launch has to attach them. The machine list names no input devices, so
+/// this keys on the product: an Origin 3000's I-brick has USB ports and no
+/// PS/2 controller, while the other products model their PS/2 ports.
+pub fn usb_input_only(offering: &Offering) -> bool {
+    offering.product == "origin3000"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
