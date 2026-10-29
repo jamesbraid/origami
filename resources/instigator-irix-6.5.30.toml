@@ -2,7 +2,7 @@ format = 1
 base_url = "https://origami-dist.irix.fans/irix/"
 sets = ["6.5.30", "foundations", "development", "applications", "complementary"]
 [package_selections.minimal]
-install = []
+install = ["nfs.sw.nfs"]
 # The standard selection picks these, but their prerequisites are not on
 # the minimal profile's discs. The overlay discs carry only 6.5.30 updates of
 # MediaWarehouse and WebViewer, and inst will not install an update whose
@@ -17,7 +17,7 @@ keep = [
 ]
 
 [package_selections.standard]
-install = []
+install = ["nfs.sw.nfs"]
 keep = ["inventor_dev", "java2_plugin.sw32.mozilla_freeware", "java_dev.sw32.binaries"]
 
 [[layers]]
