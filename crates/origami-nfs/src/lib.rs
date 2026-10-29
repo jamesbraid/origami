@@ -11,6 +11,7 @@
 //! host directory that way.
 
 mod mount;
+mod multi;
 mod nfs2;
 mod nfs3;
 mod portmap;
@@ -28,6 +29,7 @@ mod testutil;
 pub use fs::{
     Attr, CreateHow, DirEntry, Error, FileSystem, Key, Node, Result, SetAttr, Space, Time,
 };
+pub use multi::Shares;
 pub use net::{raise_udp_buffers, BoundPorts, Serving, ShareConfig, ShareServer};
 pub use rpc::{LogLevel, Logger, Ports, Server};
 pub use sharefs::{Options, Share};

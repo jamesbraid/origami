@@ -140,6 +140,7 @@ impl MemTree {
                 ..Key::default()
             },
             describe: None,
+            owner: 0,
         }
     }
 

@@ -148,6 +148,11 @@ pub struct Node {
     pub key: Key,
     /// Names the node in the log when it is a file the client opens.
     pub describe: Option<String>,
+    /// Which of several filesystems made the node, for [`Shares`]. A
+    /// filesystem that stands alone leaves it zero.
+    ///
+    /// [`Shares`]: crate::Shares
+    pub owner: usize,
 }
 
 impl Node {

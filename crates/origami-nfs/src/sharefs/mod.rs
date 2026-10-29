@@ -212,6 +212,7 @@ impl Share {
             raw_mode: st.mode,
             key,
             describe: None,
+            owner: 0,
         })
     }
 
