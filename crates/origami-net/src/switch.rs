@@ -1,15 +1,17 @@
 //! The switch: two listening sockets for QEMU's stream netdevs and the
 //! rule that moves frames between them and the stack.
 
-use std::io::{self, BufReader, Write};
-use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::io::{self, Write};
+use std::net::{Ipv4Addr, Shutdown, SocketAddr};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 use origami_nfs::Server;
 
-use crate::frame::{push_frame, read_frames, route, Route};
+use crate::frame::{frames, push_frame, route, Framer, Route};
 use crate::stack::{Stack, StackConfig};
+use crate::transport::{self, Bind, Conn, Endpoint, Listener};
 
 /// Configures [`Switch::start`].
 #[derive(Clone, Debug)]
@@ -19,6 +21,10 @@ pub struct SwitchConfig {
     pub guest: SocketAddr,
     /// Where QEMU's hub port on the machine's network (B) connects.
     pub network: SocketAddr,
+    /// Listen on Unix sockets made in this directory instead of on
+    /// loopback ports, for any side whose address is left at port 0. The
+    /// switch removes the directory when it stops.
+    pub socket_dir: Option<PathBuf>,
 }
 
 impl SwitchConfig {
@@ -28,13 +34,21 @@ impl SwitchConfig {
             stack,
             guest: any,
             network: any,
+            socket_dir: None,
+        }
+    }
+
+    fn bind(&self, addr: SocketAddr, name: &str) -> Bind {
+        match &self.socket_dir {
+            Some(dir) if addr.port() == 0 => Bind::Unix(dir.join(name)),
+            _ => Bind::Tcp(addr),
         }
     }
 }
 
 /// One QEMU connection, replaced when QEMU reconnects.
 #[derive(Default)]
-struct Slot(Mutex<Option<TcpStream>>);
+struct Slot(Mutex<Option<Conn>>);
 
 impl Slot {
     /// Sends frames already carrying their lengths, in one write.
@@ -53,7 +67,7 @@ impl Slot {
         }
     }
 
-    fn replace(&self, s: TcpStream) {
+    fn replace(&self, s: Conn) {
         if let Some(old) = self.0.lock().unwrap().replace(s) {
             let _ = old.shutdown(Shutdown::Both);
         }
@@ -76,18 +90,19 @@ struct Shared {
 /// A running switch and stack. Dropping it stops both.
 pub struct Switch {
     shared: Arc<Shared>,
-    guest_addr: SocketAddr,
-    network_addr: SocketAddr,
+    guest_endpoint: Endpoint,
+    network_endpoint: Endpoint,
+    socket_dir: Option<PathBuf>,
     stop: Arc<std::sync::atomic::AtomicBool>,
     threads: Vec<JoinHandle<()>>,
 }
 
 impl Switch {
     pub fn start(cfg: SwitchConfig, server: Option<Arc<Server>>) -> io::Result<Switch> {
-        let guest_l = TcpListener::bind(cfg.guest)?;
-        let network_l = TcpListener::bind(cfg.network)?;
-        let guest_addr = guest_l.local_addr()?;
-        let network_addr = network_l.local_addr()?;
+        let guest_l = Listener::bind(&cfg.bind(cfg.guest, "guest.sock"))?;
+        let network_l = Listener::bind(&cfg.bind(cfg.network, "net.sock"))?;
+        let guest_endpoint = guest_l.endpoint()?;
+        let network_endpoint = network_l.endpoint()?;
         let shared = Arc::new(Shared {
             stack: Mutex::new(None),
             guest: Slot::default(),
@@ -108,21 +123,50 @@ impl Switch {
         ];
         Ok(Switch {
             shared,
-            guest_addr,
-            network_addr,
+            guest_endpoint,
+            network_endpoint,
+            socket_dir: cfg.socket_dir,
             stop,
             threads,
         })
     }
 
-    /// Where the guest NIC's stream netdev connects.
+    /// Where the guest NIC's stream netdev connects, for a switch
+    /// listening on loopback TCP.
+    ///
+    /// # Panics
+    ///
+    /// If the switch listens on a Unix socket; see
+    /// [`Switch::guest_endpoint`].
     pub fn guest_addr(&self) -> SocketAddr {
-        self.guest_addr
+        match &self.guest_endpoint {
+            Endpoint::Tcp(a) => *a,
+            Endpoint::Unix(_) => panic!("the guest side listens on a Unix socket"),
+        }
+    }
+
+    /// Where the machine's network joins, for a switch listening on
+    /// loopback TCP.
+    ///
+    /// # Panics
+    ///
+    /// If the switch listens on a Unix socket; see
+    /// [`Switch::network_endpoint`].
+    pub fn network_addr(&self) -> SocketAddr {
+        match &self.network_endpoint {
+            Endpoint::Tcp(a) => *a,
+            Endpoint::Unix(_) => panic!("the network side listens on a Unix socket"),
+        }
+    }
+
+    /// Where the guest NIC's stream netdev connects.
+    pub fn guest_endpoint(&self) -> &Endpoint {
+        &self.guest_endpoint
     }
 
     /// Where the machine's network joins.
-    pub fn network_addr(&self) -> SocketAddr {
-        self.network_addr
+    pub fn network_endpoint(&self) -> &Endpoint {
+        &self.network_endpoint
     }
 
     pub fn stop(&mut self) {
@@ -130,12 +174,15 @@ impl Switch {
         self.shared.guest.close();
         self.shared.network.close();
         // Wake the accept loops.
-        let _ = TcpStream::connect(self.guest_addr);
-        let _ = TcpStream::connect(self.network_addr);
+        self.guest_endpoint.poke();
+        self.network_endpoint.poke();
         for t in self.threads.drain(..) {
             let _ = t.join();
         }
         self.shared.stack.lock().unwrap().take();
+        if let Some(dir) = self.socket_dir.take() {
+            transport::remove_dir(&dir);
+        }
     }
 }
 
@@ -147,19 +194,19 @@ impl Drop for Switch {
 
 fn spawn_accept(
     shared: Arc<Shared>,
-    listener: TcpListener,
+    listener: Listener,
     guest: bool,
     stop: Arc<std::sync::atomic::AtomicBool>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         let mut readers: Vec<JoinHandle<()>> = Vec::new();
-        for conn in listener.incoming() {
+        loop {
+            let conn = listener.accept();
             if stop.load(std::sync::atomic::Ordering::Relaxed) {
                 break;
             }
             let Ok(conn) = conn else { continue };
-            let _ = conn.set_nodelay(true);
-            let Ok(read_half) = conn.try_clone() else {
+            let Ok(mut read_half) = conn.try_clone() else {
                 continue;
             };
             let slot = if guest {
@@ -171,17 +218,22 @@ fn spawn_accept(
             let shared = shared.clone();
             readers.retain(|r| !r.is_finished());
             readers.push(thread::spawn(move || {
-                let mut r = BufReader::with_capacity(1 << 16, read_half);
-                while let Ok(Some(frames)) = read_frames(&mut r) {
-                    if guest {
-                        from_guest(&shared, frames);
-                    } else {
-                        let mut framed = Vec::new();
-                        for f in &frames {
-                            push_frame(&mut framed, f);
-                        }
-                        shared.guest.send_framed(&framed);
+                let mut framer = Framer::new();
+                let mut out = Vec::new();
+                // Each read takes whatever QEMU has sent, many frames
+                // during a transfer, and goes on with one write.
+                while let Ok(n) = framer.fill(&mut read_half) {
+                    if n == 0 {
+                        break;
                     }
+                    let Ok(whole) = framer.whole() else { break };
+                    if guest {
+                        from_guest(&shared, whole, &mut out);
+                    } else {
+                        shared.guest.send_framed(whole);
+                    }
+                    let len = whole.len();
+                    framer.consume(len);
                 }
             }));
         }
@@ -191,22 +243,27 @@ fn spawn_accept(
     })
 }
 
-fn from_guest(shared: &Shared, frames: Vec<Vec<u8>>) {
-    let mut to_network = Vec::new();
+/// Sends on what the guest wrote: `whole` is whole frames with their
+/// lengths, `out` a buffer to reuse. A frame for the network is copied once,
+/// into the buffer; only one for the stack is allocated.
+fn from_guest(shared: &Shared, whole: &[u8], out: &mut Vec<u8>) {
+    out.clear();
     let mut to_stack = Vec::new();
-    for frame in frames {
-        let r = route(&frame, shared.cfg.mac, shared.cfg.ip);
+    for frame in frames(whole) {
+        let r = route(frame, shared.cfg.mac, shared.cfg.ip);
         if matches!(r, Route::Network | Route::Both) {
-            push_frame(&mut to_network, &frame);
+            push_frame(out, frame);
         }
         if matches!(r, Route::Stack | Route::Both) {
-            to_stack.push(frame);
+            to_stack.push(frame.to_vec());
         }
     }
-    shared.network.send_framed(&to_network);
-    if let Some(s) = shared.stack.lock().unwrap().as_ref() {
-        for frame in to_stack {
-            s.receive(frame);
+    shared.network.send_framed(out);
+    if !to_stack.is_empty() {
+        if let Some(s) = shared.stack.lock().unwrap().as_ref() {
+            for frame in to_stack {
+                s.receive(frame);
+            }
         }
     }
 }

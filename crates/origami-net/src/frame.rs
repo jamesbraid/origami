@@ -1,30 +1,10 @@
 //! QEMU stream framing and the switch's forwarding rule.
 
-use std::io::{self, BufReader, Read};
+use std::io::{self, Read};
 use std::net::Ipv4Addr;
 
 /// The longest frame accepted. QEMU's own limit is far lower.
 const MAX_FRAME: usize = 65536;
-
-/// Reads one frame, or None at a clean end of stream.
-pub fn read_frame<R: Read>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
-    let mut head = [0u8; 4];
-    match r.read_exact(&mut head) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    }
-    let len = u32::from_be_bytes(head) as usize;
-    if len > MAX_FRAME {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("frame of {len} bytes"),
-        ));
-    }
-    let mut frame = vec![0u8; len];
-    r.read_exact(&mut frame)?;
-    Ok(Some(frame))
-}
 
 /// Appends a frame and its length to `buf`.
 pub fn push_frame(buf: &mut Vec<u8>, frame: &[u8]) {
@@ -32,28 +12,87 @@ pub fn push_frame(buf: &mut Vec<u8>, frame: &[u8]) {
     buf.extend_from_slice(frame);
 }
 
-/// Reads a frame, then every further whole frame already buffered, so the
-/// caller can pass the lot on with one write instead of one each.
-pub fn read_frames<R: Read>(r: &mut BufReader<R>) -> io::Result<Option<Vec<Vec<u8>>>> {
-    let Some(first) = read_frame(r)? else {
-        return Ok(None);
-    };
-    let mut frames = vec![first];
-    loop {
-        let held = r.buffer();
-        if held.len() < 4 {
-            break;
+/// The frames in `framed`, which holds only whole ones (see [`Framer::whole`]).
+pub fn frames(mut framed: &[u8]) -> impl Iterator<Item = &[u8]> {
+    std::iter::from_fn(move || {
+        if framed.len() < 4 {
+            return None;
         }
-        let len = u32::from_be_bytes(held[..4].try_into().unwrap()) as usize;
-        if len > MAX_FRAME || held.len() < 4 + len {
-            break;
-        }
-        match read_frame(r)? {
-            Some(f) => frames.push(f),
-            None => break,
+        let len = u32::from_be_bytes(framed[..4].try_into().unwrap()) as usize;
+        let (frame, rest) = framed[4..].split_at(len.min(framed.len() - 4));
+        framed = rest;
+        Some(frame)
+    })
+}
+
+/// Reads a stream of length-prefixed frames into one reused buffer, so a
+/// burst costs one read and no allocation per frame.
+pub struct Framer {
+    buf: Vec<u8>,
+    /// Bytes before `start` have been handed out.
+    start: usize,
+    end: usize,
+}
+
+impl Framer {
+    pub fn new() -> Framer {
+        // Room for a maximal frame whatever is already buffered.
+        Framer {
+            buf: vec![0; 4 * (MAX_FRAME + 4)],
+            start: 0,
+            end: 0,
         }
     }
-    Ok(Some(frames))
+
+    /// Reads what the socket has, up to the buffer's room. Returns 0 at
+    /// the end of the stream.
+    pub fn fill<R: Read>(&mut self, r: &mut R) -> io::Result<usize> {
+        if self.start == self.end {
+            self.start = 0;
+            self.end = 0;
+        } else if self.buf.len() - self.end < MAX_FRAME + 4 {
+            self.buf.copy_within(self.start..self.end, 0);
+            self.end -= self.start;
+            self.start = 0;
+        }
+        loop {
+            match r.read(&mut self.buf[self.end..]) {
+                Ok(n) => {
+                    self.end += n;
+                    return Ok(n);
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Every whole frame read so far, still carrying its length. A partial
+    /// one stays behind for the next read. Fails on a frame longer than
+    /// QEMU would send.
+    pub fn whole(&self) -> io::Result<&[u8]> {
+        let held = &self.buf[self.start..self.end];
+        let mut pos = 0;
+        while held.len() - pos >= 4 {
+            let len = u32::from_be_bytes(held[pos..pos + 4].try_into().unwrap()) as usize;
+            if len > MAX_FRAME {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("frame of {len} bytes"),
+                ));
+            }
+            if held.len() - pos < 4 + len {
+                break;
+            }
+            pos += 4 + len;
+        }
+        Ok(&held[..pos])
+    }
+
+    /// Drops the first `n` bytes, once handled.
+    pub fn consume(&mut self, n: usize) {
+        self.start += n;
+    }
 }
 
 /// Where a frame from the guest goes.
@@ -137,17 +176,67 @@ mod tests {
         push_frame(&mut buf, b"hello");
         push_frame(&mut buf, b"");
         assert_eq!(&buf[..4], &[0, 0, 0, 5]);
-        let mut r = &buf[..];
-        assert_eq!(read_frame(&mut r).unwrap().unwrap(), b"hello");
-        assert_eq!(read_frame(&mut r).unwrap().unwrap(), b"");
-        assert!(read_frame(&mut r).unwrap().is_none());
-        // Whole frames already buffered come together; a partial one waits.
-        push_frame(&mut buf, b"third");
-        let mut r = BufReader::new(&buf[..]);
-        let frames = read_frames(&mut r).unwrap().unwrap();
-        assert_eq!(frames, [&b"hello"[..], b"", b"third"]);
-        assert!(read_frames(&mut r).unwrap().is_none());
-        let huge = [0xffu8, 0xff, 0xff, 0xff];
-        assert!(read_frame(&mut &huge[..]).is_err());
+        assert_eq!(frames(&buf).collect::<Vec<_>>(), [&b"hello"[..], b""]);
+    }
+
+    #[test]
+    fn a_partial_frame_waits_for_the_rest() {
+        let mut stream = Vec::new();
+        push_frame(&mut stream, b"hello");
+        push_frame(&mut stream, b"");
+        push_frame(&mut stream, b"third");
+        let (head, tail) = stream.split_at(stream.len() - 2);
+        let mut framer = Framer::new();
+        assert_eq!(framer.fill(&mut &head[..]).unwrap(), head.len());
+        let whole = framer.whole().unwrap();
+        assert_eq!(frames(whole).collect::<Vec<_>>(), [&b"hello"[..], b""]);
+        let n = whole.len();
+        framer.consume(n);
+        assert!(framer.whole().unwrap().is_empty());
+        framer.fill(&mut &tail[..]).unwrap();
+        let whole = framer.whole().unwrap();
+        assert_eq!(frames(whole).collect::<Vec<_>>(), [&b"third"[..]]);
+        let n = whole.len();
+        framer.consume(n);
+        assert_eq!(framer.fill(&mut &[][..]).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_frame_longer_than_qemu_sends_is_refused() {
+        let mut framer = Framer::new();
+        framer.fill(&mut &[0xffu8, 0xff, 0xff, 0xff][..]).unwrap();
+        assert!(framer.whole().is_err());
+    }
+
+    #[test]
+    fn a_long_stream_compacts_in_place() {
+        // More than the buffer holds, in odd sizes, so frames straddle
+        // reads and the tail moves back to the front.
+        let mut stream = Vec::new();
+        let mut want = 0;
+        for i in 0..2000usize {
+            push_frame(&mut stream, &vec![i as u8; 60 + i % 1400]);
+            want += 1;
+        }
+        let mut src = &stream[..];
+        let mut framer = Framer::new();
+        let mut got = 0;
+        loop {
+            let mut chunk = &src[..src.len().min(100_003)];
+            let n = framer.fill(&mut chunk).unwrap();
+            src = &src[n..];
+            let whole = framer.whole().unwrap();
+            for f in frames(whole) {
+                assert_eq!(f.len(), 60 + got % 1400);
+                assert!(f.iter().all(|&b| b == got as u8));
+                got += 1;
+            }
+            let n = whole.len();
+            framer.consume(n);
+            if src.is_empty() && framer.whole().unwrap().is_empty() {
+                break;
+            }
+        }
+        assert_eq!(got, want);
     }
 }

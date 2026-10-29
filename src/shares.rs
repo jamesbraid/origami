@@ -11,7 +11,7 @@
 //! serves any shares at the host's own address, 10.98.0.2.
 
 use crate::{MachineFile, Result, Share};
-use origami_net::{Addressing, Client, StackConfig, Switch, SwitchConfig};
+use origami_net::{Addressing, Client, Endpoint, StackConfig, Switch, SwitchConfig};
 use origami_nfs::{LogLevel, Options, Server};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
@@ -36,7 +36,8 @@ pub struct Address {
     pub mac: [u8; 6],
 }
 
-/// The loopback ports the switch listens on, as QEMU is told them.
+/// Where the switch listens, as the `addr.` options QEMU's stream netdev
+/// takes: loopback TCP, or a Unix socket where the platform has them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ports {
     /// The guest NIC's stream.
@@ -49,8 +50,21 @@ impl Ports {
     /// Stand-ins for `show-command`, which starts no switch.
     pub fn placeholder() -> Ports {
         Ports {
-            guest: "<guest-port>".into(),
-            network: "<network-port>".into(),
+            guest: tcp_options("<guest-port>"),
+            network: tcp_options("<network-port>"),
+        }
+    }
+}
+
+fn tcp_options(port: &str) -> String {
+    format!("addr.type=inet,addr.host=127.0.0.1,addr.port={port}")
+}
+
+fn options(endpoint: &Endpoint) -> String {
+    match endpoint {
+        Endpoint::Tcp(addr) => tcp_options(&addr.port().to_string()),
+        Endpoint::Unix(path) => {
+            format!("addr.type=unix,addr.path={}", crate::qemu_path_option(path))
         }
     }
 }
@@ -58,11 +72,8 @@ impl Ports {
 /// The QEMU options that put the machine's network (`net0`) and the guest
 /// NIC (`share-guest`) on either side of the switch.
 pub fn netdev_arguments(ports: &Ports) -> Vec<String> {
-    let stream = |id: &str, port: &str| {
-        format!(
-            "stream,id={id},addr.type=inet,addr.host=127.0.0.1,addr.port={port},server=off,reconnect-ms=1000"
-        )
-    };
+    let stream =
+        |id: &str, addr: &str| format!("stream,id={id},{addr},server=off,reconnect-ms=1000");
     [
         "hubport,id=share-hub-net,hubid=1,netdev=net0".to_string(),
         stream("share-net", &ports.network),
@@ -193,8 +204,8 @@ impl Running {
     /// The ports for the hub wiring around the machine's own network.
     pub fn ports(&self) -> Ports {
         Ports {
-            guest: self.switch.guest_addr().port().to_string(),
-            network: self.switch.network_addr().port().to_string(),
+            guest: options(self.switch.guest_endpoint()),
+            network: options(self.switch.network_endpoint()),
         }
     }
 
@@ -258,6 +269,13 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
         addressing,
     });
     cfg.guest = guest;
+    // Behind slirp the switch carries a guest's whole traffic, and QEMU
+    // sends each frame with a call of its own, which a Unix socket makes
+    // cheaper than loopback TCP. A hosted private network keeps the
+    // address Instigator's contract names.
+    if !private {
+        cfg.socket_dir = origami_net::socket_dir();
+    }
     match Switch::start(cfg, server) {
         Ok(switch) => Ok(Some(Running {
             switch,

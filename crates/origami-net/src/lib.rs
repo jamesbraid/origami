@@ -4,7 +4,8 @@
 //! with a 4-byte big-endian length in front. A [`Switch`] listens for two
 //! such clients: the guest's NIC (A) and the rest of the machine's network
 //! (B, a hub port beside slirp, a tap device or the private install
-//! network). The switch sends the guest's frames either to the userspace
+//! network), over loopback TCP or, where the platform has them, Unix
+//! sockets. The switch sends the guest's frames either to the userspace
 //! stack, to B, or to both, and everything from B and from the stack to
 //! the guest. The stack ([`Stack`]) owns one address on the network and
 //! serves portmap, MOUNT and NFS from an `origami-nfs` [`Server`] on UDP
@@ -16,11 +17,13 @@ mod frame;
 mod host;
 mod stack;
 mod switch;
+mod transport;
 
 pub use frame::{route, Route};
 pub use host::{Addressing, Client};
 pub use stack::{Stack, StackConfig};
 pub use switch::{Switch, SwitchConfig};
+pub use transport::{socket_dir, Endpoint};
 
 /// The ports portmap, MOUNT and NFS answer on.
 pub const PORTS: [u16; 3] = [111, 635, 2049];

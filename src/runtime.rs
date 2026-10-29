@@ -1296,8 +1296,8 @@ mod tests {
         };
         let plain = args(None);
         let ports = crate::shares::Ports {
-            guest: "40001".into(),
-            network: "40002".into(),
+            guest: "addr.type=inet,addr.host=127.0.0.1,addr.port=40001".into(),
+            network: "addr.type=unix,addr.path=/run/user/1/a,,b/net.sock".into(),
         };
         let wired = args(Some(&ports));
         // The user network stays as it was, now behind a hub port.
@@ -1312,7 +1312,7 @@ mod tests {
             netdevs[1..],
             [
                 "hubport,id=share-hub-net,hubid=1,netdev=net0",
-                "stream,id=share-net,addr.type=inet,addr.host=127.0.0.1,addr.port=40002,server=off,reconnect-ms=1000",
+                "stream,id=share-net,addr.type=unix,addr.path=/run/user/1/a,,b/net.sock,server=off,reconnect-ms=1000",
                 "hubport,id=share-hub-link,hubid=1,netdev=share-net",
                 "stream,id=share-guest,addr.type=inet,addr.host=127.0.0.1,addr.port=40001,server=off,reconnect-ms=1000",
             ]
