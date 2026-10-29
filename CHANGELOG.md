@@ -10,6 +10,9 @@
 - `origami nvram` reads and changes the PROM environment of the Origin 3000
   presets.
 - QEMU updated to 12ef44dec9.
+- `origami share` makes a host folder appear in IRIX over NFS, with no
+  host NFS server or administrator rights. The guest mounts it with
+  `mount 192.0.2.4:/NAME /mnt/NAME`.
 
 ## 0.4.1
 

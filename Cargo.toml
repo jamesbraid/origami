@@ -10,6 +10,8 @@ license = "BSD-3-Clause"
 members = ["crates/origami-nfs", "crates/origami-net"]
 
 [dependencies]
+origami-net = { path = "crates/origami-net" }
+origami-nfs = { path = "crates/origami-nfs" }
 clap = { version = "4.5", features = ["derive"] }
 dirs = "7"
 getrandom = "0.4"

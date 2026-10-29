@@ -327,6 +327,7 @@ mod tests {
             network: Network::default(),
             pipe: vec![],
             drive: vec![],
+            share: vec![],
             qemu: Default::default(),
         }
     }

@@ -15,6 +15,7 @@ pub mod migrate;
 pub mod nvram;
 pub mod profiles;
 pub mod runtime;
+pub mod shares;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -296,6 +297,9 @@ pub struct MachineFile {
     pub pipe: Vec<graphics::Pipe>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub drive: Vec<Drive>,
+    /// Host folders the guest mounts over NFS.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub share: Vec<Share>,
     /// Escape hatch for QEMU options the CLI does not generate correctly.
     #[serde(default, skip_serializing_if = "Qemu::is_empty")]
     pub qemu: Qemu,
@@ -347,6 +351,18 @@ pub struct Network {
     pub interface: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub forward: Vec<PortForward>,
+    /// The address the shares are served at on a tap or vmnet network,
+    /// with the network's prefix length, such as `192.168.1.50/24`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub share_address: Option<String>,
+}
+
+/// A host folder the guest mounts as `ADDRESS:/name`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Share {
+    pub name: String,
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -369,6 +385,7 @@ impl Default for Network {
             endpoint: None,
             interface: None,
             forward: vec![],
+            share_address: None,
         }
     }
 }
@@ -649,6 +666,7 @@ pub fn validate<'a>(
     runtime::console_line(offering, file.machine.console.as_deref())?;
     validate_network(file)?;
     runtime::check_extra_args(&file.qemu.extra_args)?;
+    shares::validate(file)?;
     let mut names = std::collections::HashSet::new();
     let mut host_ports = std::collections::HashSet::new();
     for forward in &file.network.forward {
@@ -833,6 +851,7 @@ pub fn create_configured(
             network: Network::default(),
             pipe: pipes,
             drive: vec![],
+            share: vec![],
             qemu: Default::default(),
         };
         fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
@@ -1028,6 +1047,7 @@ mod tests {
             network: Network::default(),
             pipe: vec![],
             drive: vec![],
+            share: vec![],
             qemu: Default::default(),
         };
         let error = set_machine_mac(
@@ -1087,6 +1107,7 @@ mod tests {
             endpoint: Some("tcp:127.0.0.1:4242".into()),
             interface: None,
             forward: vec![],
+            share_address: None,
         };
         validate(&machines, &machine, &file).unwrap();
         let error = set_machine_mac(
@@ -1162,6 +1183,7 @@ mod tests {
             endpoint: Some("tcp:127.0.0.1:4242".into()),
             interface: None,
             forward: vec![],
+            share_address: None,
         };
         let mac = ensure_machine_mac(&machines, &machine, &mut file, None)
             .unwrap()

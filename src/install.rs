@@ -270,6 +270,7 @@ fn init_sources(
         endpoint: Some(endpoint),
         interface: None,
         forward: old_network.forward.clone(),
+        share_address: None,
     };
     let assigned = match crate::ensure_machine_mac(machines, dir, file, mac)
         .and_then(|assigned| crate::validate(machines, dir, file).map(|_| assigned))
@@ -1283,6 +1284,7 @@ mod tests {
                 endpoint: Some("install/network.sock".into()),
                 interface: None,
                 forward: vec![],
+                share_address: None,
             },
             pipe: vec![crate::graphics::Pipe {
                 slot: "pci-5".into(),
@@ -1291,6 +1293,7 @@ mod tests {
                 settings: Default::default(),
             }],
             drive: vec![],
+            share: vec![],
             qemu: Default::default(),
         };
         let document = config(&dir, &file, &media).unwrap();
@@ -1422,6 +1425,7 @@ mod tests {
                 endpoint: Some("install/network.sock".into()),
                 interface: None,
                 forward: vec![],
+                share_address: None,
             },
             pipe: vec![crate::graphics::Pipe {
                 slot: "pci-5".into(),
@@ -1430,6 +1434,7 @@ mod tests {
                 settings: Default::default(),
             }],
             drive: vec![],
+            share: vec![],
             qemu: Default::default(),
         };
         let document = config(&dir, &file, &configured).unwrap();
@@ -1822,9 +1827,11 @@ mod tests {
                 endpoint: Some("install/network.sock".into()),
                 interface: None,
                 forward: vec![],
+                share_address: None,
             },
             pipe: vec![],
             drive: vec![],
+            share: vec![],
             qemu: Default::default(),
         };
         config(Path::new("/machine"), &file, &media).unwrap()

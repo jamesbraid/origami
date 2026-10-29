@@ -4,7 +4,7 @@ mod commands;
 use clap::Parser;
 use cli::{Action, DriveKind, NetworkMode, NvramAction};
 use origami::runtime;
-use origami::{control, graphics, install, listing, nvram};
+use origami::{control, graphics, install, listing, nvram, shares};
 use origami::{machines, read_machine, validate, Drive, Network, PortForward, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -158,6 +158,12 @@ fn command(action: Action) -> Result<()> {
                         .join(" ")
                 );
             }
+            for share in &file.share {
+                println!("share {}: {}", share.name, share.path.display());
+                if let Ok(lines) = shares::mount_lines(&file, share) {
+                    println!("  {}", lines[1]);
+                }
+            }
             for forward in &file.network.forward {
                 let status = if file.network.mode == "user" {
                     ""
@@ -186,7 +192,9 @@ fn command(action: Action) -> Result<()> {
             let offer = validate(&machines, &dir, &file)?;
             let display = args.display.resolve(!file.pipe.is_empty())?;
             let exe = runtime::qemu_path()?;
-            let arguments = runtime::arguments(&machines, &dir, &file, offer, display)?;
+            let ports = (!file.share.is_empty()).then(shares::Ports::placeholder);
+            let arguments =
+                runtime::arguments_with(&machines, &dir, &file, offer, display, ports.as_ref())?;
             let mut arguments = arguments;
             runtime::append_extra_args(&mut arguments, &file, &args.qemu_args)?;
             // One line, runnable as printed: one shell word per argument.
@@ -345,6 +353,7 @@ fn command(action: Action) -> Result<()> {
             mode,
             endpoint,
             interface,
+            share_address,
             mac,
         } => {
             use NetworkMode::{Private, Tap, Vmnet};
@@ -365,6 +374,7 @@ fn command(action: Action) -> Result<()> {
                 endpoint,
                 interface,
                 forward: file.network.forward.clone(),
+                share_address,
             };
             let machines = machines()?;
             // User and none networking run without one; the rest need it.
@@ -382,6 +392,51 @@ fn command(action: Action) -> Result<()> {
             println!("network: {}", mode.as_str());
             if mode != NetworkMode::User && !file.network.forward.is_empty() {
                 println!("forwards inactive in {} mode", mode.as_str());
+            }
+        }
+        Action::Share {
+            dir,
+            name,
+            host_dir,
+            remove,
+        } => {
+            let dir = directory(&dir)?;
+            let _lock = control::lock_for_edit(&dir, "changing its shares")?;
+            let mut file = read_machine(&dir)?;
+            if remove {
+                let count = file.share.len();
+                file.share.retain(|share| share.name != name);
+                if file.share.len() == count {
+                    return Err(format!("unknown share: {name}").into());
+                }
+                validate(&machines()?, &dir, &file)?;
+                fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+                println!("share removed: {name}");
+            } else {
+                let host_dir = host_dir.ok_or("share needs a host folder")?;
+                let path = std::path::absolute(&host_dir)?;
+                if !path.is_dir() {
+                    return Err(format!("{} is not a directory", host_dir.display()).into());
+                }
+                shares::check_name(&name)?;
+                if file.share.iter().any(|share| share.name == name) {
+                    return Err(format!(
+                        "share {name} exists; remove it first: origami share {} {name} --remove",
+                        dir.display()
+                    )
+                    .into());
+                }
+                file.share.push(origami::Share {
+                    name: name.clone(),
+                    path,
+                });
+                validate(&machines()?, &dir, &file)?;
+                fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
+                let share = file.share.last().expect("share just added");
+                println!("share added: {name}");
+                for line in shares::mount_lines(&file, share)? {
+                    println!("{line}");
+                }
             }
         }
         Action::NetworkForwardAdd {

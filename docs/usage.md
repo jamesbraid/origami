@@ -335,6 +335,26 @@ origami network-forward-remove my-origin ssh
 Forwards listen on the host's loopback address only. They work in user
 mode, and are kept but inactive in the other modes.
 
+### Share a host folder
+
+```sh
+origami share my-octane src ~/code
+origami run my-octane
+```
+
+`share` prints the commands to run as root in IRIX, once the guest is up
+with `nfs.sw.nfs` installed:
+
+```sh
+mkdir -p /mnt/src
+mount 192.0.2.4:/src /mnt/src
+```
+
+Guest files are owned by root and land on the host as you. Remove a share
+with `origami share my-octane src --remove`. Shares work in user,
+private, tap and vmnet modes; tap and vmnet also need
+`--share-address ADDRESS/PREFIX`, a free address on that network.
+
 ### Join a real network
 
 To put the guest on your LAN, connect it to a host network device. The

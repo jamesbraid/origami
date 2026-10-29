@@ -263,6 +263,19 @@ pub fn arguments(
     offering: &Offering,
     display: Display,
 ) -> Result<Vec<String>> {
+    arguments_with(machines, dir, file, offering, display, None)
+}
+
+/// [`arguments`], with the machine's network behind the share switch when
+/// `shares` names the ports it listens on.
+pub fn arguments_with(
+    machines: &Machines,
+    dir: &Path,
+    file: &MachineFile,
+    offering: &Offering,
+    display: Display,
+    shares: Option<&crate::shares::Ports>,
+) -> Result<Vec<String>> {
     let mut machine = offering.machine_options.clone();
     if !matches!(offering.product.as_str(), "octane" | "octane2") {
         let population = offering
@@ -413,14 +426,21 @@ pub fn arguments(
         }),
         _ => return Err("network mode must be user, none, private, tap or vmnet".into()),
     };
-    match backend {
-        Some(backend) => args.extend([
+    match (backend, shares) {
+        (Some(backend), Some(ports)) => {
+            // The machine's network joins hub 1 beside the switch's second
+            // connection; the NIC talks to the switch alone.
+            args.extend(["-netdev".into(), backend]);
+            args.extend(crate::shares::netdev_arguments(ports));
+            args.extend(["-net".into(), nic_option(offering, file, "share-guest")]);
+        }
+        (Some(backend), None) => args.extend([
             "-netdev".into(),
             backend,
             "-net".into(),
-            nic_option(offering, file),
+            nic_option(offering, file, "net0"),
         ]),
-        None => args.extend(["-nic".into(), "none".into()]),
+        (None, _) => args.extend(["-nic".into(), "none".into()]),
     }
     Ok(args)
 }
@@ -429,13 +449,13 @@ pub fn arguments(
 /// Its address is the machine's mac= unless the machine list says the
 /// adapter takes its own. A model-less NIC binds the first onboard one, for
 /// a QEMU whose machine list does not name the model.
-fn nic_option(offering: &Offering, file: &MachineFile) -> String {
+fn nic_option(offering: &Offering, file: &MachineFile, netdev: &str) -> String {
     let adapter = offering.default_network();
     let mut option = "nic".to_string();
     if let Some(model) = adapter.and_then(|adapter| adapter.nic_model.as_deref()) {
         option.push_str(&format!(",model={model}"));
     }
-    option.push_str(",netdev=net0");
+    option.push_str(&format!(",netdev={netdev}"));
     if let (Some(adapter), Some(identity)) = (adapter, &file.identity) {
         if let (Some(mac), Some(name)) = (&adapter.mac, &adapter.nic_mac_option) {
             if !mac.derived {
@@ -610,7 +630,11 @@ fn run_inner(
     // A machine without its storage is not started, and gains nothing.
     check_state(dir, offering)?;
     let _lock = control::lock_for_edit(dir, "starting it again")?;
-    let mut args = arguments(machines, dir, file, offering, display)?;
+    // The switch runs in this process, which also waits on QEMU, so it
+    // lives exactly as long as the guest.
+    let share_net = crate::shares::start(dir, file)?;
+    let ports = share_net.as_ref().map(|net| net.ports());
+    let mut args = arguments_with(machines, dir, file, offering, display, ports.as_ref())?;
     let mode = file.network.mode.as_str();
     if matches!(mode, "private" | "vmnet") {
         let endpoint = file
@@ -759,6 +783,7 @@ mod tests {
             network: Network::default(),
             pipe: vec![],
             drive: vec![],
+            share: vec![],
             qemu: Default::default(),
         }
     }
@@ -1111,6 +1136,7 @@ mod tests {
                 endpoint: Some("tcp:127.0.0.1:49173".into()),
                 interface: None,
                 forward: vec![],
+                share_address: None,
             };
             let args = arguments(
                 &machines,
@@ -1172,6 +1198,7 @@ mod tests {
             endpoint: Some("install,one.sock".into()),
             interface: None,
             forward: vec![],
+            share_address: None,
         };
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
@@ -1207,6 +1234,7 @@ mod tests {
             endpoint: Some("tcp:127.0.0.1:49173".into()),
             interface: None,
             forward: vec![],
+            share_address: None,
         };
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
@@ -1224,6 +1252,66 @@ mod tests {
                 "-netdev",
                 "stream,id=net0,server=off,addr.type=inet,addr.host=127.0.0.1,addr.port=49173,reconnect-ms=1000"
             ]));
+    }
+
+    #[test]
+    fn shares_put_the_machines_network_and_the_nic_on_either_side_of_the_switch() {
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
+        let file = machine(offer);
+        let dir = Path::new("/machine");
+        let args = |ports: Option<&crate::shares::Ports>| {
+            arguments_with(&machines, dir, &file, offer, Display::None, ports).unwrap()
+        };
+        let plain = args(None);
+        let ports = crate::shares::Ports {
+            guest: "40001".into(),
+            network: "40002".into(),
+        };
+        let wired = args(Some(&ports));
+        // The user network stays as it was, now behind a hub port.
+        let user = plain.windows(2).find(|p| p[0] == "-netdev").unwrap()[1].clone();
+        assert!(wired.windows(2).any(|p| p == ["-netdev", user.as_str()]));
+        let netdevs: Vec<&str> = wired
+            .windows(2)
+            .filter(|p| p[0] == "-netdev")
+            .map(|p| p[1].as_str())
+            .collect();
+        assert_eq!(
+            netdevs[1..],
+            [
+                "hubport,id=share-hub-net,hubid=1,netdev=net0",
+                "stream,id=share-net,addr.type=inet,addr.host=127.0.0.1,addr.port=40002,server=off,reconnect-ms=1000",
+                "hubport,id=share-hub-link,hubid=1,netdev=share-net",
+                "stream,id=share-guest,addr.type=inet,addr.host=127.0.0.1,addr.port=40001,server=off,reconnect-ms=1000",
+            ]
+        );
+        let nic = wired.windows(2).find(|p| p[0] == "-net").unwrap()[1].clone();
+        assert_eq!(nic, "nic,model=sgi-ioc3-eth,netdev=share-guest");
+        // A private network's stream client sits behind the hub the same way.
+        let mut private = file.clone();
+        private.network = Network {
+            mode: "private".into(),
+            endpoint: Some("tcp:127.0.0.1:49173".into()),
+            ..Network::default()
+        };
+        private.identity = Some(crate::Identity {
+            mac: "08:00:69:12:34:56".into(),
+        });
+        let wired =
+            arguments_with(&machines, dir, &private, offer, Display::None, Some(&ports)).unwrap();
+        assert!(wired.windows(2).any(|p| p
+            == [
+                "-netdev",
+                "stream,id=net0,server=off,addr.type=inet,addr.host=127.0.0.1,addr.port=49173,reconnect-ms=1000"
+            ]));
+        assert!(wired
+            .windows(2)
+            .any(|p| p == ["-netdev", "hubport,id=share-hub-net,hubid=1,netdev=net0"]));
+        // Without shares the arguments are what they always were.
+        assert!(!plain
+            .iter()
+            .any(|a| a.contains("share-hub") || a.contains("share-guest")));
     }
 
     #[test]
@@ -1247,6 +1335,7 @@ mod tests {
             endpoint: None,
             interface: Some("TAP,lab".into()),
             forward: vec![],
+            share_address: None,
         };
         let expected = if cfg!(windows) {
             "tap,id=net0,ifname=TAP,,lab"
@@ -1265,6 +1354,7 @@ mod tests {
             endpoint: Some("/opt/homebrew/var/run/socket_vmnet".into()),
             interface: None,
             forward: vec![],
+            share_address: None,
         };
         assert_eq!(
             netdev(&file),

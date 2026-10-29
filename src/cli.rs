@@ -124,6 +124,10 @@ pub enum Action {
         /// Tap device on Linux, or TAP-Windows6 adapter name on Windows
         #[arg(long, required_if_eq("mode", "tap"))]
         interface: Option<String>,
+        /// Where shares are served on a tap or vmnet network, such as
+        /// 192.168.1.50/24: a free address on that network
+        #[arg(long, value_name = "ADDRESS/PREFIX")]
+        share_address: Option<String>,
         /// Machine MAC, when it has none yet
         #[arg(long)]
         mac: Option<String>,
@@ -145,6 +149,22 @@ pub enum Action {
         #[arg(value_name = "DIR")]
         dir: PathBuf,
         name: String,
+    },
+    /// Share a host folder with the guest over NFS, or remove a share
+    #[command(
+        after_help = "Examples:\n  origami share o200 src ~/code\n  origami share o200 src --remove"
+    )]
+    Share {
+        #[arg(value_name = "DIR")]
+        dir: PathBuf,
+        /// The name the guest mounts, as ADDRESS:/NAME
+        name: String,
+        /// The host folder to share
+        #[arg(value_name = "HOSTDIR", required_unless_present = "remove")]
+        host_dir: Option<PathBuf>,
+        /// Remove the share
+        #[arg(long, conflicts_with = "host_dir")]
+        remove: bool,
     },
     /// Configure install media and private networking without starting the guest
     InstallInit {
