@@ -40,6 +40,7 @@ const BASEIO_TOPOLOGIES: &[&str] = &[
     "origin3400",
     "origin3900",
     "onyx3000",
+    "onyx3400-ir",
     "fuel",
     "onyx350-compat",
     "tezro-tower-multi",

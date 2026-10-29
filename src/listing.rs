@@ -25,6 +25,7 @@ const NAMES: &[(&str, &str)] = &[
     ("origin3900", "Origin 3900"),
     ("onyx350-compat", "Onyx 350"),
     ("onyx3000", "Onyx 3000"),
+    ("onyx3400-ir", "Onyx 3400"),
     ("octane", "Octane"),
     ("octane2", "Octane2"),
     ("fuel", "Fuel"),

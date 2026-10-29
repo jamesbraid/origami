@@ -54,6 +54,7 @@ processor modules of an Origin 200. `origami machines --all` shows them all.
 | `origin3400` | Origin 3400, four C-bricks, 16 CPUs | none |
 | `origin3900` | Origin 3900, one Cx-brick, 16 CPUs | none |
 | `onyx3000-vpro` | Onyx 3000, two C-bricks, 8 CPUs | VPro V12 |
+| `onyx3400-infinite-reality` | Onyx 3400, four C-bricks, 16 CPUs | InfiniteReality3 |
 | `octane-impact` | Octane | SI |
 | `octane2-impact` | Octane2 | SI |
 | `octane2-vpro` | Octane2 | VPro V12 |
