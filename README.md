@@ -28,7 +28,7 @@ My personal SGI era is the post-Indy, Origin/Octane/Onyx systems. So that's what
 | I/O boards | BaseIO, BaseIO-G / MediaIO, IO-8, MENET, MSCSI, PCI carriers and shoehorns |
 | Storage | QLogic ISP1040 / ISP12160 SCSI controllers, disks, CD-ROMs and tapes |
 | Networking | IOC3 Ethernet, Tigon, BCM570x and Neterion Xframe adapters |
-| Peripherals | Serial ports, PS/2 keyboard and mouse, OHCI USB, RAD1 audio |
+| Peripherals | Serial ports, PS/2 or USB keyboard and mouse, OHCI USB, RAD1 audio |
 | Housekeeping | ELSC, module management, L1, flash, EEPROMs and clocks |
 
 ![IRIX desktop with hinv on an emulated two-node Origin 200](docs/images/origin200-hinv.png)

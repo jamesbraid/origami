@@ -2,14 +2,18 @@
 
 ## Unreleased
 
-- New presets: `origin3200`, `origin3400`, `origin3900` and `onyx3000-vpro`.
+- New presets: `origin3200`, `origin3400`, `origin3900`, `onyx3000-vpro` and
+  `onyx3400-infinite-reality`.
   IRIX 6.5.30 installs on an Origin 3200 over its serial console, and the
   installed disk boots on the other Origin 3000 presets.
 - The Origin 3000 presets start with a USB keyboard and mouse, so the IRIX
   desktop on `onyx3000-vpro` has input.
 - `origami nvram` reads and changes the PROM environment of the Origin 3000
   presets.
-- QEMU updated to 12ef44dec9.
+- `onyx3400-infinite-reality` is an Onyx 3400 with four C-bricks, 16 CPUs
+  and one InfiniteReality3 pipe. IRIX 6.5.30 installs on it and 4Dwm runs
+  with a keyboard and mouse.
+- QEMU updated to cf2948f095.
 - `origami share` makes a host folder appear in IRIX over NFS, with no
   host NFS server or administrator rights. The guest mounts it with
   `mount 192.0.2.4:/NAME /mnt/NAME`.
