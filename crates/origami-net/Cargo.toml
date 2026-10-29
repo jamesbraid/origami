@@ -1,0 +1,37 @@
+[package]
+name = "origami-net"
+version = "0.0.0"
+description = "A userspace network stack and Ethernet switch that put an NFS share on a guest's network"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+
+[dependencies]
+origami-nfs = { path = "../origami-nfs" }
+
+[dependencies.smoltcp]
+version = "0.14"
+default-features = false
+features = [
+    "std",
+    "medium-ethernet",
+    "proto-ipv4",
+    "proto-ipv4-fragmentation",
+    "socket-udp",
+    "socket-tcp",
+    "auto-icmp-echo-reply",
+    "fragmentation-buffer-size-65536",
+    "reassembly-buffer-size-65536",
+    "reassembly-buffer-count-4",
+    "iface-neighbor-cache-count-16",
+    "assembler-max-segment-count-32",
+]
+
+[dev-dependencies.smoltcp]
+version = "0.14"
+default-features = false
+features = ["socket-icmp"]
+
+[dev-dependencies.tempfile]
+version = "3"
