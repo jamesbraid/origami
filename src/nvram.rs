@@ -20,7 +20,8 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
     /// The BASEIO PROM's environment in a 32 KiB Timekeeper: Origin 200,
-    /// Origin 2000, Onyx2, Origin 300, Fuel, Onyx 350 and Tezro.
+    /// Origin 2000, Onyx2, Origin 300, Origin 3000, Fuel, Onyx 350 and
+    /// Tezro.
     BaseIo,
     /// The IP30 PROM's environment in an Octane's 512-byte DS1687 image.
     Octane,
@@ -35,6 +36,10 @@ const BASEIO_TOPOLOGIES: &[&str] = &[
     "onyx2-deskside",
     "onyx2-rack",
     "origin300",
+    "origin3200",
+    "origin3400",
+    "origin3900",
+    "onyx3000",
     "fuel",
     "onyx350-compat",
     "tezro-tower-multi",
@@ -180,7 +185,7 @@ const CONSOLES: &[&str] = &["d", "g"];
 const DISKLESS: &[&str] = &["0", "1"];
 const BAUD_RATES: &[&str] = &["300", "1200", "2400", "4800", "9600", "19200", "38400"];
 
-// Measured on BASEIO PROM 6.156 (Origin 200) and 6.210 (Origin 300), and
+// Measured on BASEIO PROM 6.156 (Origin 200) and 6.210 (Origin 300 and 3200), and
 // checked by booting an edited store on each topology above. A string's slot
 // runs to the next field: the PROM's own setenv rewrites the whole slot.
 const BASEIO_FIELDS: &[Field] = &[
@@ -437,6 +442,11 @@ mod tests {
     // else, which includes text the PROM copied from its own image, is zero.
     const ORIGIN200: &[u8] = include_bytes!("../tests/fixtures/nvram/origin200-ip27prom-6.156.raw");
     const OCTANE: &[u8] = include_bytes!("../tests/fixtures/nvram/octane-ip30prom-4.17.raw");
+    // An Origin 3200 after an IRIX install, scrubbed the same way. The PROM
+    // 6.210 store passed the BASEIO checksum unscrubbed, and so did an
+    // Origin 3400, an Origin 3900 and an Onyx 3000 after one boot.
+    const ORIGIN3200: &[u8] =
+        include_bytes!("../tests/fixtures/nvram/origin3200-ip35prom-6.210.raw");
 
     fn store(layout: Layout, data: &[u8]) -> Store {
         Store::new(layout, data.to_vec()).unwrap()
@@ -474,6 +484,19 @@ mod tests {
             assert_eq!(layout.checksum(&data), expected, "{name}");
             store(layout, &data).check().unwrap();
         }
+    }
+
+    #[test]
+    fn the_origin_3000_family_keeps_the_baseio_layout() {
+        let machines = crate::test_machines();
+        let offering = crate::preset(&machines, "origin3200").unwrap();
+        assert_eq!(Layout::for_offering(offering).unwrap(), Layout::BaseIo);
+        let nvram = store(Layout::BaseIo, ORIGIN3200);
+        nvram.check().unwrap();
+        assert_eq!(nvram.get("console").unwrap().1, "d");
+        assert_eq!(nvram.get("AutoLoad").unwrap().1, "Yes");
+        assert_eq!(nvram.get("root").unwrap().1, "dks0d1s0");
+        assert_eq!(nvram.get("netaddr").unwrap().1, "192.0.2.15");
     }
 
     #[test]
