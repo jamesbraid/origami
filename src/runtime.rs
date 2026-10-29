@@ -412,15 +412,11 @@ pub fn arguments_with(
                     address.ip(), address.port()
                 )
             } else {
-                // socket_vmnet is a daemon that can restart under the guest.
+                // The server on the other end, socket_vmnet or Instigator, can
+                // start after the guest or restart under it.
                 format!(
-                    "stream,id=net0,server=off,addr.type=unix,addr.path={}{}",
-                    qemu_path_option(&resolve(dir, endpoint)),
-                    if mode == "vmnet" {
-                        ",reconnect-ms=1000"
-                    } else {
-                        ""
-                    }
+                    "stream,id=net0,server=off,addr.type=unix,addr.path={},reconnect-ms=1000",
+                    qemu_path_option(&resolve(dir, endpoint))
                 )
             }
         }),
@@ -645,11 +641,18 @@ fn run_inner(
         if tcp_endpoint(endpoint)?.is_none() {
             let path = resolve(dir, endpoint);
             let hint = network_hint(file).map_or(String::new(), |hint| format!("\n{hint}"));
-            let metadata = fs::metadata(&path).map_err(|error| {
-                format!("{mode} network socket {}: {error}{hint}", path.display())
-            })?;
+            // Instigator's endpoint may come up after the guest, which keeps
+            // trying; socket_vmnet has to be running already.
+            let metadata = match fs::metadata(&path) {
+                Err(error) if mode == "private" && error.kind() == std::io::ErrorKind::NotFound => {
+                    None
+                }
+                other => Some(other.map_err(|error| {
+                    format!("{mode} network socket {}: {error}{hint}", path.display())
+                })?),
+            };
             #[cfg(unix)]
-            if !metadata.file_type().is_socket() {
+            if metadata.is_some_and(|m| !m.file_type().is_socket()) {
                 return Err(format!(
                     "{mode} network endpoint is not a socket: {}",
                     path.display()
@@ -1214,7 +1217,7 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair
             == [
                 "-netdev",
-                "stream,id=net0,server=off,addr.type=unix,addr.path=/machine/install,,one.sock"
+                "stream,id=net0,server=off,addr.type=unix,addr.path=/machine/install,,one.sock,reconnect-ms=1000"
             ]));
         assert!(args
             .windows(2)
