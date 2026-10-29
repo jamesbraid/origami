@@ -1,9 +1,10 @@
 # Runs inside cpack. Names the archive origami-<version>-<platform> and its
 # top-level directory origami-<version>. The version is the nearest v* tag
-# without the "v": 0.4.1 at a release, 0.4.0-5-gabc1234 after one.
+# without the "v": 0.4.1 at a release, 0.4.0-5-gabc1234 after one. --tags
+# because actions/checkout refetches a pushed tag as a lightweight one.
 execute_process(
   COMMAND "${CPACK_ORIGAMI_GIT}" --no-optional-locks -C "${CPACK_ORIGAMI_SOURCE_DIR}"
-    describe --match "v[0-9]*" --always
+    describe --tags --match "v[0-9]*" --always
   OUTPUT_VARIABLE version OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE status
   ERROR_QUIET)
 if(NOT status EQUAL 0 OR version STREQUAL "")
