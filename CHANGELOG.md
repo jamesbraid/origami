@@ -8,8 +8,7 @@ left broken. Octane with SI shows its console, the Onyx 350 and Tezro
 reach the network, and the VPro pointer is visible. VPro and
 InfiniteReality are faster.
 
-![Onyx 350 PROM menu](https://raw.githubusercontent.com/jamesbraid/origami/v0.4.1/docs/images/gallery/onyx350-vpro-prom.png)
-![Onyx2 InfiniteReality2 desktop with hinv](https://raw.githubusercontent.com/jamesbraid/origami/v0.4.1/docs/images/gallery/onyx2-infinite-reality-hinv.png)
+<img src="https://raw.githubusercontent.com/jamesbraid/origami/v0.4.1/docs/images/gallery/onyx350-vpro-prom.png" alt="Onyx 350 PROM menu" width="400"> <img src="https://raw.githubusercontent.com/jamesbraid/origami/v0.4.1/docs/images/gallery/onyx2-infinite-reality-hinv.png" alt="Onyx2 InfiniteReality2 desktop with hinv" width="400">
 
 Every machine is in the [gallery](https://github.com/jamesbraid/origami/blob/v0.4.1/docs/gallery.md).
 
