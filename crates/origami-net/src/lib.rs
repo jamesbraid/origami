@@ -13,10 +13,12 @@
 //! [`Server`]: origami_nfs::Server
 
 mod frame;
+mod host;
 mod stack;
 mod switch;
 
 pub use frame::{route, Route};
+pub use host::{Addressing, Client};
 pub use stack::{Stack, StackConfig};
 pub use switch::{Switch, SwitchConfig};
 

@@ -20,7 +20,6 @@ features = [
     "proto-ipv4-fragmentation",
     "socket-udp",
     "socket-tcp",
-    "auto-icmp-echo-reply",
     "fragmentation-buffer-size-65536",
     "reassembly-buffer-size-65536",
     "reassembly-buffer-count-4",

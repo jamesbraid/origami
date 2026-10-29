@@ -20,6 +20,7 @@ use smoltcp::socket::{tcp, udp};
 use smoltcp::time::Instant as SmolInstant;
 use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint};
 
+use crate::host::{Addressing, Host, Verdict};
 use crate::PORTS;
 
 /// Bytes of a TCP stream queued for a connection's worker before the stack
@@ -31,12 +32,15 @@ const SOCKET_BUFFER: usize = 256 * 1024;
 const MAX_POLL: Duration = Duration::from_millis(50);
 
 /// Where the stack lives on the network.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct StackConfig {
     pub mac: [u8; 6],
     pub ip: Ipv4Addr,
     /// The network's mask length.
     pub prefix: u8,
+    /// BOOTP and DHCP for one machine, when the stack is the network's only
+    /// host. None leaves addressing to whatever else is on the network.
+    pub addressing: Option<Addressing>,
 }
 
 enum Event {
@@ -64,11 +68,11 @@ pub struct Stack {
 }
 
 impl Stack {
-    /// Starts the stack. `out` is called, on the stack's thread, with each
-    /// Ethernet frame it sends.
+    /// Starts the stack, serving `server` when there is one. `out` is
+    /// called, on the stack's thread, with each Ethernet frame it sends.
     pub fn start(
         cfg: StackConfig,
-        server: Arc<Server>,
+        server: Option<Arc<Server>>,
         out: impl FnMut(Vec<u8>) + Send + 'static,
     ) -> Stack {
         let (events, rx) = mpsc::sync_channel(4096);
@@ -166,7 +170,8 @@ struct Conn {
 }
 
 struct Inner {
-    server: Arc<Server>,
+    server: Option<Arc<Server>>,
+    host: Host,
     events: SyncSender<Event>,
     stop: Arc<AtomicBool>,
     out: Box<dyn FnMut(Vec<u8>) + Send>,
@@ -185,7 +190,7 @@ struct Inner {
 impl Inner {
     fn new(
         cfg: StackConfig,
-        server: Arc<Server>,
+        server: Option<Arc<Server>>,
         events: SyncSender<Event>,
         stop: Arc<AtomicBool>,
         out: Box<dyn FnMut(Vec<u8>) + Send>,
@@ -195,7 +200,21 @@ impl Inner {
             mount: PORTS[1] as u32,
             nfs: PORTS[2] as u32,
         };
-        server.set_ports(ports, ports);
+        if let Some(server) = &server {
+            server.set_ports(ports, ports);
+        }
+        let served: Vec<u16> = if server.is_some() {
+            PORTS.to_vec()
+        } else {
+            vec![]
+        };
+        let host = Host::new(
+            cfg.mac,
+            cfg.ip,
+            cfg.prefix,
+            served.clone(),
+            cfg.addressing.clone(),
+        );
         let mut link = Link::default();
         let mut icfg = Config::new(HardwareAddress::Ethernet(EthernetAddress(cfg.mac)));
         icfg.random_seed = std::collections::hash_map::RandomState::new()
@@ -208,7 +227,7 @@ impl Inner {
         });
         let mut sockets = SocketSet::new(Vec::new());
         let mut udp_sockets = HashMap::new();
-        for port in PORTS {
+        for &port in &served {
             let mut s = udp::Socket::new(
                 udp::PacketBuffer::new(
                     vec![udp::PacketMetadata::EMPTY; 32],
@@ -227,8 +246,8 @@ impl Inner {
         // socket would.
         let (udp_calls, udp_rx) = mpsc::channel::<(u16, SocketAddr, IpEndpoint, Vec<u8>)>();
         let mut workers = Vec::new();
-        {
-            let (server, events) = (server.clone(), events.clone());
+        if let Some(server) = server.clone() {
+            let events = events.clone();
             workers.push(thread::spawn(move || {
                 while let Ok((port, from, to, data)) = udp_rx.recv() {
                     if let Some(reply) = server.handle_datagram(from, &data) {
@@ -248,6 +267,7 @@ impl Inner {
         }
         let mut inner = Inner {
             server,
+            host,
             events,
             stop,
             out,
@@ -261,8 +281,10 @@ impl Inner {
             udp_calls,
             workers,
         };
-        for port in PORTS {
-            inner.top_up_listeners(port);
+        if inner.server.is_some() {
+            for port in PORTS {
+                inner.top_up_listeners(port);
+            }
         }
         inner
     }
@@ -330,7 +352,14 @@ impl Inner {
 
     fn handle(&mut self, ev: Event) -> bool {
         match ev {
-            Event::Frame(f) => self.link.rx.push_back(f),
+            Event::Frame(f) => match self.host.process(&f) {
+                Verdict::Pass => self.link.rx.push_back(f),
+                Verdict::Done(frames) => {
+                    for frame in frames {
+                        (self.out)(frame);
+                    }
+                }
+            },
             Event::UdpReply { port, to, data } => {
                 if let Some(h) = self.udp.get(&port) {
                     // A full buffer drops the reply; the client retries.
@@ -361,7 +390,11 @@ impl Inner {
             let now = self.now();
             let polled = self.iface.poll(now, &mut self.link, &mut self.sockets);
             let moved = self.service();
-            while let Some(f) = self.link.tx.pop_front() {
+            while let Some(mut f) = self.link.tx.pop_front() {
+                // The Ethernet minimum, as the host's own frames are.
+                if f.len() < 60 {
+                    f.resize(60, 0);
+                }
                 (self.out)(f);
             }
             if polled == PollResult::None && !moved {
@@ -375,7 +408,9 @@ impl Inner {
     fn service(&mut self) -> bool {
         let mut moved = false;
         for port in PORTS {
-            let h = self.udp[&port];
+            let Some(&h) = self.udp.get(&port) else {
+                break;
+            };
             let s = self.sockets.get_mut::<udp::Socket>(h);
             while let Ok((data, meta)) = s.recv() {
                 let ep = meta.endpoint;
@@ -404,7 +439,7 @@ impl Inner {
                 let Some(ep) = ep else { continue };
                 let IpAddress::Ipv4(a) = ep.addr;
                 let peer = SocketAddr::new(IpAddr::V4(a), ep.port);
-                if !self.server.admits(peer) {
+                if !self.server.as_ref().is_some_and(|s| s.admits(peer)) {
                     s.abort();
                     continue;
                 }
@@ -462,8 +497,10 @@ impl Inner {
             self.top_up_listeners(port);
             moved = true;
         }
-        for port in PORTS {
-            self.top_up_listeners(port);
+        if self.server.is_some() {
+            for port in PORTS {
+                self.top_up_listeners(port);
+            }
         }
         moved
     }
@@ -479,7 +516,10 @@ impl Inner {
             queued: queued.clone(),
             events: self.events.clone(),
         };
-        let (server, stop, events) = (self.server.clone(), self.stop.clone(), self.events.clone());
+        let Some(server) = self.server.clone() else {
+            return;
+        };
+        let (stop, events) = (self.stop.clone(), self.events.clone());
         self.workers.retain(|w| !w.is_finished());
         self.workers.push(thread::spawn(move || {
             let _ = server.serve_stream(peer, &mut stream, Some(&stop));

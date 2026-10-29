@@ -12,7 +12,7 @@ use crate::frame::{push_frame, read_frames, route, Route};
 use crate::stack::{Stack, StackConfig};
 
 /// Configures [`Switch::start`].
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct SwitchConfig {
     pub stack: StackConfig,
     /// Where QEMU's guest NIC (A) connects. Port 0 takes any free port.
@@ -83,7 +83,7 @@ pub struct Switch {
 }
 
 impl Switch {
-    pub fn start(cfg: SwitchConfig, server: Arc<Server>) -> io::Result<Switch> {
+    pub fn start(cfg: SwitchConfig, server: Option<Arc<Server>>) -> io::Result<Switch> {
         let guest_l = TcpListener::bind(cfg.guest)?;
         let network_l = TcpListener::bind(cfg.network)?;
         let guest_addr = guest_l.local_addr()?;
@@ -92,7 +92,7 @@ impl Switch {
             stack: Mutex::new(None),
             guest: Slot::default(),
             network: Slot::default(),
-            cfg: cfg.stack,
+            cfg: cfg.stack.clone(),
         });
         let out = shared.clone();
         let stack = Stack::start(cfg.stack, server, move |f| {

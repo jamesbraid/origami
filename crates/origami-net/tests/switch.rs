@@ -203,8 +203,9 @@ fn rig() -> Rig {
         mac: STACK_MAC,
         ip: STACK_IP,
         prefix: 24,
+        addressing: None,
     });
-    let switch = Switch::start(cfg, server).unwrap();
+    let switch = Switch::start(cfg, Some(server)).unwrap();
     let a = TcpStream::connect(switch.guest_addr()).unwrap();
     let b = TcpStream::connect(switch.network_addr()).unwrap();
     let a_rx = spawn_reader(a.try_clone().unwrap());

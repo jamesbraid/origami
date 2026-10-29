@@ -230,11 +230,12 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
                 mac: address.mac,
                 ip: address.ip,
                 prefix: address.prefix,
+                addressing: None,
             },
             guest: loopback(0),
             network: loopback(0),
         },
-        Arc::new(server),
+        Some(Arc::new(server)),
     )?;
     Ok(Some(Running { switch }))
 }
