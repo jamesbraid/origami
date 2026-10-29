@@ -192,7 +192,8 @@ fn command(action: Action) -> Result<()> {
             let offer = validate(&machines, &dir, &file)?;
             let display = args.display.resolve(!file.pipe.is_empty())?;
             let exe = runtime::qemu_path()?;
-            let ports = (!file.share.is_empty()).then(shares::Ports::placeholder);
+            let ports = (!file.share.is_empty() && file.network.mode != "private")
+                .then(shares::Ports::placeholder);
             let arguments =
                 runtime::arguments_with(&machines, &dir, &file, offer, display, ports.as_ref())?;
             let mut arguments = arguments;

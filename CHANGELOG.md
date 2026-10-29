@@ -13,6 +13,10 @@
 - `origami share` makes a host folder appear in IRIX over NFS, with no
   host NFS server or administrator rights. The guest mounts it with
   `mount 192.0.2.4:/NAME /mnt/NAME`.
+- `--mode private` without an endpoint, or with none listening, is hosted by
+  `origami run`: the guest gets `10.98.0.65` by DHCP, and shares mount from
+  `10.98.0.2`. Instigator's install server still takes the network when it
+  is listening.
 
 ## 0.4.1
 

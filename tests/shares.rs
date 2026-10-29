@@ -130,7 +130,7 @@ fn shares_need_a_network_that_can_carry_them() {
     let show = ok(root.path(), &["show", &machine]);
     assert!(show.contains("mount 192.168.1.50:/src /mnt/src"), "{show}");
 
-    // The private installation network hosts the stack beside Instigator.
+    // A private network is hosted by `run`, with the stack as its host.
     ok(
         root.path(),
         &[
@@ -143,5 +143,5 @@ fn shares_need_a_network_that_can_carry_them() {
         ],
     );
     let show = ok(root.path(), &["show", &machine]);
-    assert!(show.contains("mount 10.98.0.4:/src /mnt/src"), "{show}");
+    assert!(show.contains("mount 10.98.0.2:/src /mnt/src"), "{show}");
 }

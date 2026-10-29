@@ -118,8 +118,9 @@ pub enum Action {
         dir: PathBuf,
         #[arg(long, value_enum)]
         mode: NetworkMode,
-        /// Private network or socket_vmnet socket
-        #[arg(long, required_if_eq_any([("mode", "private"), ("mode", "vmnet")]))]
+        /// Instigator's private network endpoint, or the socket_vmnet socket;
+        /// a private network without one is hosted by `run`
+        #[arg(long, required_if_eq("mode", "vmnet"))]
         endpoint: Option<String>,
         /// Tap device on Linux, or TAP-Windows6 adapter name on Windows
         #[arg(long, required_if_eq("mode", "tap"))]

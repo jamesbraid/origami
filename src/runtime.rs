@@ -164,15 +164,8 @@ fn user_network(dir: &Path, forward: &[PortForward]) -> String {
         "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15".to_string();
     // DHCP offers the directory name as the guest's hostname when it is a
     // valid one; IRIX keeps its own name otherwise.
-    if let Some(name) = dir.file_name().and_then(|name| name.to_str()) {
-        if !name.is_empty()
-            && name.len() <= 63
-            && !name.starts_with('-')
-            && !name.ends_with('-')
-            && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        {
-            option.push_str(&format!(",hostname={name}"));
-        }
+    if let Some(name) = dhcp_hostname(dir) {
+        option.push_str(&format!(",hostname={name}"));
     }
     for rule in forward {
         option.push_str(&format!(
@@ -181,6 +174,18 @@ fn user_network(dir: &Path, forward: &[PortForward]) -> String {
         ));
     }
     option
+}
+
+/// The machine directory's name, when a DHCP server can offer it as the
+/// guest's hostname.
+pub(crate) fn dhcp_hostname(dir: &Path) -> Option<&str> {
+    let name = dir.file_name()?.to_str()?;
+    (!name.is_empty()
+        && name.len() <= 63
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+    .then_some(name)
 }
 
 /// One fixed suggestion per host-backed mode, shown beside QEMU's own error.
@@ -401,12 +406,19 @@ pub fn arguments_with(
                 interface.replace(',', ",,")
             )
         } else {
-            let endpoint = file
-                .network
-                .endpoint
-                .as_deref()
-                .ok_or_else(|| format!("{mode} network needs endpoint"))?;
-            if let Some(address) = tcp_endpoint(endpoint)? {
+            // A private network without an endpoint is one `run` hosts, on a
+            // port it picks when it starts.
+            let endpoint = match file.network.endpoint.as_deref() {
+                Some(endpoint) => endpoint,
+                None if mode == "private" => "tcp:127.0.0.1:<hosted-port>",
+                None => return Err(format!("{mode} network needs endpoint").into()),
+            };
+            if endpoint.contains('<') {
+                format!(
+                    "stream,id=net0,server=off,addr.type=inet,addr.host=127.0.0.1,addr.port={},reconnect-ms=1000",
+                    "<hosted-port>"
+                )
+            } else if let Some(address) = tcp_endpoint(endpoint)? {
                 format!(
                     "stream,id=net0,server=off,addr.type=inet,addr.host={},addr.port={},reconnect-ms=1000",
                     address.ip(), address.port()
@@ -629,7 +641,23 @@ fn run_inner(
     // The switch runs in this process, which also waits on QEMU, so it
     // lives exactly as long as the guest.
     let share_net = crate::shares::start(dir, file)?;
-    let ports = share_net.as_ref().map(|net| net.ports());
+    // A hosted private network is the NIC's own peer; any other switch sits
+    // beside the machine's network.
+    let hosted = share_net.as_ref().and_then(|net| net.hosted_endpoint());
+    let ports = share_net
+        .as_ref()
+        .filter(|_| hosted.is_none())
+        .map(|net| net.ports());
+    let mut hosted_file;
+    let file = match &hosted {
+        Some(endpoint) => {
+            hosted_file = file.clone();
+            hosted_file.network.endpoint = Some(endpoint.clone());
+            eprintln!("hosting the private network at 10.98.0.2");
+            &hosted_file
+        }
+        None => file,
+    };
     let mut args = arguments_with(machines, dir, file, offering, display, ports.as_ref())?;
     let mode = file.network.mode.as_str();
     if matches!(mode, "private" | "vmnet") {
@@ -1291,26 +1319,6 @@ mod tests {
         );
         let nic = wired.windows(2).find(|p| p[0] == "-net").unwrap()[1].clone();
         assert_eq!(nic, "nic,model=sgi-ioc3-eth,netdev=share-guest");
-        // A private network's stream client sits behind the hub the same way.
-        let mut private = file.clone();
-        private.network = Network {
-            mode: "private".into(),
-            endpoint: Some("tcp:127.0.0.1:49173".into()),
-            ..Network::default()
-        };
-        private.identity = Some(crate::Identity {
-            mac: "08:00:69:12:34:56".into(),
-        });
-        let wired =
-            arguments_with(&machines, dir, &private, offer, Display::None, Some(&ports)).unwrap();
-        assert!(wired.windows(2).any(|p| p
-            == [
-                "-netdev",
-                "stream,id=net0,server=off,addr.type=inet,addr.host=127.0.0.1,addr.port=49173,reconnect-ms=1000"
-            ]));
-        assert!(wired
-            .windows(2)
-            .any(|p| p == ["-netdev", "hubport,id=share-hub-net,hubid=1,netdev=net0"]));
         // Without shares the arguments are what they always were.
         assert!(!plain
             .iter()

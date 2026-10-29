@@ -351,9 +351,14 @@ mount 192.0.2.4:/src /mnt/src
 ```
 
 Guest files are owned by root and land on the host as you. Remove a share
-with `origami share my-octane src --remove`. Shares work in user,
-private, tap and vmnet modes; tap and vmnet also need
-`--share-address ADDRESS/PREFIX`, a free address on that network.
+with `origami share my-octane src --remove`. Shares work in user, private,
+tap and vmnet modes. On tap and vmnet, add `--share-address ADDRESS/PREFIX`
+to `network-set`: a free address on that network. On a private network the
+address is `10.98.0.2`.
+
+A private network with no `--endpoint`, or none listening, is hosted by
+`run` itself: the guest gets `10.98.0.65` by DHCP, and the network has no
+route out.
 
 ### Join a real network
 

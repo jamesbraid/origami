@@ -4,21 +4,29 @@
 //! QEMU (see [`origami_net`]): the guest's NIC and the machine's own
 //! network each connect to it as QEMU stream netdevs, and a userspace
 //! stack on the same network serves the shares.
+//!
+//! A private network is the exception. Its only host is Instigator's
+//! install server, or, when none is listening, this process: the stack
+//! then is the network, answers BOOTP and DHCP as Instigator does, and
+//! serves any shares at the host's own address, 10.98.0.2.
 
 use crate::{MachineFile, Result, Share};
-use origami_net::{StackConfig, Switch, SwitchConfig};
+use origami_net::{Addressing, Client, StackConfig, Switch, SwitchConfig};
 use origami_nfs::{LogLevel, Options, Server};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 /// The stack's address on a user network, beside slirp's host at 192.0.2.2.
 const USER_ADDRESS: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 4);
-/// And on the private network, beside Instigator's host at 10.98.0.2.
-const PRIVATE_ADDRESS: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 4);
+/// On a private network the stack is the host Instigator would be.
+const PRIVATE_ADDRESS: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 2);
+/// And the address it gives the machine, as Instigator does in an install.
+const PRIVATE_MACHINE: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 65);
 const FIXED_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x04];
+const PRIVATE_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x02];
 
 /// Where the stack sits on the machine's network.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,6 +91,13 @@ pub fn address(file: &MachineFile) -> Result<Address> {
         }
         _ => return Err(NEEDS_NETWORK.into()),
     };
+    if file.network.mode == "private" {
+        return Ok(Address {
+            ip,
+            prefix,
+            mac: PRIVATE_MAC,
+        });
+    }
     // On a shared LAN the stack's MAC must differ per machine. The
     // machine's own is unique, so borrow its last three bytes.
     let mac = match (file.network.mode.as_str(), &file.identity) {
@@ -169,24 +184,104 @@ pub fn check_name(name: &str) -> Result<()> {
 /// A running switch and stack for one machine. Dropping it stops them.
 pub struct Running {
     switch: Switch,
+    /// Whether the stack is the private network itself, with the NIC
+    /// connected straight to it.
+    hosted: bool,
 }
 
 impl Running {
+    /// The ports for the hub wiring around the machine's own network.
     pub fn ports(&self) -> Ports {
         Ports {
             guest: self.switch.guest_addr().port().to_string(),
             network: self.switch.network_addr().port().to_string(),
         }
     }
+
+    /// For a hosted private network, the endpoint the NIC connects to.
+    pub fn hosted_endpoint(&self) -> Option<String> {
+        self.hosted
+            .then(|| format!("tcp:{}", self.switch.guest_addr()))
+    }
 }
 
-/// Starts the switch for a machine with shares, or returns None for one
-/// without.
+/// Starts the switch for a machine that needs one: a machine with shares,
+/// or a private network with no server listening. Returns None for any
+/// other.
 pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
-    if file.share.is_empty() {
+    let private = file.network.mode == "private";
+    let mut guest = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+    if private {
+        // Hosting means listening where the NIC will connect. Whatever
+        // listens there already, Instigator's install server, keeps the
+        // machine, and shares are its to serve.
+        if let Some(endpoint) = file.network.endpoint.as_deref() {
+            match crate::tcp_endpoint(endpoint)? {
+                Some(address) => guest = address.into(),
+                None if resolve_missing(dir, endpoint) => {}
+                None => return Ok(None),
+            }
+        }
+    } else if file.share.is_empty() {
         return Ok(None);
     }
     let address = address(file)?;
+    let server = if file.share.is_empty() {
+        None
+    } else {
+        Some(Arc::new(server(dir, file)?))
+    };
+    let addressing = if private {
+        let identity = file
+            .identity
+            .as_ref()
+            .ok_or("private networking needs the machine's MAC; supply --mac")?;
+        let mut mac = [0u8; 6];
+        for (byte, text) in mac.iter_mut().zip(identity.mac.split(':')) {
+            *byte = u8::from_str_radix(text, 16)?;
+        }
+        Some(Addressing {
+            client: Client {
+                mac,
+                ip: PRIVATE_MACHINE,
+                hostname: crate::runtime::dhcp_hostname(dir).map(str::to_string),
+            },
+            dhcp: true,
+        })
+    } else {
+        None
+    };
+    let mut cfg = SwitchConfig::new(StackConfig {
+        mac: address.mac,
+        ip: address.ip,
+        prefix: address.prefix,
+        addressing,
+    });
+    cfg.guest = guest;
+    match Switch::start(cfg, server) {
+        Ok(switch) => Ok(Some(Running {
+            switch,
+            hosted: private,
+        })),
+        Err(error) if private && error.kind() == io::ErrorKind::AddrInUse => {
+            if !file.share.is_empty() {
+                eprintln!(
+                    "a server is listening at the private network endpoint; \
+                     it serves the shares, if it was started with them"
+                );
+            }
+            Ok(None)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Whether a Unix-socket endpoint names a socket nobody has made.
+fn resolve_missing(dir: &Path, endpoint: &str) -> bool {
+    !crate::resolve(dir, endpoint).exists()
+}
+
+fn server(dir: &Path, file: &MachineFile) -> Result<Server> {
     let mut shares = Vec::new();
     for share in &file.share {
         if !share.path.is_dir() {
@@ -222,22 +317,7 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
             }
         }
     });
-    let server = Server::new(Arc::new(origami_nfs::Shares::new(shares))).with_logger(logger);
-    let loopback = |port| SocketAddr::from((Ipv4Addr::LOCALHOST, port));
-    let switch = Switch::start(
-        SwitchConfig {
-            stack: StackConfig {
-                mac: address.mac,
-                ip: address.ip,
-                prefix: address.prefix,
-                addressing: None,
-            },
-            guest: loopback(0),
-            network: loopback(0),
-        },
-        Some(Arc::new(server)),
-    )?;
-    Ok(Some(Running { switch }))
+    Ok(Server::new(Arc::new(origami_nfs::Shares::new(shares))).with_logger(logger))
 }
 
 #[cfg(test)]
@@ -281,10 +361,9 @@ mod tests {
         let a = address(&file("user")).unwrap();
         assert_eq!((a.ip.to_string(), a.prefix), ("192.0.2.4".into(), 24));
         assert_eq!(a.mac, [0x08, 0x00, 0x69, 0, 0, 4]);
-        assert_eq!(
-            address(&file("private")).unwrap().ip.to_string(),
-            "10.98.0.4"
-        );
+        let private = address(&file("private")).unwrap();
+        assert_eq!(private.ip.to_string(), "10.98.0.2");
+        assert_eq!(private.mac, [0x08, 0x00, 0x69, 0, 0, 2]);
         let none = address(&file("none")).unwrap_err().to_string();
         assert_eq!(
             none,
@@ -337,5 +416,43 @@ mod tests {
             mount_lines(&f, &f.share[0]).unwrap(),
             ["mkdir -p /mnt/src", "mount 192.0.2.4:/src /mnt/src"]
         );
+    }
+
+    #[test]
+    fn a_private_network_without_a_server_is_hosted() {
+        use std::io::{Read, Write};
+        let mut f = file("private");
+        f.share.clear();
+        f.identity = Some(Identity {
+            mac: "08:00:69:12:34:56".into(),
+        });
+        let dir = Path::new("/nonexistent/machine");
+        let running = start(dir, &f).unwrap().expect("hosted");
+        let endpoint = running.hosted_endpoint().unwrap();
+        let address = endpoint.strip_prefix("tcp:").unwrap();
+        // The NIC's end: ask who has 10.98.0.2 and hear the stack answer.
+        let mut nic = std::net::TcpStream::connect(address).unwrap();
+        let mut arp = vec![0xff; 6];
+        arp.extend_from_slice(&[0x08, 0, 0x69, 0x12, 0x34, 0x56, 0x08, 0x06]);
+        arp.extend_from_slice(&[0, 1, 8, 0, 6, 4, 0, 1, 0x08, 0, 0x69, 0x12, 0x34, 0x56]);
+        arp.extend_from_slice(&[10, 98, 0, 65, 0, 0, 0, 0, 0, 0, 10, 98, 0, 2]);
+        arp.resize(60, 0);
+        let mut framed = (arp.len() as u32).to_be_bytes().to_vec();
+        framed.extend_from_slice(&arp);
+        nic.write_all(&framed).unwrap();
+        nic.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+            .unwrap();
+        let mut head = [0u8; 4];
+        nic.read_exact(&mut head).unwrap();
+        let mut reply = vec![0u8; u32::from_be_bytes(head) as usize];
+        nic.read_exact(&mut reply).unwrap();
+        assert_eq!(reply[6..12], [0x08, 0x00, 0x69, 0, 0, 2]);
+        assert_eq!(reply[20..22], [0, 2], "an ARP reply");
+        assert_eq!(reply[28..32], [10, 98, 0, 2]);
+
+        // A server already listening at the endpoint keeps the machine.
+        let mut taken = f.clone();
+        taken.network.endpoint = Some(endpoint);
+        assert!(start(dir, &taken).unwrap().is_none());
     }
 }

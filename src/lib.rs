@@ -604,18 +604,16 @@ pub(crate) fn validate_network(file: &MachineFile) -> Result<()> {
         "none" | "user" if file.network.endpoint.is_none() && file.network.interface.is_none() => {
             return Ok(())
         }
+        // Without an endpoint, `run` hosts the network itself.
         "private" => {
-            let endpoint = file
-                .network
-                .endpoint
-                .as_deref()
-                .ok_or("private network needs endpoint")?;
-            if endpoint.is_empty() {
-                return Err("private network endpoint cannot be empty".into());
-            }
-            let tcp = tcp_endpoint(endpoint)?;
-            if cfg!(windows) && tcp.is_none() {
-                return Err("Windows private network requires a loopback TCP endpoint".into());
+            if let Some(endpoint) = file.network.endpoint.as_deref() {
+                if endpoint.is_empty() {
+                    return Err("private network endpoint cannot be empty".into());
+                }
+                let tcp = tcp_endpoint(endpoint)?;
+                if cfg!(windows) && tcp.is_none() {
+                    return Err("Windows private network requires a loopback TCP endpoint".into());
+                }
             }
         }
         // tap-bsd needs a third-party kernel extension that Apple silicon
