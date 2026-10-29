@@ -10,11 +10,49 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crate::rpc::{Logger, Ports, Server};
+use crate::rpc::{LogLevel, Logger, Ports, Server};
 use crate::sharefs::{Options, Share};
 
 /// How often a blocked thread looks at the stop flag.
 const POLL: Duration = Duration::from_millis(100);
+
+/// Send and receive buffer for a UDP socket. The server's largest reply is
+/// a 32 KiB READ plus headers, so a datagram needs well over 32 KiB of
+/// buffer.
+const UDP_BUFFER: usize = 256 * 1024;
+
+/// Makes `sock` big enough for the largest datagram the server sends, 64 KiB
+/// at most. Hosts refuse a datagram larger than the send buffer: macOS
+/// defaults it to `net.inet.udp.maxdgram`, 9216 bytes, and answers
+/// `EMSGSIZE`, so without this a READ or READDIR reply over 9 KiB is never
+/// sent. Linux and Windows defaults already suffice. A host may clamp the
+/// size (Linux to `net.core.wmem_max`); the limit that matters stays 64 KiB.
+pub fn raise_udp_buffers(sock: &UdpSocket) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        for opt in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
+            let size = UDP_BUFFER as libc::c_int;
+            // SAFETY: the descriptor is open for the call and the option
+            // value is a c_int of the stated length.
+            let rc = unsafe {
+                libc::setsockopt(
+                    sock.as_raw_fd(),
+                    libc::SOL_SOCKET,
+                    opt,
+                    &size as *const libc::c_int as *const libc::c_void,
+                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                )
+            };
+            if rc != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = sock;
+    Ok(())
+}
 
 /// A [`Server`] answering on host sockets, until stopped.
 pub struct Serving {
@@ -34,6 +72,11 @@ impl Serving {
         let mut threads = Vec::new();
         if let Some(sock) = udp {
             sock.set_read_timeout(Some(POLL))?;
+            if let Err(e) = raise_udp_buffers(&sock) {
+                server.log(LogLevel::Warn, || {
+                    format!("nfs: raising the UDP buffers: {e}; large replies may be dropped")
+                });
+            }
             let (server, stop) = (server.clone(), stop.clone());
             threads.push(thread::spawn(move || serve_udp(&server, &sock, &stop)));
         }
@@ -80,7 +123,11 @@ fn serve_udp(server: &Server, sock: &UdpSocket, stop: &AtomicBool) {
             Err(_) => return,
         };
         if let Some(reply) = server.handle_datagram(from, &buf[..n]) {
-            let _ = sock.send_to(&reply, from);
+            if let Err(e) = sock.send_to(&reply, from) {
+                server.log(LogLevel::Warn, || {
+                    format!("nfs: {from}: dropped a {}-byte reply: {e}", reply.len())
+                });
+            }
         }
     }
 }
@@ -259,4 +306,61 @@ fn bind(
     }
     let (u, t) = attempt(0)?;
     Ok((u, t, preferred.is_some()))
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+
+    fn buffer(sock: &UdpSocket, opt: libc::c_int) -> libc::c_int {
+        let mut v: libc::c_int = 0;
+        let mut len = std::mem::size_of::<libc::c_int>() as libc::socklen_t;
+        // SAFETY: v and len are valid for the call and len is v's size.
+        let rc = unsafe {
+            libc::getsockopt(
+                sock.as_raw_fd(),
+                libc::SOL_SOCKET,
+                opt,
+                &mut v as *mut libc::c_int as *mut libc::c_void,
+                &mut len,
+            )
+        };
+        assert_eq!(rc, 0, "{}", io::Error::last_os_error());
+        v
+    }
+
+    fn set(sock: &UdpSocket, opt: libc::c_int, v: libc::c_int) {
+        // SAFETY: as in raise_udp_buffers.
+        let rc = unsafe {
+            libc::setsockopt(
+                sock.as_raw_fd(),
+                libc::SOL_SOCKET,
+                opt,
+                &v as *const libc::c_int as *const libc::c_void,
+                std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+            )
+        };
+        assert_eq!(rc, 0, "{}", io::Error::last_os_error());
+    }
+
+    /// A socket with macOS's 9216-byte default send buffer refuses the
+    /// 32 KiB reply a READ makes; after raising it the datagram goes out.
+    #[test]
+    fn raised_buffers_carry_a_32k_datagram() {
+        let rx = UdpSocket::bind("127.0.0.1:0").unwrap();
+        raise_udp_buffers(&rx).unwrap();
+        let tx = UdpSocket::bind("127.0.0.1:0").unwrap();
+        set(&tx, libc::SO_SNDBUF, 4096);
+        assert!(buffer(&tx, libc::SO_SNDBUF) < 32768 + 512);
+        raise_udp_buffers(&tx).unwrap();
+        assert!(buffer(&tx, libc::SO_SNDBUF) >= 32768 + 512);
+        assert!(buffer(&tx, libc::SO_RCVBUF) >= 32768 + 512);
+        let reply = vec![7u8; 32768 + 128];
+        tx.send_to(&reply, rx.local_addr().unwrap()).unwrap();
+        rx.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut buf = vec![0u8; 65536];
+        let (n, _) = rx.recv_from(&mut buf).unwrap();
+        assert_eq!(n, reply.len());
+    }
 }

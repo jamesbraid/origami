@@ -256,6 +256,7 @@ impl TestServer {
     fn round_trip(&self, call: &[u8]) -> Vec<u8> {
         let c = UdpSocket::bind("127.0.0.1:0").unwrap();
         c.connect(self.udp).unwrap();
+        origami_nfs::raise_udp_buffers(&c).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         c.send(call).unwrap();
         let mut buf = vec![0u8; 65536];
