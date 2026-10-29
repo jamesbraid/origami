@@ -206,7 +206,10 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
             &share.path,
             Options {
                 path_table,
-                attr_filter: None,
+                // Where the host keeps no file birth times, as on an NFS
+                // mount, handles come from this table instead of inodes.
+                table_fallback: Some(dir.join(format!("state/share-{}.handles", share.name))),
+                ..Options::default()
             },
         )?);
     }

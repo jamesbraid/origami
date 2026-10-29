@@ -51,6 +51,18 @@ pub struct Options {
     /// chooses one.
     pub path_table: Option<PathBuf>,
 
+    /// The path table to use when `path_table` is unset and the share's
+    /// filesystem keeps no birth time, as an NFS mount does. Without a
+    /// birth time an inode handle cannot tell a recreated file from the
+    /// one it replaced, since the filesystem hands the freed inode to the
+    /// next create. [`Share::open`] fails in that case when this is unset
+    /// too.
+    pub table_fallback: Option<PathBuf>,
+
+    /// Treats the filesystem as one without birth times, for tests of the
+    /// hosts that have none.
+    pub no_birth_time: bool,
+
     /// Sees every attribute set before the server does. The transcript
     /// tests use it to pin the times and sizes a host chooses itself.
     pub attr_filter: Option<AttrFilter>,
@@ -144,7 +156,19 @@ impl Share {
             ));
         }
         let host = Host::open(&abs)?;
-        let table = match &opts.path_table {
+        let mut table_file = opts.path_table.clone();
+        if table_file.is_none() && (opts.no_birth_time || !host.has_birth_time()) {
+            table_file = Some(opts.table_fallback.clone().ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    format!(
+                        "sharefs: {} keeps no file birth times, so a share there needs a path table",
+                        abs.display()
+                    ),
+                )
+            })?);
+        }
+        let table = match &table_file {
             Some(p) => Some(PathTable::open(p)?),
             None => None,
         };

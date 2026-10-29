@@ -494,17 +494,18 @@ fn path_table_file() {
     t.remove(b"c d\n");
     drop(t);
 
-    // Changes are appended, in Go's format: set ID "PATH" and del ID lines.
+    // The file opens with Go's next line, then changes are appended as set
+    // ID "PATH" and del ID lines.
     let text = fs::read_to_string(&file).unwrap();
     assert_eq!(
         text,
-        "set 1 \"a\"\nset 2 \"a/b\"\nset 3 \"c d\\n\"\nset 1 \"x\"\nset 2 \"x/b\"\ndel 3\n"
+        "next 1\nset 1 \"a\"\nset 2 \"a/b\"\nset 3 \"c d\\n\"\nset 1 \"x\"\nset 2 \"x/b\"\ndel 3\n"
     );
 
     let t = PathTable::open(&file).unwrap();
     assert_eq!(
         fs::read_to_string(&file).unwrap(),
-        "set 1 \"x\"\nset 2 \"x/b\"\n",
+        "next 4\nset 1 \"x\"\nset 2 \"x/b\"\n",
         "compacted on open"
     );
     assert_eq!(t.path(a).as_deref(), Some(&b"x"[..]));
@@ -531,4 +532,135 @@ fn path_table_reads_a_go_file() {
     assert_eq!(t.path(3).unwrap(), b"a\tb");
     assert_eq!(t.path(7).unwrap(), b"\xff");
     assert_eq!(t.id_for(b"fresh").unwrap(), 8);
+}
+
+// On a filesystem without birth times (an NFS mount) the host gives a
+// recreated file the inode of the one before it. Without a generation to
+// tell them apart the share numbers paths itself, and a name recreated
+// gets a handle the old one cannot reach.
+#[test]
+fn a_recreated_name_gets_a_new_handle_without_birth_time() {
+    let base = TempDir::new();
+    let dir = base.path().join("share");
+    fs::create_dir_all(&dir).unwrap();
+    let opts = Options {
+        no_birth_time: true,
+        table_fallback: Some(base.path().join("handles")),
+        ..Options::default()
+    };
+    let f = Share::open("s", &dir, opts).unwrap();
+    let r = root(&f);
+    let make = |name: &[u8]| {
+        f.create(&r, name, CreateHow::Guarded, &unset(), [0; 8])
+            .unwrap()
+    };
+    for how in ["remove", "rename over"] {
+        let old = handle_of(&f, &make(b"t"));
+        if how == "remove" {
+            f.remove(&r, b"t").unwrap();
+        } else {
+            make(b"u");
+            f.rename(&r, b"u", &r, b"t").unwrap();
+            f.remove(&r, b"t").unwrap();
+        }
+        let again = handle_of(&f, &make(b"t"));
+        assert_ne!(again, old, "{how}: the recreated file has the old handle");
+        want_err(how, f.node_by_handle(&old), Error::Stale);
+        f.remove(&r, b"t").unwrap();
+    }
+}
+
+// A handle to a removed file stays dead across any number of restarts,
+// even when it had the highest id the table ever gave out.
+#[test]
+fn a_removed_handle_stays_dead_across_restarts() {
+    let base = TempDir::new();
+    let dir = base.path().join("share");
+    fs::create_dir_all(&dir).unwrap();
+    let open = || {
+        let opts = Options {
+            no_birth_time: true,
+            table_fallback: Some(base.path().join("handles")),
+            ..Options::default()
+        };
+        Share::open("s", &dir, opts).unwrap()
+    };
+    let f = open();
+    let n = f
+        .create(&root(&f), b"t", CreateHow::Guarded, &unset(), [0; 8])
+        .unwrap();
+    let old = handle_of(&f, &n);
+    f.remove(&root(&f), b"t").unwrap();
+    drop(f);
+    // The first restart replays the removal, the second reads a compacted
+    // table that no longer lists the id.
+    for _ in 0..2 {
+        let f = open();
+        want_err(
+            "old handle after restart",
+            f.node_by_handle(&old),
+            Error::Stale,
+        );
+        let n2 = f
+            .create(&root(&f), b"t", CreateHow::Guarded, &unset(), [0; 8])
+            .unwrap();
+        assert_ne!(
+            handle_of(&f, &n2),
+            old,
+            "a new file reuses the removed handle"
+        );
+        want_err(
+            "old handle after a create",
+            f.node_by_handle(&old),
+            Error::Stale,
+        );
+        f.remove(&root(&f), b"t").unwrap();
+    }
+}
+
+#[test]
+fn no_birth_time_needs_a_table() {
+    let base = TempDir::new();
+    let dir = base.path().join("share");
+    fs::create_dir_all(&dir).unwrap();
+    let bare = Options {
+        no_birth_time: true,
+        ..Options::default()
+    };
+    assert!(Share::open("s", &dir, bare).is_err());
+    // An explicit table wins over the fallback.
+    let explicit = base.path().join("explicit");
+    let opts = Options {
+        no_birth_time: true,
+        path_table: Some(explicit.clone()),
+        table_fallback: Some(base.path().join("other")),
+        ..Options::default()
+    };
+    Share::open("s", &dir, opts).unwrap();
+    assert!(explicit.exists());
+    assert!(!base.path().join("other").exists());
+}
+
+// A share that falls back keeps the documented path-table layout.
+#[test]
+fn the_fallback_handle_is_a_path_table_handle() {
+    let opts = Options {
+        no_birth_time: true,
+        table_fallback: Some(TempDir::new().path().join("handles")),
+        ..Options::default()
+    };
+    let (f, _outside, _g) = new_share(opts);
+    let h = handle_of(&f, &lookup(&f, &root(&f), "f"));
+    assert_eq!((h[0], h[1] | h[2] | h[3]), (FMT_TABLE, 0));
+    assert!(h[8..16].iter().chain(&h[24..]).all(|&b| b == 0), "{h:02x?}");
+}
+
+// A table written before the next line existed still reads.
+#[test]
+fn a_table_with_a_next_line_never_reissues_a_freed_id() {
+    let base = TempDir::new();
+    let file = base.path().join("handles");
+    fs::write(&file, "next 9\nset 2 \"a\"\n").unwrap();
+    let t = PathTable::open(&file).unwrap();
+    assert_eq!(t.id_for(b"fresh").unwrap(), 9);
 }

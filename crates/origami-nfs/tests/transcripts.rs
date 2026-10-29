@@ -214,6 +214,7 @@ fn share_fixture(testdata: &Path, base: &Path) -> Share {
         Options {
             path_table: Some(base.join("handles")),
             attr_filter: Some(Box::new(pin_host_attrs)),
+            ..Options::default()
         },
     )
     .unwrap()

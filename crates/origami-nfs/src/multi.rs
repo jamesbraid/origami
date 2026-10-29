@@ -156,7 +156,7 @@ mod tests {
             let table = base.path().join(format!("{n}.handles"));
             let opts = Options {
                 path_table: Some(table),
-                attr_filter: None,
+                ..Options::default()
             };
             Share::open(n, d, opts).unwrap()
         };

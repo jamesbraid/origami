@@ -96,6 +96,12 @@ impl Host {
         })
     }
 
+    /// Whether the share's filesystem keeps file birth times, judged by
+    /// its root directory. An NFS mount, for one, does not.
+    pub fn has_birth_time(&self) -> bool {
+        root_birth_time(&self.root)
+    }
+
     /// The directory holding the last element of `rel`, as a descriptor,
     /// and that element's name. The root is its own directory, named ".".
     fn locate(&self, rel: &[u8]) -> io::Result<(OwnedFd, CString)> {
@@ -343,6 +349,28 @@ fn errno_location() -> *mut c_int {
 #[cfg(target_os = "macos")]
 fn errno_location() -> *mut c_int {
     unsafe { libc::__error() }
+}
+
+#[cfg(target_os = "linux")]
+fn root_birth_time(root: &OwnedFd) -> bool {
+    let mut stx: libc::statx = unsafe { std::mem::zeroed() };
+    let r = unsafe {
+        libc::statx(
+            root.as_raw_fd(),
+            c"".as_ptr(),
+            libc::AT_EMPTY_PATH,
+            libc::STATX_BTIME,
+            &mut stx,
+        )
+    };
+    r == 0 && stx.stx_mask & libc::STATX_BTIME != 0
+}
+
+#[cfg(not(target_os = "linux"))]
+fn root_birth_time(root: &OwnedFd) -> bool {
+    // Where lstat reports a birth time, as macOS does, a zero means the
+    // filesystem keeps none.
+    fstatat(root.as_raw_fd(), c".").is_ok_and(|st| st.generation != 0)
 }
 
 #[cfg(target_os = "linux")]

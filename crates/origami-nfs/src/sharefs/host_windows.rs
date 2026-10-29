@@ -97,6 +97,12 @@ impl Host {
         Ok(p)
     }
 
+    /// Windows keeps no inode numbers, so shares there always use a path
+    /// table.
+    pub fn has_birth_time(&self) -> bool {
+        false
+    }
+
     pub fn lstat(&self, rel: &[u8]) -> io::Result<HostStat> {
         let md = fs::symlink_metadata(self.real(rel)?)?;
         let ro = md.file_attributes() & FILE_ATTRIBUTE_READONLY != 0;

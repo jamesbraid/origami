@@ -1,8 +1,11 @@
 //! The path table: numbers the paths of a share for filehandles on a host
 //! without stable inode numbers. It lives in a file of lines, each
 //! `set ID PATH` with PATH quoted as Go quotes strings, or `del ID`.
-//! Opening the table replays the file and rewrites it compacted; changes
-//! after that are appended, so the numbering survives a restart.
+//! A `next ID` line, written when the table is compacted, keeps ids from
+//! ID up from being handed out again: an id freed by a removal is never
+//! reused, so a handle to a removed file cannot reach a later one. Opening
+//! the table replays the file and rewrites it compacted; changes after
+//! that are appended, so the numbering survives a restart.
 
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
@@ -64,7 +67,7 @@ impl PathTable {
         let tmp = std::path::PathBuf::from(tmp);
         let mut ids: Vec<u64> = maps.by_id.keys().copied().collect();
         ids.sort_unstable();
-        let mut text = Vec::new();
+        let mut text = format!("next {}\n", maps.next).into_bytes();
         for id in ids {
             text.extend_from_slice(&set_line(id, &maps.by_id[&id]));
         }
@@ -181,6 +184,7 @@ fn load(file: &Path) -> io::Result<Maps> {
                 maps.set(id, p);
             }
             (b"del", _) => maps.del(id),
+            (b"next", None) => maps.next = maps.next.max(id),
             _ => return Err(bad(file, n, "malformed line")),
         }
     }

@@ -178,6 +178,9 @@ pub struct ShareConfig {
     /// inode numbers; elsewhere setting it chooses handles from paths
     /// instead of inodes.
     pub path_table: Option<PathBuf>,
+    /// The path table to use, where the share's filesystem keeps no birth
+    /// time, when `path_table` is unset.
+    pub table_fallback: Option<PathBuf>,
     /// The address to listen on.
     pub bind: IpAddr,
     /// The port to listen on, for both transports, such as 2049 for NFS.
@@ -199,6 +202,7 @@ impl ShareConfig {
             name: name.into(),
             dir: dir.into(),
             path_table: None,
+            table_fallback: None,
             bind: IpAddr::V4(Ipv4Addr::LOCALHOST),
             preferred_port: None,
             udp: true,
@@ -239,6 +243,8 @@ impl ShareServer {
             &cfg.dir,
             Options {
                 path_table: cfg.path_table,
+                table_fallback: cfg.table_fallback,
+                no_birth_time: false,
                 attr_filter: None,
             },
         )?;
