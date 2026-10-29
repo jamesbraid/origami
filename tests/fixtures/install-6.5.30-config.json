@@ -3,6 +3,7 @@
     "cache_dir": "/machine/install/cache",
     "clients": [
       {
+        "hostname": "machine",
         "ip": "10.98.0.65",
         "mac": "08:00:69:12:34:56",
         "name": "sgi"
@@ -223,6 +224,7 @@
     "cache_dir": "/machine/install/cache",
     "clients": [
       {
+        "hostname": "machine",
         "ip": "10.98.0.65",
         "mac": "08:00:69:12:34:56",
         "name": "sgi"
@@ -300,6 +302,7 @@
     "cache_dir": "/machine/install/cache",
     "clients": [
       {
+        "hostname": "machine",
         "ip": "10.98.0.65",
         "mac": "08:00:69:12:34:56",
         "name": "sgi"
@@ -552,6 +555,7 @@
     "cache_dir": "/machine/install/cache",
     "clients": [
       {
+        "hostname": "machine",
         "ip": "10.98.0.65",
         "mac": "08:00:69:12:34:56",
         "name": "sgi"

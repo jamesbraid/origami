@@ -491,11 +491,18 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
             "post_install": POST_INSTALL,
         }));
     }
+    let mut client = json!({ "name": "sgi", "mac": mac, "ip": "10.98.0.65" });
+    // The miniroot offers the BOOTP name as its default hostname, and the
+    // installed system keeps it, so the machine is named after its directory
+    // from first boot. Instigator allows 40 characters.
+    if let Some(name) = crate::runtime::dhcp_hostname(dir).filter(|name| name.len() <= 40) {
+        client["hostname"] = json!(name);
+    }
     Ok(json!({
         "server_ip": "10.98.0.2",
         "netmask": "10.98.0.0/24",
         "cache_dir": dir.join("install/cache"),
-        "clients": [{ "name": "sgi", "mac": mac, "ip": "10.98.0.65" }],
+        "clients": [client],
         "services": {
             "bootp": true, "tftp": { "port_range": [2048, 32767] }, "rsh": true
         },
@@ -1614,6 +1621,14 @@ mod tests {
             media.media["overlays1"],
             "https://origami-dist.irix.fans/irix/6.5.30/overlays1.iso"
         );
+        let document = config(&dir, &file, &media).unwrap();
+        // The installed system is named after the machine directory.
+        assert_eq!(document["clients"][0]["hostname"], "machine");
+        // Instigator takes at most 40 characters, and IRIX needs a valid name.
+        for name in ["a".repeat(41), "has_underscore".into(), "-leading".into()] {
+            let document = config(&root.join(name), &file, &media).unwrap();
+            assert!(document["clients"][0].get("hostname").is_none());
+        }
         let document = config(&dir, &file, &media).unwrap();
         let sets = document["install_sets"].as_array().unwrap();
         assert_eq!(sets.len(), 5);

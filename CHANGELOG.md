@@ -24,6 +24,8 @@
   `origami run`: the guest gets `10.98.0.65` by DHCP, and shares mount from
   `10.98.0.2`. Instigator's install server still takes the network when it
   is listening.
+- An installed system is named after its machine directory from first boot,
+  not IRIS, when the name is a valid hostname.
 
 ## 0.4.1
 
