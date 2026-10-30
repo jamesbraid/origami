@@ -1899,10 +1899,15 @@ mod tests {
                 "6.5.30/complementary.image",
             ]
         );
-        let root = Path::new("/media");
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         assert_eq!(
             named_addon("mipspro", Some(root)).unwrap().source,
-            "/media/mipspro/7.4.4/mipspro744update.tar.gz"
+            root.canonicalize()
+                .unwrap()
+                .join("mipspro/7.4.4/mipspro744update.tar.gz")
+                .display()
+                .to_string()
         );
         let error = named_addon("rad4", Some(root)).unwrap_err().to_string();
         assert!(error.contains("no local media"), "{error}");
