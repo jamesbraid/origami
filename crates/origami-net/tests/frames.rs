@@ -76,16 +76,22 @@ fn parse(text: &str) -> Transcript {
                     hostname: None,
                 };
                 let mut dhcp = false;
+                let mut server_id = None;
                 for w in words {
-                    match w.strip_prefix("hostname=") {
-                        Some(name) => client.hostname = Some(name.to_string()),
-                        None => {
-                            assert_eq!(w, "dhcp", "unknown bootp option {w}");
-                            dhcp = true;
-                        }
+                    if let Some(name) = w.strip_prefix("hostname=") {
+                        client.hostname = Some(name.to_string());
+                    } else if let Some(id) = w.strip_prefix("server-id=") {
+                        server_id = Some(id.parse().unwrap());
+                    } else {
+                        assert_eq!(w, "dhcp", "unknown bootp option {w}");
+                        dhcp = true;
                     }
                 }
-                tr.addressing = Some(Addressing { client, dhcp });
+                tr.addressing = Some(Addressing {
+                    client,
+                    dhcp,
+                    server_id,
+                });
             }
             "frame" => tr.exchanges.push(Exchange {
                 label: rest.trim().to_string(),

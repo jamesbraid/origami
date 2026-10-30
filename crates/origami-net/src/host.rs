@@ -38,6 +38,9 @@ pub struct Addressing {
     /// Answers DHCP too; without it a message with a DHCP type option
     /// is left for whatever else owns UDP 67.
     pub dhcp: bool,
+    /// The DHCP server identifier (option 54) the host sends and expects
+    /// in a REQUEST; the host's own address when unset.
+    pub server_id: Option<Ipv4Addr>,
 }
 
 /// What to do with a frame.
@@ -282,10 +285,11 @@ impl Host {
                 if m.mac != a.client.mac {
                     return vec![];
                 }
-                let Some(typ) = dhcp_answer(&m, &a.client, self.ip) else {
+                let id = a.server_id.unwrap_or(self.ip);
+                let Some(typ) = dhcp_answer(&m, &a.client, id) else {
                     return vec![];
                 };
-                let reply = build_dhcp(&m, &a.client, typ, self.ip, self.prefix);
+                let reply = build_dhcp(&m, &a.client, typ, self.ip, id, self.prefix);
                 // A renewing client that owns its address gets a unicast
                 // ACK; everything else is broadcast, and always a NAK.
                 let (mac, dst) = if typ == 5 && m.ciaddr != Ipv4Addr::UNSPECIFIED {
@@ -427,7 +431,7 @@ fn is_dhcp(req: &[u8]) -> bool {
 
 /// The reply type for a message, or None for no reply: DISCOVER draws an
 /// OFFER, and a REQUEST an ACK when it names the client's address and a NAK
-/// for any other. One that selected another server isn't for us.
+/// for any other. One that selected another server identifier isn't for us.
 fn dhcp_answer(m: &Dhcp, c: &Client, server: Ipv4Addr) -> Option<u8> {
     match m.typ {
         1 => Some(2),
@@ -451,7 +455,16 @@ fn mask(prefix: u8) -> [u8; 4] {
         .to_be_bytes()
 }
 
-fn build_dhcp(m: &Dhcp, c: &Client, typ: u8, server: Ipv4Addr, prefix: u8) -> Vec<u8> {
+/// `server` goes in siaddr, the address the host serves from; `id` is the
+/// server identifier.
+fn build_dhcp(
+    m: &Dhcp,
+    c: &Client,
+    typ: u8,
+    server: Ipv4Addr,
+    id: Ipv4Addr,
+    prefix: u8,
+) -> Vec<u8> {
     let mut rep = vec![0u8; 240];
     rep[0..3].copy_from_slice(&[2, 1, 6]);
     rep[4..8].copy_from_slice(&m.xid);
@@ -472,7 +485,7 @@ fn build_dhcp(m: &Dhcp, c: &Client, typ: u8, server: Ipv4Addr, prefix: u8) -> Ve
         rep.extend_from_slice(v);
     };
     opt(53, &[typ]);
-    opt(54, &server.octets());
+    opt(54, &id.octets());
     if typ != 6 {
         opt(51, &LEASE_SECONDS.to_be_bytes());
         opt(1, &mask(prefix));

@@ -25,6 +25,12 @@ const USER_ADDRESS: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 4);
 const PRIVATE_ADDRESS: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 2);
 /// And the address it gives the machine, as Instigator does in an install.
 const PRIVATE_MACHINE: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 65);
+/// The DHCP server identifier the hosted private network sends: QEMU's user
+/// network's server. IRIX's proclaim refuses offers from any server but the
+/// one its cached lease names, even after the server has refused the old
+/// address, so a guest moved between the two networks kept its old address
+/// until both used one identifier.
+const USER_DHCP_SERVER: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 2);
 const FIXED_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x04];
 const PRIVATE_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x02];
 
@@ -258,6 +264,7 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
                 hostname: crate::runtime::dhcp_hostname(dir).map(str::to_string),
             },
             dhcp: true,
+            server_id: Some(USER_DHCP_SERVER),
         })
     } else {
         None
