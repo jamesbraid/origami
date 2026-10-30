@@ -23,24 +23,23 @@ Every machine's `hinv` is in the [gallery](https://github.com/jamesbraid/origami
   - `origami share DIR NAME HOSTDIR` serves a host folder to IRIX.
     Mount it with `mount 10.98.0.4:/NAME /mnt/NAME`.
   - `--mode private` with no install server running gives the guest its
-    own network: `10.98.0.65` by DHCP, shares at `10.98.0.4` and `10.98.0.2`.
-  - `origami network-set DIR --mode user --subnet 10.42.0.0/24` moves a machine's user,
-    private and install networks onto another private /24.
+    own network: `10.98.0.65` by DHCP, shares at `10.98.0.4`.
+  - `network-set DIR --subnet 10.42.0.0/24` moves a machine's networks
+    onto another private /24.
   - `install-init --release 6.5.22` installs IRIX 6.5.22, with MIPSpro
     and RAD4.
-  - Presets `onyx3000-vpro` and `onyx3400-infinite-reality`: IRIX on an
-    Onyx 3000 with VPro V12 and an Onyx 3400 with InfiniteReality3.
+- Changed:
+  - QEMU's user network is now `10.98.0.0/24`, the same as the private
+    network: host `10.98.0.2`, DNS `10.98.0.3`, guest `10.98.0.65`. A
+    machine that booted in user mode before may keep its old address
+    once; run `rm /var/adm/proclaim.lease_info*` as root and restart it.
+  - `/irix.cmds` installs every configured add-on, and
+    `install-apply --addon` is gone.
+  - Installs include the NFS client.
 - Fixed:
   - An installed system is named after its machine directory, not IRIS.
+  - After `network-set`, IRIX takes the new network's address.
   - Remote installs retry transient download errors instead of stopping.
-  - After `network-set`, an installed system takes the new network's
-    address instead of keeping the last one.
-- Changed: QEMU's user network is now `10.98.0.0/24`, with the host at
-  `10.98.0.2`, DNS at `10.98.0.3` and the guest at `10.98.0.65`, the same
-  as the private network. It was `192.0.2.0/24`. If IRIX keeps its old
-  address after upgrading a machine that booted in user mode, run
-  `rm /var/adm/proclaim.lease_info*` as root once, then restart the machine.
-- Installs include the NFS client.
 - QEMU updated to cf2948f095. Instigator updated to 0.5.0.
 
 ## 0.4.1
