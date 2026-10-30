@@ -38,16 +38,24 @@ pub struct StackConfig {
     pub ip: Ipv4Addr,
     /// The network's mask length.
     pub prefix: u8,
+    /// Further addresses the stack answers on, in the same network.
+    pub aliases: Vec<Ipv4Addr>,
     /// BOOTP and DHCP for one machine, when the stack is the network's only
     /// host. None leaves addressing to whatever else is on the network.
     pub addressing: Option<Addressing>,
 }
+
+/// A UDP call for the share server: the port it came in on, who sent it,
+/// where the reply goes, the address it was sent to, and the datagram.
+type UdpCall = (u16, SocketAddr, IpEndpoint, Option<IpAddress>, Vec<u8>);
 
 enum Event {
     Frame(Vec<u8>),
     UdpReply {
         port: u16,
         to: IpEndpoint,
+        /// The address the call arrived on, which the reply comes from.
+        local: Option<IpAddress>,
         data: Vec<u8>,
     },
     TcpData {
@@ -183,7 +191,7 @@ struct Inner {
     /// Listeners and accepted connections, by port.
     tcp: Vec<(u16, SocketHandle)>,
     conns: HashMap<SocketHandle, Conn>,
-    udp_calls: Sender<(u16, SocketAddr, IpEndpoint, Vec<u8>)>,
+    udp_calls: Sender<UdpCall>,
     workers: Vec<JoinHandle<()>>,
 }
 
@@ -212,6 +220,7 @@ impl Inner {
             cfg.mac,
             cfg.ip,
             cfg.prefix,
+            cfg.aliases.clone(),
             served.clone(),
             cfg.addressing.clone(),
         );
@@ -223,7 +232,9 @@ impl Inner {
         let started = Instant::now();
         let mut iface = Interface::new(icfg, &mut link, SmolInstant::from_micros(0));
         iface.update_ip_addrs(|a| {
-            let _ = a.push(IpCidr::new(IpAddress::Ipv4(cfg.ip), cfg.prefix));
+            for ip in std::iter::once(cfg.ip).chain(cfg.aliases.iter().copied()) {
+                let _ = a.push(IpCidr::new(IpAddress::Ipv4(ip), cfg.prefix));
+            }
         });
         let mut sockets = SocketSet::new(Vec::new());
         let mut udp_sockets = HashMap::new();
@@ -244,17 +255,18 @@ impl Inner {
 
         // One thread answers UDP calls in arrival order, as a single
         // socket would.
-        let (udp_calls, udp_rx) = mpsc::channel::<(u16, SocketAddr, IpEndpoint, Vec<u8>)>();
+        let (udp_calls, udp_rx) = mpsc::channel::<UdpCall>();
         let mut workers = Vec::new();
         if let Some(server) = server.clone() {
             let events = events.clone();
             workers.push(thread::spawn(move || {
-                while let Ok((port, from, to, data)) = udp_rx.recv() {
+                while let Ok((port, from, to, local, data)) = udp_rx.recv() {
                     if let Some(reply) = server.handle_datagram(from, &data) {
                         if events
                             .send(Event::UdpReply {
                                 port,
                                 to,
+                                local,
                                 data: reply,
                             })
                             .is_err()
@@ -360,13 +372,20 @@ impl Inner {
                     }
                 }
             },
-            Event::UdpReply { port, to, data } => {
+            Event::UdpReply {
+                port,
+                to,
+                local,
+                data,
+            } => {
                 if let Some(h) = self.udp.get(&port) {
                     // A full buffer drops the reply; the client retries.
+                    let mut meta = udp::UdpMetadata::from(to);
+                    meta.local_address = local;
                     let _ = self
                         .sockets
                         .get_mut::<udp::Socket>(*h)
-                        .send_slice(&data, to);
+                        .send_slice(&data, meta);
                 }
             }
             Event::TcpData { handle, data } => {
@@ -416,7 +435,9 @@ impl Inner {
                 let ep = meta.endpoint;
                 let IpAddress::Ipv4(a) = ep.addr;
                 let from = SocketAddr::new(IpAddr::V4(a), ep.port);
-                let _ = self.udp_calls.send((port, from, ep, data.to_vec()));
+                let _ = self
+                    .udp_calls
+                    .send((port, from, ep, meta.local_address, data.to_vec()));
                 moved = true;
             }
         }

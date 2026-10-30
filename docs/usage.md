@@ -330,6 +330,10 @@ A machine starts with QEMU's user networking: the guest can reach out, and
 nothing reaches in unless you forward a port. Stop the machine before
 changing its network or forwards.
 
+Every network Origami gives a guest is `10.98.0.0/24`. The host and DHCP
+server are `10.98.0.2` and the guest is `10.98.0.65`. User networking adds
+a DNS server at `10.98.0.3`. A guest moved between modes keeps its address.
+
 ### Forward a port
 
 ```sh
@@ -337,8 +341,9 @@ origami network-forward-add my-origin ssh --protocol tcp --host-port 2222 --gues
 origami network-forward-remove my-origin ssh
 ```
 
-Forwards listen on the host's loopback address only. They work in user
-mode, and are kept but inactive in the other modes.
+Forwards listen on the host's loopback address only and reach the guest at
+`10.98.0.65`. They work in user mode, and are kept but inactive in the
+other modes.
 
 ### Share a host folder
 
@@ -352,14 +357,14 @@ with `nfs.sw.nfs` installed:
 
 ```sh
 mkdir -p /mnt/src
-mount 192.0.2.4:/src /mnt/src
+mount 10.98.0.4:/src /mnt/src
 ```
 
 Guest files are owned by root and land on the host as you. Remove a share
 with `origami share my-octane src --remove`. Shares work in user, private,
 tap and vmnet modes. On tap and vmnet, add `--share-address ADDRESS/PREFIX`
-to `network-set`: a free address on that network. On a private network the
-address is `10.98.0.2`.
+to `network-set`: a free address on that network. User and private networks
+serve shares at `10.98.0.4`, and a private network at `10.98.0.2` as well.
 
 A private network with no `--endpoint`, or none listening, is hosted by
 `run` itself: the guest gets `10.98.0.65` by DHCP, and the network has no

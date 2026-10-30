@@ -393,7 +393,7 @@ fn encode(field: &Field, value: &str) -> Result<Vec<u8>> {
         Kind::Ipv4Bytes | Kind::Ipv4Text(_) => {
             let address: Ipv4Addr = value
                 .parse()
-                .map_err(|_| format!("{name} must be an IPv4 address such as 192.0.2.10"))?;
+                .map_err(|_| format!("{name} must be an IPv4 address such as 10.98.0.65"))?;
             Ok(match field.kind {
                 Kind::Ipv4Bytes => address.octets().to_vec(),
                 Kind::Ipv4Text(width) => {

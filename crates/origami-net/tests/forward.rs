@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use origami_net::{Endpoint, StackConfig, Switch, SwitchConfig};
 
 const STACK_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x04];
-const STACK_IP: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 4);
+const STACK_IP: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 4);
 
 trait Stream: Read + Write + Send + 'static {
     fn clone_stream(&self) -> Box<dyn Stream>;
@@ -48,7 +48,7 @@ fn frame(n: u32, len: usize) -> Vec<u8> {
     f[0..6].copy_from_slice(&[0x52, 0x55, 0xc0, 0, 2, 2]);
     f[12] = 8;
     f[13] = 0;
-    f[30..34].copy_from_slice(&[192, 0, 2, 2]);
+    f[30..34].copy_from_slice(&[10, 98, 0, 2]);
     f[34..38].copy_from_slice(&n.to_be_bytes());
     f
 }
@@ -122,6 +122,7 @@ fn run(socket_dir: Option<PathBuf>, count: u32) -> f64 {
         mac: STACK_MAC,
         ip: STACK_IP,
         prefix: 24,
+        aliases: vec![],
         addressing: None,
     });
     cfg.socket_dir = socket_dir;

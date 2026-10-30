@@ -21,9 +21,9 @@ use smoltcp::wire::{
 };
 
 const STACK_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x04];
-const STACK_IP: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 4);
+const STACK_IP: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 4);
 const GUEST_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0xff, 0xda, 0xf7];
-const GUEST_IP: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 15);
+const GUEST_IP: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 15);
 
 #[derive(Default)]
 struct Wire {
@@ -119,6 +119,11 @@ impl Guest {
     }
 
     fn udp_call(&mut self, port: u16, call: &[u8]) -> Vec<u8> {
+        self.udp_call_to(STACK_IP, port, call).0
+    }
+
+    /// Calls `ip` and returns the reply with the address it came from.
+    fn udp_call_to(&mut self, ip: Ipv4Addr, port: u16, call: &[u8]) -> (Vec<u8>, IpAddress) {
         let h = self.sockets.add(udp::Socket::new(
             udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0; 65535]),
             udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY; 4], vec![0; 65535]),
@@ -127,26 +132,32 @@ impl Guest {
             .get_mut::<udp::Socket>(h)
             .bind(0)
             .unwrap_or_else(|_| self.sockets.get_mut::<udp::Socket>(h).bind(40000).unwrap());
-        let to = IpEndpoint::new(IpAddress::Ipv4(STACK_IP), port);
+        let to = IpEndpoint::new(IpAddress::Ipv4(ip), port);
         self.sockets
             .get_mut::<udp::Socket>(h)
             .send_slice(call, to)
             .unwrap();
         let mut reply = Vec::new();
+        let mut from = to.addr;
         self.until("a UDP reply", |g| {
             if let Ok((d, meta)) = g.sockets.get_mut::<udp::Socket>(h).recv() {
                 assert_eq!(meta.endpoint.port, port);
                 reply = d.to_vec();
+                from = meta.endpoint.addr;
                 true
             } else {
                 false
             }
         });
         self.sockets.remove(h);
-        reply
+        (reply, from)
     }
 
     fn tcp_connect(&mut self, port: u16, local: u16) -> SocketHandle {
+        self.tcp_connect_to(STACK_IP, port, local)
+    }
+
+    fn tcp_connect_to(&mut self, ip: Ipv4Addr, port: u16, local: u16) -> SocketHandle {
         let h = self.sockets.add(tcp::Socket::new(
             tcp::SocketBuffer::new(vec![0; 65535]),
             tcp::SocketBuffer::new(vec![0; 65535]),
@@ -154,7 +165,7 @@ impl Guest {
         let cx = self.iface.context();
         self.sockets
             .get_mut::<tcp::Socket>(h)
-            .connect(cx, IpEndpoint::new(IpAddress::Ipv4(STACK_IP), port), local)
+            .connect(cx, IpEndpoint::new(IpAddress::Ipv4(ip), port), local)
             .unwrap();
         self.until("the TCP handshake", |g| {
             g.sockets.get_mut::<tcp::Socket>(h).may_send()
@@ -194,6 +205,10 @@ struct Rig {
 }
 
 fn rig() -> Rig {
+    rig_with(vec![])
+}
+
+fn rig_with(aliases: Vec<Ipv4Addr>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hello.txt"), b"hi\n").unwrap();
     std::fs::write(dir.path().join("big"), vec![b'x'; 8192]).unwrap();
@@ -203,6 +218,7 @@ fn rig() -> Rig {
         mac: STACK_MAC,
         ip: STACK_IP,
         prefix: 24,
+        aliases,
         addressing: None,
     });
     let switch = Switch::start(cfg, Some(server)).unwrap();
@@ -216,7 +232,7 @@ fn rig() -> Rig {
         let mut f = vec![0u8; 60];
         f[0..6].copy_from_slice(&dst);
         f[12] = 8;
-        f[30..34].copy_from_slice(&[192, 0, 2, 99]);
+        f[30..34].copy_from_slice(&[10, 98, 0, 99]);
         f
     };
     let (mut a, mut b) = (a, b);
@@ -370,7 +386,7 @@ fn other_traffic_goes_to_the_network_and_back() {
     f[0..6].copy_from_slice(&other);
     f[6..12].copy_from_slice(&GUEST_MAC);
     f[12] = 8;
-    f[30..34].copy_from_slice(&[192, 0, 2, 2]);
+    f[30..34].copy_from_slice(&[10, 98, 0, 2]);
     write_frame(&mut r.guest.a, &f);
     let got = r.b_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(got, f);
@@ -427,4 +443,22 @@ fn an_nfs2_read_reply_crosses_the_stack_as_fragments() {
     // 24 header bytes, status, 17 attribute words, the length, the data.
     let data = &reply[24 + 4 + 68 + 4..];
     assert_eq!(&data[..8192], &vec![b'x'; 8192][..]);
+}
+
+#[test]
+fn an_alias_answers_as_itself() {
+    let alias = Ipv4Addr::new(10, 98, 0, 6);
+    let mut r = rig_with(vec![alias]);
+    // UDP: the reply comes from the address that was called, not the
+    // stack's primary one.
+    let call = rpc_call(0x41, 100000, 2, 3, &[100003, 3, 17, 0]);
+    let (reply, from) = r.guest.udp_call_to(alias, 111, &call);
+    assert_eq!(words(&reply), [0x41, 1, 0, 0, 0, 0, 2049]);
+    assert_eq!(from, IpAddress::Ipv4(alias));
+    let (_, from) = r.guest.udp_call_to(STACK_IP, 111, &call);
+    assert_eq!(from, IpAddress::Ipv4(STACK_IP));
+    // TCP connects to either.
+    let h = r.guest.tcp_connect_to(alias, 2049, 49160);
+    let w = words(&r.guest.tcp_call(h, &rpc_call(0x42, 100003, 3, 0, &[])));
+    assert_eq!(w, [0x42, 1, 0, 0, 0, 0]);
 }

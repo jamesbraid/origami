@@ -111,7 +111,7 @@ pub enum Route {
 /// reaches the network, so slirp or a real LAN can't answer for the
 /// stack's address. Broadcasts reach both, so ARP finds the stack and
 /// DHCP still finds the network.
-pub fn route(frame: &[u8], mac: [u8; 6], ip: Ipv4Addr) -> Route {
+pub fn route(frame: &[u8], mac: [u8; 6], ips: &[Ipv4Addr]) -> Route {
     if frame.len() < 14 {
         return Route::Network;
     }
@@ -120,7 +120,7 @@ pub fn route(frame: &[u8], mac: [u8; 6], ip: Ipv4Addr) -> Route {
     }
     let ipv4_to_us = frame[12] == 0x08 && frame[13] == 0x00 && frame.len() >= 34 && {
         let dst = &frame[30..34];
-        dst == ip.octets()
+        ips.iter().any(|ip| dst == ip.octets())
     };
     if frame[0..6] == mac || ipv4_to_us {
         Route::Stack
@@ -134,7 +134,7 @@ mod tests {
     use super::*;
 
     const MAC: [u8; 6] = [8, 0, 0x69, 0, 0, 4];
-    const IP: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 4);
+    const IP: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 4);
 
     fn ip_frame(dmac: [u8; 6], dst: [u8; 4]) -> Vec<u8> {
         let mut f = vec![0u8; 60];
@@ -146,26 +146,35 @@ mod tests {
 
     #[test]
     fn frames_for_the_stack_stay_off_the_network() {
-        assert_eq!(route(&ip_frame(MAC, [192, 0, 2, 4]), MAC, IP), Route::Stack);
+        assert_eq!(
+            route(&ip_frame(MAC, [10, 98, 0, 4]), MAC, &[IP]),
+            Route::Stack
+        );
         // A stale neighbour entry sends the right IP to another MAC.
         let other = [2, 0, 0, 0, 0, 9];
         assert_eq!(
-            route(&ip_frame(other, [192, 0, 2, 4]), MAC, IP),
+            route(&ip_frame(other, [10, 98, 0, 4]), MAC, &[IP]),
             Route::Stack
         );
-        assert_eq!(route(&ip_frame(MAC, [192, 0, 2, 9]), MAC, IP), Route::Stack);
         assert_eq!(
-            route(&ip_frame(other, [192, 0, 2, 2]), MAC, IP),
+            route(&ip_frame(MAC, [10, 98, 0, 9]), MAC, &[IP]),
+            Route::Stack
+        );
+        assert_eq!(
+            route(&ip_frame(other, [10, 98, 0, 2]), MAC, &[IP]),
             Route::Network
         );
-        assert_eq!(route(&[0u8; 5], MAC, IP), Route::Network);
+        assert_eq!(route(&[0u8; 5], MAC, &[IP]), Route::Network);
     }
 
     #[test]
     fn broadcasts_reach_both() {
-        assert_eq!(route(&ip_frame([0xff; 6], [255; 4]), MAC, IP), Route::Both);
         assert_eq!(
-            route(&ip_frame([1, 0, 0x5e, 0, 0, 1], [224, 0, 0, 1]), MAC, IP),
+            route(&ip_frame([0xff; 6], [255; 4]), MAC, &[IP]),
+            Route::Both
+        );
+        assert_eq!(
+            route(&ip_frame([1, 0, 0x5e, 0, 0, 1], [224, 0, 0, 1]), MAC, &[IP]),
             Route::Both
         );
     }

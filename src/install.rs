@@ -522,15 +522,16 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
     {
         script["post_install"] = json!(POST_INSTALL);
     }
-    let mut client = json!({ "name": "sgi", "mac": mac, "ip": "10.98.0.65" });
+    let mut client =
+        json!({ "name": "sgi", "mac": mac, "ip": crate::addressing::GUEST.to_string() });
     // The miniroot offers the BOOTP name as its default hostname, and the
     // installed system keeps it, so the machine is named after its directory
     // from first boot. Instigator allows 40 characters.
     if let Some(name) = crate::runtime::dhcp_hostname(dir).filter(|name| name.len() <= 40) {
         client["hostname"] = json!(name);
     }
-    document["server_ip"] = json!("10.98.0.2");
-    document["netmask"] = json!("10.98.0.0/24");
+    document["server_ip"] = json!(crate::addressing::HOST.to_string());
+    document["netmask"] = json!(crate::addressing::NETWORK_CIDR);
     document["cache_dir"] = json!(dir.join("install/cache"));
     document["clients"] = json!([client]);
     Ok(InstallConfig {
@@ -934,7 +935,10 @@ fn install_script(media: &InstallMedia) -> (String, usize) {
     // irix.cmds runs a second go for the add-ons when any are configured.
     let passes = if media.addons.is_empty() { 1 } else { 2 };
     (
-        format!("admin source 10.98.0.2:/{STANDARD_INSTALL_SCRIPT}.cmds\n"),
+        format!(
+            "admin source {}:/{STANDARD_INSTALL_SCRIPT}.cmds\n",
+            crate::addressing::HOST
+        ),
         passes,
     )
 }
@@ -1950,6 +1954,22 @@ mod tests {
             qemu: Default::default(),
         };
         config(Path::new("/machine"), &file, media).unwrap()
+    }
+
+    #[test]
+    fn the_install_network_is_the_one_every_mode_uses() {
+        let recipe = recipe("6.5.22", "standard").unwrap();
+        let media = golden_media("6.5.22", &recipe);
+        let document = golden_config(&media).document;
+        assert_eq!(document["server_ip"], "10.98.0.2");
+        assert_eq!(document["netmask"], "10.98.0.0/24");
+        assert_eq!(document["clients"][0]["ip"], "10.98.0.65");
+        assert_eq!(document["server_ip"], crate::addressing::HOST.to_string());
+        assert_eq!(document["netmask"], crate::addressing::NETWORK_CIDR);
+        assert_eq!(
+            document["clients"][0]["ip"],
+            crate::addressing::GUEST.to_string()
+        );
     }
 
     /// What Instigator turns into /irix.cmds: the sets it serves, the first

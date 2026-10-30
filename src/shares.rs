@@ -8,9 +8,10 @@
 //! A private network is the exception. Its only host is Instigator's
 //! install server, or, when none is listening, this process: the stack
 //! then is the network, answers BOOTP and DHCP as Instigator does, and
-//! serves any shares at the host's own address, 10.98.0.2.
+//! serves any shares at the host's own address, 10.98.0.2, and at 10.98.0.4,
+//! where a user network has them.
 
-use crate::{MachineFile, Result, Share};
+use crate::{addressing, MachineFile, Result, Share};
 use origami_net::{Addressing, Client, Endpoint, StackConfig, Switch, SwitchConfig};
 use origami_nfs::{LogLevel, Options, Server};
 use std::fs::{self, OpenOptions};
@@ -19,18 +20,12 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// The stack's address on a user network, beside slirp's host at 192.0.2.2.
-const USER_ADDRESS: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 4);
+/// The stack's address on a user network, beside slirp's host at 10.98.0.2.
+const USER_ADDRESS: Ipv4Addr = addressing::SHARES;
 /// On a private network the stack is the host Instigator would be.
-const PRIVATE_ADDRESS: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 2);
+const PRIVATE_ADDRESS: Ipv4Addr = addressing::HOST;
 /// And the address it gives the machine, as Instigator does in an install.
-const PRIVATE_MACHINE: Ipv4Addr = Ipv4Addr::new(10, 98, 0, 65);
-/// The DHCP server identifier the hosted private network sends: QEMU's user
-/// network's server. IRIX's proclaim refuses offers from any server but the
-/// one its cached lease names, even after the server has refused the old
-/// address, so a guest moved between the two networks kept its old address
-/// until both used one identifier.
-const USER_DHCP_SERVER: Ipv4Addr = Ipv4Addr::new(192, 0, 2, 2);
+const PRIVATE_MACHINE: Ipv4Addr = addressing::GUEST;
 const FIXED_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x04];
 const PRIVATE_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x02];
 
@@ -264,7 +259,7 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
                 hostname: crate::runtime::dhcp_hostname(dir).map(str::to_string),
             },
             dhcp: true,
-            server_id: Some(USER_DHCP_SERVER),
+            server_id: None,
         })
     } else {
         None
@@ -273,6 +268,9 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
         mac: address.mac,
         ip: address.ip,
         prefix: address.prefix,
+        // The same share address as in a user network, so one mount line
+        // works in every mode.
+        aliases: if private { vec![USER_ADDRESS] } else { vec![] },
         addressing,
     });
     cfg.guest = guest;
@@ -384,7 +382,7 @@ mod tests {
     #[test]
     fn the_address_follows_the_network_mode() {
         let a = address(&file("user")).unwrap();
-        assert_eq!((a.ip.to_string(), a.prefix), ("192.0.2.4".into(), 24));
+        assert_eq!((a.ip.to_string(), a.prefix), ("10.98.0.4".into(), 24));
         assert_eq!(a.mac, [0x08, 0x00, 0x69, 0, 0, 4]);
         let private = address(&file("private")).unwrap();
         assert_eq!(private.ip.to_string(), "10.98.0.2");
@@ -404,6 +402,13 @@ mod tests {
         let a = address(&f).unwrap();
         assert_eq!((a.ip.to_string(), a.prefix), ("192.168.1.50".into(), 24));
         assert_eq!(a.mac, [0x08, 0x00, 0x69, 0x92, 0x34, 0x56]);
+    }
+
+    #[test]
+    fn every_network_uses_the_one_scheme() {
+        assert_eq!(address(&file("user")).unwrap().ip, addressing::SHARES);
+        assert_eq!(address(&file("private")).unwrap().ip, addressing::HOST);
+        assert_eq!(PRIVATE_MACHINE, addressing::GUEST);
     }
 
     #[test]
@@ -439,7 +444,7 @@ mod tests {
         let f = file("user");
         assert_eq!(
             mount_lines(&f, &f.share[0]).unwrap(),
-            ["mkdir -p /mnt/src", "mount 192.0.2.4:/src /mnt/src"]
+            ["mkdir -p /mnt/src", "mount 10.98.0.4:/src /mnt/src"]
         );
     }
 
@@ -474,6 +479,19 @@ mod tests {
         assert_eq!(reply[6..12], [0x08, 0x00, 0x69, 0, 0, 2]);
         assert_eq!(reply[20..22], [0, 2], "an ARP reply");
         assert_eq!(reply[28..32], [10, 98, 0, 2]);
+
+        // The share address of the user network answers here too.
+        let mut arp = arp.clone();
+        arp[38..42].copy_from_slice(&[10, 98, 0, 4]);
+        let mut framed = (arp.len() as u32).to_be_bytes().to_vec();
+        framed.extend_from_slice(&arp);
+        nic.write_all(&framed).unwrap();
+        let mut head = [0u8; 4];
+        nic.read_exact(&mut head).unwrap();
+        let mut reply = vec![0u8; u32::from_be_bytes(head) as usize];
+        nic.read_exact(&mut reply).unwrap();
+        assert_eq!(reply[20..22], [0, 2], "an ARP reply");
+        assert_eq!(reply[28..32], [10, 98, 0, 4]);
 
         // A server already listening at the endpoint keeps the machine.
         let mut taken = f.clone();

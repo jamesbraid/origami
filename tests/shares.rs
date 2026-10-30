@@ -58,7 +58,7 @@ fn share_adds_lists_and_removes_a_folder() {
 
     let out = ok(root.path(), &["share", &machine, "src", code]);
     assert!(out.contains("mkdir -p /mnt/src"), "{out}");
-    assert!(out.contains("mount 192.0.2.4:/src /mnt/src"), "{out}");
+    assert!(out.contains("mount 10.98.0.4:/src /mnt/src"), "{out}");
     let toml = fs::read_to_string(Path::new(&machine).join("machine.toml")).unwrap();
     assert!(
         toml.contains("[[share]]") && toml.contains("name = \"src\""),
@@ -67,7 +67,7 @@ fn share_adds_lists_and_removes_a_folder() {
 
     let show = ok(root.path(), &["show", &machine]);
     assert!(show.contains(&format!("share src: {code}")), "{show}");
-    assert!(show.contains("mount 192.0.2.4:/src /mnt/src"), "{show}");
+    assert!(show.contains("mount 10.98.0.4:/src /mnt/src"), "{show}");
 
     let err = fail(root.path(), &["share", &machine, "src", code]);
     assert!(err.contains("share src exists"), "{err}");

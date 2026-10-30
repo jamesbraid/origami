@@ -39,7 +39,9 @@ pub struct Addressing {
     /// is left for whatever else owns UDP 67.
     pub dhcp: bool,
     /// The DHCP server identifier (option 54) the host sends and expects
-    /// in a REQUEST; the host's own address when unset.
+    /// in a REQUEST; the host's own address when unset. Origami leaves it
+    /// unset: Instigator's option of the same name is replayed from its
+    /// transcripts.
     pub server_id: Option<Ipv4Addr>,
 }
 
@@ -55,6 +57,8 @@ pub struct Host {
     pub mac: [u8; 6],
     pub ip: Ipv4Addr,
     pub prefix: u8,
+    /// Further addresses the host answers for, on the same network.
+    pub aliases: Vec<Ipv4Addr>,
     /// UDP ports the stack serves, so a datagram to any other draws an
     /// ICMP port unreachable.
     pub udp_ports: Vec<u16>,
@@ -67,6 +71,7 @@ impl Host {
         mac: [u8; 6],
         ip: Ipv4Addr,
         prefix: u8,
+        aliases: Vec<Ipv4Addr>,
         udp_ports: Vec<u16>,
         addressing: Option<Addressing>,
     ) -> Host {
@@ -74,10 +79,16 @@ impl Host {
             mac,
             ip,
             prefix,
+            aliases,
             udp_ports,
             addressing,
             ident: 0,
         }
+    }
+
+    /// Whether the host answers for this address.
+    fn owns(&self, ip: Ipv4Addr) -> bool {
+        ip == self.ip || self.aliases.contains(&ip)
     }
 
     fn broadcast(&self) -> Ipv4Addr {
@@ -109,14 +120,14 @@ impl Host {
             2 => Verdict::Pass,
             // Whoever asks, only for our own address, and a probe from
             // 0.0.0.0 included.
-            1 if a[24..28] == self.ip.octets() => {
+            1 if self.owns(Ipv4Addr::new(a[24], a[25], a[26], a[27])) => {
                 let mut r = Vec::with_capacity(MIN_FRAME);
                 r.extend_from_slice(&src_mac);
                 r.extend_from_slice(&self.mac);
                 r.extend_from_slice(&ETH_ARP.to_be_bytes());
                 r.extend_from_slice(&[0, 1, 8, 0, 6, 4, 0, 2]);
                 r.extend_from_slice(&self.mac);
-                r.extend_from_slice(&self.ip.octets());
+                r.extend_from_slice(&a[24..28]);
                 r.extend_from_slice(&a[8..14]);
                 r.extend_from_slice(&a[14..18]);
                 Verdict::Done(vec![pad(r)])
@@ -138,7 +149,7 @@ impl Host {
         let p = &p[..total];
         let dst = Ipv4Addr::new(p[16], p[17], p[18], p[19]);
         let src = Ipv4Addr::new(p[12], p[13], p[14], p[15]);
-        let to_us = dst == self.ip;
+        let to_us = self.owns(dst);
         let broadcast = dst == Ipv4Addr::BROADCAST || dst == self.broadcast();
         if !to_us && !broadcast {
             return Verdict::Done(vec![]);
@@ -166,7 +177,7 @@ impl Host {
         // An echo request to the host or the subnet broadcast address;
         // the limited broadcast draws nothing.
         if body.len() < 8 || body[0] != 8 || body[1] != 0 || dst == Ipv4Addr::BROADCAST {
-            return if dst == self.ip {
+            return if self.owns(dst) {
                 Verdict::Pass
             } else {
                 Verdict::Done(vec![])
@@ -178,7 +189,10 @@ impl Host {
         icmp[3] = 0;
         let c = checksum(&[&icmp]);
         icmp[2..4].copy_from_slice(&c.to_be_bytes());
-        Verdict::Done(vec![self.reply_frame(src_mac, src, 1, &icmp)])
+        // The answer comes from the address that was asked, the host's
+        // own when the ask was a broadcast.
+        let from = if self.owns(dst) { dst } else { self.ip };
+        Verdict::Done(vec![self.reply_frame(from, src_mac, src, 1, &icmp)])
     }
 
     fn udp(
@@ -219,11 +233,18 @@ impl Host {
         icmp.extend_from_slice(quote);
         let c = checksum(&[&icmp]);
         icmp[2..4].copy_from_slice(&c.to_be_bytes());
-        Verdict::Done(vec![self.reply_frame(src_mac, src, 1, &icmp)])
+        Verdict::Done(vec![self.reply_frame(dst, src_mac, src, 1, &icmp)])
     }
 
     /// One IPv4 frame from the host: TTL 64, no DF.
-    fn reply_frame(&mut self, dst_mac: [u8; 6], dst: Ipv4Addr, proto: u8, body: &[u8]) -> Vec<u8> {
+    fn reply_frame(
+        &mut self,
+        from: Ipv4Addr,
+        dst_mac: [u8; 6],
+        dst: Ipv4Addr,
+        proto: u8,
+        body: &[u8],
+    ) -> Vec<u8> {
         self.ident = self.ident.wrapping_add(1);
         let mut f = Vec::with_capacity(14 + 20 + body.len());
         f.extend_from_slice(&dst_mac);
@@ -235,7 +256,7 @@ impl Host {
         h[4..6].copy_from_slice(&self.ident.to_be_bytes());
         h[8] = 64;
         h[9] = proto;
-        h[12..16].copy_from_slice(&self.ip.octets());
+        h[12..16].copy_from_slice(&from.octets());
         h[16..20].copy_from_slice(&dst.octets());
         let c = checksum(&[&h]);
         h[10..12].copy_from_slice(&c.to_be_bytes());
@@ -267,7 +288,7 @@ impl Host {
         // A computed zero goes out as all ones (RFC 768).
         let c = if c == 0 { 0xffff } else { c };
         u[6..8].copy_from_slice(&c.to_be_bytes());
-        self.reply_frame(dst_mac, dst, 17, &u)
+        self.reply_frame(self.ip, dst_mac, dst, 17, &u)
     }
 
     /// Answers a datagram to UDP 67 for the configured machine, as DHCP

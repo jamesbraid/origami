@@ -85,6 +85,8 @@ struct Shared {
     guest: Slot,
     network: Slot,
     cfg: StackConfig,
+    /// The stack's address and its aliases.
+    ips: Vec<Ipv4Addr>,
 }
 
 /// A running switch and stack. Dropping it stops both.
@@ -108,6 +110,9 @@ impl Switch {
             guest: Slot::default(),
             network: Slot::default(),
             cfg: cfg.stack.clone(),
+            ips: std::iter::once(cfg.stack.ip)
+                .chain(cfg.stack.aliases.iter().copied())
+                .collect(),
         });
         let out = shared.clone();
         let stack = Stack::start(cfg.stack, server, move |f| {
@@ -250,7 +255,7 @@ fn from_guest(shared: &Shared, whole: &[u8], out: &mut Vec<u8>) {
     out.clear();
     let mut to_stack = Vec::new();
     for frame in frames(whole) {
-        let r = route(frame, shared.cfg.mac, shared.cfg.ip);
+        let r = route(frame, shared.cfg.mac, &shared.ips);
         if matches!(r, Route::Network | Route::Both) {
             push_frame(out, frame);
         }

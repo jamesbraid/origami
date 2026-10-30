@@ -140,6 +140,7 @@ fn every_frame_transcript_replays() {
                 mac: HOST_MAC,
                 ip: Ipv4Addr::new(10, 98, 0, 2),
                 prefix: 24,
+                aliases: vec![],
                 addressing: tr.addressing.clone(),
             },
             None,

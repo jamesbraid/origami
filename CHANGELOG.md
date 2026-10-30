@@ -21,9 +21,9 @@ Every machine's `hinv` is in the [gallery](https://github.com/jamesbraid/origami
     (16 R16000s). IRIX installs on the Origin 3200's Fibre Channel disk
     over its serial console, and the disk boots on the others.
   - `origami share DIR NAME HOSTDIR` serves a host folder to IRIX.
-    Mount it with `mount 192.0.2.4:/NAME /mnt/NAME`.
+    Mount it with `mount 10.98.0.4:/NAME /mnt/NAME`.
   - `--mode private` with no install server running gives the guest its
-    own network: `10.98.0.65` by DHCP, shares at `10.98.0.2`.
+    own network: `10.98.0.65` by DHCP, shares at `10.98.0.4` and `10.98.0.2`.
   - `install-init --release 6.5.22` installs IRIX 6.5.22, with MIPSpro
     and RAD4.
   - Presets `onyx3000-vpro` and `onyx3400-infinite-reality`: IRIX on an
@@ -33,6 +33,11 @@ Every machine's `hinv` is in the [gallery](https://github.com/jamesbraid/origami
   - Remote installs retry transient download errors instead of stopping.
   - After `network-set`, an installed system takes the new network's
     address instead of keeping the last one.
+- Changed: QEMU's user network is now `10.98.0.0/24`, with the host at
+  `10.98.0.2`, DNS at `10.98.0.3` and the guest at `10.98.0.65`, the same
+  as the private network. It was `192.0.2.0/24`. If IRIX keeps its old
+  address after upgrading a machine that booted in user mode, run
+  `rm /var/adm/proclaim.lease_info*` as root once, then restart the machine.
 - Installs include the NFS client.
 - QEMU updated to cf2948f095. Instigator updated to 0.5.0.
 

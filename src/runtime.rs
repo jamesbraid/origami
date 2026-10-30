@@ -160,8 +160,7 @@ pub fn check_state(dir: &Path, offering: &Offering) -> Result<()> {
 }
 
 fn user_network(dir: &Path, forward: &[PortForward]) -> String {
-    let mut option =
-        "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15".to_string();
+    let mut option = crate::addressing::user_netdev();
     // DHCP offers the directory name as the guest's hostname when it is a
     // valid one; IRIX keeps its own name otherwise.
     if let Some(name) = dhcp_hostname(dir) {
@@ -653,7 +652,7 @@ fn run_inner(
         Some(endpoint) => {
             hosted_file = file.clone();
             hosted_file.network.endpoint = Some(endpoint.clone());
-            eprintln!("hosting the private network at 10.98.0.2");
+            eprintln!("hosting the private network at {}", crate::addressing::HOST);
             &hosted_file
         }
         None => file,
@@ -1122,7 +1121,7 @@ mod tests {
                 guest_port: 53,
             },
         ];
-        let expected = "user,id=net0,net=192.0.2.0/24,host=192.0.2.2,dhcpstart=192.0.2.15,hostname=machine,hostfwd=tcp:127.0.0.1:2222-:22,hostfwd=udp:127.0.0.1:5353-:53";
+        let expected = "user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65,hostname=machine,hostfwd=tcp:127.0.0.1:2222-:22,hostfwd=udp:127.0.0.1:5353-:53";
         let origin200 = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(origin200);
         file.network.forward = rules.clone();

@@ -4,6 +4,7 @@ use std::fs;
 use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
 
+pub mod addressing;
 pub mod assets;
 pub mod control;
 pub mod graphics;
