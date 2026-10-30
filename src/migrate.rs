@@ -2,7 +2,8 @@
 //! PROM and let the launcher build flash and NVRAM files under its own
 //! names. Format 2 machines predate the module controller NVRAM store.
 //! Formats 1 to 3 name their graphics with one word, which becomes the
-//! pipes the catalogue describes.
+//! pipes the catalogue describes. A current machine gains the flash store
+//! each InfiniteReality pipe slot has had since QEMU gave it one.
 
 use crate::{
     profiles, resolve, runtime, MachineFile, MachineInit, Machines, Offering, Result, StorageItem,
@@ -38,8 +39,17 @@ pub fn upgrade(
     let result = match format {
         Some(1) => from_format1(dir, machines, &text, prom, io_prom),
         Some(2) => from_format2(dir, machines, &text, prom, io_prom),
-        Some(3) => from_format3(dir, machines, &text),
-        Some(current) if current == i64::from(crate::MACHINE_FORMAT) => return Ok(None),
+        Some(3) => from_format3(dir, machines, &text, prom, io_prom),
+        Some(current) if current == i64::from(crate::MACHINE_FORMAT) => {
+            let file: MachineFile = toml::from_str(&text)?;
+            return add_pipe_flash(dir, machines, &file, prom, io_prom).map_err(|error| {
+                format!(
+                    "cannot add the pipe flash to {}: {error}; its state is unchanged",
+                    dir.display()
+                )
+                .into()
+            });
+        }
         _ => return Err(format!("{} has an unsupported format", path.display()).into()),
     };
     result.map(Some).map_err(|error| {
@@ -97,9 +107,10 @@ fn from_format2(
         .iter()
         .filter(|item| !raw(&state, item).is_file())
         .collect();
+    // Only these hold nothing the guest saved, so a fresh file is right.
     if let Some(item) = missing
         .iter()
-        .find(|item| item.initial != "controller-nvram")
+        .find(|item| item.initial != "controller-nvram" && item.initial != PIPE_FLASH)
     {
         return Err(format!(
             "missing machine state {}. Restore it from a backup",
@@ -129,13 +140,76 @@ fn from_format2(
     Ok(notes)
 }
 
+/// The initial contents of an InfiniteReality pipe's flash store. Nothing in
+/// it depends on the machine, so a fresh file is what create would have made.
+const PIPE_FLASH: &str = "kona-flash";
+
+/// Create the `<slot>-kona-flash` stores a current machine lacks. QEMU
+/// refuses to reopen state without a store its catalogue lists, and a pipe's
+/// flash holds only what the guest's ircombine stored there, which a machine
+/// made before the store existed never could. Returns None when the machine
+/// has every one.
+fn add_pipe_flash(
+    dir: &Path,
+    machines: &Machines,
+    file: &MachineFile,
+    prom: Option<&Path>,
+    io_prom: Option<&Path>,
+) -> Result<Option<Vec<String>>> {
+    let offering = crate::offering(machines, &file.machine)?;
+    let state = dir.join("state");
+    let raw = |root: &Path, item: &StorageItem| root.join(format!("{}.raw", item.name));
+    let missing: Vec<&StorageItem> = offering
+        .storage
+        .iter()
+        .filter(|item| item.initial == PIPE_FLASH && !raw(&state, item).is_file())
+        .collect();
+    if missing.is_empty() {
+        return Ok(None);
+    }
+    // Left by an interrupted upgrade.
+    let staging = dir.join("state.pipe-flash");
+    let _ = fs::remove_dir_all(&staging);
+    // The init tool reads the machine's PROMs before it writes anything,
+    // although these files do not depend on them.
+    let (prom, io_prom) = crate::firmware(offering, prom, io_prom)?;
+    let result = (|| -> Result<()> {
+        let arguments = runtime::init_arguments(offering, &prom, io_prom.as_deref(), &staging);
+        runtime::create_state(&runtime::machine_init_path()?, &arguments)?;
+        for item in &missing {
+            fs::rename(raw(&staging, item), raw(&state, item))?;
+        }
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&staging);
+    result?;
+    Ok(Some(
+        missing
+            .iter()
+            .map(|item| {
+                format!(
+                    "{}.raw holds the flash of that InfiniteReality pipe",
+                    item.name
+                )
+            })
+            .collect(),
+    ))
+}
+
 /// Store each format 3 graphics value as the pipes it now is.
-fn from_format3(dir: &Path, machines: &Machines, text: &str) -> Result<Vec<String>> {
+fn from_format3(
+    dir: &Path,
+    machines: &Machines,
+    text: &str,
+    prom: Option<&Path>,
+    io_prom: Option<&Path>,
+) -> Result<Vec<String>> {
     let mut table: toml::Table = toml::from_str(text)?;
-    let notes = upgrade_graphics(machines, &mut table)?;
+    let mut notes = upgrade_graphics(machines, &mut table)?;
     let file: MachineFile = toml::Value::Table(table).try_into()?;
     let offering = crate::offering(machines, &file.machine)?;
     crate::graphics::validate(machines, &offering.topology, offering.nodes, &file.pipe)?;
+    notes.extend(add_pipe_flash(dir, machines, &file, prom, io_prom)?.unwrap_or_default());
     replace_file(dir, &file)?;
     Ok(notes)
 }

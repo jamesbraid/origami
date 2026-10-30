@@ -736,3 +736,181 @@ fn format3_graphics_become_pipes_or_the_upgrade_is_refused() {
     );
     assert_eq!(snapshot(&machine), before);
 }
+
+/// A current machine as Origami 0.5.0's create left an Onyx2 rack: its
+/// state has no InfiniteReality pipe flash.
+const ONYX2_RACK_CURRENT: &str = r#"format = 4
+
+[machine]
+topology = "onyx2-rack"
+population = [2, 2]
+model = "onyx2"
+nodes = 2
+cpus_per_node = 2
+memory_per_node = "64MiB"
+
+[[pipe]]
+slot = "io3"
+family = "kona"
+product = "ir3"
+
+[pipe.settings]
+display = "dg5-2"
+geometry = "ge16-4"
+rm-count = "1"
+rm-type = "rm9"
+texture-mb = "256"
+
+[network]
+mode = "user"
+"#;
+
+#[test]
+fn a_current_machine_gains_the_pipe_flash_and_keeps_its_state() {
+    let root = tempfile::tempdir().unwrap();
+    let io_prom = root.path().join("io6prom.img");
+    fs::write(&io_prom, b"io6").unwrap();
+    let prom = root.path().join("ip27prom.img");
+    fs::write(&prom, b"ip27").unwrap();
+    let dir = root.path().join("onyx2");
+    for sub in ["drives", "state", "logs"] {
+        fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+    fs::write(dir.join("machine.toml"), ONYX2_RACK_CURRENT).unwrap();
+    // What the guest has saved since it was created.
+    let saved = [
+        ("node0-flash", 1048576),
+        ("node1-flash", 1048576),
+        ("io0-flash", 1048576),
+        ("nvram0", 32768),
+        ("nvram0-clock", 16),
+        ("module0-nvram", 2048),
+    ];
+    for (index, (name, size)) in saved.iter().enumerate() {
+        fs::write(
+            dir.join(format!("state/{name}.raw")),
+            vec![index as u8 + 1; *size],
+        )
+        .unwrap();
+    }
+    let path = dir.to_str().unwrap();
+    let before = snapshot(&dir);
+
+    // QEMU does not reopen the state without the store, and says how to add it.
+    let output = origami(root.path(), &["validate", path]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("io3-kona-flash.raw. Add it with origami upgrade"),
+        "{}",
+        stderr(&output)
+    );
+
+    let output = origami(
+        root.path(),
+        &[
+            "upgrade",
+            path,
+            "--prom",
+            prom.to_str().unwrap(),
+            "--io-prom",
+            io_prom.to_str().unwrap(),
+        ],
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("io3-kona-flash.raw"), "{stdout}");
+    assert!(stdout.contains("io7-kona-flash.raw"), "{stdout}");
+    // The tool is asked for the machine's own selection.
+    let arguments =
+        fs::read_to_string(root.path().join("runtime/qemu-sgi-machine-init.args")).unwrap();
+    assert!(
+        arguments.contains("onyx2,topology=onyx2-rack,nodes=2\n"),
+        "{arguments}"
+    );
+    let after = snapshot(&dir);
+    for slot in ["io3", "io7"] {
+        let flash = &after[&dir.join(format!("state/{slot}-kona-flash.raw"))];
+        assert_eq!(flash.len(), 524288);
+    }
+    // Everything else is exactly as the guest left it.
+    for (path, bytes) in &before {
+        assert_eq!(&after[path], bytes, "{}", path.display());
+    }
+    // Beside the two stores, only the lock the upgrade takes is new.
+    let added: Vec<_> = after
+        .keys()
+        .filter(|path| !before.contains_key(*path))
+        .map(|path| path.file_name().unwrap().to_str().unwrap().to_string())
+        .collect();
+    assert_eq!(
+        added,
+        ["io3-kona-flash.raw", "io7-kona-flash.raw", "machine.lock"]
+    );
+    assert!(!dir.join("state.pipe-flash").exists());
+    let output = origami(root.path(), &["validate", path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+
+    // A second upgrade finds nothing to add and leaves the flash alone.
+    fs::write(dir.join("state/io3-kona-flash.raw"), vec![0xaa; 524288]).unwrap();
+    let before = snapshot(&dir);
+    let output = origami(root.path(), &["upgrade", path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("is current"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert_eq!(snapshot(&dir), before);
+}
+
+#[test]
+fn a_current_machine_without_a_pipe_has_nothing_to_add() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = format3(
+        root.path(),
+        "rack",
+        "[machine]\ntopology = \"origin2000-rack\"\npopulation = [2, 2, 2, 2]\n\
+         model = \"origin2000\"\nnodes = 4\ncpus_per_node = 2\n\
+         memory_per_node = \"64MiB\"\ngraphics = \"none\"\n",
+    );
+    let output = origami(root.path(), &["upgrade", dir.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let before = snapshot(&dir);
+    let output = origami(root.path(), &["upgrade", dir.to_str().unwrap()]);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("is current"));
+    assert_eq!(snapshot(&dir), before);
+}
+
+#[test]
+fn a_format3_machine_gains_the_pipe_flash_with_its_upgrade() {
+    let root = tempfile::tempdir().unwrap();
+    let io_prom = root.path().join("io6prom.img");
+    fs::write(&io_prom, b"io6").unwrap();
+    let prom = root.path().join("ip27prom.img");
+    fs::write(&prom, b"ip27").unwrap();
+    let dir = format3(
+        root.path(),
+        "onyx2",
+        "[machine]\ntopology = \"onyx2-rack\"\npopulation = [2, 2]\nmodel = \"onyx2\"\n\
+         nodes = 2\ncpus_per_node = 2\nmemory_per_node = \"64MiB\"\n\
+         graphics = \"infinite-reality\"\n",
+    );
+    let output = origami(
+        root.path(),
+        &[
+            "upgrade",
+            dir.to_str().unwrap(),
+            "--prom",
+            prom.to_str().unwrap(),
+            "--io-prom",
+            io_prom.to_str().unwrap(),
+        ],
+    );
+    assert!(output.status.success(), "{}", stderr(&output));
+    for slot in ["io3", "io7"] {
+        let flash = dir.join(format!("state/{slot}-kona-flash.raw"));
+        assert_eq!(fs::metadata(flash).unwrap().len(), 524288);
+    }
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(text.starts_with("format = 4"), "{text}");
+}

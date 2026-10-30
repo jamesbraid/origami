@@ -148,6 +148,15 @@ pub fn check_state(dir: &Path, offering: &Offering) -> Result<()> {
     for item in &offering.storage {
         let path = state_path(dir, item);
         if !path.is_file() {
+            // A pipe's flash holds nothing a new one cannot start with.
+            if item.initial == "kona-flash" {
+                return Err(format!(
+                    "missing machine state {}. Add it with origami upgrade {}",
+                    path.display(),
+                    dir.display()
+                )
+                .into());
+            }
             return Err(format!(
                 "missing machine state {}. Restore it from a backup, or create a new machine \
                  with origami create and attach this machine's disks",
