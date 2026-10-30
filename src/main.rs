@@ -406,7 +406,7 @@ fn command(action: Action) -> Result<()> {
                 if subnet != old_subnet {
                     println!(
                         "A guest that booted on {} keeps its old address until, as root in IRIX, \
-                         you run rm /var/adm/proclaim.lease_info* and restart it.",
+                         you run rm /var/adm/proclaim.lease_info* /etc/resolv.conf and restart it.",
                         old_subnet.cidr()
                     );
                 }

@@ -335,8 +335,9 @@ run `origami network-set my-origin --mode user --subnet 10.42.0.0/24`. The
 host, DNS server, share stack and guest take `.2`, `.3`, `.4` and `.65` of
 it, in user and private modes and in installs, and a later `network-set`
 keeps it. A guest that booted on the old subnet keeps its old address until
-you run `rm /var/adm/proclaim.lease_info*` as root in IRIX, once, and
-restart it.
+you run `rm /var/adm/proclaim.lease_info* /etc/resolv.conf` as root in IRIX,
+once, and restart it. Leave `resolv.conf` behind and the old DNS server in it
+can stop IRIX's name service starting, so lookups fail until the next restart.
 
 ### Forward a port
 

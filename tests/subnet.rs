@@ -90,7 +90,8 @@ fn the_user_network_follows_the_subnet() {
     );
     assert!(out.contains("subnet: 10.42.0.0/24"), "{out}");
     assert!(
-        out.contains("rm /var/adm/proclaim.lease_info*") && out.contains("10.98.0.0/24"),
+        out.contains("rm /var/adm/proclaim.lease_info* /etc/resolv.conf")
+            && out.contains("10.98.0.0/24"),
         "{out}"
     );
     let toml = fs::read_to_string(Path::new(&machine).join("machine.toml")).unwrap();

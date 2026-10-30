@@ -32,7 +32,9 @@ Every machine's `hinv` is in the [gallery](https://github.com/jamesbraid/origami
   - QEMU's user network is now `10.98.0.0/24`, the same as the private
     network: host `10.98.0.2`, DNS `10.98.0.3`, guest `10.98.0.65`. A
     machine that booted in user mode before may keep its old address
-    once; run `rm /var/adm/proclaim.lease_info*` as root and restart it.
+    once; run `rm /var/adm/proclaim.lease_info* /etc/resolv.conf` as root
+    and restart it. Leave resolv.conf and IRIX's name service can start
+    dead, failing every lookup until the next restart.
   - `/irix.cmds` installs every configured add-on, and
     `install-apply --addon` is gone.
   - Installs include the NFS client.
