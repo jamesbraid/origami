@@ -24,6 +24,8 @@ Every machine's `hinv` is in the [gallery](https://github.com/jamesbraid/origami
     Mount it with `mount 10.98.0.4:/NAME /mnt/NAME`.
   - `--mode private` with no install server running gives the guest its
     own network: `10.98.0.65` by DHCP, shares at `10.98.0.4` and `10.98.0.2`.
+  - `origami network-set DIR --mode user --subnet 10.42.0.0/24` moves a machine's user,
+    private and install networks onto another private /24.
   - `install-init --release 6.5.22` installs IRIX 6.5.22, with MIPSpro
     and RAD4.
   - Presets `onyx3000-vpro` and `onyx3400-infinite-reality`: IRIX on an

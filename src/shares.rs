@@ -11,7 +11,10 @@
 //! serves any shares at the host's own address, 10.98.0.2, and at 10.98.0.4,
 //! where a user network has them.
 
-use crate::{addressing, MachineFile, Result, Share};
+use crate::{
+    addressing::{self, Addresses},
+    MachineFile, Result, Share,
+};
 use origami_net::{Addressing, Client, Endpoint, StackConfig, Switch, SwitchConfig};
 use origami_nfs::{LogLevel, Options, Server};
 use std::fs::{self, OpenOptions};
@@ -20,12 +23,6 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// The stack's address on a user network, beside slirp's host at 10.98.0.2.
-const USER_ADDRESS: Ipv4Addr = addressing::SHARES;
-/// On a private network the stack is the host Instigator would be.
-const PRIVATE_ADDRESS: Ipv4Addr = addressing::HOST;
-/// And the address it gives the machine, as Instigator does in an install.
-const PRIVATE_MACHINE: Ipv4Addr = addressing::GUEST;
 const FIXED_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x04];
 const PRIVATE_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x02];
 
@@ -88,9 +85,12 @@ pub fn netdev_arguments(ports: &Ports) -> Vec<String> {
 
 /// Where the stack lives for this machine's network mode.
 pub fn address(file: &MachineFile) -> Result<Address> {
+    let subnet = Addresses::of(file)?;
     let (ip, prefix) = match file.network.mode.as_str() {
-        "user" => (USER_ADDRESS, 24),
-        "private" => (PRIVATE_ADDRESS, 24),
+        // Beside slirp's host.
+        "user" => (subnet.shares(), addressing::PREFIX),
+        // The stack is the host Instigator would be.
+        "private" => (subnet.host(), addressing::PREFIX),
         "tap" | "vmnet" => {
             let text = file.network.share_address.as_deref().ok_or_else(|| {
                 format!(
@@ -255,7 +255,7 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
         Some(Addressing {
             client: Client {
                 mac,
-                ip: PRIVATE_MACHINE,
+                ip: Addresses::of(file)?.guest(),
                 hostname: crate::runtime::dhcp_hostname(dir).map(str::to_string),
             },
             dhcp: true,
@@ -270,7 +270,11 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
         prefix: address.prefix,
         // The same share address as in a user network, so one mount line
         // works in every mode.
-        aliases: if private { vec![USER_ADDRESS] } else { vec![] },
+        aliases: if private {
+            vec![Addresses::of(file)?.shares()]
+        } else {
+            vec![]
+        },
         addressing,
     });
     cfg.guest = guest;
@@ -406,9 +410,31 @@ mod tests {
 
     #[test]
     fn every_network_uses_the_one_scheme() {
-        assert_eq!(address(&file("user")).unwrap().ip, addressing::SHARES);
-        assert_eq!(address(&file("private")).unwrap().ip, addressing::HOST);
-        assert_eq!(PRIVATE_MACHINE, addressing::GUEST);
+        let subnet = Addresses::default();
+        assert_eq!(address(&file("user")).unwrap().ip, subnet.shares());
+        assert_eq!(address(&file("private")).unwrap().ip, subnet.host());
+        assert_eq!(subnet.guest().to_string(), "10.98.0.65");
+    }
+
+    #[test]
+    fn the_share_addresses_follow_the_subnet() {
+        let mut user = file("user");
+        user.network.subnet = Some("172.20.5.0/24".into());
+        let a = address(&user).unwrap();
+        assert_eq!((a.ip.to_string(), a.prefix), ("172.20.5.4".into(), 24));
+        assert_eq!(
+            mount_lines(&user, &user.share[0]).unwrap()[1],
+            "mount 172.20.5.4:/src /mnt/src"
+        );
+        let mut private = file("private");
+        private.network.subnet = Some("172.20.5.0/24".into());
+        assert_eq!(address(&private).unwrap().ip.to_string(), "172.20.5.2");
+        assert_eq!(
+            mount_lines(&private, &private.share[0]).unwrap()[1],
+            "mount 172.20.5.2:/src /mnt/src"
+        );
+        private.network.subnet = Some("8.8.8.0/24".into());
+        assert!(address(&private).is_err());
     }
 
     #[test]

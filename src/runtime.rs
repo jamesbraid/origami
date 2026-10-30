@@ -1,6 +1,6 @@
 use crate::{
-    control, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile, Machines, Offering,
-    PortForward, Result, StorageItem,
+    addressing::Addresses, control, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile,
+    Machines, Offering, Result, StorageItem,
 };
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
@@ -159,20 +159,20 @@ pub fn check_state(dir: &Path, offering: &Offering) -> Result<()> {
     Ok(())
 }
 
-fn user_network(dir: &Path, forward: &[PortForward]) -> String {
-    let mut option = crate::addressing::user_netdev();
+fn user_network(dir: &Path, file: &MachineFile) -> Result<String> {
+    let mut option = Addresses::of(file)?.user_netdev();
     // DHCP offers the directory name as the guest's hostname when it is a
     // valid one; IRIX keeps its own name otherwise.
     if let Some(name) = dhcp_hostname(dir) {
         option.push_str(&format!(",hostname={name}"));
     }
-    for rule in forward {
+    for rule in &file.network.forward {
         option.push_str(&format!(
             ",hostfwd={}:127.0.0.1:{}-:{}",
             rule.protocol, rule.host_port, rule.guest_port
         ));
     }
-    option
+    Ok(option)
 }
 
 /// The machine directory's name, when a DHCP server can offer it as the
@@ -387,7 +387,7 @@ pub fn arguments_with(
     args.extend(["-serial".into(), "stdio".into()]);
     let backend = match file.network.mode.as_str() {
         "none" => None,
-        "user" => Some(user_network(dir, &file.network.forward)),
+        "user" => Some(user_network(dir, file)?),
         mode @ ("private" | "vmnet" | "tap") => Some(if mode == "tap" {
             let interface = file
                 .network
@@ -652,7 +652,10 @@ fn run_inner(
         Some(endpoint) => {
             hosted_file = file.clone();
             hosted_file.network.endpoint = Some(endpoint.clone());
-            eprintln!("hosting the private network at {}", crate::addressing::HOST);
+            eprintln!(
+                "hosting the private network at {}",
+                Addresses::of(file)?.host()
+            );
             &hosted_file
         }
         None => file,
@@ -793,7 +796,7 @@ fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{preset, Machine, Network};
+    use crate::{preset, Machine, Network, PortForward};
 
     fn machine(offering: &Offering) -> MachineFile {
         MachineFile {
@@ -1167,6 +1170,7 @@ mod tests {
                 interface: None,
                 forward: vec![],
                 share_address: None,
+                subnet: None,
             };
             let args = arguments(
                 &machines,
@@ -1229,6 +1233,7 @@ mod tests {
             interface: None,
             forward: vec![],
             share_address: None,
+            subnet: None,
         };
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
@@ -1265,6 +1270,7 @@ mod tests {
             interface: None,
             forward: vec![],
             share_address: None,
+            subnet: None,
         };
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
@@ -1346,6 +1352,7 @@ mod tests {
             interface: Some("TAP,lab".into()),
             forward: vec![],
             share_address: None,
+            subnet: None,
         };
         let expected = if cfg!(windows) {
             "tap,id=net0,ifname=TAP,,lab"
@@ -1365,6 +1372,7 @@ mod tests {
             interface: None,
             forward: vec![],
             share_address: None,
+            subnet: None,
         };
         assert_eq!(
             netdev(&file),

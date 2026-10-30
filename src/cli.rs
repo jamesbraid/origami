@@ -129,6 +129,10 @@ pub enum Action {
         /// 192.168.1.50/24: a free address on that network
         #[arg(long, value_name = "ADDRESS/PREFIX")]
         share_address: Option<String>,
+        /// The private /24 that user and private networking use, such as
+        /// 10.42.0.0/24 (default 10.98.0.0/24); it stays set across mode changes
+        #[arg(long, value_name = "A.B.C.0/24")]
+        subnet: Option<String>,
         /// Machine MAC, when it has none yet
         #[arg(long)]
         mac: Option<String>,

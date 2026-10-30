@@ -356,6 +356,10 @@ pub struct Network {
     /// with the network's prefix length, such as `192.168.1.50/24`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub share_address: Option<String>,
+    /// The `A.B.C.0/24` that user, private and install networking use;
+    /// `10.98.0.0/24` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subnet: Option<String>,
 }
 
 /// A host folder the guest mounts as `ADDRESS:/name`.
@@ -387,6 +391,7 @@ impl Default for Network {
             interface: None,
             forward: vec![],
             share_address: None,
+            subnet: None,
         }
     }
 }
@@ -601,6 +606,7 @@ fn check_memory(offering: &Offering, memory: u32) -> Result<()> {
 /// names the host interface in `interface`; private and vmnet use `endpoint`.
 pub(crate) fn validate_network(file: &MachineFile) -> Result<()> {
     let mode = file.network.mode.as_str();
+    addressing::Addresses::of(file)?;
     match mode {
         "none" | "user" if file.network.endpoint.is_none() && file.network.interface.is_none() => {
             return Ok(())
@@ -1107,6 +1113,7 @@ mod tests {
             interface: None,
             forward: vec![],
             share_address: None,
+            subnet: None,
         };
         validate(&machines, &machine, &file).unwrap();
         let error = set_machine_mac(
@@ -1183,6 +1190,7 @@ mod tests {
             interface: None,
             forward: vec![],
             share_address: None,
+            subnet: None,
         };
         let mac = ensure_machine_mac(&machines, &machine, &mut file, None)
             .unwrap()

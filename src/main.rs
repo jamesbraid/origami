@@ -4,7 +4,7 @@ mod commands;
 use clap::Parser;
 use cli::{Action, DriveKind, NetworkMode, NvramAction};
 use origami::runtime;
-use origami::{control, graphics, install, listing, nvram, shares};
+use origami::{addressing, control, graphics, install, listing, nvram, shares};
 use origami::{machines, read_machine, validate, Drive, Network, PortForward, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -146,6 +146,9 @@ fn command(action: Action) -> Result<()> {
                     adapter.chip()
                 ),
                 None => println!("network: {}", file.network.mode),
+            }
+            if matches!(file.network.mode.as_str(), "user" | "private") {
+                println!("subnet: {}", addressing::Addresses::of(&file)?.cidr());
             }
             if !file.qemu.extra_args.is_empty() {
                 println!(
@@ -355,9 +358,13 @@ fn command(action: Action) -> Result<()> {
             endpoint,
             interface,
             share_address,
+            subnet,
             mac,
         } => {
-            use NetworkMode::{Private, Tap, Vmnet};
+            use NetworkMode::{Private, Tap, User, Vmnet};
+            if subnet.is_some() && !matches!(mode, User | Private) {
+                return Err("--subnet requires --mode user or private".into());
+            }
             if endpoint.is_some() && !matches!(mode, Private | Vmnet) {
                 return Err("--endpoint requires --mode private or vmnet".into());
             }
@@ -370,12 +377,14 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
+            let old_subnet = addressing::Addresses::of(&file)?;
             file.network = Network {
                 mode: mode.as_str().into(),
                 endpoint,
                 interface,
                 forward: file.network.forward.clone(),
                 share_address,
+                subnet: subnet.or_else(|| file.network.subnet.clone()),
             };
             let machines = machines()?;
             // User and none networking run without one; the rest need it.
@@ -391,6 +400,17 @@ fn command(action: Action) -> Result<()> {
                 println!("assigned MAC {mac}");
             }
             println!("network: {}", mode.as_str());
+            if matches!(mode, User | Private) {
+                let subnet = addressing::Addresses::of(&file)?;
+                println!("subnet: {}", subnet.cidr());
+                if subnet != old_subnet {
+                    println!(
+                        "A guest that booted on {} keeps its old address until, as root in IRIX, \
+                         you run rm /var/adm/proclaim.lease_info* and restart it.",
+                        old_subnet.cidr()
+                    );
+                }
+            }
             if mode != NetworkMode::User && !file.network.forward.is_empty() {
                 println!("forwards inactive in {} mode", mode.as_str());
             }

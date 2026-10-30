@@ -334,6 +334,14 @@ Every network Origami gives a guest is `10.98.0.0/24`. The host and DHCP
 server are `10.98.0.2` and the guest is `10.98.0.65`. User networking adds
 a DNS server at `10.98.0.3`. A guest moved between modes keeps its address.
 
+To use another private /24, such as when `10.98.0.0/24` clashes with a VPN,
+run `origami network-set my-origin --mode user --subnet 10.42.0.0/24`. The
+host, DNS server, share stack and guest take `.2`, `.3`, `.4` and `.65` of
+it, in user and private modes and in installs, and a later `network-set`
+keeps it. A guest that booted on the old subnet keeps its old address until
+you run `rm /var/adm/proclaim.lease_info*` as root in IRIX, once, and
+restart it.
+
 ### Forward a port
 
 ```sh

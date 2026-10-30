@@ -1,10 +1,10 @@
-use crate::{control, resolve, tcp_endpoint, MachineFile, Machines, Result};
+use crate::{addressing::Addresses, control, resolve, tcp_endpoint, MachineFile, Machines, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::io::{self, Read, Write};
-use std::net::{SocketAddrV4, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -309,6 +309,7 @@ fn init_sources(
         interface: None,
         forward: old_network.forward.clone(),
         share_address: None,
+        subnet: old_network.subnet.clone(),
     };
     let assigned = match crate::ensure_machine_mac(machines, dir, file, mac)
         .and_then(|assigned| crate::validate(machines, dir, file).map(|_| assigned))
@@ -452,6 +453,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
     if file.network.mode != "private" {
         return Err("installation requires a private network".into());
     }
+    let subnet = Addresses::of(file)?;
     let mac = file
         .identity
         .as_ref()
@@ -522,16 +524,15 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
     {
         script["post_install"] = json!(POST_INSTALL);
     }
-    let mut client =
-        json!({ "name": "sgi", "mac": mac, "ip": crate::addressing::GUEST.to_string() });
+    let mut client = json!({ "name": "sgi", "mac": mac, "ip": subnet.guest().to_string() });
     // The miniroot offers the BOOTP name as its default hostname, and the
     // installed system keeps it, so the machine is named after its directory
     // from first boot. Instigator allows 40 characters.
     if let Some(name) = crate::runtime::dhcp_hostname(dir).filter(|name| name.len() <= 40) {
         client["hostname"] = json!(name);
     }
-    document["server_ip"] = json!(crate::addressing::HOST.to_string());
-    document["netmask"] = json!(crate::addressing::NETWORK_CIDR);
+    document["server_ip"] = json!(subnet.host().to_string());
+    document["netmask"] = json!(subnet.cidr());
     document["cache_dir"] = json!(dir.join("install/cache"));
     document["clients"] = json!([client]);
     Ok(InstallConfig {
@@ -931,14 +932,11 @@ impl InstallConsole {
 
 /// The command that loads the install script, and how many passes of `go`
 /// it makes.
-fn install_script(media: &InstallMedia) -> (String, usize) {
+fn install_script(media: &InstallMedia, host: Ipv4Addr) -> (String, usize) {
     // irix.cmds runs a second go for the add-ons when any are configured.
     let passes = if media.addons.is_empty() { 1 } else { 2 };
     (
-        format!(
-            "admin source {}:/{STANDARD_INSTALL_SCRIPT}.cmds\n",
-            crate::addressing::HOST
-        ),
+        format!("admin source {host}:/{STANDARD_INSTALL_SCRIPT}.cmds\n"),
         passes,
     )
 }
@@ -961,7 +959,7 @@ pub fn apply(dir: &Path, file: &MachineFile) -> Result<()> {
         return Err("package installation requires private installation networking".into());
     }
     let media = read_media(dir)?;
-    let (command, passes) = install_script(&media);
+    let (command, passes) = install_script(&media, Addresses::of(file)?.host());
     let mut console = InstallConsole::connect(dir)?;
     println!("Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.");
     console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
@@ -1378,6 +1376,7 @@ mod tests {
                 interface: None,
                 forward: vec![],
                 share_address: None,
+                subnet: None,
             },
             pipe: vec![crate::graphics::Pipe {
                 slot: "pci-5".into(),
@@ -1445,7 +1444,7 @@ mod tests {
         assert_eq!(irix["then"]["install"][0], "tablet.sw.helper");
         assert_eq!(irix["then"]["install"][1], "c++_dev");
         assert_eq!(
-            install_script(&two),
+            install_script(&two, Addresses::default().host()),
             ("admin source 10.98.0.2:/irix.cmds\n".to_string(), 2)
         );
         assert_eq!(irix["post_install"], json!(POST_INSTALL));
@@ -1524,6 +1523,7 @@ mod tests {
                 interface: None,
                 forward: vec![],
                 share_address: None,
+                subnet: None,
             },
             pipe: vec![crate::graphics::Pipe {
                 slot: "pci-5".into(),
@@ -1733,7 +1733,7 @@ mod tests {
             json!(["nfs.sw.nfs"])
         );
         assert_eq!(
-            install_script(&media),
+            install_script(&media, Addresses::default().host()),
             (
                 format!(
                     "admin source 10.98.0.2:/{}.cmds\n",
@@ -1821,7 +1821,7 @@ mod tests {
             assert_eq!(irix["then"]["sets"], json!(["addon-rad4"]));
             assert_eq!(irix["then"]["install"], json!(addon.install));
             assert_eq!(
-                install_script(&media),
+                install_script(&media, Addresses::default().host()),
                 ("admin source 10.98.0.2:/irix.cmds\n".to_string(), 2)
             );
         }
@@ -1924,6 +1924,10 @@ mod tests {
     }
 
     fn golden_config(media: &InstallMedia) -> InstallConfig {
+        golden_config_on(media, None)
+    }
+
+    fn golden_config_on(media: &InstallMedia, subnet: Option<&str>) -> InstallConfig {
         use crate::{Machine, Network};
         let file = MachineFile {
             format: crate::MACHINE_FORMAT,
@@ -1947,6 +1951,7 @@ mod tests {
                 interface: None,
                 forward: vec![],
                 share_address: None,
+                subnet: subnet.map(str::to_string),
             },
             pipe: vec![],
             drive: vec![],
@@ -1957,18 +1962,20 @@ mod tests {
     }
 
     #[test]
-    fn the_install_network_is_the_one_every_mode_uses() {
+    fn the_install_network_follows_the_machine_subnet() {
         let recipe = recipe("6.5.22", "standard").unwrap();
         let media = golden_media("6.5.22", &recipe);
         let document = golden_config(&media).document;
         assert_eq!(document["server_ip"], "10.98.0.2");
         assert_eq!(document["netmask"], "10.98.0.0/24");
         assert_eq!(document["clients"][0]["ip"], "10.98.0.65");
-        assert_eq!(document["server_ip"], crate::addressing::HOST.to_string());
-        assert_eq!(document["netmask"], crate::addressing::NETWORK_CIDR);
+        let document = golden_config_on(&media, Some("172.20.5.0/24")).document;
+        assert_eq!(document["server_ip"], "172.20.5.2");
+        assert_eq!(document["netmask"], "172.20.5.0/24");
+        assert_eq!(document["clients"][0]["ip"], "172.20.5.65");
         assert_eq!(
-            document["clients"][0]["ip"],
-            crate::addressing::GUEST.to_string()
+            install_script(&media, Ipv4Addr::new(172, 20, 5, 2)).0,
+            "admin source 172.20.5.2:/irix.cmds\n"
         );
     }
 
