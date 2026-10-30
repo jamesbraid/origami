@@ -31,7 +31,7 @@ has a shot of each pipe and of the dual-head desktop.
   - Each InfiniteReality pipe keeps its flash in the machine's state as
     `SLOT-kona-flash.raw`. `origami upgrade` adds it to machines made
     before 0.5.1; without it QEMU refuses to start the machine.
-- QEMU updated to ce0339333e.
+- QEMU updated to 29ffcfb163. The Onyx 3000 boots without brick-type warnings from the PROM.
 
 ## 0.5.0
 
