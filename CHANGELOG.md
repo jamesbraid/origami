@@ -21,9 +21,9 @@ has a shot of each pipe and of the dual-head desktop.
   - `create --graphics-pipes N` fits several pipes: 1 to 4 on the Onyx 3400
     and 1 to 2 on `onyx2-rack-infinite-reality`, whose second pipe gets the
     second node it needs.
-  - `ircombine -destination eeprom` stores a display combination. With the
-    shipped `2@1280x1024_60` the next start brings up 2560x1024 across
-    heads 0 and 1 of the pipe. See the usage guide.
+  - A pipe's two heads join into one 2560x1024 desktop once `ircombine`
+    stores the shipped `2@1280x1024_60` in the pipe's flash: the next start
+    comes up that way. The usage guide has the command.
   - `run` shows every head of every pipe: a window for each head, or with
     `--display vnc` a VNC server for each on consecutive ports from
     `--vnc-port`.
