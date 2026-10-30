@@ -365,21 +365,6 @@ A private network with no `--endpoint`, or none listening, is hosted by
 `run` itself: the guest gets `10.98.0.65` by DHCP, and the network has no
 route out.
 
-### Changing networks
-
-An installed system asks for an address by DHCP at every boot, so after
-`network-set` it comes up on the new network: `192.0.2.15` in user mode,
-`10.98.0.65` on a private network. IRIX's DHCP client would otherwise keep
-the last network's address, because it refuses offers from any DHCP server
-but the one that leased it. The install adds `/etc/init.d/proclaim-reset`,
-which removes that lease at boot. A system installed by an earlier Origami
-needs it once, typed as root:
-
-```sh
-echo 'case "$1" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' > /etc/init.d/proclaim-reset
-ln -s ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset
-```
-
 ### Join a real network
 
 To put the guest on your LAN, connect it to a host network device. The
