@@ -207,6 +207,31 @@ pub fn with_processor<'a>(
         })
 }
 
+/// The offering like `offering` but with `nodes` nodes, each holding the
+/// CPUs the first node of `offering` holds.
+pub fn with_nodes<'a>(
+    machines: &'a Machines,
+    offering: &Offering,
+    nodes: u32,
+) -> Result<&'a Offering> {
+    let population = vec![offering.cpus_per_node[0]; nodes as usize];
+    machines
+        .offerings
+        .iter()
+        .find(|o| {
+            o.topology == offering.topology
+                && o.cpus_per_node == population
+                && o.processor.id == offering.processor.id
+        })
+        .ok_or_else(|| {
+            format!(
+                "{} does not offer {nodes} nodes of {} CPUs",
+                offering.topology, offering.cpus_per_node[0]
+            )
+            .into()
+        })
+}
+
 /// The preset named `name`.
 pub fn starter(name: &str) -> Option<&'static Profile> {
     STARTERS.iter().find(|profile| profile.id == name)
@@ -219,6 +244,7 @@ pub fn graphics_request<'a>(
     product: Option<&'a str>,
     slot: Option<&'a str>,
     settings: BTreeMap<String, String>,
+    pipes: Option<u32>,
 ) -> crate::graphics::Request<'a> {
     let profile = starter(name);
     let product = product.or(profile.and_then(|p| p.graphics));
@@ -233,6 +259,7 @@ pub fn graphics_request<'a>(
         product,
         slot,
         settings,
+        pipes,
     }
 }
 

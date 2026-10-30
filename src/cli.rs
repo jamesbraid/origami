@@ -296,6 +296,10 @@ pub struct GraphicsArgs {
     /// or the machine's usual slot
     #[arg(long, value_name = "SLOT")]
     pub graphics_slot: Option<String>,
+    /// How many pipes of that product the machine fits, such as 4 for an Onyx
+    /// 3400; see origami machines PRESET for its limit
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+    pub graphics_pipes: Option<u32>,
     /// A pipe setting other than its default, such as rm-count=1; repeatable
     #[arg(long = "graphics-setting", value_name = "NAME=VALUE", value_parser = parse_setting)]
     pub graphics_settings: Vec<(String, String)>,

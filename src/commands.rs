@@ -19,8 +19,22 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
         options.graphics.graphics.as_deref(),
         options.graphics.graphics_slot.as_deref(),
         options.graphics.settings()?,
+        options.graphics.graphics_pipes,
     );
+    // A pipe may sit on a node board the preset does not have, as the second
+    // pipe of an Onyx2 rack does. That machine gets the nodes the pipes need,
+    // with the CPUs per node the preset has.
+    let (offer, nodes_added) = match graphics::record(machines, &offer.topology)
+        .zip(options.graphics.graphics_pipes)
+        .map(|(record, pipes)| graphics::nodes_for_pipes(record, pipes))
+    {
+        Some(nodes) if nodes > offer.nodes => {
+            (origami::profiles::with_nodes(machines, offer, nodes)?, true)
+        }
+        _ => (offer, false),
+    };
     let pipes = graphics::select(machines, &offer.topology, offer.nodes, &request)?;
+    let pipe_count = pipes.len();
     let inputs = options.hardware.inputs()?;
     origami::profiles::validate_inputs(offer, &inputs)?;
     validate_create_inputs(
@@ -51,6 +65,12 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
         inputs,
     )?;
     println!("created {}", args.dir.display());
+    if nodes_added {
+        println!(
+            "{pipe_count} graphics pipes need {} nodes, so the machine has {} nodes",
+            offer.nodes, offer.nodes
+        );
+    }
     if offer.cpus_per_node != preset_offer.cpus_per_node {
         println!(
             "{} holds {} CPUs, so each node has {}",
@@ -73,6 +93,7 @@ pub fn set_graphics(machines: &Machines, dir: &Path, args: &GraphicsArgs) -> Res
         product: args.graphics.as_deref(),
         slot: args.graphics_slot.as_deref(),
         settings: args.settings()?,
+        pipes: args.graphics_pipes,
     };
     // Changing a setting of the pipe it has keeps that pipe's other values.
     if let Some(current) = file.pipe.iter().find(|pipe| {

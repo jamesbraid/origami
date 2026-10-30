@@ -55,7 +55,7 @@ fn ordered(machines: &Machines) -> Vec<(String, &Offering)> {
 
 /// The pipes a preset fits when created without graphics options.
 fn default_pipes(machines: &Machines, name: &str, offering: &Offering) -> Result<Vec<Pipe>> {
-    let request = crate::profiles::graphics_request(name, None, None, Default::default());
+    let request = crate::profiles::graphics_request(name, None, None, Default::default(), None);
     graphics::select(machines, &offering.topology, offering.nodes, &request)
 }
 
@@ -288,6 +288,19 @@ fn detail_of(machines: &Machines, name: &str, offering: &Offering) -> Result<Str
                 out.push_str(&format!("  none{}\n", marked(pipes.is_empty())));
             }
         }
+        if record.max_pipes > 1 && !pipes.is_empty() {
+            out.push_str(&format!(
+                "\n{}\n",
+                wrap(
+                    &format!(
+                        "Pipes: 1 to {} (create --graphics-pipes N); a pipe on a node board \
+                         the preset lacks adds that node",
+                        record.max_pipes
+                    ),
+                    2
+                )
+            ));
+        }
         let slots: Vec<_> = graphics::slots(record, offering.nodes)
             .map(|slot| slot.name.as_str())
             .collect();
@@ -345,13 +358,15 @@ mod tests {
         assert_eq!(
             table(&crate::test_machines()).unwrap(),
             "\
-PRESET         MACHINE           CPUS  GRAPHICS
-origin200-1    Origin 200           1  none
-origin2000-8   Origin 2000 rack     8  none
-origin3200     Origin 3200          8  none
-onyx350-vpro   Onyx 350             4  VPro V12
-octane-impact  Octane               1  SI
-fuel-1         Fuel                 1  VPro V12
+PRESET                       MACHINE           CPUS  GRAPHICS
+origin200-1                  Origin 200           1  none
+origin2000-8                 Origin 2000 rack     8  none
+onyx2-rack-infinite-reality  Onyx2 rack           1  InfiniteReality3
+origin3200                   Origin 3200          8  none
+onyx350-vpro                 Onyx 350             4  VPro V12
+onyx3400-infinite-reality    Onyx 3400           16  InfiniteReality3
+octane-impact                Octane               1  SI
+fuel-1                       Fuel                 1  VPro V12
 
 Everything here is experimental.
 Details and graphics choices: origami machines PRESET

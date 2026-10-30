@@ -137,13 +137,17 @@ pub struct Pipe {
     pub settings: BTreeMap<String, String>,
 }
 
-/// What a user asked for: a product or `none`, a slot, and settings. Any
-/// left out come from the slot's catalogue default.
+/// What a user asked for: a product or `none`, a slot, settings and how
+/// many pipes. Any left out come from the slot's catalogue default, and
+/// one pipe.
 #[derive(Clone, Debug, Default)]
 pub struct Request<'a> {
     pub product: Option<&'a str>,
     pub slot: Option<&'a str>,
     pub settings: BTreeMap<String, String>,
+    /// How many pipes of that product and settings; the first goes in
+    /// `slot` and the rest in the topology's other slots, in catalogue order.
+    pub pipes: Option<u32>,
 }
 
 /// The graphics record of `topology`; None where it has no graphics slot.
@@ -222,6 +226,77 @@ fn slot_names(graphics: &Graphics, nodes: u32) -> String {
 
 /// The pipes `request` selects on `topology` with `nodes` nodes.
 pub fn select(
+    machines: &Machines,
+    topology: &str,
+    nodes: u32,
+    request: &Request<'_>,
+) -> Result<Vec<Pipe>> {
+    let mut pipes = select_first(machines, topology, nodes, request)?;
+    let Some(count) = request.pipes else {
+        return Ok(pipes);
+    };
+    if count == 0 {
+        return Err("--graphics-pipes takes at least 1; use --graphics none for no pipe".into());
+    }
+    let Some(first) = pipes.first().cloned() else {
+        return Err("--graphics-pipes needs a pipe; --graphics none has none".into());
+    };
+    let graphics =
+        record(machines, topology).ok_or_else(|| format!("{topology} has no graphics slots"))?;
+    if count > graphics.max_pipes {
+        return Err(format!(
+            "{topology} takes at most {} graphics pipe(s)",
+            graphics.max_pipes
+        )
+        .into());
+    }
+    for slot in slots(graphics, nodes) {
+        if pipes.len() == count as usize {
+            break;
+        }
+        if slot.name == first.slot || slot.offer(&first.product).is_none() {
+            continue;
+        }
+        pipes.push(resolve(
+            machines,
+            topology,
+            slot,
+            &first.product,
+            Some(first.settings.clone()),
+            &BTreeMap::new(),
+        )?);
+    }
+    if pipes.len() < count as usize {
+        let wanted = nodes_for_pipes(graphics, count);
+        return Err(if wanted > nodes {
+            format!(
+                "{topology} with {nodes} node(s) takes {} graphics pipe(s); {count} need {wanted} nodes",
+                pipes.len()
+            )
+        } else {
+            format!(
+                "{topology} takes {} graphics pipe(s) of {}, not {count}",
+                pipes.len(),
+                first.product
+            )
+        }
+        .into());
+    }
+    Ok(pipes)
+}
+
+/// The nodes a machine needs to fit its first `count` slots.
+pub fn nodes_for_pipes(graphics: &Graphics, count: u32) -> u32 {
+    graphics
+        .slots
+        .iter()
+        .take(count as usize)
+        .filter_map(|slot| slot.requires.as_ref()?.min_nodes)
+        .max()
+        .unwrap_or(1)
+}
+
+fn select_first(
     machines: &Machines,
     topology: &str,
     nodes: u32,
@@ -474,6 +549,7 @@ pub fn validate(machines: &Machines, topology: &str, nodes: u32, pipes: &[Pipe])
             product: Some(&pipe.product),
             slot: Some(&pipe.slot),
             settings: pipe.settings.clone(),
+            pipes: None,
         };
         let resolved = select(machines, topology, nodes, &request)?;
         if let Some(resolved) = resolved.first().filter(|r| *r != pipe) {
@@ -642,6 +718,7 @@ pub fn from_legacy(
                 product,
                 slot,
                 settings: BTreeMap::new(),
+                pipes: None,
             },
         )
     };
@@ -712,6 +789,7 @@ mod tests {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
+            pipes: None,
         }
     }
 
@@ -835,6 +913,59 @@ mod tests {
             let error = select(topology, 4, r).unwrap_err().to_string();
             assert!(error.contains(expected), "{topology}: {error}");
         }
+    }
+
+    #[test]
+    fn several_pipes_fill_the_slots_in_catalogue_order() {
+        let machines = crate::test_machines();
+        let pipes_of = |topology: &str, nodes, count| {
+            let request = Request {
+                pipes: Some(count),
+                ..Default::default()
+            };
+            select(&machines, topology, nodes, &request)
+        };
+        let pipes = pipes_of("onyx3400-ir", 4, 4).unwrap();
+        let slots: Vec<_> = pipes.iter().map(|p| p.slot.as_str()).collect();
+        assert_eq!(
+            slots,
+            [
+                "gbrick0-pipe0-pipe",
+                "gbrick0-pipe1-pipe",
+                "gbrick1-pipe0-pipe",
+                "gbrick1-pipe1-pipe"
+            ]
+        );
+        // Every pipe is the first one's product with its settings.
+        assert!(pipes.iter().all(|p| p.settings == pipes[0].settings));
+        let args = arguments(&machines, "onyx3400-ir", &pipes).unwrap();
+        assert_eq!(args.len(), 8);
+        assert!(args[7].starts_with("sgi-kona,slot=gbrick1-pipe1-pipe,product=ir3,"));
+        assert_eq!(pipes_of("onyx3400-ir", 4, 1).unwrap().len(), 1);
+
+        // An Onyx2 rack's second pipe sits on its second node board.
+        let error = pipes_of("onyx2-rack", 1, 2).unwrap_err().to_string();
+        assert!(error.contains("2 need 2 nodes"), "{error}");
+        assert_eq!(pipes_of("onyx2-rack", 2, 2).unwrap()[1].slot, "io7");
+        let rack = record(&machines, "onyx2-rack").unwrap();
+        assert_eq!(nodes_for_pipes(rack, 1), 1);
+        assert_eq!(nodes_for_pipes(rack, 2), 2);
+
+        for (topology, nodes, count, expected) in [
+            ("onyx3400-ir", 4, 5, "at most 4"),
+            ("onyx2-rack", 2, 3, "at most 2"),
+            ("onyx2-deskside", 2, 2, "at most 1"),
+            ("onyx3400-ir", 4, 0, "at least 1"),
+        ] {
+            let error = pipes_of(topology, nodes, count).unwrap_err().to_string();
+            assert!(error.contains(expected), "{topology}: {error}");
+        }
+        let none = Request {
+            product: Some("none"),
+            pipes: Some(2),
+            ..Default::default()
+        };
+        assert!(select(&machines, "octane", 1, &none).is_err());
     }
 
     #[test]
