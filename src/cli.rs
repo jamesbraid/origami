@@ -215,9 +215,6 @@ pub enum Action {
     InstallApply {
         #[arg(value_name = "DIR")]
         dir: PathBuf,
-        /// Install only this add-on instead of every configured one
-        #[arg(long)]
-        addon: Option<String>,
     },
 }
 

@@ -539,11 +539,11 @@ fn command(action: Action) -> Result<()> {
             };
             println!("configured add-on {name} in {}", path.display());
         }
-        Action::InstallApply { dir, addon } => {
+        Action::InstallApply { dir } => {
             let dir = directory(&dir)?;
             let file = read_machine(&dir)?;
             validate(&machines()?, &dir, &file)?;
-            install::apply(&dir, &file, addon.as_deref())?;
+            install::apply(&dir, &file)?;
         }
         Action::InstallCheck { machine, full } => {
             let dir = directory(&machine.dir)?;

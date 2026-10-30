@@ -36,61 +36,57 @@ pub struct InstallAddon {
     pub install: Vec<String>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PackageSelection {
-    /// The media sets the profile installs, in order.
-    sets: Vec<String>,
-    install: Vec<String>,
-    keep: Vec<String>,
-}
+/// Where Instigator's shipped configurations and Origami's media lists keep
+/// the public disc images. A local --media-root mirrors this layout, with
+/// each .iso file stored as .image.
+const BASE_URL: &str = "https://origami-dist.irix.fans/irix/";
 
+/// An Instigator add-on file: extra software installed after IRIX.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Layer {
-    set: String,
+struct AddonFile {
     name: String,
-    path: String,
-    remote_path: Option<String>,
-    #[serde(default)]
-    boot: bool,
-    base: Option<String>,
-    dist: Option<String>,
-}
-
-/// An optional package Origami knows by name. path is relative to base_url
-/// and to a --media-root.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct AddonDefinition {
-    path: String,
-    /// Whether a --media-root can hold the archive.
-    #[serde(default = "yes")]
-    local: bool,
-    base: Option<String>,
-    dist: Option<String>,
+    layers: Vec<AddonLayer>,
     install: Vec<String>,
 }
 
-fn yes() -> bool {
-    true
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AddonLayer {
+    name: String,
+    source: String,
+    base: Option<String>,
+    dist: Option<String>,
 }
 
-#[derive(Deserialize)]
+/// Add-ons whose archives a --media-root does not hold.
+const REMOTE_ONLY_ADDONS: &[&str] = &["rad4"];
+
+/// One disc image or directory of an install set.
+struct Layer {
+    name: String,
+    /// The public URL Instigator's configuration names.
+    url: String,
+}
+
+impl Layer {
+    /// Where a --media-root holds this layer.
+    fn local_path(&self) -> Result<String> {
+        let path = self
+            .url
+            .strip_prefix(BASE_URL)
+            .ok_or_else(|| format!("layer {} is not under {BASE_URL}", self.name))?;
+        Ok(match path.strip_suffix(".iso") {
+            Some(stem) => format!("{stem}.image"),
+            None => path.into(),
+        })
+    }
+}
+
+/// An Instigator configuration for one release and profile, as shipped,
+/// with the parts Origami reads picked out.
 struct InstallRecipe {
-    base_url: String,
-    sets: Vec<String>,
-    #[serde(default)]
-    addons: BTreeMap<String, AddonDefinition>,
-    /// For a set whose layers carry different copies of one file: the layer
-    /// whose copy wins, by served path. Instigator refuses to guess.
-    #[serde(default)]
-    collisions: BTreeMap<String, BTreeMap<String, String>>,
-    #[serde(skip)]
-    install: Vec<String>,
-    #[serde(skip)]
-    keep: Vec<String>,
-    package_selections: BTreeMap<String, PackageSelection>,
+    document: Value,
     layers: Vec<Layer>,
 }
 
@@ -108,16 +104,34 @@ fn default_release() -> String {
     DEFAULT_RELEASE.into()
 }
 
-fn release_recipe(release: &str) -> Result<&'static str> {
-    match release {
-        "6.5.22" => Ok(include_str!("../resources/instigator-irix-6.5.22.toml")),
-        "6.5.30" => Ok(include_str!("../resources/instigator-irix-6.5.30.toml")),
+/// Instigator's shipped configuration, embedded so the binary needs no
+/// checkout.
+fn release_config(release: &str, profile: &str) -> Result<&'static str> {
+    match (release, profile) {
+        ("6.5.30", "minimal") => Ok(include_str!(
+            "../instigator/configs/irix-6.5.30-minimal.yaml"
+        )),
+        ("6.5.30", "standard") => Ok(include_str!(
+            "../instigator/configs/irix-6.5.30-standard.yaml"
+        )),
+        ("6.5.22", "standard") => Ok(include_str!(
+            "../instigator/configs/irix-6.5.22-standard.yaml"
+        )),
+        ("6.5.22", _) => Err(format!("IRIX {release} has no {profile} install profile").into()),
         _ => Err(format!("unknown IRIX release: {release}").into()),
     }
 }
 
+/// An add-on Instigator ships.
+fn addon_file(name: &str) -> Option<&'static str> {
+    match name {
+        "mipspro" => Some(include_str!("../instigator/configs/addons/mipspro.yaml")),
+        "rad4" => Some(include_str!("../instigator/configs/addons/rad4.yaml")),
+        _ => None,
+    }
+}
+
 fn recipe(release: &str, profile: &str) -> Result<InstallRecipe> {
-    let mut recipe: InstallRecipe = toml::from_str(release_recipe(release)?)?;
     // A media.toml from an earlier release can still name base or desktop.
     let selection_profile = match profile {
         "minimal" | "base" => "minimal",
@@ -130,42 +144,72 @@ fn recipe(release: &str, profile: &str) -> Result<InstallRecipe> {
         }
         _ => return Err(format!("unknown install profile: {profile}").into()),
     };
-    let selection = recipe
-        .package_selections
-        .remove(selection_profile)
-        .ok_or_else(|| format!("IRIX {release} has no {selection_profile} install profile"))?;
-    recipe.install = selection.install;
-    recipe.keep = selection.keep;
-    let sets = selection.sets;
-    recipe.sets.retain(|set| sets.contains(set));
-    recipe.layers.retain(|layer| sets.contains(&layer.set));
-    Ok(recipe)
+    if !["6.5.22", "6.5.30"].contains(&release) {
+        return Err(format!("unknown IRIX release: {release}").into());
+    }
+    let document: Value = serde_saphyr::from_str(release_config(release, selection_profile)?)
+        .map_err(|error| format!("Instigator configuration for IRIX {release}: {error}"))?;
+    let mut layers = Vec::new();
+    for set in document["install_sets"].as_array().into_iter().flatten() {
+        for layer in set["layers"].as_array().into_iter().flatten() {
+            layers.push(Layer {
+                name: layer["name"].as_str().unwrap_or_default().into(),
+                url: layer["source"].as_str().unwrap_or_default().into(),
+            });
+        }
+    }
+    let has_script = document["install_scripts"]
+        .as_array()
+        .is_some_and(|scripts| {
+            scripts
+                .iter()
+                .any(|script| script["name"] == STANDARD_INSTALL_SCRIPT)
+        });
+    if !has_script {
+        return Err(format!(
+            "Instigator configuration for IRIX {release} has no {STANDARD_INSTALL_SCRIPT} script"
+        )
+        .into());
+    }
+    Ok(InstallRecipe { document, layers })
 }
 
-/// Build an add-on from the release's recipe, from a local media root or the
-/// public archive.
-fn named_addon(release: &str, name: &str, media_root: Option<&Path>) -> Result<InstallAddon> {
-    let recipe = recipe(release, "standard")?;
-    let definition = recipe.addons.get(name).ok_or_else(|| {
+/// Build an add-on from the configuration Instigator ships, from a local
+/// media root or the public archive.
+fn named_addon(name: &str, media_root: Option<&Path>) -> Result<InstallAddon> {
+    let text = addon_file(name).ok_or_else(|| {
         format!("no known add-on {name}; give its --source and --install selections")
     })?;
+    let file: AddonFile = serde_saphyr::from_str(text)
+        .map_err(|error| format!("Instigator add-on {name}: {error}"))?;
+    let layer = file
+        .layers
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("Instigator add-on {name} has no layer"))?;
+    // The generated add-on file names its one layer after the add-on.
+    if layer.name != file.name {
+        return Err(format!("Instigator add-on {name} names its layer {}", layer.name).into());
+    }
     let source = match media_root {
-        Some(_) if !definition.local => {
+        Some(_) if REMOTE_ONLY_ADDONS.contains(&name) => {
             return Err(format!("the {name} add-on has no local media; omit --media-root").into())
         }
-        Some(root) => root
-            .canonicalize()?
-            .join(&definition.path)
-            .display()
-            .to_string(),
-        None => format!("{}{}", recipe.base_url, definition.path),
+        Some(root) => {
+            let path = layer
+                .source
+                .strip_prefix(BASE_URL)
+                .ok_or_else(|| format!("add-on {name} is not under {BASE_URL}"))?;
+            root.canonicalize()?.join(path).display().to_string()
+        }
+        None => layer.source,
     };
     Ok(InstallAddon {
-        name: name.into(),
+        name: file.name,
         source,
-        base: definition.base.clone(),
-        dist: definition.dist.clone(),
-        install: definition.install.clone(),
+        base: layer.base,
+        dist: layer.dist,
+        install: file.install,
     })
 }
 
@@ -173,8 +217,6 @@ fn named_addon(release: &str, name: &str, media_root: Option<&Path>) -> Result<I
 /// configured add-on in one second pass, so a machine whose graphics need a
 /// driver add-on, such as RAD4, gets it from the same entry point.
 const STANDARD_INSTALL_SCRIPT: &str = "irix";
-/// The same two passes under the name earlier releases gave them.
-const ALL_ADDONS_SCRIPT: &str = "addons";
 
 /// Commands every install script runs in the installed system after its
 /// last go. proclaim, IRIX's DHCP client, runs at boot when this flag is on.
@@ -237,23 +279,14 @@ fn init_sources(
         )
         .into());
     }
-    let media = recipe
-        .layers
-        .iter()
-        .map(|layer| {
-            (
-                layer.name.clone(),
-                root.map(|root| root.join(&layer.path).display().to_string())
-                    .unwrap_or_else(|| {
-                        format!(
-                            "{}{}",
-                            recipe.base_url,
-                            layer.remote_path.as_deref().unwrap_or(&layer.path)
-                        )
-                    }),
-            )
-        })
-        .collect();
+    let mut media = BTreeMap::new();
+    for layer in &recipe.layers {
+        let source = match root {
+            Some(root) => root.join(layer.local_path()?).display().to_string(),
+            None => layer.url.clone(),
+        };
+        media.insert(layer.name.clone(), source);
+    }
     let manifest = InstallMedia {
         format: 1,
         profile: profile.into(),
@@ -261,7 +294,7 @@ fn init_sources(
         media,
         // A RAD4 machine needs the driver to reach a graphical login.
         addons: if needs_rad4_driver(file) {
-            vec![named_addon(release, "rad4", None)?]
+            vec![named_addon("rad4", None)?]
         } else {
             vec![]
         },
@@ -313,7 +346,7 @@ fn valid_install_selection(item: &str) -> bool {
 /// Configure an add-on Origami knows by name: mipspro, from the public
 /// archive or a local media root, or rad4, from the public archive.
 pub fn add_known_addon(dir: &Path, name: &str, media_root: Option<&Path>) -> Result<PathBuf> {
-    let addon = named_addon(&read_media(dir)?.release, name, media_root)?;
+    let addon = named_addon(name, media_root)?;
     add_addon(
         dir,
         &addon.name,
@@ -392,7 +425,29 @@ fn media_source(dir: &Path, value: &str) -> Result<String> {
     Ok(path.display().to_string())
 }
 
-pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Value> {
+/// The configuration handed to Instigator and the add-on files it names.
+pub struct InstallConfig {
+    pub document: Value,
+    /// Instigator reads each add-on from a file, so these are written before
+    /// it runs.
+    pub addon_files: Vec<(PathBuf, String)>,
+}
+
+impl InstallConfig {
+    pub fn write_addon_files(&self) -> Result<()> {
+        for (path, text) in &self.addon_files {
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(path, text)?;
+        }
+        Ok(())
+    }
+}
+
+/// Instigator's shipped configuration for the machine's release and
+/// profile, with this machine's network, media and add-ons filled in.
+pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<InstallConfig> {
     let recipe = recipe(&media.release, &media.profile)?;
     if file.network.mode != "private" {
         return Err("installation requires a private network".into());
@@ -402,42 +457,24 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         .as_ref()
         .map(|identity| identity.mac.as_str())
         .ok_or("installation needs the machine's MAC")?;
-    let mut sets = Vec::new();
-    for name in &recipe.sets {
-        let mut layers = Vec::new();
-        for layer in recipe.layers.iter().filter(|layer| layer.set == *name) {
+    let mut document = recipe.document;
+    for set in document["install_sets"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+    {
+        for layer in set["layers"].as_array_mut().into_iter().flatten() {
+            let name = layer["name"].as_str().unwrap_or_default();
             let path = media
                 .media
-                .get(&layer.name)
-                .ok_or_else(|| format!("missing install media: {}", layer.name))?;
-            let source = media_source(dir, path)?;
-            let mut entry = json!({ "name": layer.name, "source": source });
-            if layer.boot {
-                entry["boot"] = json!(true);
-            }
-            if let Some(base) = &layer.base {
-                entry["base"] = json!(base);
-            }
-            if let Some(dist) = &layer.dist {
-                entry["dist"] = json!(dist);
-            }
-            layers.push(entry);
+                .get(name)
+                .ok_or_else(|| format!("missing install media: {name}"))?;
+            layer["source"] = json!(media_source(dir, path)?);
         }
-        let mut set = json!({ "name": name, "layers": layers });
-        if let Some(winners) = recipe.collisions.get(name) {
-            set["collisions"] = json!(winners);
-        }
-        sets.push(set);
     }
-    let mut scripts = vec![json!({
-        "name": STANDARD_INSTALL_SCRIPT,
-        "install": recipe.install,
-        "keep": recipe.keep,
-        "post_install": POST_INSTALL,
-    })];
     let mut addon_names = HashSet::new();
-    let mut all_sets = Vec::new();
-    let mut all_install = Vec::new();
+    let mut addon_files = Vec::new();
+    let mut addon_paths = Vec::new();
     for addon in &media.addons {
         if !addon_names.insert(&addon.name) {
             return Err(format!("duplicate add-on name: {}", addon.name).into());
@@ -461,35 +498,29 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
         if let Some(dist) = &addon.dist {
             layer["dist"] = json!(dist);
         }
-        // An add-on installs in a second pass, after IRIX. Its files then go
-        // through the symbolic links IRIX's own products make, such as
-        // /var/sysgen/boot, instead of replacing them with directories.
-        let name = format!("addon-{}", addon.name);
-        sets.push(json!({
-            "name": name,
-            "addon": true,
+        let text = serde_saphyr::to_string(&json!({
+            "name": addon.name,
             "layers": [layer],
-        }));
-        scripts.push(json!({
-            "name": name,
-            "install": recipe.install,
-            "keep": recipe.keep,
-            "then": { "sets": [name], "install": addon.install },
-            "post_install": POST_INSTALL,
-        }));
-        all_sets.push(name);
-        all_install.extend(addon.install.iter().cloned());
+            "install": addon.install,
+        }))
+        .map_err(|error| format!("add-on {}: {error}", addon.name))?;
+        // Instigator installs an add-on in a second pass after IRIX, so its
+        // files go through the symbolic links IRIX's own products make, such
+        // as /var/sysgen/boot, instead of replacing them with directories.
+        let path =
+            std::path::absolute(dir.join("install/addons"))?.join(format!("{}.yaml", addon.name));
+        addon_paths.push(path.display().to_string());
+        addon_files.push((path, text));
     }
-    if !all_sets.is_empty() {
-        let then = json!({ "sets": all_sets, "install": all_install });
-        scripts[0]["then"] = then.clone();
-        scripts.push(json!({
-            "name": ALL_ADDONS_SCRIPT,
-            "install": recipe.install,
-            "keep": recipe.keep,
-            "then": then,
-            "post_install": POST_INSTALL,
-        }));
+    if !addon_paths.is_empty() {
+        document["addons"] = json!(addon_paths);
+    }
+    for script in document["install_scripts"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+    {
+        script["post_install"] = json!(POST_INSTALL);
     }
     let mut client = json!({ "name": "sgi", "mac": mac, "ip": "10.98.0.65" });
     // The miniroot offers the BOOTP name as its default hostname, and the
@@ -498,17 +529,14 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<Va
     if let Some(name) = crate::runtime::dhcp_hostname(dir).filter(|name| name.len() <= 40) {
         client["hostname"] = json!(name);
     }
-    Ok(json!({
-        "server_ip": "10.98.0.2",
-        "netmask": "10.98.0.0/24",
-        "cache_dir": dir.join("install/cache"),
-        "clients": [client],
-        "services": {
-            "bootp": true, "tftp": { "port_range": [2048, 32767] }, "rsh": true
-        },
-        "install_scripts": scripts,
-        "install_sets": sets
-    }))
+    document["server_ip"] = json!("10.98.0.2");
+    document["netmask"] = json!("10.98.0.0/24");
+    document["cache_dir"] = json!(dir.join("install/cache"));
+    document["clients"] = json!([client]);
+    Ok(InstallConfig {
+        document,
+        addon_files,
+    })
 }
 
 pub fn instigator_path() -> Result<PathBuf> {
@@ -528,7 +556,8 @@ pub fn instigator_path() -> Result<PathBuf> {
 /// assemble them as install-serve does.
 pub fn check(dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
     let media = read_media(dir)?;
-    let document = config(dir, file, &media)?;
+    let config = config(dir, file, &media)?;
+    config.write_addon_files()?;
     fs::create_dir_all(dir.join("install/cache"))?;
     let mut args = vec!["check"];
     if full {
@@ -545,7 +574,7 @@ pub fn check(dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
         .stdin
         .take()
         .ok_or("Instigator check has no stdin")?
-        .write_all(&serde_json::to_vec(&document)?)?;
+        .write_all(&serde_json::to_vec(&config.document)?)?;
     let output = child.wait_with_output()?;
     if !output.status.success() {
         return Err(format!(
@@ -559,11 +588,12 @@ pub fn check(dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
 
 pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     let media = read_media(dir)?;
-    let document = config(dir, file, &media)?;
+    let config = config(dir, file, &media)?;
     let install_dir = dir.join("install");
     fs::create_dir_all(install_dir.join("cache"))?;
+    config.write_addon_files()?;
     let config_path = install_dir.join("instigator.json");
-    fs::write(&config_path, serde_json::to_vec_pretty(&document)?)?;
+    fs::write(&config_path, serde_json::to_vec_pretty(&config.document)?)?;
     let endpoint = file
         .network
         .endpoint
@@ -898,20 +928,15 @@ impl InstallConsole {
     }
 }
 
-fn install_script(media: &InstallMedia, addon: Option<&str>) -> Result<(String, usize)> {
-    if let Some(name) = addon {
-        if !valid_addon_name(name) || !media.addons.iter().any(|item| item.name == name) {
-            return Err(format!("unknown install add-on: {name}").into());
-        }
-        // The add-on script installs IRIX, then the add-on in a second go.
-        return Ok((format!("admin source 10.98.0.2:/addon-{name}.cmds\n"), 2));
-    }
+/// The command that loads the install script, and how many passes of `go`
+/// it makes.
+fn install_script(media: &InstallMedia) -> (String, usize) {
     // irix.cmds runs a second go for the add-ons when any are configured.
     let passes = if media.addons.is_empty() { 1 } else { 2 };
-    Ok((
+    (
         format!("admin source 10.98.0.2:/{STANDARD_INSTALL_SCRIPT}.cmds\n"),
         passes,
-    ))
+    )
 }
 
 /// The quit output stops at the restart prompt. IRIX relinks the kernel
@@ -927,12 +952,12 @@ fn check_quit(output: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn apply(dir: &Path, file: &MachineFile, addon: Option<&str>) -> Result<()> {
+pub fn apply(dir: &Path, file: &MachineFile) -> Result<()> {
     if file.network.mode != "private" {
         return Err("package installation requires private installation networking".into());
     }
     let media = read_media(dir)?;
-    let (command, passes) = install_script(&media, addon)?;
+    let (command, passes) = install_script(&media);
     let mut console = InstallConsole::connect(dir)?;
     println!("Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.");
     console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
@@ -971,19 +996,67 @@ impl InstallConsole {
 mod tests {
     use super::*;
 
+    /// The first-pass selection of the shipped `irix` script.
+    fn selection(recipe: &InstallRecipe, field: &str) -> Vec<String> {
+        recipe.document["install_scripts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|script| script["name"] == "irix")
+            .unwrap()[field]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item.as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    fn set_names(recipe: &InstallRecipe) -> Vec<&str> {
+        recipe.document["install_sets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|set| set["name"].as_str().unwrap())
+            .collect()
+    }
+
+    /// The configuration as Instigator loads it: each add-on file becomes the
+    /// install set `addon-NAME`, and every script gains a second pass over the
+    /// add-on sets, in file order.
+    fn with_addons_loaded(config: &InstallConfig) -> Value {
+        let mut document = config.document.clone();
+        let mut sets = Vec::new();
+        let mut install = Vec::new();
+        for (_, text) in &config.addon_files {
+            let addon: Value = serde_saphyr::from_str(text).unwrap();
+            let name = format!("addon-{}", addon["name"].as_str().unwrap());
+            document["install_sets"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({
+                    "name": name,
+                    "addon": true,
+                    "layers": addon["layers"],
+                }));
+            sets.push(json!(name));
+            install.extend(addon["install"].as_array().unwrap().iter().cloned());
+        }
+        document.as_object_mut().unwrap().remove("addons");
+        if !sets.is_empty() {
+            for script in document["install_scripts"].as_array_mut().unwrap() {
+                script["then"] = json!({ "sets": sets, "install": install });
+            }
+        }
+        document
+    }
+
     #[test]
     fn embedded_recipe_has_https_layer_urls() {
         let recipe = recipe(DEFAULT_RELEASE, "standard").unwrap();
         for layer in &recipe.layers {
-            let path = layer.remote_path.as_deref().unwrap_or(&layer.path);
-            crate::assets::validate_https_url(&format!("{}{path}", recipe.base_url)).unwrap();
+            crate::assets::validate_https_url(&layer.url).unwrap();
         }
-        crate::assets::validate_https_url(
-            &named_addon(DEFAULT_RELEASE, "mipspro", None)
-                .unwrap()
-                .source,
-        )
-        .unwrap();
+        crate::assets::validate_https_url(&named_addon("mipspro", None).unwrap().source).unwrap();
     }
 
     #[test]
@@ -1312,61 +1385,66 @@ mod tests {
             share: vec![],
             qemu: Default::default(),
         };
-        let document = config(&dir, &file, &media).unwrap();
-        let irix = &document["install_scripts"][0];
+        let config_one = config(&dir, &file, &media).unwrap();
+        let document = with_addons_loaded(&config_one);
+        let scripts = document["install_scripts"].as_array().unwrap();
+        // One script, whatever the add-ons: Instigator gives it the second pass.
+        assert_eq!(scripts.len(), 1);
+        let irix = &scripts[0];
         assert_eq!(irix["name"], "irix");
         assert_eq!(
             irix["keep"],
-            json!(recipe(DEFAULT_RELEASE, "standard").unwrap().keep)
+            json!(selection(
+                &recipe(DEFAULT_RELEASE, "standard").unwrap(),
+                "keep"
+            ))
         );
-        let addon_set =
-            &document["install_sets"][recipe(DEFAULT_RELEASE, "standard").unwrap().sets.len()];
+        let addon_set = &document["install_sets"]
+            [set_names(&recipe(DEFAULT_RELEASE, "standard").unwrap()).len()];
         assert_eq!(addon_set["name"], "addon-tablet");
         assert_eq!(
             addon_set["layers"][0]["source"],
             source.display().to_string()
         );
         assert_eq!(addon_set["layers"][0]["base"], "tablet-disc");
+        assert_eq!(addon_set["layers"][0]["dist"], "dist");
         assert_eq!(addon_set["addon"], true);
-        let script = &document["install_scripts"][1];
-        assert_eq!(script["name"], "addon-tablet");
-        assert_eq!(script["keep"], irix["keep"]);
         // The first pass is the profile alone. The add-on waits for the
         // second pass, so its files land after IRIX's own.
-        assert_eq!(script["install"], irix["install"]);
-        assert_eq!(script["then"]["sets"], json!(["addon-tablet"]));
-        assert_eq!(script["then"]["install"], json!(["tablet.sw.helper"]));
-        assert_eq!(irix["then"], script["then"]);
+        assert_eq!(irix["install"], json!(["nfs.sw.nfs"]));
+        assert_eq!(irix["then"]["sets"], json!(["addon-tablet"]));
+        assert_eq!(irix["then"]["install"], json!(["tablet.sw.helper"]));
 
-        // With no --addon, install-apply installs every add-on together.
-        let mut two = media.clone();
-        two.addons
-            .push(named_addon(DEFAULT_RELEASE, "mipspro", Some(&dir)).unwrap());
-        two.addons[1].source = source.display().to_string();
-        let document = config(&dir, &file, &two).unwrap();
-        let all = document["install_scripts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|script| script["name"] == "addons")
-            .unwrap();
+        // Instigator reads the add-on from the file the configuration names.
+        let (path, _) = &config_one.addon_files[0];
+        assert!(path.is_absolute());
         assert_eq!(
-            all["then"]["sets"],
+            config_one.document["addons"],
+            json!([path.display().to_string()])
+        );
+        config_one.write_addon_files().unwrap();
+        assert!(path.ends_with("install/addons/tablet.yaml"));
+        let written: Value = serde_saphyr::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(written["name"], "tablet");
+        assert_eq!(written["install"], json!(["tablet.sw.helper"]));
+
+        // install-apply installs every add-on together.
+        let mut two = media.clone();
+        two.addons.push(named_addon("mipspro", Some(&dir)).unwrap());
+        two.addons[1].source = source.display().to_string();
+        let document = with_addons_loaded(&config(&dir, &file, &two).unwrap());
+        let irix = &document["install_scripts"][0];
+        assert_eq!(
+            irix["then"]["sets"],
             json!(["addon-tablet", "addon-mipspro"])
         );
-        assert_eq!(all["then"]["install"][0], "tablet.sw.helper");
-        assert_eq!(all["then"]["install"][1], "c++_dev");
-        assert_eq!(document["install_scripts"][0]["then"], all["then"]);
+        assert_eq!(irix["then"]["install"][0], "tablet.sw.helper");
+        assert_eq!(irix["then"]["install"][1], "c++_dev");
         assert_eq!(
-            install_script(&two, None).unwrap(),
+            install_script(&two),
             ("admin source 10.98.0.2:/irix.cmds\n".to_string(), 2)
         );
-        for script in [irix, script, all] {
-            assert_eq!(
-                script["post_install"],
-                json!(["chkconfig -f autoconfig_ipaddress on", "nvram AutoLoad Yes"])
-            );
-        }
+        assert_eq!(irix["post_install"], json!(POST_INSTALL));
         let mut invalid = media.clone();
         invalid.addons[0].install = vec!["tablet.sw.helper\nquit".into()];
         assert!(config(&dir, &file, &invalid).is_err());
@@ -1453,18 +1531,15 @@ mod tests {
             share: vec![],
             qemu: Default::default(),
         };
-        let document = config(&dir, &file, &configured).unwrap();
-        let addon_index = recipe(DEFAULT_RELEASE, "standard").unwrap().sets.len();
+        let document = with_addons_loaded(&config(&dir, &file, &configured).unwrap());
+        let addon_index = set_names(&recipe(DEFAULT_RELEASE, "standard").unwrap()).len();
         let addon_set = &document["install_sets"][addon_index];
         assert_eq!(addon_set["layers"][0]["source"], url);
         assert_eq!(addon_set["layers"][0]["base"], "tablet-disc");
-        let script = document["install_scripts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|script| script["name"] == "addon-tablet")
-            .unwrap();
-        assert_eq!(script["then"]["install"], json!(["tablet.sw.helper"]));
+        assert_eq!(
+            document["install_scripts"][0]["then"]["install"],
+            json!(["tablet.sw.helper"])
+        );
 
         add_addon(
             &dir,
@@ -1621,15 +1696,15 @@ mod tests {
             media.media["overlays1"],
             "https://origami-dist.irix.fans/irix/6.5.30/overlays1.iso"
         );
-        let document = config(&dir, &file, &media).unwrap();
+        let document = config(&dir, &file, &media).unwrap().document;
         // The installed system is named after the machine directory.
         assert_eq!(document["clients"][0]["hostname"], "machine");
         // Instigator takes at most 40 characters, and IRIX needs a valid name.
         for name in ["a".repeat(41), "has_underscore".into(), "-leading".into()] {
-            let document = config(&root.join(name), &file, &media).unwrap();
+            let document = config(&root.join(name), &file, &media).unwrap().document;
             assert!(document["clients"][0].get("hostname").is_none());
         }
-        let document = config(&dir, &file, &media).unwrap();
+        let document = config(&dir, &file, &media).unwrap().document;
         let sets = document["install_sets"].as_array().unwrap();
         assert_eq!(sets.len(), 5);
         assert_eq!(document["install_sets"][0]["layers"][0]["boot"], true);
@@ -1654,7 +1729,7 @@ mod tests {
             json!(["nfs.sw.nfs"])
         );
         assert_eq!(
-            install_script(&media, None).unwrap(),
+            install_script(&media),
             (
                 format!(
                     "admin source 10.98.0.2:/{}.cmds\n",
@@ -1718,7 +1793,7 @@ mod tests {
             )
             .unwrap();
             let media = read_media(&dir).unwrap();
-            let document = config(&dir, &file, &media).unwrap();
+            let document = with_addons_loaded(&config(&dir, &file, &media).unwrap());
             let irix = &document["install_scripts"][0];
             assert_eq!(irix["name"], "irix");
             if graphics == "none" {
@@ -1737,16 +1812,12 @@ mod tests {
                 addon.install,
                 ["rad4x.sw.driver", "rad4x.sw.xserver", "rad4x.man"]
             );
-            assert_eq!(
-                install_script(&media, Some("rad4")).unwrap(),
-                ("admin source 10.98.0.2:/addon-rad4.cmds\n".to_string(), 2)
-            );
             // irix.cmds is the script the user guide names, so on a RAD4
             // machine it must install the driver too.
             assert_eq!(irix["then"]["sets"], json!(["addon-rad4"]));
             assert_eq!(irix["then"]["install"], json!(addon.install));
             assert_eq!(
-                install_script(&media, None).unwrap(),
+                install_script(&media),
                 ("admin source 10.98.0.2:/irix.cmds\n".to_string(), 2)
             );
         }
@@ -1757,22 +1828,23 @@ mod tests {
         for (name, count) in [("minimal", 6), ("standard", 10)] {
             let recipe = recipe(DEFAULT_RELEASE, name).unwrap();
             assert_eq!(recipe.layers.len(), count);
-            assert!(recipe.layers.iter().all(|layer| layer
-                .remote_path
-                .as_deref()
-                .unwrap()
-                .ends_with(".iso")));
-            assert_eq!(recipe.install, ["nfs.sw.nfs"]);
-            assert!(recipe.layers.iter().any(|layer| layer.boot));
+            assert!(recipe
+                .layers
+                .iter()
+                .all(|layer| layer.url.ends_with(".iso")));
+            assert_eq!(selection(&recipe, "install"), ["nfs.sw.nfs"]);
+            assert!(recipe.document["install_sets"][0]["layers"][0]["boot"]
+                .as_bool()
+                .unwrap());
         }
         assert!(recipe(DEFAULT_RELEASE, "missing").is_err());
         assert_eq!(
-            recipe(DEFAULT_RELEASE, "base").unwrap().keep,
-            recipe(DEFAULT_RELEASE, "minimal").unwrap().keep
+            selection(&recipe(DEFAULT_RELEASE, "base").unwrap(), "keep"),
+            selection(&recipe(DEFAULT_RELEASE, "minimal").unwrap(), "keep")
         );
         assert_eq!(
-            recipe(DEFAULT_RELEASE, "desktop").unwrap().keep,
-            recipe(DEFAULT_RELEASE, "standard").unwrap().keep
+            selection(&recipe(DEFAULT_RELEASE, "desktop").unwrap(), "keep"),
+            selection(&recipe(DEFAULT_RELEASE, "standard").unwrap(), "keep")
         );
         for removed in ["development", "legacy-development"] {
             let error = recipe(DEFAULT_RELEASE, removed).err().unwrap().to_string();
@@ -1783,7 +1855,7 @@ mod tests {
     #[test]
     fn profiles_deselect_conflicting_products() {
         assert_eq!(
-            recipe(DEFAULT_RELEASE, "standard").unwrap().keep,
+            selection(&recipe(DEFAULT_RELEASE, "standard").unwrap(), "keep"),
             [
                 "inventor_dev",
                 "java2_plugin.sw32.mozilla_freeware",
@@ -1791,13 +1863,46 @@ mod tests {
             ]
         );
         assert_eq!(
-            recipe(DEFAULT_RELEASE, "minimal").unwrap().keep,
+            selection(&recipe(DEFAULT_RELEASE, "minimal").unwrap(), "keep"),
             [
                 "desktop_base.sw.dso6_2",
                 "insight.sw.sgihelp",
                 "inventor_dev"
             ]
         );
+    }
+
+    #[test]
+    fn local_media_paths_mirror_the_public_layout() {
+        let recipe = recipe(DEFAULT_RELEASE, "standard").unwrap();
+        let paths: Vec<_> = recipe
+            .layers
+            .iter()
+            .map(|layer| layer.local_path().unwrap())
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "6.5.30/overlays1.image",
+                "6.5.30/overlays2.image",
+                "6.5.30/overlays3.image",
+                "6.5-base/foundation1.image",
+                "6.5-base/foundation2.image",
+                "6.5-base/nfs.image",
+                "6.5-base/devlibs.image",
+                "6.5-base/devfoundation.image",
+                "6.5.30/applications.image",
+                "6.5.30/complementary.image",
+            ]
+        );
+        let root = Path::new("/media");
+        assert_eq!(
+            named_addon("mipspro", Some(root)).unwrap().source,
+            "/media/mipspro/7.4.4/mipspro744update.tar.gz"
+        );
+        let error = named_addon("rad4", Some(root)).unwrap_err().to_string();
+        assert!(error.contains("no local media"), "{error}");
+        assert!(named_addon("nothing", None).is_err());
     }
 
     fn golden_media(release: &str, recipe: &InstallRecipe) -> InstallMedia {
@@ -1808,22 +1913,13 @@ mod tests {
             media: recipe
                 .layers
                 .iter()
-                .map(|layer| {
-                    (
-                        layer.name.clone(),
-                        format!(
-                            "{}{}",
-                            recipe.base_url,
-                            layer.remote_path.as_deref().unwrap_or(&layer.path)
-                        ),
-                    )
-                })
+                .map(|layer| (layer.name.clone(), layer.url.clone()))
                 .collect(),
             addons: vec![],
         }
     }
 
-    fn golden_document(media: &InstallMedia) -> Value {
+    fn golden_config(media: &InstallMedia) -> InstallConfig {
         use crate::{Machine, Network};
         let file = MachineFile {
             format: crate::MACHINE_FORMAT,
@@ -1856,48 +1952,12 @@ mod tests {
         config(Path::new("/machine"), &file, media).unwrap()
     }
 
-    fn golden_config(profile: &str, with_addons: bool) -> Value {
-        let recipe = recipe(DEFAULT_RELEASE, profile).unwrap();
-        let mut media = golden_media(DEFAULT_RELEASE, &recipe);
-        media.profile = profile.into();
-        if with_addons {
-            media.addons = vec![
-                named_addon(DEFAULT_RELEASE, "mipspro", None).unwrap(),
-                named_addon(DEFAULT_RELEASE, "rad4", None).unwrap(),
-            ];
-        }
-        golden_document(&media)
-    }
-
-    /// The Instigator configuration for 6.5.30 is the contract with the
-    /// installer, so the recipe file moving or growing must not change it.
-    #[test]
-    fn release_6_5_30_config_is_unchanged() {
-        let mut all = serde_json::Map::new();
-        for profile in ["minimal", "standard"] {
-            for addons in [false, true] {
-                all.insert(
-                    format!("{profile}-{}", if addons { "addons" } else { "plain" }),
-                    golden_config(profile, addons),
-                );
-            }
-        }
-        let text = serde_json::to_string_pretty(&Value::Object(all)).unwrap() + "\n";
-        let path =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/install-6.5.30-config.json");
-        if std::env::var_os("ORIGAMI_WRITE_FIXTURE").is_some() {
-            fs::write(&path, &text).unwrap();
-        }
-        assert_eq!(fs::read_to_string(&path).unwrap(), text);
-    }
-
     /// What Instigator turns into /irix.cmds: the sets it serves, the first
-    /// pass's selections and the add-on second pass, with the server settings
-    /// around them. Script and add-on bookkeeping that does not reach the
-    /// generated commands is left out, so the contract survives a change in
-    /// how the configuration spells them.
-    fn effective_install(document: &Value) -> Value {
-        let mut out = document.clone();
+    /// pass's selections, the add-on second pass and the post-install
+    /// commands, with the server settings around them. Script and add-on
+    /// bookkeeping that does not reach the generated commands is left out.
+    fn effective_install(config: &InstallConfig) -> Value {
+        let mut out = with_addons_loaded(config);
         let scripts = out.as_object_mut().unwrap().remove("install_scripts");
         let irix = scripts
             .unwrap()
@@ -1921,15 +1981,15 @@ mod tests {
         media.profile = profile.into();
         media.addons = addons
             .iter()
-            .map(|name| named_addon(release, name, None).unwrap())
+            .map(|name| named_addon(name, None).unwrap())
             .collect();
         media
     }
 
     /// The commands each release, profile and add-on choice generates are
-    /// pinned in a fixture written from the recipe-file implementation, so
-    /// moving to Instigator's shipped configurations installs the same
-    /// products from the same discs.
+    /// pinned in a fixture written from the earlier recipe-file
+    /// implementation, so moving to Instigator's shipped configurations
+    /// installs the same products from the same discs.
     #[test]
     fn generated_install_commands_are_unchanged() {
         let mut all = serde_json::Map::new();
@@ -1947,16 +2007,13 @@ mod tests {
                 let media = scenario_media(release, profile, addons);
                 all.insert(
                     format!("{release}-{profile}-{}", addons.join("+")),
-                    effective_install(&golden_document(&media)),
+                    effective_install(&golden_config(&media)),
                 );
             }
         }
         let text = serde_json::to_string_pretty(&Value::Object(all)).unwrap() + "\n";
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/install-generated-commands.json");
-        if std::env::var_os("ORIGAMI_WRITE_FIXTURE").is_some() {
-            fs::write(&path, &text).unwrap();
-        }
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
     }
 
@@ -1966,10 +2023,8 @@ mod tests {
         assert_eq!(recipe.layers.len(), 10);
         let mut urls = Vec::new();
         for layer in &recipe.layers {
-            let path = layer.remote_path.as_deref().unwrap();
-            let url = format!("{}{path}", recipe.base_url);
-            crate::assets::validate_https_url(&url).unwrap();
-            urls.push(url);
+            crate::assets::validate_https_url(&layer.url).unwrap();
+            urls.push(layer.url.clone());
         }
         for disc in [
             "overlays1",
@@ -1982,11 +2037,11 @@ mod tests {
             assert!(urls.contains(&url), "{url}");
         }
         assert!(!urls.iter().any(|url| url.contains("6.5.30")));
-        assert_eq!(recipe.install, ["nfs.sw.nfs"]);
+        assert_eq!(selection(&recipe, "install"), ["nfs.sw.nfs"]);
         // Products inst could not install on the full media set, from its own
         // conflict list. 6.5.30's keep list names others.
         assert_eq!(
-            recipe.keep,
+            selection(&recipe, "keep"),
             [
                 "java2_plugin.sw32.mozilla_freeware",
                 "java_dev.sw32.binaries",
@@ -2006,12 +2061,12 @@ mod tests {
         let recipe = recipe("6.5.22", "standard").unwrap();
         let mut media = golden_media("6.5.22", &recipe);
         media.addons = vec![
-            named_addon("6.5.22", "mipspro", None).unwrap(),
-            named_addon("6.5.22", "rad4", None).unwrap(),
+            named_addon("mipspro", None).unwrap(),
+            named_addon("rad4", None).unwrap(),
         ];
         assert_eq!(media.addons[0].install.len(), 12);
         assert_eq!(media.addons[1].install[0], "rad4x.sw.driver");
-        let document = golden_document(&media);
+        let document = golden_config(&media).document;
         let sets = document["install_sets"].as_array().unwrap();
         assert_eq!(sets[0]["name"], "6.5.22");
         assert_eq!(sets[0]["layers"][0]["boot"], true);
@@ -2021,7 +2076,10 @@ mod tests {
         );
         // Only the set with a collision carries the field.
         assert!(sets[1].get("collisions").is_none());
-        assert_eq!(document["install_scripts"][0]["keep"], json!(recipe.keep));
+        assert_eq!(
+            document["install_scripts"][0]["keep"],
+            json!(selection(&recipe, "keep"))
+        );
     }
 
     #[test]
