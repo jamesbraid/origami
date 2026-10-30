@@ -1,31 +1,38 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
-- New presets: `origin3200`, `origin3400`, `origin3900`, `onyx3000-vpro` and
-  `onyx3400-infinite-reality`.
-  IRIX 6.5.30 installs on an Origin 3200 over its serial console, and the
-  installed disk boots on the other Origin 3000 presets.
-- The Origin 3000 presets start with a USB keyboard and mouse, so the IRIX
-  desktop on `onyx3000-vpro` has input.
-- `origami nvram` reads and changes the PROM environment of the Origin 3000
-  presets.
-- `onyx3400-infinite-reality` is an Onyx 3400 with four C-bricks, 16 CPUs
-  and one InfiniteReality3 pipe. IRIX 6.5.30 installs on it and 4Dwm runs
-  with a keyboard and mouse.
-- `origami install-init --release 6.5.22` installs IRIX 6.5.22, with the
-  MIPSpro and RAD4 add-ons, from discs hosted beside the 6.5.30 ones. The
-  default stays 6.5.30.
-- QEMU updated to cf2948f095.
-- `origami share` makes a host folder appear in IRIX over NFS, with no
-  host NFS server or administrator rights. The guest mounts it with
-  `mount 192.0.2.4:/NAME /mnt/NAME`.
-- `--mode private` without an endpoint, or with none listening, is hosted by
-  `origami run`: the guest gets `10.98.0.65` by DHCP, and shares mount from
-  `10.98.0.2`. Instigator's install server still takes the network when it
-  is listening.
-- An installed system is named after its machine directory from first boot,
-  not IRIS, when the name is a valid hostname.
+Big iron. The Origin 3200, 3400 and 3900 servers install and run IRIX
+6.5.30, and any machine can now share a host folder with IRIX over NFS,
+with no host NFS server or administrator rights.
+
+    $ hinv            # Origin 3900
+    16 700 MHZ IP35 Processors
+    CPU: MIPS R16000 Processor Chip Revision: 3.0
+    Main memory size: 8192 Mbytes
+    ROUTER in Module 001c07/Slot 0: Revision 1: Active Ports [2,3,4,5,] (enabled)
+    Integral SCSI controller 0: Version Fibre Channel QL2200, 33 MHz PCI
+    Integral Fast Ethernet: ef0, version 1, module 001c07, pci 4
+
+Every machine's `hinv` is in the [gallery](https://github.com/jamesbraid/origami/blob/v0.5.0/docs/gallery.md).
+
+- New:
+  - Presets `origin3200` (8 CPUs), `origin3400` (16 CPUs) and `origin3900`
+    (16 R16000s). IRIX installs on the Origin 3200's Fibre Channel disk
+    over its serial console, and the disk boots on the others.
+  - `origami share DIR NAME HOSTDIR` serves a host folder to IRIX.
+    Mount it with `mount 192.0.2.4:/NAME /mnt/NAME`.
+  - `--mode private` with no install server running gives the guest its
+    own network: `10.98.0.65` by DHCP, shares at `10.98.0.2`.
+  - `install-init --release 6.5.22` installs IRIX 6.5.22, with MIPSpro
+    and RAD4.
+  - Presets `onyx3000-vpro` and `onyx3400-infinite-reality`: IRIX on an
+    Onyx 3000 with VPro V12 and an Onyx 3400 with InfiniteReality3.
+- Fixed:
+  - An installed system is named after its machine directory, not IRIS.
+  - Remote installs retry transient download errors instead of stopping.
+- Installs include the NFS client.
+- QEMU updated to cf2948f095. Instigator updated to 0.5.0.
 
 ## 0.4.1
 
