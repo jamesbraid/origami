@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.1
+
+Big iron graphics. The Onyx 3000 with its V-brick VPro V12 and the Onyx 3400
+with G-brick InfiniteReality3 are presets, and the Onyx 3400 takes up to four
+pipes, each with a two-head DG5-2 display. IRIX 6.5.30 reaches the 4Dwm
+desktop on every pipe, and one pipe's two heads join into a 2560x1024 desktop.
+
+    $ hinv -c graphics    # Onyx 3400, four pipes
+    Graphics board: InfiniteReality3
+    Graphics board: InfiniteReality3
+    Graphics board: InfiniteReality3
+    Graphics board: InfiniteReality3
+
+The [gallery](https://github.com/jamesbraid/origami/blob/v0.5.1/docs/gallery.md)
+has a shot of each pipe and of the dual-head desktop.
+
+- New:
+  - Presets `onyx3000-vpro` and `onyx3400-infinite-reality`.
+  - `create --graphics-pipes N` fits several pipes: 1 to 4 on the Onyx 3400
+    and 1 to 2 on `onyx2-rack-infinite-reality`, whose second pipe gets the
+    second node it needs.
+  - `ircombine -destination eeprom` stores a display combination. With the
+    shipped `2@1280x1024_60` the next start brings up 2560x1024 across
+    heads 0 and 1 of the pipe. See the usage guide.
+  - `run` shows every head of every pipe: a window for each head, or with
+    `--display vnc` a VNC server for each on consecutive ports from
+    `--vnc-port`.
+- Changed:
+  - Each InfiniteReality pipe keeps its flash in the machine's state as
+    `SLOT-kona-flash.raw`. `origami upgrade` adds it to machines made
+    before 0.5.1; without it QEMU refuses to start the machine.
+- QEMU updated to ce0339333e.
+
 ## 0.5.0
 
 Big iron. The Origin 3200, 3400 and 3900 servers install and run IRIX

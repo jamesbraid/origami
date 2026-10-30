@@ -89,8 +89,8 @@ Common options:
   take is refused with the list of sizes it does.
 - `--processor ID` picks an Origin 200 processor module, such as
   `r12000-270mhz-4mb`. `origami machines PRESET` lists them.
-- `--graphics`, `--graphics-slot` and `--graphics-setting` change the
-  graphics. See [Graphics](#graphics).
+- `--graphics`, `--graphics-slot`, `--graphics-pipes` and
+  `--graphics-setting` change the graphics. See [Graphics](#graphics).
 - `--mac 08:00:69:12:34:56` sets the machine's Ethernet address. Without it,
   `create` picks a unique SGI one.
 
@@ -143,6 +143,11 @@ window for any graphics. Other display choices:
 origami run my-origin --display vnc --vnc-port 5991
 origami run my-origin --display none
 ```
+
+A machine with several heads, such as an Onyx 3400 with more than one pipe,
+shows each head on its own: a window for each head, or with `--display vnc` a
+VNC server for each, on consecutive ports from `--vnc-port`. `run` prints which
+head is on which port. A head's window opens once the guest starts its video.
 
 A background run returns to the shell and keeps the machine going:
 
@@ -429,6 +434,9 @@ leaves open, and what QEMU only approximates.
   `ir3` or `rad4`, or `none` for no graphics.
 - `--graphics-slot SLOT` puts it in another slot, such as `io5` on an
   Origin 2000 or `widget-9` on an Octane.
+- `--graphics-pipes N` fits N pipes of that board, one per slot, such as 4 on
+  `onyx3400-infinite-reality` (1 to 4) or 2 on `onyx2-rack-infinite-reality`
+  (1 to 2). The Onyx2's second pipe needs a second node, which `create` adds.
 - `--graphics-setting NAME=VALUE`, repeatable, changes one board setting,
   such as `rm-count=1` or `display=dg5-2` for InfiniteReality.
 
@@ -437,6 +445,23 @@ origami create my-octane --preset octane-impact --graphics esi --graphics-slot w
 origami create my-onyx2 --preset onyx2-infinite-reality --graphics ir2 \
   --graphics-setting geometry=ge14-2 --graphics-setting display=dg5-2
 ```
+
+### Pipes and heads
+
+Every pipe is its own X screen (`:0.0`, `:0.1` and so on) with its own
+console, and a pipe with a DG5-2 display generator has two heads. The Onyx 3400
+starts with one head per pipe at 1280x1024. To join the two heads of pipe 0
+into one 2560x1024 desktop, log in to X, not just the greeter, and run as
+root with that session's X display:
+
+```sh
+DISPLAY=:0 /usr/gfx/ircombine -destination eeprom -source file \
+  /usr/gfx/ucode/KONA/dg4/cmb/2@1280x1024_60.cmb
+```
+
+The combination is stored in the pipe's flash, and the next start comes up
+2560 wide across heads 0 and 1 of that pipe. Each pipe's flash is the state
+file `SLOT-kona-flash.raw` of the machine.
 
 A refused choice prints the reason, such as four raster managers on an
 Onyx2 deskside or a V12 in an Octane. Onyx2 and Fuel always have graphics.
@@ -476,7 +501,9 @@ origami upgrade my-origin
 The upgrade keeps flash, NVRAM, drives, network settings and the MAC. A
 machine that needs its PROMs to build a new state file downloads them as
 `create` does, or takes local copies with `--prom FILE` and `--io-prom FILE`.
-Running it on a current machine changes nothing. A machine that cannot be
+It also adds the pipe flash file (`SLOT-kona-flash.raw`) that machines made
+before 0.5.1 lack, and says which. A machine that has everything is left
+unchanged. A machine that cannot be
 upgraded is left untouched with the reason. Create a new machine and attach
 the old disk.
 
@@ -539,7 +566,8 @@ on Arch.
 ### A state file is missing
 
 Origami never rebuilds a missing flash or NVRAM file, because that would
-discard what the guest saved. Restore it from a backup, or create a new
+discard what the guest saved. The one exception is a pipe flash
+(`SLOT-kona-flash.raw`) from before 0.5.1: `origami upgrade` adds it. Restore it from a backup, or create a new
 machine and attach the old disk.
 
 ### Silent console after editing `processor`

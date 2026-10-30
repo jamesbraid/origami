@@ -602,9 +602,54 @@ pub fn arguments(machines: &Machines, topology: &str, pipes: &[Pipe]) -> Result<
                 device.push_str(&format!(",{}={value}", setting.name));
             }
         }
+        // A pipe with several heads is named, so the display arguments can
+        // pick one of them.
+        if channels(machines, topology, pipe) > 1 {
+            device.push_str(&format!(",id={}", pipe.slot));
+        }
         args.extend(["-device".into(), device]);
     }
     Ok(args)
+}
+
+/// A display a machine shows: head `head` of the pipe in `slot`. Each head
+/// is a console of its own in QEMU, so a window or a VNC server shows one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Head {
+    pub slot: String,
+    pub head: u32,
+}
+
+/// The heads of `pipes`, pipe by pipe. A pipe has one head per channel of
+/// its display generator, which the catalogue gives in the description of
+/// the `display` value ("DG5-2, 2 channels"), and one head without one.
+pub fn heads(machines: &Machines, topology: &str, pipes: &[Pipe]) -> Vec<Head> {
+    pipes
+        .iter()
+        .flat_map(|pipe| {
+            (0..channels(machines, topology, pipe)).map(|head| Head {
+                slot: pipe.slot.clone(),
+                head,
+            })
+        })
+        .collect()
+}
+
+fn channels(machines: &Machines, topology: &str, pipe: &Pipe) -> u32 {
+    let setting = record(machines, topology)
+        .and_then(|g| g.slots.iter().find(|s| s.name == pipe.slot))
+        .and_then(|s| s.offer(&pipe.product))
+        .and_then(|(_, p)| p.settings.iter().find(|s| s.name == "display"));
+    setting
+        .and_then(|s| {
+            s.values
+                .iter()
+                .find(|v| pipe.settings.get("display") == Some(&v.value))
+        })
+        .and_then(|v| v.description.rsplit(", ").next())
+        .and_then(|tail| tail.strip_suffix(" channels"))
+        .and_then(|count| count.parse().ok())
+        .unwrap_or(1)
 }
 
 /// Refuse changing `old` pipes to `new` where the catalogue says the slot
@@ -835,7 +880,7 @@ mod tests {
             [
                 "-device",
                 "sgi-kona,slot=io4,product=ir2,geometry=ge14-4,rm-type=rm7,rm-count=2,\
-                 texture-mb=64,display=dg5-8"
+                 texture-mb=64,display=dg5-8,id=io4"
             ]
         );
         let pipes = select(
@@ -966,6 +1011,35 @@ mod tests {
             ..Default::default()
         };
         assert!(select(&machines, "octane", 1, &none).is_err());
+    }
+
+    #[test]
+    fn a_pipe_has_a_head_for_each_channel_of_its_display_generator() {
+        let machines = crate::test_machines();
+        let pipe = |display: &str| {
+            let mut pipe =
+                select(&machines, "onyx3400-ir", 4, &Request::default()).unwrap()[0].clone();
+            pipe.settings.insert("display".into(), display.into());
+            pipe
+        };
+        let heads_of = |pipes: &[Pipe]| {
+            heads(&machines, "onyx3400-ir", pipes)
+                .iter()
+                .map(|h| (h.slot.clone(), h.head))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            heads_of(&[pipe("dg5-2")]),
+            [
+                ("gbrick0-pipe0-pipe".to_string(), 0),
+                ("gbrick0-pipe0-pipe".to_string(), 1)
+            ]
+        );
+        assert_eq!(heads_of(&[pipe("dg5-8")]).len(), 8);
+        // A board with no display generator setting shows one head.
+        let si = select(&machines, "octane", 1, &Request::default()).unwrap();
+        assert_eq!(heads(&machines, "octane", &si).len(), 1);
+        assert!(heads(&machines, "octane", &[]).is_empty());
     }
 
     #[test]

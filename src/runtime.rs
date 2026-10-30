@@ -19,6 +19,27 @@ pub enum Display {
     None,
 }
 
+/// Where each head of the machine is served for `--display vnc` from
+/// `port`: the head and its TCP port, in port order. A machine with one
+/// head has the single server a VNC display always had.
+pub fn vnc_ports(
+    machines: &Machines,
+    offering: &Offering,
+    file: &MachineFile,
+    port: u16,
+) -> Result<Vec<(crate::graphics::Head, u16)>> {
+    let heads = crate::graphics::heads(machines, &offering.topology, &file.pipe);
+    let last = u32::from(port) + heads.len().saturating_sub(1) as u32;
+    if last > u32::from(u16::MAX) {
+        return Err(format!(
+            "{} heads need VNC ports {port} to {last}, past the last port",
+            heads.len()
+        )
+        .into());
+    }
+    Ok(heads.into_iter().zip(port..).collect())
+}
+
 pub fn qemu_path() -> Result<PathBuf> {
     if let Some(root) = std::env::var_os("ORIGAMI_RUNTIME_DIR") {
         return Ok(PathBuf::from(root).join(binary_name("qemu-system-mips64")));
@@ -363,7 +384,23 @@ pub fn arguments_with(
     match display {
         Display::Local => args.extend(["-display".into(), "sdl,window-close=off".into()]),
         Display::Vnc { port } => {
-            args.extend(["-display".into(), format!("vnc=127.0.0.1:{}", port - 5900)])
+            let ports = vnc_ports(machines, offering, file, port)?;
+            if ports.len() > 1 {
+                // One server per head, each showing its own console.
+                for (head, port) in ports {
+                    args.extend([
+                        "-display".into(),
+                        format!(
+                            "vnc=127.0.0.1:{},display={},head={}",
+                            port - 5900,
+                            head.slot,
+                            head.head
+                        ),
+                    ]);
+                }
+            } else {
+                args.extend(["-display".into(), format!("vnc=127.0.0.1:{}", port - 5900)])
+            }
         }
         Display::None => args.extend(["-display".into(), "none".into()]),
     }
@@ -1114,6 +1151,95 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-display", "vnc=127.0.0.1:91"]));
+    }
+
+    #[test]
+    fn vnc_serves_each_head_of_each_pipe_on_its_own_port() {
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "onyx3400-infinite-reality").unwrap();
+        let mut file = machine(offer);
+        file.pipe = crate::graphics::select(
+            &machines,
+            &offer.topology,
+            offer.nodes,
+            &crate::graphics::Request {
+                pipes: Some(2),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            offer,
+            Display::Vnc { port: 5900 },
+        )
+        .unwrap();
+        let displays: Vec<_> = args
+            .windows(2)
+            .filter(|pair| pair[0] == "-display")
+            .map(|pair| pair[1].as_str())
+            .collect();
+        assert_eq!(
+            displays,
+            [
+                "vnc=127.0.0.1:0,display=gbrick0-pipe0-pipe,head=0",
+                "vnc=127.0.0.1:1,display=gbrick0-pipe0-pipe,head=1",
+                "vnc=127.0.0.1:2,display=gbrick0-pipe1-pipe,head=0",
+                "vnc=127.0.0.1:3,display=gbrick0-pipe1-pipe,head=1",
+            ]
+        );
+        // The ids those displays name are on the pipes.
+        for slot in ["gbrick0-pipe0-pipe", "gbrick0-pipe1-pipe"] {
+            assert!(
+                args.iter()
+                    .any(|a| a.starts_with("sgi-kona,") && a.ends_with(&format!(",id={slot}"))),
+                "{args:?}"
+            );
+        }
+        let ports = vnc_ports(&machines, offer, &file, 5900).unwrap();
+        let ports: Vec<_> = ports
+            .iter()
+            .map(|(h, p)| (h.slot.as_str(), h.head, *p))
+            .collect();
+        assert_eq!(
+            ports,
+            [
+                ("gbrick0-pipe0-pipe", 0, 5900),
+                ("gbrick0-pipe0-pipe", 1, 5901),
+                ("gbrick0-pipe1-pipe", 0, 5902),
+                ("gbrick0-pipe1-pipe", 1, 5903),
+            ]
+        );
+        let error = vnc_ports(&machines, offer, &file, 65534).unwrap_err();
+        assert!(error.to_string().contains("past the last port"), "{error}");
+
+        // One pipe of one head keeps the single server and its plain device.
+        let octane = preset(&machines, "octane-impact").unwrap();
+        let mut file = machine(octane);
+        file.pipe = crate::graphics::select(
+            &machines,
+            &octane.topology,
+            octane.nodes,
+            &Default::default(),
+        )
+        .unwrap();
+        let args = arguments(
+            &machines,
+            Path::new("/machine"),
+            &file,
+            octane,
+            Display::Vnc { port: 5900 },
+        )
+        .unwrap();
+        assert!(args
+            .windows(2)
+            .any(|pair| pair == ["-display", "vnc=127.0.0.1:0"]));
+        assert!(args
+            .iter()
+            .filter(|a| a.starts_with("sgi-mgras,"))
+            .all(|a| !a.contains(",id=")));
     }
 
     #[test]

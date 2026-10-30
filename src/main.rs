@@ -214,6 +214,23 @@ fn command(action: Action) -> Result<()> {
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
             let display = args.launch.display.resolve(!file.pipe.is_empty())?;
+            match display {
+                runtime::Display::Vnc { port } => {
+                    let servers = runtime::vnc_ports(&machines, offer, &file, port)?;
+                    if servers.len() > 1 {
+                        for (head, port) in servers {
+                            println!("vnc 127.0.0.1:{port}: {} head {}", head.slot, head.head);
+                        }
+                    }
+                }
+                runtime::Display::Local => {
+                    let heads = graphics::heads(&machines, &offer.topology, &file.pipe);
+                    if heads.len() > 1 {
+                        println!("{} windows, one for each head", heads.len());
+                    }
+                }
+                runtime::Display::None => (),
+            }
             if args.background {
                 runtime::start_background(&dir, display, &args.launch.qemu_args)?;
             } else {

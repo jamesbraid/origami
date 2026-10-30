@@ -47,6 +47,26 @@ The RAD4 card shows its own start-up screen; the PROM menu is on serial.
 ![RAD4 start-up screen](images/gallery/origin200-rad4-card.png)
 ![Origin 200 RAD4 desktop with hinv](images/gallery/origin200-rad4-hinv.png)
 
+## Onyx 3000 and Onyx 3400 (`onyx3000-vpro`, `onyx3400-infinite-reality`)
+
+The Onyx 3000 has a V-brick with one VPro V12 pipe.
+
+![Onyx 3000 V12 desktop with hinv](images/gallery/onyx3000-vpro-hinv.png)
+
+The Onyx 3400 takes up to four InfiniteReality3 pipes in two G-bricks
+(`--graphics-pipes 4`). Each pipe is a separate X screen and its own console:
+
+![Onyx 3400 pipe 0](images/gallery/onyx3400-pipe0.png)
+![Onyx 3400 pipe 1](images/gallery/onyx3400-pipe1.png)
+![Onyx 3400 pipe 2](images/gallery/onyx3400-pipe2.png)
+![Onyx 3400 pipe 3](images/gallery/onyx3400-pipe3.png)
+
+After `ircombine` stores a two-channel combination, the two heads of a pipe are
+one 2560x1024 desktop. This is pipe 0 with `hinv` and `gfxinfo`, both heads side
+by side:
+
+![Onyx 3400 dual-head desktop, 2560x1024](images/gallery/onyx3400-dual-head.png)
+
 ## Origin 3000 servers
 
 The Origin 3200, 3400 and 3900 have no graphics. This is `hinv -v` from each,
