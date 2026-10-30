@@ -1891,6 +1891,75 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
     }
 
+    /// What Instigator turns into /irix.cmds: the sets it serves, the first
+    /// pass's selections and the add-on second pass, with the server settings
+    /// around them. Script and add-on bookkeeping that does not reach the
+    /// generated commands is left out, so the contract survives a change in
+    /// how the configuration spells them.
+    fn effective_install(document: &Value) -> Value {
+        let mut out = document.clone();
+        let scripts = out.as_object_mut().unwrap().remove("install_scripts");
+        let irix = scripts
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|script| script["name"] == "irix")
+            .unwrap()
+            .clone();
+        out["irix"] = json!({
+            "install": irix["install"],
+            "keep": irix["keep"],
+            "post_install": irix["post_install"],
+            "then": irix.get("then").cloned().unwrap_or(Value::Null),
+        });
+        out
+    }
+
+    fn scenario_media(release: &str, profile: &str, addons: &[&str]) -> InstallMedia {
+        let mut media = golden_media(release, &recipe(release, profile).unwrap());
+        media.profile = profile.into();
+        media.addons = addons
+            .iter()
+            .map(|name| named_addon(release, name, None).unwrap())
+            .collect();
+        media
+    }
+
+    /// The commands each release, profile and add-on choice generates are
+    /// pinned in a fixture written from the recipe-file implementation, so
+    /// moving to Instigator's shipped configurations installs the same
+    /// products from the same discs.
+    #[test]
+    fn generated_install_commands_are_unchanged() {
+        let mut all = serde_json::Map::new();
+        for (release, profile) in [
+            ("6.5.30", "minimal"),
+            ("6.5.30", "standard"),
+            ("6.5.22", "standard"),
+        ] {
+            for addons in [
+                &[][..],
+                &["mipspro"][..],
+                &["rad4"][..],
+                &["mipspro", "rad4"][..],
+            ] {
+                let media = scenario_media(release, profile, addons);
+                all.insert(
+                    format!("{release}-{profile}-{}", addons.join("+")),
+                    effective_install(&golden_document(&media)),
+                );
+            }
+        }
+        let text = serde_json::to_string_pretty(&Value::Object(all)).unwrap() + "\n";
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/install-generated-commands.json");
+        if std::env::var_os("ORIGAMI_WRITE_FIXTURE").is_some() {
+            fs::write(&path, &text).unwrap();
+        }
+        assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    }
+
     #[test]
     fn release_6_5_22_loads_and_names_its_own_discs() {
         let recipe = recipe("6.5.22", "standard").unwrap();
