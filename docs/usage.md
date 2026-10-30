@@ -147,7 +147,8 @@ origami run my-origin --display none
 A machine with several heads, such as an Onyx 3400 with more than one pipe,
 shows each head on its own: a window for each head, or with `--display vnc` a
 VNC server for each, on consecutive ports from `--vnc-port`. `run` prints which
-head is on which port. A head's window opens once the guest starts its video.
+head is on which port. A head's window opens once the guest starts its video,
+on top of the first one under some window managers: drag it aside.
 
 A background run returns to the shell and keeps the machine going:
 
