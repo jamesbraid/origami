@@ -53,8 +53,6 @@ processor modules of an Origin 200. `origami machines --all` shows them all.
 | `origin3200` | Origin 3200, two C-bricks, 8 CPUs | none |
 | `origin3400` | Origin 3400, four C-bricks, 16 CPUs | none |
 | `origin3900` | Origin 3900, one Cx-brick, 16 CPUs | none |
-| `onyx3000-vpro` | Onyx 3000, two C-bricks, 8 CPUs | VPro V12 |
-| `onyx3400-infinite-reality` | Onyx 3400, four C-bricks, 16 CPUs | InfiniteReality3 |
 | `octane-impact` | Octane | SI |
 | `octane2-impact` | Octane2 | SI |
 | `octane2-vpro` | Octane2 | VPro V12 |
@@ -174,9 +172,7 @@ needed. You drive the PROM, disk formatter and installer yourself, on the
 machine's console.
 
 The Origin 3000 presets install the same way over their serial console.
-`onyx3000-vpro` and `onyx3400-infinite-reality` start their PROM on serial.
-To install on the graphics console, run `origami nvram DIR set console=g`
-first. The steps use an Octane2 with VPro graphics, whose PROM and installer
+The steps use an Octane2 with VPro graphics, whose PROM and installer
 run in the machine's window. `origin200-rad4` has no PROM console on its RAD4
 card, so it installs over the serial console and uses RAD4 once X starts.
 Type the same commands in this terminal instead of the window. On a serial
