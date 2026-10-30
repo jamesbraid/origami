@@ -22,6 +22,10 @@
         "name": "irix",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ],
         "then": {
@@ -60,6 +64,10 @@
         "name": "addon-mipspro",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ],
         "then": {
@@ -94,6 +102,10 @@
         "name": "addon-rad4",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ],
         "then": {
@@ -119,6 +131,10 @@
         "name": "addons",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ],
         "then": {
@@ -243,6 +259,10 @@
         "name": "irix",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ]
       }
@@ -321,6 +341,10 @@
         "name": "irix",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ],
         "then": {
@@ -359,6 +383,10 @@
         "name": "addon-mipspro",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ],
         "then": {
@@ -393,6 +421,10 @@
         "name": "addon-rad4",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ],
         "then": {
@@ -418,6 +450,10 @@
         "name": "addons",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ],
         "then": {
@@ -574,6 +610,10 @@
         "name": "irix",
         "post_install": [
           "chkconfig -f autoconfig_ipaddress on",
+          "echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset",
+          "echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset",
+          "echo 'case \"$1\" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset",
+          "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
           "nvram AutoLoad Yes"
         ]
       }

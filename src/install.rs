@@ -182,7 +182,25 @@ const ALL_ADDONS_SCRIPT: &str = "addons";
 /// it boots with a lease and gets no answer, as on the installation network.
 /// The PROM waits at its System Maintenance Menu unless AutoLoad is set,
 /// and installation leaves it unset; the machine keeps the setting in NVRAM.
-const POST_INSTALL: &[&str] = &["chkconfig -f autoconfig_ipaddress on", "nvram AutoLoad Yes"];
+///
+/// The middle four commands install a boot script that removes proclaim's
+/// cached lease before proclaim starts. At boot proclaim asks to keep its
+/// last address. On another network the DHCP server refuses, and proclaim
+/// then rejects every offer from a server other than the one its lease
+/// names, so it keeps the old address and the guest is cut off after
+/// `network-set`. Without the lease it takes the refusal and leases anew;
+/// on the same network it is given the address it asked for. rc2 runs
+/// S30proclaim-reset after S30network and before S31proclaim. Each command
+/// is short enough to type at `Inst>` on the console, whose lines hold 256
+/// bytes.
+const POST_INSTALL: &[&str] = &[
+    "chkconfig -f autoconfig_ipaddress on",
+    r#"echo '# Installed by Origami. proclaim takes offers only from the DHCP server its lease names,' > /etc/init.d/proclaim-reset"#,
+    r#"echo '# so forget the lease before S31proclaim and let it ask the network the machine is on now.' >> /etc/init.d/proclaim-reset"#,
+    r#"echo 'case "$1" in start) rm -f /var/adm/proclaim.lease_info* ;; esac' >> /etc/init.d/proclaim-reset"#,
+    "chmod 755 /etc/init.d/proclaim-reset && ln -sf ../init.d/proclaim-reset /etc/rc2.d/S30proclaim-reset",
+    "nvram AutoLoad Yes",
+];
 /// Instigator's post-install file prints this once every command succeeded.
 const POST_INSTALL_DONE: &[u8] = b"instigator: post-install commands finished";
 /// inst prints this for a failing command and skips the rest of the file.
@@ -1362,10 +1380,7 @@ mod tests {
             ("admin source 10.98.0.2:/irix.cmds\n".to_string(), 2)
         );
         for script in [irix, script, all] {
-            assert_eq!(
-                script["post_install"],
-                json!(["chkconfig -f autoconfig_ipaddress on", "nvram AutoLoad Yes"])
-            );
+            assert_eq!(script["post_install"], json!(POST_INSTALL));
         }
         let mut invalid = media.clone();
         invalid.addons[0].install = vec!["tablet.sw.helper\nquit".into()];
@@ -1889,6 +1904,14 @@ mod tests {
             fs::write(&path, &text).unwrap();
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    }
+
+    #[test]
+    fn post_install_commands_fit_a_console_line() {
+        for command in POST_INSTALL {
+            assert!(!command.contains('\n'), "{command}");
+            assert!("shroot ".len() + command.len() < 256, "{command}");
+        }
     }
 
     #[test]

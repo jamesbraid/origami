@@ -31,6 +31,9 @@ Every machine's `hinv` is in the [gallery](https://github.com/jamesbraid/origami
 - Fixed:
   - An installed system is named after its machine directory, not IRIS.
   - Remote installs retry transient download errors instead of stopping.
+  - After `network-set`, an installed system takes the new network's
+    address instead of keeping the last one. Systems installed by an
+    earlier release need a boot script from the user guide.
 - Installs include the NFS client.
 - QEMU updated to cf2948f095. Instigator updated to 0.5.0.
 
