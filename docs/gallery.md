@@ -54,12 +54,10 @@ The Onyx 3000 has a V-brick with one VPro V12 pipe.
 ![Onyx 3000 V12 desktop with hinv](images/gallery/onyx3000-vpro-hinv.png)
 
 The Onyx 3400 takes up to four InfiniteReality3 pipes in two G-bricks
-(`--graphics-pipes 4`). Each pipe is a separate X screen and its own console:
+(`--graphics-pipes 4`). Each pipe is a separate X screen and its own console;
+here are all four, one per quadrant:
 
-![Onyx 3400 pipe 0](images/gallery/onyx3400-pipe0.png)
-![Onyx 3400 pipe 1](images/gallery/onyx3400-pipe1.png)
-![Onyx 3400 pipe 2](images/gallery/onyx3400-pipe2.png)
-![Onyx 3400 pipe 3](images/gallery/onyx3400-pipe3.png)
+![Onyx 3400 with four pipes, one per quadrant](images/gallery/onyx3400-quad-pipe.png)
 
 After `ircombine` stores a two-channel combination, the two heads of a pipe are
 one 2560x1024 desktop. This is pipe 0 with `hinv` and `gfxinfo`, both heads side
