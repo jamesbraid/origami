@@ -13,6 +13,10 @@ desktop on every pipe, and one pipe's two heads join into a 2560x1024 desktop.
     Graphics board: InfiniteReality3
     Graphics board: InfiniteReality3
 
+<img src="https://raw.githubusercontent.com/jamesbraid/origami/v0.5.1/docs/images/gallery/onyx3400-dual-head.png" alt="Onyx 3400 2560x1024 desktop across both DG5-2 heads" width="800">
+
+<img src="https://raw.githubusercontent.com/jamesbraid/origami/v0.5.1/docs/images/gallery/onyx3000-vpro-hinv.png" alt="Onyx 3000 VPro V12 desktop with hinv" width="400"> <img src="https://raw.githubusercontent.com/jamesbraid/origami/v0.5.1/docs/images/gallery/onyx3400-pipe0.png" alt="Onyx 3400 InfiniteReality3 pipe 0 desktop" width="400">
+
 The [gallery](https://github.com/jamesbraid/origami/blob/v0.5.1/docs/gallery.md)
 has a shot of each pipe and of the dual-head desktop.
 
