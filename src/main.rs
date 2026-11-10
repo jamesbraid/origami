@@ -107,7 +107,11 @@ fn command(action: Action) -> Result<()> {
                 Some(notes) => {
                     println!("upgraded {}", dir.display());
                     for note in notes {
-                        println!("note: {note}; the guest sees this at its next boot");
+                        if origami::migrate::is_bookkeeping(&note) {
+                            println!("note: {note}");
+                        } else {
+                            println!("note: {note}; the guest sees this at its next boot");
+                        }
                     }
                 }
                 None => println!("{} is current; it needs no upgrade", dir.display()),

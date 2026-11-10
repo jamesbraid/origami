@@ -941,8 +941,8 @@ mod tests {
             ),
             (
                 "origin2000-rack",
-                request(Some("si"), Some("io9"), &[]),
-                "has no graphics slot io9",
+                request(Some("si"), Some("io1"), &[]),
+                "has no graphics slot io1",
             ),
             (
                 "onyx2-rack",

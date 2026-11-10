@@ -1,4 +1,4 @@
-use crate::{Machines, Result};
+use crate::{Machines, Result, MACHINES_VERSION};
 use std::io::BufReader;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -34,14 +34,29 @@ pub fn load(qemu: &Path) -> Result<Machines> {
     drop(qmp);
     let _ = child.kill();
     let output = child.wait_with_output()?;
-    reply.map_err(|error| {
+    let machines = reply.map_err(|error| {
         format!(
             "cannot read the machine list from {}: {error} {}",
             qemu.display(),
             String::from_utf8_lossy(&output.stderr).trim()
         )
-        .into()
-    })
+    })?;
+    check_version(machines, qemu)
+}
+
+/// Refuse a machine list of another version: this Origami reads only the
+/// version it was built with.
+pub fn check_version(machines: Machines, qemu: &Path) -> Result<Machines> {
+    if machines.version == MACHINES_VERSION {
+        return Ok(machines);
+    }
+    Err(format!(
+        "{} reports machine list version {}, but this Origami reads version {MACHINES_VERSION}; \
+         use the QEMU it was built with",
+        qemu.display(),
+        machines.version
+    )
+    .into())
 }
 
 #[derive(serde::Serialize)]

@@ -196,8 +196,7 @@ fn generate_from(
 }
 
 /// The MAC a new machine in `dir` gets: the one asked for, refused when a
-/// neighbour has it, else a generated one. A machine that takes no MAC gets
-/// none.
+/// neighbour has it, else a generated one.
 pub fn assign(
     machines: &Machines,
     dir: &Path,
@@ -207,9 +206,6 @@ pub fn assign(
     if let Some(mac) = requested {
         check_free(machines, dir, Some(offering), mac)?;
         return Ok(Some(mac.to_ascii_lowercase()));
-    }
-    if !crate::profiles::takes_mac(offering) {
-        return Ok(None);
     }
     generate(offering, &claims(machines, dir)).map(Some)
 }

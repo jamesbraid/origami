@@ -22,14 +22,18 @@ const NAMES: &[(&str, &str)] = &[
     ("origin300", "Origin 300"),
     ("origin3200", "Origin 3200"),
     ("origin3400", "Origin 3400"),
-    ("origin3900", "Origin 3900"),
-    ("onyx350-compat", "Onyx 350"),
+    ("origin3900-ip53", "Origin 3900"),
+    ("origin3900-ip59", "Origin 3900 IP59"),
+    ("onyx350-ip53", "Onyx 350"),
+    ("onyx350-ip59", "Onyx 350 IP59"),
     ("onyx3000", "Onyx 3000"),
     ("onyx3400-ir", "Onyx 3400"),
     ("octane", "Octane"),
     ("octane2", "Octane2"),
     ("fuel", "Fuel"),
-    ("tezro-tower-multi", "Tezro"),
+    ("tezro-ip53", "Tezro"),
+    ("tezro-ip59", "Tezro IP59"),
+    ("tezro-one-processor", "Tezro"),
 ];
 
 pub(crate) fn machine_name(topology: &str) -> &str {
@@ -228,6 +232,40 @@ fn settings(record: &graphics::Graphics, product: &Product) -> String {
         .join(", ")
 }
 
+/// What each setting of `offering` takes, one line each: the kind of value,
+/// the slots a list has, and the default with how well it is known.
+fn setting_lines(machines: &Machines, offering: &Offering) -> Vec<String> {
+    offering
+        .settings
+        .iter()
+        .map(|setting| {
+            let definition = machines
+                .setting_definitions
+                .iter()
+                .find(|definition| definition.name == setting.name);
+            let kind = definition.map_or("value".to_string(), |definition| match definition.kind {
+                crate::settings::Kind::Enum => definition.values.join("|"),
+                kind => format!("{kind:?}").to_ascii_lowercase(),
+            });
+            let mut line = format!("{} ({kind})", setting.name);
+            if let Some(slots) = &setting.slots {
+                line.push_str(&format!(" slots {}", slots.keys.join(" ")));
+            }
+            if !setting.choices.is_empty() {
+                let names: Vec<_> = setting.choices.iter().map(|c| c.name.as_str()).collect();
+                line.push_str(&format!(" names {}", names.join(" ")));
+            }
+            match (&setting.default, &setting.default_provenance) {
+                (Some(value), Some(how)) => line.push_str(&format!(", default {value} ({how})")),
+                (Some(value), None) => line.push_str(&format!(", default {value}")),
+                (None, _) if setting.required => line.push_str(", required"),
+                (None, _) => (),
+            }
+            line
+        })
+        .collect()
+}
+
 /// One preset: its defaults, the graphics it takes and refuses, and the
 /// processor modules it offers.
 pub fn detail(machines: &Machines, name: &str) -> Result<String> {
@@ -321,6 +359,15 @@ fn detail_of(machines: &Machines, name: &str, offering: &Offering) -> Result<Str
         }
     }
 
+    let settings = setting_lines(machines, offering);
+    if !settings.is_empty() {
+        out.push_str("\nSettings (create --set NAME[.SLOT]=VALUE):\n");
+        for line in settings {
+            out.push_str(&wrap(&format!("  {line}"), 4));
+            out.push('\n');
+        }
+    }
+
     let modules = crate::profiles::processor_options(machines, &offering.topology);
     if !modules.is_empty() {
         let ids: Vec<_> = modules
@@ -358,15 +405,28 @@ mod tests {
         assert_eq!(
             table(&crate::test_machines()).unwrap(),
             "\
-PRESET                       MACHINE           CPUS  GRAPHICS
-origin200-1                  Origin 200           1  none
-origin2000-8                 Origin 2000 rack     8  none
-onyx2-rack-infinite-reality  Onyx2 rack           1  InfiniteReality3
-origin3200                   Origin 3200          8  none
-onyx350-vpro                 Onyx 350             4  VPro V12
-onyx3400-infinite-reality    Onyx 3400           16  InfiniteReality3
-octane-impact                Octane               1  SI
-fuel-1                       Fuel                 1  VPro V12
+PRESET                       MACHINE               CPUS  GRAPHICS
+origin200-1                  Origin 200               1  none
+origin200-2                  Origin 200               2  none
+origin200-rad4               Origin 200               2  RAD4
+origin200-dual               Origin 200 dual          4  none
+origin200-impact             Origin 200               1  SI (GIGAchannel)
+origin2000-impact            Origin 2000 deskside     2  SI
+origin2000-8                 Origin 2000 rack         8  none
+onyx2-infinite-reality       Onyx2 deskside           4  InfiniteReality2
+onyx2-rack-infinite-reality  Onyx2 rack               1  InfiniteReality3
+origin300-2                  Origin 300               2  none
+origin3200                   Origin 3200              8  none
+origin3400                   Origin 3400             16  none
+origin3900                   Origin 3900             16  none
+onyx350                      Onyx 350                 4  VPro V12
+onyx3000-vpro                Onyx 3000                8  VPro V12
+onyx3400-infinite-reality    Onyx 3400               16  InfiniteReality3
+octane-impact                Octane                   1  SI
+octane2-impact               Octane2                  1  SI
+octane2-vpro                 Octane2                  1  VPro V12
+fuel-1                       Fuel                     1  VPro V12
+tezro                        Tezro                    4  VPro V12
 
 Everything here is experimental.
 Details and graphics choices: origami machines PRESET
@@ -383,16 +443,27 @@ Details and graphics choices: origami machines PRESET
 octane-impact: Octane, 1 CPU, 128 MiB per node, SI in widget-11
 
 Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
-  si    Solid IMPACT (SI) (default)
-  esi   ESI
+  si     Solid IMPACT (SI) (default)
+  si-t   SI with texture
+  ssi    SSI
+  mxi    MXI
+  esi    ESI
+  esi-t  ESI with texture
+  essi   ESSI
+  emxi   EMXI
   none
 
-Slots: widget-11, widget-9
+Slots: widget-11, widget-9, widget-10, widget-12
 
 Not offered:
   VPro: VPro V12 needs Crossbow 1.4, the ER power supply 060-0035-00x and PROM
     4.5 (007-4210-003), and this Octane presents Crossbow revision code 4 and
     the SR supply
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  flash-select (boolean), default off (approximated)
+  flash-strap (boolean), default off (approximated)
+  prid (integer), default 0x927 (inferred)
 "
         );
         // An Origin 200 takes a processor module and is headless by default.

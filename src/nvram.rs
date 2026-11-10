@@ -38,12 +38,16 @@ const BASEIO_TOPOLOGIES: &[&str] = &[
     "origin300",
     "origin3200",
     "origin3400",
-    "origin3900",
+    "origin3900-ip53",
+    "origin3900-ip59",
     "onyx3000",
     "onyx3400-ir",
     "fuel",
-    "onyx350-compat",
-    "tezro-tower-multi",
+    "onyx350-ip53",
+    "onyx350-ip59",
+    "tezro-ip53",
+    "tezro-ip59",
+    "tezro-one-processor",
 ];
 const OCTANE_TOPOLOGIES: &[&str] = &["octane", "octane2"];
 

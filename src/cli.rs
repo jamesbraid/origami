@@ -320,18 +320,19 @@ impl GraphicsArgs {
 #[derive(Debug, Default, Args)]
 #[command(next_help_heading = "Hardware options")]
 pub struct HardwareArgs {
-    /// Override a machine list value or set a machine input, such as
-    /// board-id-word=0x4000 or r12000-prid=0xe24; repeatable
-    #[arg(long = "set", value_name = "PROPERTY=VALUE", value_parser = parse_setting)]
+    /// Give a machine input its preset takes, such as board-id-word=0x4000,
+    /// prid=0xe24 or, for a list, chassis-eeprom.0=FILE; repeatable.
+    /// origami machines PRESET lists them
+    #[arg(long = "set", value_name = "NAME[.SLOT]=VALUE", value_parser = parse_setting)]
     pub settings: Vec<(String, String)>,
 }
 
 fn parse_setting(text: &str) -> Result<(String, String), String> {
     let (key, value) = text
         .split_once('=')
-        .ok_or_else(|| format!("expected PROPERTY=VALUE, got {text}"))?;
+        .ok_or_else(|| format!("expected NAME=VALUE, got {text}"))?;
     if key.is_empty() {
-        return Err(format!("expected PROPERTY=VALUE, got {text}"));
+        return Err(format!("expected NAME=VALUE, got {text}"));
     }
     Ok((key.into(), value.into()))
 }

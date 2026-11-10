@@ -16,6 +16,7 @@ pub mod migrate;
 pub mod nvram;
 pub mod profiles;
 pub mod runtime;
+pub mod settings;
 pub mod shares;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -27,10 +28,20 @@ pub const MACHINE_FORMAT: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Machines {
+    /// The catalogue's schema version; this Origami reads [`MACHINES_VERSION`].
+    #[serde(default)]
+    pub version: u32,
     pub offerings: Vec<Offering>,
     #[serde(default)]
     pub topologies: Vec<Topology>,
+    /// What each setting an offering lists is, written once.
+    #[serde(rename = "setting-definitions", default)]
+    pub setting_definitions: Vec<settings::Definition>,
 }
+
+/// The machine list version this Origami reads. Version 3 names every
+/// topology uniquely and gives every offering an id and its settings.
+pub const MACHINES_VERSION: u32 = 3;
 
 /// A topology in the machine list, read for the processor modules and
 /// graphics pipes it offers.
@@ -62,6 +73,8 @@ pub struct ProcessorAssembly {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Offering {
+    /// Unique in the machine list: `TOPOLOGY.POPULATION[.PROCESSOR]`.
+    pub id: String,
     pub product: String,
     pub topology: String,
     pub nodes: u32,
@@ -83,16 +96,17 @@ pub struct Offering {
     pub scsi_adapters: Vec<ScsiAdapter>,
     #[serde(rename = "needs-debug-leds-off", default)]
     pub needs_debug_leds_off: bool,
-    /// Machine options this offering accepts beyond its storage.
-    #[serde(rename = "hardware-inputs")]
-    pub hardware_inputs: Vec<InputBinding>,
-    /// Values a launch may override, and where each is set.
-    pub overrides: Vec<Override>,
+    /// The machine inputs a launch may give with `--set`, each defined in
+    /// the machine list's `setting-definitions`.
+    #[serde(default)]
+    pub settings: Vec<settings::OfferingSetting>,
+    /// Settings that go together.
+    #[serde(rename = "setting-groups", default)]
+    pub setting_groups: Vec<settings::Group>,
     /// Serial lines in -serial order; the line of kind `console` is the
     /// primary console.
     pub consoles: Vec<Console>,
-    /// The onboard Ethernets. A QEMU older than the catalogue's NIC fields
-    /// lists only each one's kind, and older still lists none.
+    /// The onboard Ethernets.
     #[serde(default)]
     pub networks: Vec<NetworkAdapter>,
 }
@@ -225,19 +239,6 @@ impl std::fmt::Display for Processor {
             self.cache_mib
         )
     }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct Override {
-    pub property: String,
-    /// `machine` for a -M property, `cpu` for a -cpu property.
-    pub target: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct InputBinding {
-    pub option: String,
-    pub required: bool,
 }
 
 /// A serial line the machine offers, named by the chardev its argument uses.
@@ -473,6 +474,20 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
         )
         .into());
     }
+    // A machine made against the version 2 machine list stored a node board,
+    // which version 3 folds into the topology name.
+    let stored_board = toml::from_str::<toml::Table>(&text)
+        .ok()
+        .and_then(|table| table.get("machine")?.get("board").cloned());
+    if stored_board.is_some() {
+        return Err(format!(
+            "{} stores a node board, which the machine list no longer takes apart from the \
+             topology; upgrade it once with origami upgrade {}",
+            path.display(),
+            dir.display()
+        )
+        .into());
+    }
     toml::from_str(&text).map_err(|error| {
         format!("invalid machine configuration {}: {error}", path.display()).into()
     })
@@ -558,27 +573,31 @@ pub fn offering<'a>(machines: &'a Machines, machine: &Machine) -> Result<&'a Off
     if let Some(id) = &machine.processor {
         profiles::processor_option(machines, topology, id)?;
     }
-    machines
-        .offerings
-        .iter()
-        .find(|o| {
-            o.product == machine.model
-                && o.nodes == machine.nodes
-                && machine.topology.as_ref() == Some(&o.topology)
-                && o.cpus_per_node == profiles::population(machine)
-                && match &machine.processor {
-                    Some(id) => &o.processor.id == id,
-                    None => profiles::fits_default_processor(machines, o),
-                }
-        })
-        .ok_or_else(|| match &machine.processor {
-            Some(id) => format!(
-                "{topology} does not offer {id} with {:?} CPUs per node",
-                profiles::population(machine)
-            )
-            .into(),
-            None => "unsupported machine and processor population".into(),
-        })
+    let found = machines.offerings.iter().find(|o| {
+        o.product == machine.model
+            && o.nodes == machine.nodes
+            && machine.topology.as_ref() == Some(&o.topology)
+            && o.cpus_per_node == profiles::population(machine)
+            && match &machine.processor {
+                Some(id) => &o.processor.id == id,
+                None => profiles::fits_default_processor(machines, o),
+            }
+    });
+    if let Some(offering) = found {
+        return Ok(offering);
+    }
+    // A topology this QEMU no longer lists was renamed or removed.
+    if !machines.offerings.iter().any(|o| o.topology == topology) {
+        return Err(migrate::unlisted_topology(topology).into());
+    }
+    Err(match &machine.processor {
+        Some(id) => format!(
+            "{topology} does not offer {id} with {:?} CPUs per node",
+            profiles::population(machine)
+        ),
+        None => "unsupported machine and processor population".into(),
+    }
+    .into())
 }
 
 /// Refuse `memory` MiB per node unless `offering` accepts it.
@@ -667,7 +686,7 @@ pub fn validate<'a>(
     let offering = offering(machines, &file.machine)?;
     check_memory(offering, memory)?;
     graphics::validate(machines, &offering.topology, offering.nodes, &file.pipe)?;
-    profiles::validate_inputs(offering, &file.machine.inputs)?;
+    settings::validate(machines, offering, &file.machine.inputs)?;
     runtime::console_line(offering, file.machine.console.as_deref())?;
     validate_network(file)?;
     runtime::check_extra_args(&file.qemu.extra_args)?;
@@ -704,9 +723,6 @@ pub fn validate<'a>(
     if let Some(identity) = &file.identity {
         if !valid_mac(&identity.mac) {
             return Err("identity MAC must contain six hexadecimal bytes".into());
-        }
-        if !profiles::takes_mac(offering) {
-            return Err(format!("{} takes no machine MAC", offering.topology).into());
         }
         // An older machine may hold an address its PROM refuses. Say so,
         // rather than change the identity an installed guest knows.
@@ -770,9 +786,6 @@ pub fn validate_create_inputs(
     }
     if mac.is_some_and(|mac| !valid_mac(mac)) {
         return Err("--mac must contain six hexadecimal bytes".into());
-    }
-    if mac.is_some() && !profiles::takes_mac(offering) {
-        return Err(format!("{} takes no machine MAC", offering.topology).into());
     }
     if let Some(mac) = mac {
         check_mac(offering, mac)?;
@@ -989,7 +1002,7 @@ mod tests {
     #[test]
     fn the_machine_list_gives_the_mac_prefix_and_property() {
         let machines = test_machines();
-        let mut offer = preset(&machines, "onyx350-vpro").unwrap().clone();
+        let mut offer = preset(&machines, "onyx350").unwrap().clone();
         assert_eq!(offer.mac_prefix(), "08:00:69");
         assert_eq!(offer.mac_property(), "mac");
         // A required prefix wins over the default address's.
@@ -1019,7 +1032,7 @@ mod tests {
     fn every_machine_refuses_a_non_sgi_address() {
         let machines = test_machines();
         let absent = Path::new("/nonexistent/origami-mac-prefix");
-        let onyx = preset(&machines, "onyx350-vpro").unwrap();
+        let onyx = preset(&machines, "onyx350").unwrap();
         let origin = preset(&machines, "origin200-1").unwrap();
         for (offer, name) in [(onyx, "Onyx 350"), (origin, "Origin 200")] {
             let error = validate_create_inputs(absent, offer, None, Some("52:54:00:12:34:56"))

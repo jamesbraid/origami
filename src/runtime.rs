@@ -320,16 +320,10 @@ pub fn arguments_with(
             .join(":");
         machine.push_str(&format!(",population={population}"));
     }
-    crate::profiles::validate_inputs(offering, &file.machine.inputs)?;
-    let mut cpu = offering.cpu.clone();
-    for (key, value) in &file.machine.inputs {
-        let target = if crate::profiles::input_target(offering, key) == Some("cpu") {
-            &mut cpu
-        } else {
-            &mut machine
-        };
-        target.push_str(&format!(",{key}={value}"));
-    }
+    crate::settings::validate(machines, offering, &file.machine.inputs)?;
+    let inputs = crate::settings::render(machines, offering, &file.machine.inputs)?;
+    machine.push_str(&inputs.machine);
+    let cpu = format!("{}{}", offering.cpu, inputs.cpu);
     if let Some(identity) = &file.identity {
         machine.push_str(&format!(",{}={}", offering.mac_property(), identity.mac));
     }
@@ -405,6 +399,9 @@ pub fn arguments_with(
         Display::None => args.extend(["-display".into(), "none".into()]),
     }
     args.extend(["-audio".into(), "none".into()]);
+    for global in &inputs.globals {
+        args.extend(["-global".into(), global.clone()]);
+    }
     args.extend(crate::graphics::arguments(
         machines,
         &offering.topology,
@@ -1294,7 +1291,12 @@ mod tests {
     fn every_network_mode_binds_the_machine_lists_default_nic() {
         let machines = crate::test_machines();
         let nic = |name: &str, mode: &str| {
-            let offer = preset(&machines, name).unwrap();
+            let mut offer = preset(&machines, name).unwrap().clone();
+            // A machine list naming no model: bind the first onboard NIC.
+            if name == "origin2000-8" {
+                offer.networks.iter_mut().for_each(|n| n.nic_model = None);
+            }
+            let offer = &offer;
             let mut file = machine(offer);
             file.identity = Some(crate::Identity {
                 mac: "08:00:69:12:34:56".into(),
@@ -1320,7 +1322,7 @@ mod tests {
             args.windows(2).find(|pair| pair[0] == "-net").unwrap()[1].clone()
         };
         for mode in ["user", "private"] {
-            assert_eq!(nic("onyx350-vpro", mode), "nic,model=bcm570x,netdev=net0");
+            assert_eq!(nic("onyx350", mode), "nic,model=bcm570x,netdev=net0");
             assert_eq!(
                 nic("origin200-1", mode),
                 "nic,model=sgi-ioc3-eth,netdev=net0"
@@ -1329,7 +1331,6 @@ mod tests {
                 nic("octane-impact", mode),
                 "nic,model=sgi-ioc3-eth,netdev=net0"
             );
-            // A machine list naming no model: bind the first onboard NIC.
             assert_eq!(nic("origin2000-8", mode), "nic,netdev=net0");
         }
     }

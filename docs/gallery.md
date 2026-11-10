@@ -18,12 +18,12 @@ running `hinv` for the graphics machines, and `hinv -v` for the servers.
 ![Fuel PROM menu](images/gallery/fuel-1-prom.png)
 ![Fuel desktop with hinv](images/gallery/fuel-1-hinv.png)
 
-## Tezro (`tezro-vpro`)
+## Tezro (`tezro`)
 
 ![Tezro PROM menu](images/gallery/tezro-vpro-prom.png)
 ![Tezro desktop with hinv](images/gallery/tezro-vpro-hinv.png)
 
-## Onyx 350 (`onyx350-vpro`)
+## Onyx 350 (`onyx350`)
 
 ![Onyx 350 PROM menu](images/gallery/onyx350-vpro-prom.png)
 ![Onyx 350 desktop with hinv](images/gallery/onyx350-vpro-hinv.png)

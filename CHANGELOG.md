@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+- Changed:
+  - Presets `tezro-vpro` and `onyx350-vpro` are now `tezro` and `onyx350`.
+  - `--set` takes the inputs the preset lists as settings, each checked for
+    its kind of value. A list takes a slot, as in `--set chassis-eeprom.0=FILE`.
+    `origami machines PRESET` lists them. A CPU input is `prid` or `fpu-id`
+    instead of one name for each CPU part. `l2-controller`, which binds the
+    Origin 3200 and Onyx 3200 rack L2 links to a companion process, is listed
+    but refused: the CLI starts no such process.
+  - `--processor` also picks the clock of an Origin 3200, 3400 or Onyx 3000.
+  - `origami upgrade` moves a machine made by 0.5.1 to QEMU's topology names,
+    one for each node board: `tezro-tower-multi` is `tezro-ip53`,
+    `onyx350-compat` is `onyx350-ip53`, and the Origin 3000 clock topologies
+    are processor modules. State is kept. An Onyx 4 host made by 0.5.1 cannot
+    be upgraded: QEMU now builds it only on the IP59 node board.
+  - The Origin 3000, Onyx 3000 and Origin 300 NUMAlink expansion take their
+    onboard Ethernet address from the machine's, where they all used
+    08:00:69:12:34:56.
+- QEMU updated to 11169497b07, which reports machine list version 3. An older
+  QEMU is refused.
+
 ## 0.5.1
 
 Big iron graphics. The Onyx 3000 with its V-brick VPro V12 and the Onyx 3400

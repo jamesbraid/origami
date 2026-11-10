@@ -11,8 +11,8 @@ pub fn population(machine: &Machine) -> Vec<u32> {
 
 pub struct Profile {
     pub id: &'static str,
-    pub topology: &'static str,
-    pub population: &'static [u32],
+    /// The machine list's id of the offering the preset creates.
+    pub offering: &'static str,
     /// The graphics product a machine gets unless `create --graphics` names
     /// another; None for the topology's catalogue default, which is no
     /// graphics where it has no default pipe.
@@ -23,85 +23,87 @@ pub struct Profile {
 
 const fn profile(
     id: &'static str,
-    topology: &'static str,
-    population: &'static [u32],
+    offering: &'static str,
     graphics: Option<&'static str>,
     slot: Option<&'static str>,
 ) -> Profile {
     Profile {
         id,
-        topology,
-        population,
+        offering,
         graphics,
         slot,
     }
 }
 
 pub const STARTERS: &[Profile] = &[
-    profile("origin200-1", "origin200", &[1], None, None),
-    profile("origin200-2", "origin200", &[2], None, None),
-    profile("origin200-dual", "origin200-dual", &[2, 2], None, None),
+    profile("origin200-1", "origin200.1.r10000-180mhz-1mb", None, None),
+    profile("origin200-2", "origin200.2.r10000-180mhz-1mb", None, None),
+    profile(
+        "origin200-dual",
+        "origin200-dual.2-2.r10000-180mhz-1mb",
+        None,
+        None,
+    ),
     // The two-CPU Origin 200 desktop, set up for a RAD4 install.
-    profile("origin200-rad4", "origin200", &[2], Some("rad4"), None),
-    profile("origin2000-8", "origin2000-rack", &[2, 2, 2, 2], None, None),
+    profile(
+        "origin200-rad4",
+        "origin200.2.r10000-180mhz-1mb",
+        Some("rad4"),
+        None,
+    ),
+    profile("origin2000-8", "origin2000-rack.2-2-2-2", None, None),
     // io3, where Origin 2000 IMPACT boards were captured and the IRIX
     // graphics disks were installed.
     profile(
         "origin2000-impact",
-        "origin2000-deskside",
-        &[2],
+        "origin2000-deskside.2",
         Some("si"),
         Some("io3"),
     ),
-    profile("origin300-2", "origin300", &[2], None, None),
-    profile("origin3200", "origin3200", &[4, 4], None, None),
-    profile("origin3400", "origin3400", &[4, 4, 4, 4], None, None),
-    profile("origin3900", "origin3900", &[4, 4, 4, 4], None, None),
+    profile("origin300-2", "origin300.2", None, None),
+    profile("origin3200", "origin3200.4-4.r12000-400mhz-8mb", None, None),
+    profile(
+        "origin3400",
+        "origin3400.4-4-4-4.r12000-400mhz-8mb",
+        None,
+        None,
+    ),
+    profile("origin3900", "origin3900-ip53.4-4-4-4", None, None),
     profile(
         "origin200-impact",
-        "origin200-gigachannel",
-        &[1],
+        "origin200-gigachannel.1.r10000-180mhz-1mb",
         Some("si"),
         None,
     ),
-    profile("octane-impact", "octane", &[1], Some("si"), None),
-    profile("octane2-impact", "octane2", &[1], Some("si"), None),
-    profile("octane2-vpro", "octane2", &[1], None, None),
-    profile(
-        "onyx2-infinite-reality",
-        "onyx2-deskside",
-        &[2, 2],
-        None,
-        None,
-    ),
+    profile("octane-impact", "octane.1", Some("si"), None),
+    profile("octane2-impact", "octane2.1", Some("si"), None),
+    profile("octane2-vpro", "octane2.1", None, None),
+    profile("onyx2-infinite-reality", "onyx2-deskside.2-2", None, None),
     // One node with its rack graphics module: the default InfiniteReality3.
+    profile("onyx2-rack-infinite-reality", "onyx2-rack.1", None, None),
+    profile("fuel-1", "fuel.1", None, None),
+    // The captured Onyx 350 module: four CPUs and its VPro at widget 12.
+    profile("onyx350", "onyx350-ip53.4", Some("v12"), None),
+    // Two C-bricks, an I-brick and the V-brick's VPro V12, its only pipe.
     profile(
-        "onyx2-rack-infinite-reality",
-        "onyx2-rack",
-        &[1],
+        "onyx3000-vpro",
+        "onyx3000.4-4.r12000-400mhz-8mb",
         None,
         None,
     ),
-    profile("fuel-1", "fuel", &[1], None, None),
-    // The captured Onyx 350 module: four CPUs and its VPro at widget 12.
-    profile("onyx350-vpro", "onyx350-compat", &[4], Some("v12"), None),
-    // Two C-bricks, an I-brick and the V-brick's VPro V12, its only pipe.
-    profile("onyx3000-vpro", "onyx3000", &[4, 4], None, None),
     // Four C-bricks and the fitted G-brick pipe's InfiniteReality3, on the
     // DG5-2 display generator. The topology fits one pipe of its four cabled.
     profile(
         "onyx3400-infinite-reality",
-        "onyx3400-ir",
-        &[4, 4, 4, 4],
+        "onyx3400-ir.4-4-4-4",
         None,
         None,
     ),
     // A four-CPU Tezro tower. Its topology has no default pipe, so the
     // preset names the V12 and the PIC widget it sits on.
     profile(
-        "tezro-vpro",
-        "tezro-tower-multi",
-        &[4],
+        "tezro",
+        "tezro-ip53.4.r16000-700mhz-4mb",
         Some("v12"),
         Some("widget-12"),
     ),
@@ -114,11 +116,7 @@ pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
             machines
                 .offerings
                 .iter()
-                .find(|o| {
-                    o.topology == profile.topology
-                        && o.cpus_per_node == profile.population
-                        && fits_default_processor(machines, o)
-                })
+                .find(|o| o.id == profile.offering)
                 .map(|o| (profile.id.to_string(), o))
         })
         .collect()
@@ -263,74 +261,6 @@ pub fn graphics_request<'a>(
     }
 }
 
-/// Where a launch input is set: `machine` (-M) or `cpu` (-cpu). The
-/// machine list's overrides name the values a launch may replace, and its
-/// hardware inputs the further options a configuration binds.
-pub fn input_target<'a>(offering: &'a Offering, key: &str) -> Option<&'a str> {
-    if let Some(item) = offering.overrides.iter().find(|o| o.property == key) {
-        return Some(&item.target);
-    }
-    offering
-        .hardware_inputs
-        .iter()
-        .any(|input| input.option == key)
-        .then_some("machine")
-}
-
-pub fn validate_inputs(offering: &Offering, inputs: &BTreeMap<String, String>) -> Result<()> {
-    for input in offering.hardware_inputs.iter().filter(|i| i.required) {
-        if !inputs.contains_key(&input.option) {
-            return Err(format!(
-                "{} requires --set {}=VALUE",
-                offering.topology, input.option
-            )
-            .into());
-        }
-    }
-    for (key, value) in inputs {
-        // The machine MAC is the identity's, so it has one source.
-        if key == "mac" {
-            return Err("set the machine MAC with --mac".into());
-        }
-        match input_target(offering, key) {
-            Some("machine" | "cpu") => (),
-            Some(target) => {
-                return Err(format!("{key} has unsupported override target {target}").into())
-            }
-            None => {
-                let mut names: Vec<_> = offering
-                    .overrides
-                    .iter()
-                    .map(|o| o.property.as_str())
-                    .chain(offering.hardware_inputs.iter().map(|i| i.option.as_str()))
-                    .filter(|name| *name != "mac")
-                    .collect();
-                names.sort();
-                return Err(format!(
-                    "{} does not take {key}; it takes {}",
-                    offering.topology,
-                    names.join(", ")
-                )
-                .into());
-            }
-        }
-        // Values are QEMU's to judge, but must stay one option value.
-        if value.is_empty()
-            || value
-                .chars()
-                .any(|c| c == ',' || c == '=' || c.is_whitespace())
-        {
-            return Err(format!("invalid {key} value: {value:?}").into());
-        }
-    }
-    Ok(())
-}
-
-/// Whether the offering's machine takes a `mac` property.
-pub fn takes_mac(offering: &Offering) -> bool {
-    input_target(offering, "mac") == Some("machine")
-}
-
 /// Whether the machine takes its keyboard and mouse over USB alone, so a
 /// launch has to attach them. The machine list names no input devices, so
 /// this keys on the product: an Origin 3000's I-brick has USB ports and no
@@ -369,6 +299,43 @@ mod tests {
     }
 
     #[test]
+    fn presets_name_offerings_on_the_ip53_boards() {
+        let machines = crate::test_machines();
+        for (name, id) in [
+            ("tezro", "tezro-ip53.4.r16000-700mhz-4mb"),
+            ("onyx350", "onyx350-ip53.4"),
+            ("origin3900", "origin3900-ip53.4-4-4-4"),
+        ] {
+            assert_eq!(preset(&machines, name).unwrap().id, id, "{name}");
+        }
+        // Every preset names an offering the machine list has, and no preset
+        // fits an IP59 board or the Onyx 4.
+        assert_eq!(presets(&machines).len(), STARTERS.len());
+        for profile in STARTERS {
+            assert!(
+                !profile.offering.contains("ip59") && !profile.offering.starts_with("onyx4"),
+                "{}",
+                profile.id
+            );
+        }
+        // A machine finds its offering by what it stores, and the IP59 Tezro
+        // is a topology of its own.
+        let tezro = preset(&machines, "tezro").unwrap();
+        let mut f = file(tezro);
+        assert_eq!(crate::offering(&machines, &f.machine).unwrap().id, tezro.id);
+        f.machine.topology = Some("tezro-ip59".into());
+        let on59 = crate::offering(&machines, &f.machine).unwrap();
+        assert_eq!(on59.id, "tezro-ip59.4");
+        assert_eq!(on59.processor.id, "r16000-1000mhz-16mb");
+        // The renamed topology is told where it went.
+        f.machine.topology = Some("tezro".into());
+        let error = crate::offering(&machines, &f.machine)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("tezro-ip53"), "{error}");
+    }
+
+    #[test]
     fn octane_uses_embedded_network_and_no_population() {
         let machines = crate::test_machines();
         let o = preset(&machines, "octane-impact").unwrap();
@@ -393,7 +360,22 @@ mod tests {
     fn heterogeneous_cpu_populations_are_explicit() {
         let machines = crate::test_machines();
         for o in machines.offerings.iter() {
-            let f = file(o);
+            let mut f = file(o);
+            // The O2 requires its board inputs.
+            for setting in o
+                .settings
+                .iter()
+                .filter(|s| s.required && s.default.is_none())
+            {
+                let definition = machines
+                    .setting_definitions
+                    .iter()
+                    .find(|d| d.name == setting.name)
+                    .unwrap();
+                f.machine
+                    .inputs
+                    .insert(setting.name.clone(), definition.values[0].clone());
+            }
             let args = runtime::arguments(
                 &machines,
                 Path::new("/machine"),
@@ -405,7 +387,8 @@ mod tests {
             assert!(args
                 .windows(2)
                 .any(|p| p[0] == "-smp" && p[1] == o.smp.to_string()));
-            if !matches!(o.product.as_str(), "octane" | "octane2") {
+            // The O2 and Octanes have no node count to populate.
+            if !matches!(o.product.as_str(), "o2" | "octane" | "octane2") {
                 let counts = o
                     .cpus_per_node
                     .iter()
@@ -423,8 +406,12 @@ mod tests {
     }
 
     #[test]
-    fn listed_overrides_go_to_their_target() {
+    fn settings_go_to_their_target() {
         let machines = crate::test_machines();
+        let dir = tempfile::tempdir().unwrap();
+        let record = dir.path().join("mac.bin");
+        std::fs::write(&record, [0u8; 512]).unwrap();
+        let record = record.display().to_string();
         let o = preset(&machines, "fuel-1").unwrap();
         let mut f = file(o);
         let option = |args: &[String], name: &str| {
@@ -446,8 +433,8 @@ mod tests {
         f.machine.inputs = [
             ("board-id-word", "0x4000"),
             ("l1-revision", "1.2.3"),
-            ("r14000-prid", "0xf14"),
-            ("fuel-mac-eeprom", "mac.bin"),
+            ("prid", "0xf14"),
+            ("fuel-mac-eeprom", record.as_str()),
         ]
         .into_iter()
         .map(|(k, v)| (k.into(), v.into()))
@@ -463,31 +450,20 @@ mod tests {
         let machine = option(&args, "-M");
         assert!(machine.contains(",board-id-word=0x4000"), "{machine}");
         assert!(machine.contains(",l1-revision=1.2.3"), "{machine}");
-        assert!(machine.contains(",fuel-mac-eeprom=mac.bin"), "{machine}");
-        assert!(!machine.contains("r14000-prid"), "{machine}");
+        assert!(
+            machine.contains(&format!(",fuel-mac-eeprom={record}")),
+            "{machine}"
+        );
+        assert!(!machine.contains("prid"), "{machine}");
         assert_eq!(
             option(&args, "-cpu"),
             format!("{},r14000-prid=0xf14", o.cpu)
         );
 
-        let mut inputs = f.machine.inputs.clone();
-        inputs.insert("fuel-board-id-word".into(), "0x4000".into());
-        let error = validate_inputs(o, &inputs).unwrap_err().to_string();
-        assert!(error.contains("board-id-word, "), "{error}");
-        let mac = [("mac".to_string(), "08:00:69:12:34:56".to_string())].into();
-        assert!(validate_inputs(o, &mac).is_err());
-        let mut required = o.clone();
-        required.hardware_inputs.push(crate::InputBinding {
-            option: "board-revision".into(),
-            required: true,
-        });
-        let error = validate_inputs(&required, &BTreeMap::new()).unwrap_err();
-        assert!(error.to_string().contains("board-revision"), "{error}");
-
         // Octane takes its flash straps and processor words the same way.
         let octane = preset(&machines, "octane-impact").unwrap();
         let mut f = file(octane);
-        f.machine.inputs = [("flash-select", "on"), ("r10000-prid", "0xe24")]
+        f.machine.inputs = [("flash-select", "on"), ("prid", "0xe24")]
             .into_iter()
             .map(|(k, v)| (k.into(), v.into()))
             .collect();
@@ -501,9 +477,6 @@ mod tests {
         .unwrap();
         assert!(option(&args, "-M").contains(",flash-select=on"));
         assert_eq!(option(&args, "-cpu"), "R10000,r10000-prid=0xe24");
-        for o in machines.offerings.iter() {
-            assert!(takes_mac(o), "{}", o.topology);
-        }
         assert!(preset(&machines, "origin350-2").is_err());
         assert!(preset(&machines, "tezro-4").is_err());
     }
@@ -514,8 +487,7 @@ mod tests {
             starter("origin200-rad4").unwrap(),
             starter("origin200-2").unwrap(),
         );
-        assert_eq!(rad4.topology, headless.topology);
-        assert_eq!(rad4.population, headless.population);
+        assert_eq!(rad4.offering, headless.offering);
         assert_eq!(rad4.graphics, Some("rad4"));
         for name in ["origin200-1", "origin200-2", "origin200-dual"] {
             assert_eq!(starter(name).unwrap().graphics, None, "{name}");

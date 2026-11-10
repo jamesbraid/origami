@@ -43,12 +43,14 @@ fn create_fixes_the_processor_module_in_machine_toml() {
 
     let error = create(&["--processor", "r10000-195mhz"]).unwrap_err();
     assert!(
-        error.contains("choose r10000-180mhz-1mb, r12000-270mhz-4mb"),
+        error.contains(
+            "choose r10000-180mhz-1mb, r10000-180mhz-2mb, r10000-225mhz-2mb, r12000-270mhz-4mb"
+        ),
         "{error}"
     );
     // 1792 MiB needs a 256 MB bank, which the 180 MHz module's PROM disables.
     let error = create(&["--memory-per-node", "1792"]).unwrap_err();
-    assert!(error.contains("choose 512, 256, 128, 64"), "{error}");
+    assert!(error.contains("choose 64, 128, 192, 256"), "{error}");
     assert!(!machine.exists());
 
     // The 270 MHz module holds two CPUs, so the one-CPU preset gets two.

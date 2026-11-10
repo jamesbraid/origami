@@ -914,3 +914,386 @@ fn a_format3_machine_gains_the_pipe_flash_with_its_upgrade() {
     let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
     assert!(text.starts_with("format = 4"), "{text}");
 }
+
+/// The machine list's record of `id`, as QEMU reports it.
+fn catalogue_offering(id: &str) -> serde_json::Value {
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sgi-machines.json");
+    let machines: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(fixture).unwrap()).unwrap();
+    machines["offerings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|o| o["id"] == id)
+        .unwrap_or_else(|| panic!("no offering {id}"))
+        .clone()
+}
+
+/// The `state` files a current machine of offering `id` has, each holding a
+/// distinct byte so a later comparison shows what an upgrade touched.
+fn catalogue_state(dir: &Path, id: &str) {
+    let offering = catalogue_offering(id);
+    fs::create_dir_all(dir.join("state")).unwrap();
+    for (index, item) in offering["storage"].as_array().unwrap().iter().enumerate() {
+        let size = item["size"].as_u64().unwrap() as usize;
+        let name = item["name"].as_str().unwrap();
+        fs::write(
+            dir.join(format!("state/{name}.raw")),
+            vec![index as u8 + 1; size],
+        )
+        .unwrap();
+    }
+}
+
+/// The machine.toml of a machine made against an earlier machine list: the
+/// topology (and the node board a version 2 list named) it stored, the CPUs
+/// per node, the processor module and `extra` lines for `[machine]`. Its
+/// memory is the offering `id`'s default, so the upgraded machine validates.
+fn stored_machine(
+    id: &str,
+    topology: &str,
+    board: Option<&str>,
+    processor: Option<&str>,
+    extra: &str,
+) -> String {
+    let offering = catalogue_offering(id);
+    let population = offering["cpus-per-node"].to_string();
+    let nodes = offering["nodes"].as_u64().unwrap();
+    let memory = offering["memory-per-node-mib"]["default"].as_u64().unwrap();
+    let cpus = offering["cpus-per-node"][0].as_u64().unwrap();
+    let product = offering["product"].as_str().unwrap();
+    let mut machine = format!(
+        "format = 4\n\n[machine]\ntopology = \"{topology}\"\npopulation = {population}\n\
+         model = \"{product}\"\nnodes = {nodes}\ncpus_per_node = {cpus}\n\
+         memory_per_node = \"{memory}MiB\"\n{extra}"
+    );
+    for (key, value) in [("board", board), ("processor", processor)] {
+        if let Some(value) = value {
+            machine.push_str(&format!("{key} = \"{value}\"\n"));
+        }
+    }
+    machine.push_str("\n[identity]\nmac = \"08:00:69:12:34:56\"\n\n[network]\nmode = \"user\"\n");
+    // The Onyx 3000 is not offered without its V-brick's pipe.
+    if topology.starts_with("onyx3000") {
+        machine.push_str(
+            "\n[[pipe]]\nslot = \"vbrick-v12\"\nfamily = \"odyssey\"\nproduct = \"v12\"\n",
+        );
+    }
+    machine
+}
+
+/// One stored machine and what it becomes: the topology and board it was
+/// written with, and the topology and processor it must read as now.
+struct Case {
+    id: &'static str,
+    topology: &'static str,
+    board: Option<&'static str>,
+    processor: Option<&'static str>,
+    now: &'static str,
+    now_processor: Option<&'static str>,
+}
+
+const fn case(
+    id: &'static str,
+    topology: &'static str,
+    board: Option<&'static str>,
+    now: &'static str,
+) -> Case {
+    Case {
+        id,
+        topology,
+        board,
+        processor: None,
+        now,
+        now_processor: None,
+    }
+}
+
+/// Every name a machine made by 0.5.1, or by the version 2 port of the
+/// launcher that wrote `board`, can hold.
+const UPGRADES: &[Case] = &[
+    // 0.5.1, which stored no board.
+    case(
+        "tezro-ip53.4.r16000-700mhz-4mb",
+        "tezro-tower-multi",
+        None,
+        "tezro-ip53",
+    ),
+    case(
+        "tezro-ip53.2.r16000-700mhz-4mb",
+        "tezro-deskside-700mhz-4mib-serial-trial",
+        None,
+        "tezro-ip53",
+    ),
+    case(
+        "tezro-one-processor.1",
+        "tezro-tower-one",
+        None,
+        "tezro-one-processor",
+    ),
+    case(
+        "tezro-rack-ip53.4.r16000-700mhz-4mb",
+        "tezro-rack",
+        None,
+        "tezro-rack-ip53",
+    ),
+    case(
+        "tezro-rack-ip53.4.r16000-700mhz-4mb",
+        "tezro-rack-base",
+        None,
+        "tezro-rack-ip53",
+    ),
+    case("onyx350-ip53.4", "onyx350-compat", None, "onyx350-ip53"),
+    case(
+        "origin350-ip53.4.r16000-700mhz-4mb",
+        "origin350",
+        None,
+        "origin350-ip53",
+    ),
+    case(
+        "origin3900-ip53.4-4-4-4",
+        "origin3900",
+        None,
+        "origin3900-ip53",
+    ),
+    // An intermediate list's board in the name.
+    case("tezro-ip59.4", "tezro-tower-multi-ip59", None, "tezro-ip59"),
+    case("onyx4.4", "onyx4-host-ip59", None, "onyx4"),
+    // The version 2 list: one name and a node board, IP53 where none is stored.
+    case(
+        "tezro-ip53.4.r16000-700mhz-4mb",
+        "tezro",
+        None,
+        "tezro-ip53",
+    ),
+    case(
+        "tezro-ip53.2.r16000-700mhz-4mb",
+        "tezro",
+        Some("ip53"),
+        "tezro-ip53",
+    ),
+    case(
+        "tezro-one-processor.1",
+        "tezro",
+        Some("ip53"),
+        "tezro-one-processor",
+    ),
+    case("tezro-ip59.4", "tezro", Some("ip59"), "tezro-ip59"),
+    case("tezro-ip59.2", "tezro", Some("ip59"), "tezro-ip59"),
+    case(
+        "tezro-rack-ip59.4",
+        "tezro-rack",
+        Some("ip59"),
+        "tezro-rack-ip59",
+    ),
+    case("onyx350-ip53.4", "onyx350", None, "onyx350-ip53"),
+    case("onyx350-ip59.4", "onyx350", Some("ip59"), "onyx350-ip59"),
+    case(
+        "origin350-ip59.4",
+        "origin350",
+        Some("ip59"),
+        "origin350-ip59",
+    ),
+    case(
+        "origin3900-ip59.4-4-4-4",
+        "origin3900",
+        Some("ip59"),
+        "origin3900-ip59",
+    ),
+    case("onyx4.4", "onyx4-host", Some("ip59"), "onyx4"),
+    // The Origin 3000 clock topologies are processor modules now.
+    Case {
+        now_processor: Some("r14000-500mhz-8mb"),
+        ..case(
+            "origin3200.4-4.r14000-500mhz-8mb",
+            "origin3200-r14000-500mhz",
+            None,
+            "origin3200",
+        )
+    },
+    Case {
+        now_processor: Some("r14000-600mhz-8mb"),
+        ..case(
+            "origin3400.4-4-4-4.r14000-600mhz-8mb",
+            "origin3400-r14000-600mhz",
+            None,
+            "origin3400",
+        )
+    },
+    Case {
+        now_processor: Some("r16000-800mhz-8mb"),
+        ..case(
+            "onyx3000.4-4.r16000-800mhz-8mb",
+            "onyx3000-r16000",
+            None,
+            "onyx3000",
+        )
+    },
+    // A topology that kept its name keeps its processor module.
+    Case {
+        processor: Some("r14000-500mhz-8mb"),
+        now_processor: Some("r14000-500mhz-8mb"),
+        ..case(
+            "origin3200.4-4.r14000-500mhz-8mb",
+            "origin3200",
+            None,
+            "origin3200",
+        )
+    },
+];
+
+#[test]
+fn every_earlier_topology_name_upgrades_to_the_one_the_catalogue_now_has() {
+    let root = tempfile::tempdir().unwrap();
+    for (index, case) in UPGRADES.iter().enumerate() {
+        let dir = root.path().join(format!("{index}-{}", case.topology));
+        fs::create_dir_all(dir.join("logs")).unwrap();
+        let toml = stored_machine(case.id, case.topology, case.board, case.processor, "");
+        fs::write(dir.join("machine.toml"), &toml).unwrap();
+        catalogue_state(&dir, case.id);
+        let path = dir.to_str().unwrap();
+        let name = format!("{} board {:?}", case.topology, case.board);
+        let renamed = case.now != case.topology;
+
+        let output = origami(root.path(), &["validate", path]);
+        if renamed || case.board.is_some() {
+            // The machine list no longer reads this file as it is, and the
+            // refusal says how to move on.
+            assert!(!output.status.success(), "{name}");
+            assert!(
+                stderr(&output).contains("origami upgrade"),
+                "{name}: {}",
+                stderr(&output)
+            );
+        } else {
+            assert!(output.status.success(), "{name}: {}", stderr(&output));
+        }
+
+        let before = snapshot(&dir);
+        let output = origami(root.path(), &["upgrade", path]);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !renamed && case.board.is_none() {
+            assert!(stdout.contains("is current"), "{name}: {stdout}");
+            continue;
+        }
+        assert!(output.status.success(), "{name}: {}", stderr(&output));
+        if renamed {
+            assert!(
+                stdout.contains(&format!(
+                    "note: topology {} is now {}",
+                    case.topology, case.now
+                )),
+                "{name}: {stdout}"
+            );
+        }
+        // Only names change; the guest sees nothing.
+        assert!(!stdout.contains("the guest sees"), "{name}: {stdout}");
+        let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+        assert!(
+            text.contains(&format!("topology = \"{}\"", case.now)),
+            "{name}: {text}"
+        );
+        assert!(!text.contains("board"), "{name}: {text}");
+        match case.now_processor {
+            Some(id) => assert!(
+                text.contains(&format!("processor = \"{id}\"")),
+                "{name}: {text}"
+            ),
+            None => assert!(!text.contains("processor ="), "{name}: {text}"),
+        }
+        assert!(
+            text.contains("mac = \"08:00:69:12:34:56\""),
+            "{name}: {text}"
+        );
+        // Every state file is as the guest left it.
+        let after = snapshot(&dir);
+        for (file, bytes) in &before {
+            if !file.ends_with("machine.toml") {
+                assert_eq!(&after[file], bytes, "{name}: {}", file.display());
+            }
+        }
+        let output = origami(root.path(), &["validate", path]);
+        assert!(output.status.success(), "{name}: {}", stderr(&output));
+        let output = origami(root.path(), &["upgrade", path]);
+        assert!(
+            String::from_utf8_lossy(&output.stdout).contains("is current"),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn a_cpu_input_of_an_earlier_list_becomes_the_settings_prid() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("m");
+    fs::create_dir_all(dir.join("logs")).unwrap();
+    let id = "origin3200.4-4.r14000-500mhz-8mb";
+    let extra = "\n[machine.inputs]\nboard-id-word = \"0x4000\"\nr14000-prid = \"0xf14\"\n";
+    let toml = stored_machine(id, "origin3200-r14000-500mhz", None, None, "");
+    let toml = toml.replace("\n[identity]", &format!("{extra}\n[identity]"));
+    fs::write(dir.join("machine.toml"), toml).unwrap();
+    catalogue_state(&dir, id);
+    let output = origami(root.path(), &["upgrade", dir.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("note: input r14000-prid is now prid"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("the guest sees"), "{stdout}");
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(text.contains("prid = \"0xf14\""), "{text}");
+    assert!(text.contains("board-id-word = \"0x4000\""), "{text}");
+    assert!(!text.contains("r14000-prid"), "{text}");
+    let output = origami(root.path(), &["validate", dir.to_str().unwrap()]);
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn removed_topologies_and_inputs_are_refused_with_their_reason() {
+    let root = tempfile::tempdir().unwrap();
+    let id = "tezro-ip53.4.r16000-700mhz-4mb";
+    for (removed, extra, reason) in [
+        // The IP53 record is not moved to the IP59 Onyx 4 that replaces it.
+        (
+            "onyx4-host-serial-compat",
+            "",
+            "topology 'onyx4-host-serial-compat' was removed: ",
+        ),
+        (
+            "tezro-tower-one-ip59",
+            "",
+            "topology 'tezro-tower-one-ip59' was removed: ",
+        ),
+        (
+            "origin300-v12-direct",
+            "",
+            "topology 'origin300-v12-direct' was removed: ",
+        ),
+        (
+            "tezro-tower-multi",
+            "\n[machine.inputs]\nr16000-reset-mode = \"3\"\n",
+            "the input r16000-reset-mode was removed from the machine list",
+        ),
+    ] {
+        let dir = root.path().join(removed);
+        fs::create_dir_all(&dir).unwrap();
+        let toml = stored_machine(id, removed, None, None, "");
+        let toml = toml.replace("\n[identity]", &format!("{extra}\n[identity]"));
+        fs::write(dir.join("machine.toml"), &toml).unwrap();
+        let before = fs::read(dir.join("machine.toml")).unwrap();
+        for command in ["upgrade", "validate"] {
+            if !extra.is_empty() && command == "validate" {
+                continue;
+            }
+            let output = origami(root.path(), &[command, dir.to_str().unwrap()]);
+            assert!(!output.status.success(), "{removed} {command}");
+            assert!(
+                stderr(&output).contains(reason),
+                "{removed}: {}",
+                stderr(&output)
+            );
+        }
+        assert_eq!(fs::read(dir.join("machine.toml")).unwrap(), before);
+    }
+}

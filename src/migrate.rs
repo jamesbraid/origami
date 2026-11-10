@@ -5,9 +5,7 @@
 //! pipes the catalogue describes. A current machine gains the flash store
 //! each InfiniteReality pipe slot has had since QEMU gave it one.
 
-use crate::{
-    profiles, resolve, runtime, MachineFile, MachineInit, Machines, Offering, Result, StorageItem,
-};
+use crate::{resolve, runtime, MachineFile, MachineInit, Machines, Offering, Result, StorageItem};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -41,10 +39,9 @@ pub fn upgrade(
         Some(2) => from_format2(dir, machines, &text, prom, io_prom),
         Some(3) => from_format3(dir, machines, &text, prom, io_prom),
         Some(current) if current == i64::from(crate::MACHINE_FORMAT) => {
-            let file: MachineFile = toml::from_str(&text)?;
-            return add_pipe_flash(dir, machines, &file, prom, io_prom).map_err(|error| {
+            return from_current(dir, machines, &text, prom, io_prom).map_err(|error| {
                 format!(
-                    "cannot add the pipe flash to {}: {error}; its state is unchanged",
+                    "cannot upgrade {}: {error}; its machine.toml is unchanged",
                     dir.display()
                 )
                 .into()
@@ -81,7 +78,7 @@ fn from_format1(
         boot_prom: &prom,
         io_prom: io_prom.as_deref(),
     };
-    install(dir, &file, offering, &init)?;
+    install(dir, machines, &file, offering, &init)?;
     Ok(notes)
 }
 
@@ -138,6 +135,138 @@ fn from_format2(
     }
     replace_file(dir, &file)?;
     Ok(notes)
+}
+
+/// Whether an upgrade note only says how the machine's files are named, as
+/// opposed to what its guest sees.
+pub fn is_bookkeeping(note: &str) -> bool {
+    note.starts_with("topology ") || note.starts_with("input ")
+}
+
+/// Bring a current machine up to date with the catalogue: a topology or
+/// setting the catalogue renamed takes its new name, and each InfiniteReality
+/// pipe gets the flash store it lacks. Returns None when the machine needs
+/// neither.
+fn from_current(
+    dir: &Path,
+    machines: &Machines,
+    text: &str,
+    prom: Option<&Path>,
+    io_prom: Option<&Path>,
+) -> Result<Option<Vec<String>>> {
+    let mut table: toml::Table = toml::from_str(text)?;
+    let renamed = renew(
+        machines,
+        table
+            .get_mut("machine")
+            .and_then(toml::Value::as_table_mut)
+            .ok_or("no [machine] table")?,
+    )?;
+    let file: MachineFile = toml::Value::Table(table).try_into()?;
+    let mut notes = vec![];
+    if !renamed.is_empty() {
+        // The renamed machine must be one the catalogue offers, and keep its
+        // storage: QEMU refuses a state directory that lacks an item.
+        let offering = crate::offering(machines, &file.machine)?;
+        let state = dir.join("state");
+        if let Some(item) = offering.storage.iter().find(|item| {
+            item.initial != PIPE_FLASH && !state.join(format!("{}.raw", item.name)).is_file()
+        }) {
+            return Err(format!(
+                "{} lacks {}.raw that its new topology needs; recreate the machine",
+                dir.display(),
+                item.name
+            )
+            .into());
+        }
+        crate::graphics::validate(machines, &offering.topology, offering.nodes, &file.pipe)?;
+        crate::settings::validate(machines, offering, &file.machine.inputs)?;
+        notes.extend(renamed.iter().cloned());
+    }
+    notes.extend(add_pipe_flash(dir, machines, &file, prom, io_prom)?.unwrap_or_default());
+    if renamed.is_empty() {
+        return Ok((!notes.is_empty()).then_some(notes));
+    }
+    replace_file(dir, &file)?;
+    Ok(Some(notes))
+}
+
+/// Give the machine in `table` the topology, processor and settings the
+/// catalogue now names, and say what changed.
+///
+/// A version 2 machine list named a node board with `board=`; a version 3
+/// topology is one board, so the stored board folds into the topology name.
+fn renew(machines: &Machines, machine: &mut toml::Table) -> Result<Vec<String>> {
+    let mut notes = vec![];
+    let board = machine.remove("board");
+    let board = board.as_ref().and_then(toml::Value::as_str);
+    if let Some(topology) = machine
+        .get("topology")
+        .and_then(toml::Value::as_str)
+        .map(str::to_string)
+    {
+        let population = stored_population(machine);
+        let (now, processor) = current_topology(machines, &topology, board, &population)?;
+        if let Some(processor) = processor {
+            if machine.contains_key("processor") {
+                return Err(format!(
+                    "topology '{topology}' was a clock option of {now} and the machine names \
+                     processor {}",
+                    machine["processor"]
+                )
+                .into());
+            }
+            machine.insert("processor".into(), processor.into());
+        }
+        if now != topology {
+            notes.push(format!(
+                "topology {topology} is now {now}{}",
+                processor.map_or(String::new(), |id| format!(" with processor {id}"))
+            ));
+            machine.insert("topology".into(), now.into());
+        } else if board.is_some() {
+            notes.push(format!("topology {topology} no longer names a board"));
+        }
+    }
+    if let Some(inputs) = machine
+        .get_mut("inputs")
+        .and_then(toml::Value::as_table_mut)
+    {
+        for (old, value) in std::mem::take(inputs) {
+            let new = current_input(&old)?;
+            if new != old {
+                notes.push(format!("input {old} is now {new}"));
+            }
+            inputs.insert(new, value);
+        }
+    }
+    Ok(notes)
+}
+
+/// The CPUs per node a stored machine has.
+fn stored_population(machine: &toml::Table) -> Vec<u32> {
+    let numbers = |value: &toml::Value| -> Option<Vec<u32>> {
+        value
+            .as_array()?
+            .iter()
+            .map(|n| n.as_integer().and_then(|n| u32::try_from(n).ok()))
+            .collect()
+    };
+    if let Some(population) = machine.get("population").and_then(numbers) {
+        if !population.is_empty() {
+            return population;
+        }
+    }
+    let count = |key: &str| {
+        machine
+            .get(key)
+            .and_then(toml::Value::as_integer)
+            .and_then(|n| u32::try_from(n).ok())
+    };
+    match (count("nodes"), count("cpus_per_node")) {
+        (Some(nodes), Some(cpus)) => vec![cpus; nodes as usize],
+        _ => vec![],
+    }
 }
 
 /// The initial contents of an InfiniteReality pipe's flash store. Nothing in
@@ -221,36 +350,122 @@ fn replace_file(dir: &Path, file: &MachineFile) -> Result<()> {
     Ok(())
 }
 
+/// A topology the catalogue renamed. `board` is the node board a version 2
+/// machine stored beside the old name: None matches a machine that stored
+/// none or the topology's IP53 default, which is how 0.5.1 and every version 2
+/// machine on the default board look. `processor` is the module a clock
+/// topology became an option for.
+struct Rename {
+    old: &'static str,
+    board: Option<&'static str>,
+    new: &'static str,
+    processor: Option<&'static str>,
+}
+
+const fn rename(old: &'static str, board: Option<&'static str>, new: &'static str) -> Rename {
+    Rename {
+        old,
+        board,
+        new,
+        processor: None,
+    }
+}
+
+const fn clock(old: &'static str, new: &'static str, processor: &'static str) -> Rename {
+    Rename {
+        old,
+        board: None,
+        new,
+        processor: Some(processor),
+    }
+}
+
 /// Topologies the catalogue renamed, each applied once the catalogue no
-/// longer lists the old name.
-const RENAMED: &[(&str, &str)] = &[
-    ("fuel-vpro", "fuel"),
-    ("tezro-rack-base", "tezro-rack"),
-    (
+/// longer lists the old name. Version 3 gives each node board its own
+/// topology, so a name that several boards fit is matched by the board the
+/// machine stored, the IP53 one where it stored none.
+const RENAMED: &[Rename] = &[
+    rename("fuel-vpro", None, "fuel"),
+    rename("tezro-rack-base", None, "tezro-rack-ip53"),
+    rename(
         "tezro-deskside-700mhz-4mib-serial-trial",
-        "tezro-tower-multi",
+        None,
+        "tezro-ip53",
     ),
-    (
+    rename("tezro-tower-multi", None, "tezro-ip53"),
+    rename("tezro-tower-one", None, "tezro-one-processor"),
+    rename("tezro-tower-multi-ip59", None, "tezro-ip59"),
+    rename("tezro", Some("ip59"), "tezro-ip59"),
+    rename("tezro", None, "tezro-ip53"),
+    rename("tezro-rack", Some("ip59"), "tezro-rack-ip59"),
+    rename("tezro-rack", None, "tezro-rack-ip53"),
+    rename("onyx350-compat", None, "onyx350-ip53"),
+    rename("onyx350", Some("ip59"), "onyx350-ip59"),
+    rename("onyx350", None, "onyx350-ip53"),
+    rename("origin350", Some("ip59"), "origin350-ip59"),
+    rename("origin350", None, "origin350-ip53"),
+    rename("origin3900", Some("ip59"), "origin3900-ip59"),
+    rename("origin3900", None, "origin3900-ip53"),
+    rename("onyx4-host-ip59", None, "onyx4"),
+    rename("onyx4-host", Some("ip59"), "onyx4"),
+    rename("onyx4-host", None, "onyx4"),
+    clock("onyx3000-r14000-500mhz", "onyx3000", "r14000-500mhz-8mb"),
+    clock("onyx3000-r14000-600mhz", "onyx3000", "r14000-600mhz-8mb"),
+    clock("onyx3000-r16000", "onyx3000", "r16000-800mhz-8mb"),
+    clock(
+        "origin3200-r14000-500mhz",
+        "origin3200",
+        "r14000-500mhz-8mb",
+    ),
+    clock(
+        "origin3200-r14000-600mhz",
+        "origin3200",
+        "r14000-600mhz-8mb",
+    ),
+    clock("origin3200-r16000", "origin3200", "r16000-800mhz-8mb"),
+    clock(
+        "origin3400-r14000-500mhz",
+        "origin3400",
+        "r14000-500mhz-8mb",
+    ),
+    clock(
+        "origin3400-r14000-600mhz",
+        "origin3400",
+        "r14000-600mhz-8mb",
+    ),
+    clock("origin3400-r16000", "origin3400", "r16000-800mhz-8mb"),
+    rename(
         "origin300-numalink-pci-expansion-experiment",
+        None,
         "origin300-numalink-pci-expansion",
     ),
-    (
+    rename(
         "origin300-pci-expansion-configuration-storage-experiment",
+        None,
         "origin300-pci-expansion",
     ),
-    (
+    rename(
         "origin300-pci-expansion-experiment",
+        None,
         "origin300-pci-expansion",
     ),
-    (
+    rename(
         "origin300-pci-expansion-pending-register-experiment",
+        None,
         "origin300-pci-expansion",
     ),
-    (
+    rename(
         "origin300-pci-expansion-unconnected-uart-experiment",
+        None,
         "origin300-pci-expansion",
     ),
 ];
+
+/// The topologies the rename table moves machines to, for a check against a
+/// machine list.
+pub fn renamed_to() -> impl Iterator<Item = &'static str> {
+    RENAMED.iter().map(|rename| rename.new)
+}
 
 /// Topologies removed with nothing in their place, and why.
 const REMOVED: &[(&str, &str)] = &[
@@ -262,18 +477,127 @@ const REMOVED: &[(&str, &str)] = &[
         "origin300-vbrick",
         "an Origin 300 cabled to a V-brick was never an SGI configuration",
     ),
+    (
+        "onyx4-host-serial-compat",
+        "the Onyx 4 host is now the onyx4 topology, which has only the IP59 node board, \
+         and moving a machine built on IP53 to another node board would change the board \
+         serial its PROM ties its NVRAM to; create a new machine",
+    ),
+    (
+        "tezro-tower-one-ip59",
+        "the one-processor IP59 Tezro tower was removed; the one-processor Tezro is \
+         the IP53 board, tezro-one-processor",
+    ),
 ];
 
-/// The topology `name` is now in the catalogue.
-fn current_topology<'a>(machines: &Machines, name: &'a str) -> Result<&'a str> {
+/// The settings the catalogue renamed. A version 2 machine list named a CPU
+/// property by its part, `r14000-prid`; version 3 has one `prid` for the
+/// offering's part.
+fn current_input(name: &str) -> Result<String> {
+    let removed = [
+        (
+            "baseio-preset",
+            "the base I/O board is a board product of the machine list",
+        ),
+        (
+            "r12000-reset-mode",
+            "the CPU reset mode is no longer a setting",
+        ),
+        (
+            "r16000-reset-mode",
+            "the CPU reset mode is no longer a setting",
+        ),
+        (
+            "r12000-scache-block-words",
+            "the secondary cache comes from the processor module",
+        ),
+        (
+            "r12000-scache-bytes",
+            "the secondary cache comes from the processor module",
+        ),
+        (
+            "r16000-scache-bytes",
+            "the secondary cache comes from the processor module",
+        ),
+        (
+            "r16000-experimental",
+            "the experimental R16000 mode was removed",
+        ),
+    ];
+    if let Some((_, reason)) = removed.iter().find(|(old, _)| *old == name) {
+        return Err(format!(
+            "the input {name} was removed from the machine list: {reason}; delete it from \
+             [machine.inputs]"
+        )
+        .into());
+    }
+    // `r14000-prid` is `prid` and `r12000-fpu-id` is `fpu-id`.
+    let unpart = name.split_once('-').and_then(|(part, rest)| {
+        let digits = part.strip_prefix('r')?;
+        let numbered = !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
+        (numbered && matches!(rest, "prid" | "fpu-id")).then_some(rest)
+    });
+    Ok(unpart.unwrap_or(name).to_string())
+}
+
+/// What a topology the machine list no longer has became, for a message.
+pub(crate) fn unlisted_topology(name: &str) -> String {
+    let now: Vec<_> = RENAMED
+        .iter()
+        .filter(|rename| rename.old == name)
+        .map(|rename| format!("'{}'", rename.new))
+        .collect();
+    if !now.is_empty() {
+        return format!(
+            "topology '{name}' is {} in this QEMU; upgrade the machine once with origami upgrade",
+            if now.len() == 1 {
+                format!("now {}", now[0])
+            } else {
+                format!("now one of {}", now.join(", "))
+            }
+        );
+    }
+    match REMOVED.iter().find(|(old, _)| *old == name) {
+        Some((_, reason)) => format!("topology '{name}' was removed: {reason}"),
+        None => format!("this QEMU has no topology '{name}'"),
+    }
+}
+
+/// The topology, and the processor module for a clock topology, the
+/// catalogue now names for a machine's stored `name`, the `board` a version 2
+/// machine stored and its `population`. A topology it still lists is
+/// unchanged; a removed one is refused with the reason.
+pub(crate) fn current_topology<'a>(
+    machines: &Machines,
+    name: &'a str,
+    board: Option<&str>,
+    population: &[u32],
+) -> Result<(&'a str, Option<&'static str>)> {
     if let Some((_, reason)) = REMOVED.iter().find(|(old, _)| *old == name) {
         return Err(format!("topology '{name}' was removed: {reason}").into());
     }
     let listed = |name: &str| machines.offerings.iter().any(|o| o.topology == name);
-    Ok(RENAMED
+    if listed(name) {
+        return Ok((name, None));
+    }
+    let Some(found) = RENAMED
         .iter()
-        .find(|(old, new)| *old == name && !listed(old) && listed(new))
-        .map_or(name, |(_, new)| new))
+        .filter(|rename| rename.old == name && listed(rename.new))
+        .find(|rename| match (rename.board, board) {
+            (Some(want), Some(have)) => want == have,
+            (Some(_), None) => false,
+            // The IP53 default: no board stored, or the IP53 board.
+            (None, have) => have.is_none_or(|have| have == "ip53"),
+        })
+    else {
+        return Ok((name, None));
+    };
+    // A one-processor Tezro is the IP53 board with a single CPU; the topology
+    // that fits two or four is tezro-ip53.
+    if found.new == "tezro-ip53" && population == [1] {
+        return Ok(("tezro-one-processor", None));
+    }
+    Ok((found.new, found.processor))
 }
 
 /// Replace the machine's `graphics` value in `table` with its pipes and
@@ -291,12 +615,12 @@ fn upgrade_graphics(machines: &Machines, table: &mut toml::Table) -> Result<Vec<
             .to_string(),
         None => "none".into(),
     };
+    let mut notes = renew(machines, machine)?;
     let topology = machine
         .get("topology")
         .and_then(toml::Value::as_str)
         .ok_or("no machine topology")?
         .to_string();
-    let topology = current_topology(machines, &topology)?.to_string();
     let nodes = machine
         .get("nodes")
         .and_then(toml::Value::as_integer)
@@ -308,7 +632,8 @@ fn upgrade_graphics(machines: &Machines, table: &mut toml::Table) -> Result<Vec<
         table.insert("pipe".into(), toml::Value::try_from(pipes)?);
     }
     table.insert("format".into(), i64::from(crate::MACHINE_FORMAT).into());
-    Ok(note.map(String::from).into_iter().collect())
+    notes.extend(note.map(String::from));
+    Ok(notes)
 }
 
 /// The current machine file for format 1 `text`, its boot PROM and what
@@ -391,11 +716,12 @@ fn old_state(dir: &Path, name: &str) -> Vec<PathBuf> {
 
 fn install(
     dir: &Path,
+    machines: &Machines,
     file: &MachineFile,
     offering: &Offering,
     init: &MachineInit<'_>,
 ) -> Result<()> {
-    profiles::validate_inputs(offering, &file.machine.inputs)?;
+    crate::settings::validate(machines, offering, &file.machine.inputs)?;
     let state = dir.join("state");
     let raw = |root: &Path, name: &str| root.join(format!("{name}.raw"));
     // Format 1 kept NVRAM under the name QEMU now uses. Only a file of the

@@ -35,8 +35,7 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
     };
     let pipes = graphics::select(machines, &offer.topology, offer.nodes, &request)?;
     let pipe_count = pipes.len();
-    let inputs = options.hardware.inputs()?;
-    origami::profiles::validate_inputs(offer, &inputs)?;
+    let inputs = origami::settings::resolve(machines, offer, options.hardware.inputs()?)?;
     validate_create_inputs(
         &args.dir,
         offer,

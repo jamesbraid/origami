@@ -234,8 +234,16 @@ command needs an offering. A QEMU pin change that alters the machine list theref
 changes the offerings without a frontend edit, and a frontend change that
 needs new machine list data needs the matching QEMU pin.
 
-The Rust tests read `tests/fixtures/sgi-machines.json`, a short hand-written
-excerpt of that reply with one offering of each kind the tests exercise.
+The CLI reads machine list version 3 only and refuses a QEMU that reports
+another. The Rust tests read `tests/fixtures/sgi-machines.json`, an excerpt of
+the pinned QEMU's own reply: the offerings the tests use, with the record
+fields the CLI reads. Regenerate it whenever the pin moves:
+
+```sh
+tests/fixtures/generate-machines.py out/linux/run/libexec/origami/qemu-system-mips64 \
+  > tests/fixtures/sgi-machines.json
+```
+
 Anything that needs the full machine list belongs in the product-state test
 below, which queries the real QEMU.
 

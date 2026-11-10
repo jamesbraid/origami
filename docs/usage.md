@@ -39,7 +39,7 @@ origami machines
 This lists the starter presets with each one's machine, CPU count and
 graphics. `origami machines PRESET` shows one preset in detail: its memory,
 every board it takes and the slots, what it refuses and why, and the
-processor modules of an Origin 200. `origami machines --all` shows them all.
+processor modules and settings. `origami machines --all` shows them all.
 
 | Preset | Machine | Graphics |
 |---|---|---|
@@ -61,8 +61,8 @@ processor modules of an Origin 200. `origami machines --all` shows them all.
 | `onyx2-infinite-reality` | Onyx2 deskside, 4 CPUs | InfiniteReality2 |
 | `onyx2-rack-infinite-reality` | Onyx2 rack, 1 CPU | InfiniteReality3 |
 | `fuel-1` | Fuel | VPro V12 |
-| `onyx350-vpro` | Onyx 350, 4 CPUs | VPro V12 |
-| `tezro-vpro` | Tezro tower, 4 CPUs | VPro V12 |
+| `onyx350` | Onyx 350, 4 CPUs | VPro V12 |
+| `tezro` | Tezro tower, 4 CPUs | VPro V12 |
 
 ## Create a machine
 
@@ -87,8 +87,15 @@ Common options:
 
 - `--memory-per-node MiB` sets memory per node. A size the machine does not
   take is refused with the list of sizes it does.
-- `--processor ID` picks an Origin 200 processor module, such as
-  `r12000-270mhz-4mb`. `origami machines PRESET` lists them.
+- `--processor ID` picks a processor module where the machine has a choice,
+  such as `r12000-270mhz-4mb` on an Origin 200 or `r14000-600mhz-8mb` on an
+  Origin 3200. `origami machines PRESET` lists them.
+- `--set NAME=VALUE` gives a machine input the preset takes, such as
+  `--set prid=0xe24` or `--set chassis-eeprom.0=chassis.bin`. A list takes a
+  slot after a dot, and a slot below the one named that is not given is left
+  empty. `origami machines PRESET` lists each input with its kind of value, its
+  slots and its default; QEMU checks the value itself. The machine's address
+  and serial have their own options and are not inputs.
 - `--graphics`, `--graphics-slot`, `--graphics-pipes` and
   `--graphics-setting` change the graphics. See [Graphics](#graphics).
 - `--mac 08:00:69:12:34:56` sets the machine's Ethernet address. Without it,
@@ -520,9 +527,16 @@ The upgrade keeps flash, NVRAM, drives, network settings and the MAC. A
 machine that needs its PROMs to build a new state file downloads them as
 `create` does, or takes local copies with `--prom FILE` and `--io-prom FILE`.
 It also adds the pipe flash file (`SLOT-kona-flash.raw`) that machines made
-before 0.5.1 lack, and says which. A machine that has everything is left
-unchanged. A machine that cannot be
-upgraded is left untouched with the reason. Create a new machine and attach
+before 0.5.1 lack, and says which. It also gives a machine the topology
+name the current QEMU uses, and keeps its state. QEMU now names each node board
+as a topology of its own: a Tezro made by 0.5.1 (`tezro-tower-multi`) is
+`tezro-ip53`, a one-processor one (`tezro-tower-one`) is `tezro-one-processor`,
+`onyx350-compat` is `onyx350-ip53`, and `origin350` and `origin3900` are their
+`-ip53` names. The Origin 3000 clock topologies (`origin3200-r14000-500mhz` and
+the like) are the processor module of `origin3200`, `origin3400` or
+`onyx3000`. A machine that has everything is left unchanged. A machine that
+cannot be upgraded, such as an Onyx 4 host made by 0.5.1, whose IP53 board no
+longer exists, is left untouched with the reason. Create a new machine and attach
 the old disk.
 
 ## Working around a problem

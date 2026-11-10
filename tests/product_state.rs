@@ -85,6 +85,15 @@ fn every_preset_creates_reopens_and_starts() {
             failures.push(format!("{}: {error}", profile.id));
         }
     }
+    // Every topology the upgrade moves a machine to must exist, or the rename
+    // would silently not apply.
+    for topology in origami::migrate::renamed_to() {
+        if !machines.offerings.iter().any(|o| o.topology == topology) {
+            failures.push(format!(
+                "the upgrade moves machines to {topology}, which QEMU lacks"
+            ));
+        }
+    }
     let manifest = origami::assets::manifest().unwrap();
     // Only presets create machines, so an offering with no preset, such as
     // the O2 whose PROM has no download, needs none.
@@ -161,6 +170,58 @@ fn every_preset_creates_reopens_and_starts() {
         other => failures.push(format!("origin200-1 with --io-prom: {other:?}")),
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Machines Origami 0.5.1 made name the Tezro and Onyx 350 topologies it
+/// listed then. They take the catalogue's node-board names, keep their state, and
+/// start on this QEMU.
+#[test]
+#[ignore = "needs a product build's QEMU and qemu-sgi-machine-init in ORIGAMI_RUNTIME_DIR"]
+fn machines_with_the_051_topology_names_upgrade_and_start() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    let machines = origami::machines().unwrap();
+    for (preset, old) in [
+        ("tezro", "tezro-tower-multi"),
+        ("onyx350", "onyx350-compat"),
+    ] {
+        let new = &origami::preset(&machines, preset).unwrap().topology;
+        let offering = origami::preset(&machines, preset).unwrap();
+        let machine = root.join(preset);
+        let mut args: Vec<OsString> = vec!["--preset".into(), preset.into()];
+        for input in &offering.init_inputs {
+            let image = root.join(format!("{preset}-{}.bin", input.name));
+            synthetic_image(&image, &input.kind);
+            args.extend(["--prom".into(), image.into()]);
+        }
+        let args: Vec<_> = args.iter().map(|arg| arg.to_str().unwrap()).collect();
+        run(root, "create", &machine, &args).unwrap();
+        // 0.5.1 wrote the old topology name.
+        let text = fs::read_to_string(machine.join("machine.toml")).unwrap();
+        let text = text.replace(
+            &format!("topology = \"{new}\""),
+            &format!("topology = \"{old}\""),
+        );
+        assert!(text.contains(old), "{text}");
+        fs::write(machine.join("machine.toml"), text).unwrap();
+        let before =
+            fs::read(machine.join(format!("state/{}.raw", offering.storage[0].name))).unwrap();
+
+        let error = run(root, "validate", &machine, &[]).unwrap_err();
+        assert!(
+            error.contains(&format!("topology '{old}' is now '{new}'")),
+            "{error}"
+        );
+        run(root, "upgrade", &machine, &[]).unwrap();
+        run(root, "validate", &machine, &[]).unwrap();
+        let after =
+            fs::read(machine.join(format!("state/{}.raw", offering.storage[0].name))).unwrap();
+        assert!(
+            before == after,
+            "{preset}: the upgrade changed the machine's state"
+        );
+        start_and_stop(root, &machine).unwrap();
+    }
 }
 
 #[test]
