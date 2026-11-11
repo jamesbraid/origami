@@ -423,6 +423,23 @@ origami network-set my-origin --mode vmnet --endpoint /opt/homebrew/var/run/sock
 Tap mode is not available on macOS, and vmnet mode is macOS only. If QEMU
 cannot open the device, `run` shows QEMU's message and a hint.
 
+A guest that has already run on another network, including the installation
+network, keeps that network's address and DHCP lease. On a new network its
+DHCP client loops on the server's offers and the guest stays at the old
+address. As root in IRIX, run `rm /var/adm/proclaim.lease_info* /etc/resolv.conf`
+once, shut down and start it again; it then takes an address from the new
+network's DHCP server.
+
+### Use an NFS server on your network
+
+On a tap or vmnet network the guest mounts a LAN server directly:
+`mount server:/export /mnt/x`. In user mode the guest reaches LAN hosts
+through NAT. Ping, portmap and NFS version 3 work, but NAT sends from an
+unprivileged source port, and a server that insists on a reserved one
+refuses the mount with `Permission denied`. unfs3 does by default, and
+Linux's kernel server does for exports without `insecure`. Allow
+unprivileged ports on the export or use tap mode.
+
 `--mode none` disconnects the machine.
 
 ## Graphics
