@@ -1,0 +1,75 @@
+name: Network integration
+
+# Real IRIX guests on a virtual LAN, against the product build. Too slow
+# for every push, so it runs nightly and on request.
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: network-integration
+  cancel-in-progress: false
+
+jobs:
+  lan:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    timeout-minutes: 480
+    steps:
+      - name: Use canonical QEMU repository
+        run: |
+          git config --global \
+            "url.${{ github.server_url }}/jamesb/qemu.git.insteadOf" \
+            "https://github.com/jamesbraid/qemu-sgi-origami.git"
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: true
+      - name: Prepare Docker CLI
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends docker.io python3
+      - name: Check the job can start what the scenarios need
+        # The lab container needs NET_ADMIN, SYS_ADMIN and /dev/net/tun from
+        # the shared daemon, and its bind mounts must sit in the job workspace. Fail here, with the reason, rather than mid-run.
+        run: |
+          docker run --rm --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tun \
+            --network none docker.io/library/debian:trixie sh -ec '
+              test -c /dev/net/tun
+              unshare -n true'
+      - uses: ./.github/actions/build-archive
+        with:
+          preset: linux
+          build-dir: ${{ github.workspace }}/.ci-build
+          engine: ${{ github.workspace }}/build/ci-docker.py
+      - name: Unpack the product
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/.net/product"
+          tar -xzf .ci-build/artifacts/origami-*-linux-x86_64.tar.gz \
+            --strip-components=1 -C "$GITHUB_WORKSPACE/.net/product"
+      - name: Restore the installed IRIX disk
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.net/irix-cache
+          key: irix-install-${{ hashFiles('tests/integration/install.py', 'tests/integration/console.py', 'tests/integration/harness/images.py') }}
+      - name: Run the scenarios
+        run: |
+          python3 tests/integration/run.py \
+            --engine "$GITHUB_WORKSPACE/build/ci-docker.py" \
+            --product "$GITHUB_WORKSPACE/.net/product" \
+            --work "$GITHUB_WORKSPACE/.net/work" \
+            --cache "$GITHUB_WORKSPACE/.net/irix-cache" \
+            --evidence "$GITHUB_WORKSPACE/net-evidence"
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: network-integration
+          path: net-evidence
