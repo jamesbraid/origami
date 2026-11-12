@@ -1,0 +1,21 @@
+# The lab: the product's runtime libraries, the tools that set up a virtual
+# LAN, and the peer services the guests talk to. Everything runs in one
+# container with its own network namespace, so no host root is needed.
+FROM docker.io/library/debian:trixie AS unfs3
+# Debian dropped unfs3, so build the release that is current.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential pkg-config flex bison libtirpc-dev curl ca-certificates \
+ && curl -fsSL https://github.com/unfs3/unfs3/releases/download/unfs3-0.11.0/unfs3-0.11.0.tar.gz | tar xz \
+ && cd unfs3-0.11.0 && ./configure && make -j8 && install -m755 unfsd /usr/local/sbin/unfsd
+
+FROM docker.io/library/debian:trixie
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 iproute2 iputils-ping util-linux procps tcpdump ca-certificates \
+    dnsmasq libtirpc3t64 rpcbind nfs-common \
+    libasound2t64 libpulse0 libx11-6 libxext6 libxcursor1 libxi6 libxfixes3 \
+    libxrandr2 libxss1 libxkbcommon0 libwayland-client0 libwayland-cursor0 \
+    libwayland-egl1 libdecor-0-0 libegl1 libgl1 libudev1 libcap-ng0 libattr1 \
+    libfdt1 libgcc-s1 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=unfs3 /usr/local/sbin/unfsd /usr/local/sbin/unfsd
