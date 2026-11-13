@@ -1,5 +1,9 @@
 # Origami
 
+[![Smoke](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjamesbraid%2Forigami%2Fstatus%2Fsmoke.json)](https://github.com/jamesbraid/origami/actions/workflows/smoke.yml) [![Linux](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjamesbraid%2Forigami%2Fstatus%2Fsmoke-linux.json)](https://github.com/jamesbraid/origami/actions/workflows/smoke.yml) [![macOS](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjamesbraid%2Forigami%2Fstatus%2Fsmoke-macos.json)](https://github.com/jamesbraid/origami/actions/workflows/smoke.yml) [![Windows](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fjamesbraid%2Forigami%2Fstatus%2Fsmoke-windows.json)](https://github.com/jamesbraid/origami/actions/workflows/smoke.yml)
+
+Nightly: a built archive boots a prepared IRIX 6.5.30 Origin 200 on each OS ([what it checks](tests/smoke/boot.py)).
+
 An experimental SGI emulator built on QEMU. Vibe coded paper silicon.
 
 Inspired by [Iris](https://github.com/techomancer/iris), and nostalgia for the

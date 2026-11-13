@@ -1,0 +1,219 @@
+name: Smoke
+
+# Nightly: build the product on each OS, boot a prepared IRIX 6.5.30 Origin 200
+# with it and check login, hinv, ping, NFS, CD-ROM and a clean halt.
+#
+# GitHub emails whoever owns a failed scheduled run, so this run is built not
+# to fail when the product does. Every step that can break on the product's
+# account has continue-on-error, each OS writes a verdict, and the last job
+# turns the verdicts into shields.io endpoint files on the `status` branch,
+# which the README badges read. The run goes red only if the workflow itself
+# is broken.
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    if: github.server_url == 'https://github.com'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-24.04, platform: linux-x86_64, preset: linux, kind: container }
+          # Cross-built here, booted on windows-latest by the smoke job.
+          - { os: windows, runner: ubuntu-24.04, platform: windows-x86_64, preset: windows-cross, kind: container }
+          - { os: macos, runner: macos-15, platform: macos-arm64, preset: macos, kind: native }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: true
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+      - id: vcpkg
+        run: |
+          mkdir -p "$RUNNER_TEMP/build-vcpkg-cache"
+          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/build-vcpkg-cache
+          key: vcpkg-${{ matrix.platform }}-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
+          restore-keys: vcpkg-${{ matrix.platform }}-
+      - id: container
+        if: matrix.kind == 'container'
+        continue-on-error: true
+        timeout-minutes: 50
+        uses: ./.github/actions/build-archive
+        with:
+          preset: ${{ matrix.preset }}
+          build-dir: ${{ runner.temp }}/build
+      - if: matrix.kind == 'native'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - if: matrix.kind == 'native'
+        run: brew install cmake ninja pkg-config meson rust autoconf automake libtool
+      - if: matrix.kind == 'native'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: instigator/go.mod
+      - id: native
+        if: matrix.kind == 'native'
+        continue-on-error: true
+        timeout-minutes: 50
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/build-vcpkg-cache
+        run: |
+          cmake --preset macos -B "$RUNNER_TEMP/build"
+          cmake --build "$RUNNER_TEMP/build" --target binaries --parallel 4
+          ctest --test-dir "$RUNNER_TEMP/build" --output-on-failure
+          cpack --config "$RUNNER_TEMP/build/CPackConfig.cmake" -B "$RUNNER_TEMP/build/artifacts"
+      - name: Record the build outcome
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/outcome"
+          outcome=failure
+          if [ "${{ steps.container.outcome }}" = success ] || [ "${{ steps.native.outcome }}" = success ]; then
+            outcome=success
+          fi
+          printf '{"os": "%s", "outcome": "%s"}\n' "${{ matrix.os }}" "$outcome" > "$RUNNER_TEMP/outcome/archive.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: archive-outcome-${{ matrix.os }}
+          path: ${{ runner.temp }}/outcome/archive.json
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: origami-${{ matrix.os }}
+          path: ${{ runner.temp }}/build/artifacts/origami-*-${{ matrix.platform }}.*
+          if-no-files-found: ignore
+          retention-days: 3
+
+  smoke:
+    needs: archive
+    # Runs whatever the archive jobs did; a missing archive is a red badge.
+    if: always() && github.server_url == 'https://github.com'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-24.04 }
+          - { os: macos, runner: macos-15 }
+          - { os: windows, runner: windows-latest }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Windows pipes default to the ANSI code page; the product's output need not be ASCII.
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: QEMU links the host's audio clients
+        if: matrix.os == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpulse0 libasound2t64
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: archive-outcome-${{ matrix.os }}
+          path: in/outcome
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: origami-${{ matrix.os }}
+          path: in/archive
+      - name: Boot and check
+        id: boot
+        continue-on-error: true
+        timeout-minutes: 22
+        run: |
+          # Not `ls a b`: it exits 2 when only one of the two patterns matches,
+          # which fails the step under bash's -e -o pipefail.
+          archive=$(find in/archive -maxdepth 1 \( -name 'origami-*.tar.gz' -o -name 'origami-*.zip' \) | head -n 1)
+          test -n "$archive"
+          mkdir -p out
+          python tests/smoke/boot.py --product "$archive" --work "$RUNNER_TEMP/smoke" --results out/results.json
+      - name: Write the verdict
+        if: always()
+        run: |
+          mkdir -p out
+          python tests/smoke/report.py job --os "${{ matrix.os }}" --out out/verdict-${{ matrix.os }}.json \
+            --archive in/outcome/archive.json --results out/results.json
+          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          v = json.load(open("out/verdict-${{ matrix.os }}.json"))
+          print(f"### {v['os']}: {v['status']}\n\n{v['reason']}\n")
+          for name, ok in (v.get("checks") or {}).items():
+              print(f"- {'pass' if ok else 'FAIL'} {name}")
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-${{ matrix.os }}
+          path: |
+            out
+            ${{ runner.temp }}/smoke/evidence
+          if-no-files-found: ignore
+          retention-days: 14
+
+  badge:
+    needs: smoke
+    if: always() && github.server_url == 'https://github.com'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: tests/smoke
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: smoke-*
+          path: verdicts
+      - name: Write the badge files
+        run: |
+          mkdir -p flat badges
+          find verdicts -name 'verdict-*.json' -exec cp {} flat/ \;
+          python3 tests/smoke/report.py badges --results flat --out badges \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          cat badges/smoke.json
+      - name: Publish them to the status branch
+        # Only main feeds the README's branch; a test run gets its own.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name == github.event.repository.default_branch && 'status' || format('status-{0}', github.run_id) }}
+        run: |
+          cd badges
+          git init -q -b "$BRANCH"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .
+          git commit -q -m "smoke: badges for run $GITHUB_RUN_ID"
+          # A failed publish leaves the old badge, whose date then shows it is stale;
+          # it must not turn the run red.
+          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$BRANCH" \
+            || echo "::warning::could not publish badges to $BRANCH"
