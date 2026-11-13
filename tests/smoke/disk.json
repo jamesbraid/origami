@@ -1,0 +1,10 @@
+{
+  "name": "o200-irix-6.5.30-minimal-7bfddb0f.tar.xz",
+  "url": "https://origami-dist.irix.fans/irix/6.5.30/o200-irix-6.5.30-minimal-7bfddb0f.tar.xz",
+  "sha256": "7bfddb0f43787df4f428e1df21efa553158b2fe33ccaf83cd93a069fd69f9efb",
+  "size": 293366620,
+  "machine": "Origin 200 (preset origin200-1), IRIX 6.5.30, minimal install profile, 4096 MB disk",
+  "prepared_with": {"product_commit": "104de52", "qemu": "29ffcfb16365d5895f9c23801e608eff84f06ccf", "instigator": "793926e3b1f784e26f9c14f06cc1a587a7c07507"},
+  "prepared_on": "2026-11-13",
+  "how": "tests/integration/run.py installs the image; tests/smoke/prepare_disk.py boots it once, removes the DHCP lease files and /etc/resolv.conf, halts and packs it"
+}
