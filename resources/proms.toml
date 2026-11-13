@@ -18,7 +18,7 @@ sha256 = "d74b4b7ef9c11c66692019db9af698104595be7a0573a86feae8a83441921318"
 [[proms]]
 kind = "ip30-prom"
 version = "4.17"
-path = "prom/IP30prom-4.17.bin"
+path = "prom/ip30prom-4.17.bin"
 size = 879312
 sha256 = "ee4722ca6f9b821ffadf156346c4d69bf5be71fc4b911cee75e36a1f51a49972"
 
