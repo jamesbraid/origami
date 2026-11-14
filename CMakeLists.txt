@@ -105,8 +105,9 @@ if(PRODUCT_PLATFORM STREQUAL "linux")
 elseif(PRODUCT_PLATFORM STREQUAL "macos")
   list(APPEND qemu_flags --enable-coreaudio --enable-vmnet)
 else()
+  # Static libgcc too: the C++ code otherwise pulls in libgcc_s_seh-1.dll.
   list(APPEND qemu_flags --enable-dsound --extra-cflags=-DBUILDING_LIBSLIRP
-    --extra-ldflags=-static-libstdc++)
+    --extra-ldflags=-static-libstdc++ --extra-ldflags=-static-libgcc)
 endif()
 if(PRODUCT_CROSS_PREFIX)
   list(APPEND qemu_flags "--cross-prefix=${PRODUCT_CROSS_PREFIX}")
