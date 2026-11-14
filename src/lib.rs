@@ -451,6 +451,53 @@ pub struct Drive {
     pub image: String,
     #[serde(default)]
     pub read_only: bool,
+    /// Keep a CHD disk's guest writes in its `.diff.chd` file instead of
+    /// folding them into the image when the machine stops.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overlay: bool,
+}
+
+/// Whether `path` names a MAME CHD image.
+pub fn is_chd(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("chd"))
+}
+
+/// Refuse a file that is not a version 5 CHD hard disk with 512-byte
+/// sectors, the only kind QEMU's chd driver opens. The check reads the
+/// header only: the magic, the version and the unit size.
+pub fn check_chd(path: &Path) -> Result<()> {
+    use std::io::Read;
+    let mut header = [0u8; 64];
+    let read = fs::File::open(path)
+        .and_then(|mut file| file.read_exact(&mut header))
+        .map_err(|error| match error.kind() {
+            std::io::ErrorKind::UnexpectedEof => {
+                format!("{} is not a CHD image", path.display())
+            }
+            _ => format!("{}: {error}", path.display()),
+        });
+    read?;
+    if &header[..8] != b"MComprHD" {
+        return Err(format!("{} is not a CHD image", path.display()).into());
+    }
+    let version = u32::from_be_bytes(header[12..16].try_into()?);
+    if version != 5 {
+        return Err(format!(
+            "{} is CHD version {version}; only version 5 is supported",
+            path.display()
+        )
+        .into());
+    }
+    let unit = u32::from_be_bytes(header[60..64].try_into()?);
+    if unit != 512 {
+        return Err(format!(
+            "{} has {unit}-byte units, not 512-byte sectors; only hard disk CHDs are supported",
+            path.display()
+        )
+        .into());
+    }
+    Ok(())
 }
 
 /// The machine list of the QEMU that launches guests.
@@ -804,8 +851,21 @@ pub fn validate<'a>(
         if drive.kind == "cdrom" && !drive.read_only {
             return Err("CD-ROM must be read-only".into());
         }
-        if !resolve(dir, &drive.image).is_file() {
+        let image = resolve(dir, &drive.image);
+        if !image.is_file() {
             return Err(format!("missing drive image {}", drive.image).into());
+        }
+        if is_chd(&image) {
+            if drive.kind != "disk" {
+                return Err(format!(
+                    "{} is a CHD image, which attaches as a disk only; CD-ROM and tape CHDs are not supported",
+                    drive.image
+                )
+                .into());
+            }
+            check_chd(&image)?;
+        } else if drive.overlay {
+            return Err(format!("overlay applies to CHD images, not {}", drive.image).into());
         }
     }
     Ok(offering)

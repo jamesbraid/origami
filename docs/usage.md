@@ -147,6 +147,36 @@ origami drive-attach my-origin /path/to/tape.image --type tape --target 5
 origami drive-detach my-origin cdrom4
 ```
 
+A disk can also be a MAME CHD image (`.chd`, as `chdman` writes for a hard
+disk), compressed or not. Attach it as a disk only; CD-ROM and tape CHDs are
+refused:
+
+```sh
+origami drive-attach my-origin /path/to/irix.chd --type disk --target 1
+```
+
+A compressed CHD is never written. The guest's writes go to `irix.diff.chd`
+beside it, and a diff that is already there is attached again at the next
+start. When the machine stops cleanly the diff is folded back into the image,
+recompressed, and the diff is deleted. `--overlay` keeps the diff instead and
+never folds it, which leaves the image as it was. An uncompressed CHD is
+written in place. It takes a diff only with `--overlay`, and a diff names its
+image by SHA-1, so QEMU refuses `--overlay` at start on an image that records
+none (`chdman createhd --compression none` records none).
+
+The fold recompresses the whole image and needs room for a second copy of it,
+so it takes minutes for a multi-gigabyte disk. `origami stop` waits for it and
+prints a note while it does. Let it finish: killing QEMU, or pulling the
+power, during the fold leaves the diff for the next start to attach, and a
+fold that was cut short is finished at the next start. Do not stop the machine
+a different way when you want the changes in the image.
+
+> **Never use one CHD with iris and origami at the same time.** Each folds the
+> diff into the image when it exits and then deletes it, and neither sees the
+> other's locks. Stop one before starting the other, and keep the image and its
+> `.diff.chd` together. They share file names and the same MAME code, but
+> running one against the other's diff has not been tested.
+
 Stop the machine before changing its drives.
 
 ## Run it
@@ -179,9 +209,12 @@ origami stop my-origin
 ```
 
 `console` attaches to the background run's serial console, and `stop` asks
-QEMU to quit. Both need a background run. Every run appends the serial
-output to `my-origin/logs/serial.log`. A machine runs only once at a time.
-A second launch is refused.
+QEMU to quit and returns once it has exited, which can take minutes while a
+CHD disk folds its changes back into the image. Both need a background run.
+During a fold `status` reports the machine as running, and running `stop`
+again keeps waiting for the same exit. Every run appends the serial output to
+`my-origin/logs/serial.log`. A machine runs only once at a time. A second
+launch is refused.
 
 On a cold start an installed guest boots straight to IRIX. Press Esc while
 the PROM prints "Starting up the system" to stop at its System Maintenance

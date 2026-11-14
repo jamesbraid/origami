@@ -176,6 +176,7 @@ pub fn create_disk(machines: &Machines, dir: &Path, size: u64) -> Result<()> {
         target: 1,
         image: "drives/system.qcow2".into(),
         read_only: false,
+        overlay: false,
     });
     fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
     println!("created {}", path.display());

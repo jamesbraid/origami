@@ -5,7 +5,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, BufReader};
 use std::net::{SocketAddrV4, TcpListener, TcpStream};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Record {
@@ -113,10 +113,71 @@ pub fn is_running(dir: &Path) -> Result<bool> {
     }
 }
 
+/// Ask the machine to quit, then wait until its runner has exited.
+///
+/// QEMU's quit is a clean exit, and that is when a CHD disk folds its
+/// `.diff.chd` back into the image. The fold recompresses the whole image,
+/// which takes minutes for a multi-gigabyte one, and killing QEMU meanwhile
+/// leaves the diff unfolded. So this never gives up and never kills: it
+/// waits for the runner, which holds the machine lock for as long as QEMU
+/// lives.
 pub fn stop(dir: &Path) -> Result<()> {
     let record = read(dir)?;
-    verified_qmp(&record)?.write_command(&qmp::quit {})?;
+    // QEMU may already have taken a quit and stopped answering QMP while it
+    // folds, as when an earlier stop was interrupted. The runner's lock says
+    // it is still alive, so keep waiting instead of reporting a dead machine.
+    if let Err(error) =
+        verified_qmp(&record).and_then(|mut qmp| Ok(qmp.write_command(&qmp::quit {})?))
+    {
+        if !is_locked(dir)? {
+            return Err(error);
+        }
+    }
+    let started = Instant::now();
+    let log = dir.join("logs/runner.log");
+    let log_start = fs::metadata(&log).map_or(0, |meta| meta.len());
+    let mut next_note = NOTE_INTERVAL;
+    // A fold is slow, so say what the wait is for once it outlasts a plain exit.
+    let mut announced = false;
+    while is_locked(dir)? {
+        std::thread::sleep(POLL_INTERVAL);
+        let elapsed = started.elapsed();
+        if !announced && elapsed >= Duration::from_secs(2) {
+            announced = true;
+            eprintln!(
+                "waiting for QEMU to exit. A CHD disk folds its changes back into the image first, which can take minutes. Do not interrupt it."
+            );
+        }
+        if elapsed >= next_note {
+            next_note += NOTE_INTERVAL;
+            let progress = last_line_since(&log, log_start);
+            eprintln!(
+                "still waiting for QEMU to exit ({}s){}",
+                elapsed.as_secs(),
+                if progress.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {progress}")
+                }
+            );
+        }
+    }
     Ok(())
+}
+
+const POLL_INTERVAL: Duration = Duration::from_millis(200);
+const NOTE_INTERVAL: Duration = Duration::from_secs(30);
+
+/// The last non-empty line the runner log gained after `start`: QEMU's
+/// progress report from a fold, when one is running.
+fn last_line_since(path: &Path, start: u64) -> String {
+    let text = fs::read(path).unwrap_or_default();
+    let text = String::from_utf8_lossy(text.get(start as usize..).unwrap_or_default());
+    let last = text
+        .split(['\n', '\r'])
+        .rfind(|line| !line.trim().is_empty())
+        .unwrap_or_default();
+    last.trim().to_string()
 }
 
 pub fn console(dir: &Path) -> Result<()> {

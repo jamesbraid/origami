@@ -298,7 +298,7 @@ fn command(action: Action) -> Result<()> {
         Action::Console(args) => control::console(&directory(&args.dir)?)?,
         Action::Stop(args) => {
             control::stop(&directory(&args.dir)?)?;
-            println!("stop requested");
+            println!("stopped");
         }
         Action::GraphicsSet { dir, graphics } => {
             let dir = directory(&dir)?;
@@ -313,6 +313,7 @@ fn command(action: Action) -> Result<()> {
             file,
             kind,
             target,
+            overlay,
         } => {
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing drives")?;
@@ -325,6 +326,7 @@ fn command(action: Action) -> Result<()> {
                 target,
                 image: path.display().to_string(),
                 read_only: kind == DriveKind::Cdrom,
+                overlay,
             });
             validate(&machines()?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;

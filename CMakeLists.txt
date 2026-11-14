@@ -92,17 +92,21 @@ set(go_environment "GOPATH=${CMAKE_BINARY_DIR}/go" "GOMODCACHE=${CMAKE_BINARY_DI
 # Disable optional features the product does not use, so what the archive
 # bundles does not depend on what else the build machine has installed.
 set(qemu_flags --target-list=mips64-softmmu --disable-docs --disable-gtk --disable-cocoa
-  --enable-sdl --enable-vnc --enable-slirp
+  --enable-sdl --enable-vnc --enable-slirp --enable-chd
   --disable-curl --disable-gnutls --disable-gcrypt --disable-bzip2 --disable-zstd
   --disable-libssh --disable-libnfs --disable-libiscsi --disable-rbd --disable-vde
   --disable-spice --disable-virglrenderer --disable-libusb --disable-opengl)
 if(PRODUCT_PLATFORM STREQUAL "linux")
   # sndio is rarely installed on Linux hosts, and QEMU links every enabled driver.
   list(APPEND qemu_flags --enable-alsa --enable-pa --disable-sndio)
+  # The chd driver is C++, and a distro's libstdc++ may be older than the
+  # one QEMU was built with.
+  list(APPEND qemu_flags --extra-ldflags=-static-libstdc++)
 elseif(PRODUCT_PLATFORM STREQUAL "macos")
   list(APPEND qemu_flags --enable-coreaudio --enable-vmnet)
 else()
-  list(APPEND qemu_flags --enable-dsound --extra-cflags=-DBUILDING_LIBSLIRP)
+  list(APPEND qemu_flags --enable-dsound --extra-cflags=-DBUILDING_LIBSLIRP
+    --extra-ldflags=-static-libstdc++)
 endif()
 if(PRODUCT_CROSS_PREFIX)
   list(APPEND qemu_flags "--cross-prefix=${PRODUCT_CROSS_PREFIX}")
@@ -150,6 +154,17 @@ ExternalProject_Add_Step(qemu-product refresh-libslirp
   WORKING_DIRECTORY "${qemu_build}"
   DEPENDEES configure DEPENDERS build
   DEPENDS "${CMAKE_SOURCE_DIR}/qemu/subprojects/libslirp.wrap" ${libslirp_patches})
+# The chd block driver wraps MAME's CHD code, which QEMU fetches as the
+# libchdman subproject and patches with the files in packagefiles/libchdman.
+file(GLOB libchdman_files CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/qemu/subprojects/packagefiles/libchdman/*")
+ExternalProject_Add_Step(qemu-product refresh-libchdman
+  COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment}
+    "${qemu_build}/pyvenv/bin/meson" subprojects update --reset
+    --sourcedir "${CMAKE_SOURCE_DIR}/qemu" libchdman
+  WORKING_DIRECTORY "${qemu_build}"
+  DEPENDEES configure DEPENDERS build
+  DEPENDS "${CMAKE_SOURCE_DIR}/qemu/subprojects/libchdman.wrap" ${libchdman_files})
 add_custom_target(frontend
   COMMAND "${CMAKE_COMMAND}" -E env ${platform_environment} ${cargo_environment}
     "${PRODUCT_CARGO}" build --locked --workspace ${cargo_flags}

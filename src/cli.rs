@@ -72,7 +72,7 @@ pub enum Action {
         #[arg(value_name = "SIZE-MiB", value_parser = clap::value_parser!(u64).range(1..=131072))]
         size: u64,
     },
-    /// Attach an existing disk, CD or tape image
+    /// Attach an existing disk, CD or tape image; a disk may be a CHD
     DriveAttach {
         #[arg(value_name = "DIR")]
         dir: PathBuf,
@@ -82,6 +82,10 @@ pub enum Action {
         kind: DriveKind,
         #[arg(long)]
         target: u32,
+        /// Keep a CHD disk's writes in its .diff.chd file instead of
+        /// folding them into the image when the machine stops
+        #[arg(long)]
+        overlay: bool,
     },
     /// Detach a drive without deleting its image
     DriveDetach {

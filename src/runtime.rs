@@ -523,14 +523,19 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, offering: &Offering, drive: &Dr
     let path = resolve(dir, &drive.image);
     let format = if path.extension().is_some_and(|ext| ext == "qcow2") {
         "qcow2"
+    } else if crate::is_chd(&path) {
+        "chd"
     } else {
         "raw"
     };
+    // A CHD disk takes guest writes into <image>.diff.chd and folds them
+    // back at a clean exit; overlay=on keeps the diff instead.
+    let overlay = if drive.overlay { ",overlay=on" } else { "" };
     let id = format!("drive{index}");
     args.extend([
         "-drive".into(),
         format!(
-            "if=none,id={id},file={},format={format},readonly={}",
+            "if=none,id={id},file={},format={format},readonly={}{overlay}",
             qemu_path_option(&path),
             if drive.read_only { "on" } else { "off" }
         ),
@@ -994,6 +999,7 @@ mod tests {
                 target,
                 image: "system.qcow2".into(),
                 read_only: false,
+                overlay: false,
             });
             let args = arguments(
                 &machines,
@@ -1017,6 +1023,41 @@ mod tests {
         assert_eq!(
             device_for("fuel-1", 1),
             "scsi-hd,bus=scsi.0,scsi-id=1,lun=0,drive=drive0"
+        );
+    }
+
+    #[test]
+    fn a_chd_disk_is_opened_with_the_chd_driver() {
+        let machines = crate::test_machines();
+        let offering = preset(&machines, "fuel-1").unwrap();
+        let drive_option = |overlay: bool| {
+            let mut file = machine(offering);
+            file.drive.push(crate::Drive {
+                name: "disk1".into(),
+                kind: "disk".into(),
+                bus: 0,
+                target: 1,
+                image: "/images/irix.chd".into(),
+                read_only: false,
+                overlay,
+            });
+            let args = arguments(
+                &machines,
+                Path::new("/machine"),
+                &file,
+                offering,
+                Display::None,
+            )
+            .unwrap();
+            args[args.iter().position(|a| a == "-drive").unwrap() + 1].clone()
+        };
+        assert_eq!(
+            drive_option(false),
+            "if=none,id=drive0,file=/images/irix.chd,format=chd,readonly=off"
+        );
+        assert_eq!(
+            drive_option(true),
+            "if=none,id=drive0,file=/images/irix.chd,format=chd,readonly=off,overlay=on"
         );
     }
 

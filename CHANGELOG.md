@@ -3,6 +3,12 @@
 ## Unreleased
 
 - New:
+  - `drive-attach` takes a MAME CHD hard disk image with `--type disk`. A
+    compressed CHD takes guest writes in a `.diff.chd` beside it, which is
+    folded back into the image when QEMU exits cleanly; `--overlay` keeps the
+    diff instead. CD-ROM and tape CHDs are refused. Never use one CHD with
+    iris and origami at the same time. The bundled QEMU is built with its chd
+    driver, and the licence notices for MAME's CHD code ship with it.
   - Every machine gets an emu-id at `create`, the lowest free one from 1 to
     2999 among the machines beside it. QEMU builds the guest's system serial,
     host id and Ethernet address from it. It is recorded in `machine.toml` as
@@ -19,6 +25,9 @@
     or Fuel) unless `--mac` is given. A machine that first gets a MAC from
     `network-set` or `install-init` gets an emu-id the same way.
 - Changed:
+  - `stop` now waits until QEMU has exited and prints `stopped`, instead of
+    returning once the quit is requested. A CHD disk folds its diff into the
+    image during that exit, which takes minutes for a large image.
   - `origami upgrade` adds an emu-id to a machine that has none and keeps its
     MAC. On an Octane, Octane2, Fuel or Origin 200 the host id comes from the
     station address, so it stays unmarked. On the others, the IP35 machines,
