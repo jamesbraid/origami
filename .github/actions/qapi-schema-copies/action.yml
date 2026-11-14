@@ -1,0 +1,29 @@
+name: Copy the qapi-rs schema files
+description: On Windows, replace the symlinks in the qapi-rs checkout with copies of their targets, so qapi-qmp's build script can read them. Run it after checkout and before any cargo build.
+runs:
+  using: composite
+  steps:
+    - name: Replace the qapi-rs schema links with copies
+      shell: pwsh
+      # The qapi-rs dependency keeps its schema files as symlinks into a
+      # submodule. Cargo checks them out as text files, or with
+      # core.symlinks as directory links that fail with "Access is denied"
+      # when read, so qapi-qmp's build script cannot open them. The GitHub
+      # runner image takes the second path. Fetch the
+      # checkout, then swap each link for a copy of its target.
+      run: |
+        cargo fetch --locked
+        $checkouts = Get-ChildItem "$env:USERPROFILE\.cargo\git\checkouts\qapi-rs-*\*" -Directory
+        if (-not $checkouts) { throw 'no qapi-rs checkout' }
+        foreach ($root in $checkouts) {
+          foreach ($dir in "$root\qmp\schema\qapi", "$root\qga\schema\qga") {
+            # -File would skip the links: they carry the Directory attribute.
+            foreach ($f in Get-ChildItem $dir | Where-Object { $_.Name -like '*.json' }) {
+              $rel = if ($f.LinkType) { @($f.Target)[0] } else { (Get-Content -Raw $f.FullName).Trim() }
+              $src = [System.IO.Path]::GetFullPath((Join-Path $dir $rel))
+              if (-not (Test-Path -PathType Leaf $src)) { throw "$($f.FullName): link target $src is missing" }
+              $f.Delete()
+              Copy-Item $src $f.FullName
+            }
+          }
+        }

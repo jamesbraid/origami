@@ -4,31 +4,16 @@ inputs:
   os:
     description: linux, macos or windows
     required: true
-  token:
-    description: A token that can read the instigator repository
-    required: true
 runs:
   using: composite
   steps:
-    # The tests are a target of the product crate, which embeds files from the
-    # instigator submodule. Nothing else of the build is needed.
-    - name: Fetch the instigator submodule
-      shell: bash
-      env:
-        TOKEN: ${{ inputs.token }}
-      run: |
-        # The checkout step injects credentials only when it fetches submodules
-        # itself, so give git the token for this one clone.
-        git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
-        git submodule update --init instigator
-        git config --global --unset url."https://x-access-token:${TOKEN}@github.com/".insteadOf
     - name: QEMU links the host's audio clients
       if: inputs.os == 'linux'
       shell: bash
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpulse0 libasound2t64
     - uses: actions/download-artifact@v4
       with:
-        name: origami-${{ inputs.os }}
+        name: origami-${{ inputs.os == 'linux' && 'linux-x86_64' || inputs.os == 'macos' && 'macos-arm64' || 'windows-x86_64' }}
         path: in/archive
     - name: Unpack the product archive
       if: inputs.os != 'windows'
@@ -59,31 +44,8 @@ runs:
           echo "ORIGAMI_FUNCTIONAL_DISKS=$RUNNER_TEMP/disks"
           echo "ORIGAMI_FUNCTIONAL_OUT=$RUNNER_TEMP/functional-out"
         } >> "$GITHUB_ENV"
-    - name: Replace the qapi-rs schema links with copies
+    - uses: ./.github/actions/qapi-schema-copies
       if: inputs.os == 'windows'
-      shell: pwsh
-      # The qapi-rs dependency keeps its schema files as symlinks into a
-      # submodule. Cargo checks them out as text files, or with
-      # core.symlinks as directory links that fail with "Access is denied"
-      # when read, so qapi-qmp's build script cannot open them. The GitHub
-      # runner image takes the second path. Fetch the
-      # checkout, then swap each link for a copy of its target.
-      run: |
-        cargo fetch --locked
-        $checkouts = Get-ChildItem "$env:USERPROFILE\.cargo\git\checkouts\qapi-rs-*\*" -Directory
-        if (-not $checkouts) { throw 'no qapi-rs checkout' }
-        foreach ($root in $checkouts) {
-          foreach ($dir in "$root\qmp\schema\qapi", "$root\qga\schema\qga") {
-            # -File would skip the links: they carry the Directory attribute.
-            foreach ($f in Get-ChildItem $dir | Where-Object { $_.Name -like '*.json' }) {
-              $rel = if ($f.LinkType) { @($f.Target)[0] } else { (Get-Content -Raw $f.FullName).Trim() }
-              $src = [System.IO.Path]::GetFullPath((Join-Path $dir $rel))
-              if (-not (Test-Path -PathType Leaf $src)) { throw "$($f.FullName): link target $src is missing" }
-              $f.Delete()
-              Copy-Item $src $f.FullName
-            }
-          }
-        }
     - uses: Swatinem/rust-cache@v2
     - name: Build the functional tests
       shell: bash

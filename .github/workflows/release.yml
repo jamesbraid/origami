@@ -1,0 +1,61 @@
+name: Release
+
+# A v* tag builds the three archives and publishes them as a GitHub release,
+# with SHA256SUMS and the CHANGELOG.md section for the version. The tag is
+# made on the canonical repository and mirrored here.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.server_url == 'https://github.com'
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: build
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: origami-*
+          path: assets
+          merge-multiple: true
+      - name: Checksums and release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          version=${TAG#v}
+          ls assets
+          test "$(ls assets/*.tar.gz assets/*.zip | wc -l)" = 3
+          # A dirty or untagged build would be named for the commit instead.
+          for f in assets/origami-*; do
+            case $f in
+              assets/origami-"$version"-*) ;;
+              *) echo "$f is not named for $version" >&2; exit 1 ;;
+            esac
+          done
+          (cd assets && sha256sum -- *.tar.gz *.zip > SHA256SUMS && sha256sum --check SHA256SUMS)
+          # The section under "## <version>", up to the next "## ".
+          awk -v v="$version" '$0 == "## " v {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "CHANGELOG.md has no ## $version section" >&2
+            exit 1
+          fi
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" assets/* --verify-tag --title "$TAG" --notes-file notes.md

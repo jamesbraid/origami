@@ -10,19 +10,13 @@ name: "Integration tests: guests on a real LAN"
 #   Windows  user-mode networking only (no bridge, namespaces or peers there),
 #            plus one informational probe of a TAP-Windows6 adapter
 #
-# The tests are tests/integration (see its README). Each job builds the product
-# archive it tests, or takes one from an earlier Smoke run, and a failed
-# scenario fails the run. A scheduled run does nothing when main has not moved
+# The tests are tests/integration (see its README). The archives come from
+# build.yml, and a failed scenario fails the run. A scheduled run does nothing when main has not moved
 # since the last successful run of this workflow.
 on:
   schedule:
     - cron: '17 5 * * *'
   workflow_dispatch:
-    inputs:
-      archive-run:
-        description: Smoke run ID whose archives (origami-linux, origami-macos, origami-windows) to test instead of building them
-        required: false
-        type: string
 
 permissions:
   actions: read
@@ -59,23 +53,22 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
+  archive:
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    uses: ./.github/workflows/build.yml
+
   linux:
     name: "Integration tests: guests on a real LAN (Linux)"
-    needs: plan
+    needs: [plan, archive]
     if: needs.plan.outputs.run == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 300
-    env:
-      ARCHIVE_RUN: ${{ inputs.archive-run }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 0
-          submodules: ${{ inputs.archive-run == '' }}
-          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
-      - name: Check out Instigator, which the test build needs
-        run: git submodule update --init instigator
       - name: Choose paths
         run: |
           {
@@ -83,35 +76,14 @@ jobs:
             echo "ORIGAMI_WORK=$RUNNER_TEMP/it"
             echo "ORIGAMI_DISK_CACHE=$RUNNER_TEMP/disks"
           } >> "$GITHUB_ENV"
-      - id: vcpkg
-        if: inputs.archive-run == ''
-        run: |
-          mkdir -p "$RUNNER_TEMP/build-vcpkg-cache"
-          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        if: inputs.archive-run == ''
+      - uses: actions/download-artifact@v4
         with:
-          path: ${{ runner.temp }}/build-vcpkg-cache
-          key: vcpkg-linux-x86_64-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
-          restore-keys: vcpkg-linux-x86_64-
-      - name: Build the product archive
-        if: inputs.archive-run == ''
-        timeout-minutes: 120
-        uses: ./.github/actions/build-archive
-        with:
-          preset: linux
-          build-dir: ${{ runner.temp }}/build
-      - name: Fetch the product archive from an earlier run
-        if: inputs.archive-run != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name origami-linux --dir "$RUNNER_TEMP/build/artifacts"
+          name: origami-linux-x86_64
+          path: ${{ runner.temp }}/archive
       - name: Unpack the product
         run: |
           mkdir -p "$ORIGAMI_PRODUCT"
-          tar -xzf "$RUNNER_TEMP"/build/artifacts/origami-*-linux-x86_64.tar.gz \
+          tar -xzf "$RUNNER_TEMP"/archive/origami-*-linux-x86_64.tar.gz \
             --strip-components=1 -C "$ORIGAMI_PRODUCT"
       - name: Install the peers' packages and the libraries QEMU links
         run: |
@@ -187,21 +159,15 @@ jobs:
 
   macos:
     name: "Integration tests: guests on a real LAN (macOS vmnet)"
-    needs: plan
+    needs: [plan, archive]
     if: needs.plan.outputs.run == 'true'
     runs-on: macos-15
     timeout-minutes: 300
-    env:
-      ARCHIVE_RUN: ${{ inputs.archive-run }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
           fetch-depth: 0
-          submodules: ${{ inputs.archive-run == '' }}
-          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
-      - name: Check out Instigator, which the test build needs
-        run: git submodule update --init instigator
       - name: Choose paths
         run: |
           {
@@ -209,45 +175,14 @@ jobs:
             echo "ORIGAMI_WORK=$RUNNER_TEMP/it"
             echo "ORIGAMI_DISK_CACHE=$RUNNER_TEMP/disks"
           } >> "$GITHUB_ENV"
-      - id: vcpkg
-        if: inputs.archive-run == ''
-        run: |
-          mkdir -p "$RUNNER_TEMP/build-vcpkg-cache"
-          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/build-vcpkg-cache" >> "$GITHUB_ENV"
-          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        if: inputs.archive-run == ''
+      - uses: actions/download-artifact@v4
         with:
-          path: ${{ runner.temp }}/build-vcpkg-cache
-          key: vcpkg-macos-arm64-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
-          restore-keys: vcpkg-macos-arm64-
-      - uses: actions/setup-python@v5
-        if: inputs.archive-run == ''
-        with:
-          python-version: '3.12'
-      - uses: actions/setup-go@v5
-        if: inputs.archive-run == ''
-        with:
-          go-version-file: instigator/go.mod
-      - name: Build the product archive
-        if: inputs.archive-run == ''
-        timeout-minutes: 120
-        run: |
-          brew install cmake ninja pkg-config meson rust autoconf automake libtool
-          cmake --preset macos -B "$RUNNER_TEMP/build"
-          cmake --build "$RUNNER_TEMP/build" --target binaries --parallel 4
-          cpack --config "$RUNNER_TEMP/build/CPackConfig.cmake" -B "$RUNNER_TEMP/build/artifacts"
-      - name: Fetch the product archive from an earlier run
-        if: inputs.archive-run != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name origami-macos --dir "$RUNNER_TEMP/build/artifacts"
+          name: origami-macos-arm64
+          path: ${{ runner.temp }}/archive
       - name: Unpack the product
         run: |
           mkdir -p "$ORIGAMI_PRODUCT"
-          tar -xzf "$RUNNER_TEMP"/build/artifacts/origami-*-macos-arm64.tar.gz \
+          tar -xzf "$RUNNER_TEMP"/archive/origami-*-macos-arm64.tar.gz \
             --strip-components=1 -C "$ORIGAMI_PRODUCT"
       - name: Start socket_vmnet and install dnsmasq
         run: |
@@ -300,45 +235,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  windows-archive:
-    name: Build product archive (Windows, cross-built on Linux)
-    needs: plan
-    if: needs.plan.outputs.run == 'true' && inputs.archive-run == ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-          submodules: true
-          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
-      - id: vcpkg
-        run: |
-          mkdir -p "$RUNNER_TEMP/build-vcpkg-cache"
-          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/build-vcpkg-cache
-          key: vcpkg-windows-x86_64-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
-          restore-keys: vcpkg-windows-x86_64-
-      - uses: ./.github/actions/build-archive
-        with:
-          preset: windows-cross
-          build-dir: ${{ runner.temp }}/build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: integration-origami-windows
-          path: ${{ runner.temp }}/build/artifacts/origami-*-windows-x86_64.*
-          if-no-files-found: error
-          retention-days: 3
-
   windows-tests:
     name: Build the test programs (Windows, cross-built on Linux)
-    # A native Windows build of the product's crates does not work: the QMP
-    # crate's schema directory is a symlink, which a Windows checkout turns
-    # into a file. The archive is cross-built for the same reason, so the
-    # tests are too, and the Windows job runs the finished programs.
+    # The test program is cross-built on Linux, so the Windows job runs a
+    # finished program and needs no Rust toolchain or schema copies.
     needs: plan
     if: needs.plan.outputs.run == 'true'
     runs-on: ubuntu-24.04
@@ -347,8 +247,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Check out Instigator, which the test build needs
-        run: git submodule update --init instigator
       - name: Install the cross compiler
         run: |
           sudo apt-get update
@@ -372,27 +270,17 @@ jobs:
 
   windows:
     name: "Integration tests: user-mode guest (Windows)"
-    needs: [plan, windows-archive, windows-tests]
-    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && (needs.windows-archive.result == 'success' || needs.windows-archive.result == 'skipped') && needs.windows-tests.result == 'success' }}
+    needs: [plan, archive, windows-tests]
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && needs.archive.result == 'success' && needs.windows-tests.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 120
     defaults:
       run:
         shell: bash
-    env:
-      ARCHIVE_RUN: ${{ inputs.archive-run }}
     steps:
-      - name: Fetch the product archive from an earlier run
-        if: inputs.archive-run != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name origami-windows --dir "$RUNNER_TEMP/archive"
       - uses: actions/download-artifact@v4
-        if: inputs.archive-run == ''
         with:
-          name: integration-origami-windows
+          name: origami-windows-x86_64
           path: ${{ runner.temp }}/archive
       - name: Unpack the product
         run: |
@@ -420,8 +308,8 @@ jobs:
 
   tap-probe:
     name: "Integration probe: TAP-Windows6 adapter (Windows, informational)"
-    needs: [plan, windows-archive, windows-tests]
-    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && (needs.windows-archive.result == 'success' || needs.windows-archive.result == 'skipped') && needs.windows-tests.result == 'success' }}
+    needs: [plan, archive, windows-tests]
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && needs.archive.result == 'success' && needs.windows-tests.result == 'success' }}
     # Whether a hosted runner accepts a TAP driver is what this asks. Its result
     # is read from the job, and a failure does not fail the run.
     continue-on-error: true
@@ -431,21 +319,12 @@ jobs:
       run:
         shell: bash
     env:
-      ARCHIVE_RUN: ${{ inputs.archive-run }}
       OPENVPN_MSI: OpenVPN-2.6.14-I001-amd64.msi
       OPENVPN_SHA256: 19bca902826ef0dc9a6cf849297ce43ba8b2844bdb913c37230308d3274c953c
     steps:
-      - name: Fetch the product archive from an earlier run
-        if: inputs.archive-run != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name origami-windows --dir "$RUNNER_TEMP/archive"
       - uses: actions/download-artifact@v4
-        if: inputs.archive-run == ''
         with:
-          name: integration-origami-windows
+          name: origami-windows-x86_64
           path: ${{ runner.temp }}/archive
       - name: Unpack the product
         run: |
