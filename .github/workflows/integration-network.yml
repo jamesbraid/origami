@@ -333,10 +333,47 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  windows-tests:
+    name: Build the test programs (Windows, cross-built on Linux)
+    # A native Windows build of the product's crates does not work: the QMP
+    # crate's schema directory is a symlink, which a Windows checkout turns
+    # into a file. The archive is cross-built for the same reason, so the
+    # tests are too, and the Windows job runs the finished programs.
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out Instigator, which the test build needs
+        run: git submodule update --init instigator
+      - name: Install the cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-gnu
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the integration test program
+        run: |
+          cargo test --locked --target x86_64-pc-windows-gnu --test integration --no-run \
+            --message-format=json > "$RUNNER_TEMP/messages.json"
+          exe=$(python3 -c "import json,sys; print([m['executable'] for l in open(sys.argv[1]) for m in [json.loads(l)] if m.get('executable') and m['target']['name']=='integration'][-1])" "$RUNNER_TEMP/messages.json")
+          mkdir -p "$RUNNER_TEMP/out"
+          cp "$exe" "$RUNNER_TEMP/out/integration.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: integration-windows-test-program
+          path: ${{ runner.temp }}/out/integration.exe
+          if-no-files-found: error
+          retention-days: 3
+
   windows:
     name: "Integration tests: user-mode guest (Windows)"
-    needs: [plan, windows-archive]
-    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && (needs.windows-archive.result == 'success' || needs.windows-archive.result == 'skipped') }}
+    needs: [plan, windows-archive, windows-tests]
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && (needs.windows-archive.result == 'success' || needs.windows-archive.result == 'skipped') && needs.windows-tests.result == 'success' }}
     runs-on: windows-latest
     timeout-minutes: 120
     defaults:
@@ -345,11 +382,6 @@ jobs:
     env:
       ARCHIVE_RUN: ${{ inputs.archive-run }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Check out Instigator, which the test build needs
-        run: git submodule update --init instigator
       - name: Fetch the product archive from an earlier run
         if: inputs.archive-run != ''
         env:
@@ -372,16 +404,12 @@ jobs:
             echo "ORIGAMI_WORK=$(cygpath -m "$RUNNER_TEMP")/it"
             echo "ORIGAMI_DISK_CACHE=$(cygpath -m "$RUNNER_TEMP")/disks"
           } >> "$GITHUB_ENV"
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustc -Vv
-      - uses: Swatinem/rust-cache@v2
-      - name: Build the tests
-        run: cargo test --locked --test integration --no-run
+      - uses: actions/download-artifact@v4
+        with:
+          name: integration-windows-test-program
+          path: ${{ runner.temp }}/program
       - name: "Scenario user-mode: DHCP and ping on user networking"
-        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture user_mode
+        run: '"$RUNNER_TEMP/program/integration.exe" --ignored --test-threads=1 --nocapture user_mode'
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
@@ -392,8 +420,8 @@ jobs:
 
   tap-probe:
     name: "Integration probe: TAP-Windows6 adapter (Windows, informational)"
-    needs: [plan, windows-archive]
-    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && (needs.windows-archive.result == 'success' || needs.windows-archive.result == 'skipped') }}
+    needs: [plan, windows-archive, windows-tests]
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && (needs.windows-archive.result == 'success' || needs.windows-archive.result == 'skipped') && needs.windows-tests.result == 'success' }}
     # Whether a hosted runner accepts a TAP driver is what this asks. Its result
     # is read from the job, and a failure does not fail the run.
     continue-on-error: true
@@ -407,11 +435,6 @@ jobs:
       OPENVPN_MSI: OpenVPN-2.6.14-I001-amd64.msi
       OPENVPN_SHA256: 19bca902826ef0dc9a6cf849297ce43ba8b2844bdb913c37230308d3274c953c
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - name: Check out Instigator, which the test build needs
-        run: git submodule update --init instigator
       - name: Fetch the product archive from an earlier run
         if: inputs.archive-run != ''
         env:
@@ -437,21 +460,18 @@ jobs:
         run: |
           curl -fsSL -o "$RUNNER_TEMP/openvpn.msi" "https://swupdate.openvpn.net/community/releases/$OPENVPN_MSI"
           echo "$OPENVPN_SHA256  $RUNNER_TEMP/openvpn.msi" | sha256sum -c -
-          # Only the driver and the tool that makes adapters from it.
-          powershell -NoProfile -Command "Start-Process msiexec.exe -Wait -ArgumentList '/i', \"\$env:RUNNER_TEMP\\openvpn.msi\", '/qn', 'ADDLOCAL=Drivers.TAPWindows6,Drivers'"
-          tapctl="/c/Program Files/OpenVPN/bin/tapctl.exe"
+          powershell -NoProfile -Command "\$p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/i', \"\$env:RUNNER_TEMP\\openvpn.msi\", '/qn', '/l*v', \"\$env:RUNNER_TEMP\\msi.log\"; exit \$p.ExitCode" || { tail -40 "$RUNNER_TEMP/msi.log"; exit 1; }
+          tapctl=$(ls "/c/Program Files/OpenVPN/bin/tapctl.exe" "/c/Program Files/OpenVPN Connect"/tapctl.exe 2>/dev/null | head -1)
+          [ -n "$tapctl" ] || { ls -R "/c/Program Files/OpenVPN" | head -40; exit 1; }
           "$tapctl" create --hwid root\\tap0901 --name origami-tap
           "$tapctl" list
           echo "ORIGAMI_TAP_ADAPTER=origami-tap" >> "$GITHUB_ENV"
-      - name: Install Rust
-        run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Build the tests
-        run: cargo test --locked --test integration --no-run
+      - uses: actions/download-artifact@v4
+        with:
+          name: integration-windows-test-program
+          path: ${{ runner.temp }}/program
       - name: "Probe: QEMU starts a machine on the adapter"
-        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture tap_windows_probe
+        run: '"$RUNNER_TEMP/program/integration.exe" --ignored --test-threads=1 --nocapture tap_windows_probe'
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
         with:
