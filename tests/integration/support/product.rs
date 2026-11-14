@@ -57,7 +57,12 @@ impl Product {
         let work = std::path::absolute(&work).expect("resolve the work directory");
         // Keep the product's cache and configuration out of the runner's profile.
         let home = work.join("home");
-        std::fs::create_dir_all(&home).unwrap();
+        // Windows resolves the cache directory through these, and fails when
+        // they name a directory that does not exist.
+        for dir in ["local", "roaming"] {
+            std::fs::create_dir_all(home.join(dir)).unwrap();
+        }
+        std::fs::create_dir_all(work.join("xdg")).unwrap();
         let env = vec![
             ("HOME".into(), home.display().to_string()),
             (
