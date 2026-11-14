@@ -57,9 +57,9 @@ impl Product {
         let work = std::path::absolute(&work).expect("resolve the work directory");
         // Keep the product's cache and configuration out of the runner's profile.
         let home = work.join("home");
-        // Windows resolves the cache directory through these, and fails when
-        // they name a directory that does not exist.
-        for dir in ["local", "roaming"] {
+        // Windows finds the cache directory through the profile, as
+        // %USERPROFILE%\AppData\Local, and fails when that does not exist.
+        for dir in ["AppData/Local", "AppData/Roaming"] {
             std::fs::create_dir_all(home.join(dir)).unwrap();
         }
         std::fs::create_dir_all(work.join("xdg")).unwrap();
@@ -72,9 +72,12 @@ impl Product {
             ("USERPROFILE".into(), home.display().to_string()),
             (
                 "LOCALAPPDATA".into(),
-                home.join("local").display().to_string(),
+                home.join("AppData/Local").display().to_string(),
             ),
-            ("APPDATA".into(), home.join("roaming").display().to_string()),
+            (
+                "APPDATA".into(),
+                home.join("AppData/Roaming").display().to_string(),
+            ),
         ];
         Product {
             cli,
