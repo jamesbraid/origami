@@ -70,3 +70,13 @@ runs:
     - name: Build the functional tests
       shell: bash
       run: cargo test --test functional --no-run
+    - name: Show how cargo checked out qapi-rs
+      if: failure() && inputs.os == 'windows'
+      shell: bash
+      run: |
+        git config --global --list
+        for d in "$USERPROFILE"/.cargo/git/checkouts/qapi-rs-*/*; do
+          ls -la "$d" "$d/schema" "$d/qmp/schema/qapi" | head -40
+          head -c 200 "$d/qmp/schema/qapi/qapi-schema.json"
+          cmd //c "dir /AL \"$(cygpath -w "$d")\\qmp\\schema\\qapi\"" | head -10
+        done
