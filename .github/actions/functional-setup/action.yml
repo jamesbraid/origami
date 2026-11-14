@@ -76,7 +76,7 @@ runs:
           foreach ($dir in "$root\qmp\schema\qapi", "$root\qga\schema\qga") {
             # -File would skip the links: they carry the Directory attribute.
             foreach ($f in Get-ChildItem $dir | Where-Object { $_.Name -like '*.json' }) {
-              $rel = if ($f.LinkType) { $f.Target[0] } else { (Get-Content -Raw $f.FullName).Trim() }
+              $rel = if ($f.LinkType) { @($f.Target)[0] } else { (Get-Content -Raw $f.FullName).Trim() }
               $src = [System.IO.Path]::GetFullPath((Join-Path $dir $rel))
               if (-not (Test-Path -PathType Leaf $src)) { throw "$($f.FullName): link target $src is missing" }
               $f.Delete()
