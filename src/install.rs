@@ -697,7 +697,8 @@ impl InstallConsole {
                 }
                 Err(error)
                     if error.kind() == io::ErrorKind::WouldBlock
-                        || error.kind() == io::ErrorKind::TimedOut => {}
+                        || error.kind() == io::ErrorKind::TimedOut
+                        || error.kind() == io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(error.into()),
             }
         }
@@ -915,7 +916,8 @@ impl InstallConsole {
                 }
                 Err(error)
                     if error.kind() == io::ErrorKind::WouldBlock
-                        || error.kind() == io::ErrorKind::TimedOut => {}
+                        || error.kind() == io::ErrorKind::TimedOut
+                        || error.kind() == io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(error.into()),
             }
         }
@@ -1164,6 +1166,49 @@ mod tests {
             .set_read_timeout(Some(Duration::from_millis(100)))
             .unwrap();
         (InstallConsole { stream }, writer)
+    }
+
+    /// A stop and continue (Ctrl-Z, then fg) interrupts a blocked read with
+    /// EINTR. The install must carry on, not exit.
+    #[cfg(unix)]
+    #[test]
+    fn console_read_survives_a_signal_interruption() {
+        extern "C" fn ignore(_: libc::c_int) {}
+        // SA_RESTART is left off so the blocked read returns EINTR, as it
+        // does after SIGCONT.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = ignore as extern "C" fn(libc::c_int) as usize;
+            libc::sigemptyset(&mut action.sa_mask);
+            assert_eq!(
+                libc::sigaction(libc::SIGUSR2, &action, std::ptr::null_mut()),
+                0
+            );
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let writer = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_millis(600));
+            stream.write_all(b"Inst> ").unwrap();
+            std::thread::sleep(Duration::from_millis(200));
+        });
+        let stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut console = InstallConsole { stream };
+        let reader = unsafe { libc::pthread_self() };
+        let kicker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            unsafe { libc::pthread_kill(reader, libc::SIGUSR2) };
+        });
+        let output = console
+            .wait_for(INSTALL_PROMPT, Duration::from_secs(10))
+            .unwrap();
+        kicker.join().unwrap();
+        writer.join().unwrap();
+        assert!(output.ends_with("Inst> "));
     }
 
     const PASS: &[u8] = b"Installing/removing files .. 22%\r\nChecking dependencies .. 100% Done.\r\nCalculating sizes .. 100% Done.\r\n";
