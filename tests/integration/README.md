@@ -1,68 +1,81 @@
 # Integration tests
 
-Real IRIX 6.5.30 guests, run by the real `origami` and its bundled QEMU, on a
-virtual LAN with real peer services. They answer questions the unit tests
-cannot, such as whether a guest on a bridge can mount an NFS export from a
-server on the LAN.
+IRIX guests run by the real `origami` and its bundled QEMU, on networks with
+real peers: dnsmasq for DHCP and TFTP, unfs3 for NFS, a second guest. They answer
+questions the unit and functional tests cannot, such as whether a guest on a
+bridge can mount an export from a server on the LAN.
+
+An integration test uses real external peers over real networks. The test that
+installs IRIX from the public media is an acceptance test and lives in
+[`tests/acceptance`](../acceptance/install.rs).
 
 ## Run them
 
-You need a runnable product tree (`bin/origami`, `libexec/origami/`), such as
-`out/linux/run` from [a Linux build](../../docs/development.md#linux), and
-rootless Podman or Docker. No host root is used.
+They are `#[ignore]`d, so a plain `cargo test` skips them. Asking for them
+without what they need fails; it never skips.
 
 ```sh
-tests/integration/run.py --list
-tests/integration/run.py --product out/linux/run --work /scratch/it-work \
-    --cache /scratch/irix-cache --evidence /scratch/it-evidence --jobs 2 [scenario ...]
+ORIGAMI_PRODUCT=/path/to/extracted/product \
+ORIGAMI_WORK=/scratch/it \
+    cargo test --test integration -- --ignored --test-threads=1 lab_probe lan_tap
 ```
 
-`--engine "podman --url ..."` picks the container engine. Each scenario
-runs in its own container, at most `--jobs` at a time, and each guest is a
-copy-on-write overlay of a cached installed disk that is never written.
-Each scenario may run two guests, and CI builders share a host, so keep
-`--jobs` small.
+| Variable | Meaning |
+|---|---|
+| `ORIGAMI_PRODUCT` | An extracted product tree: `bin/origami`, `libexec/origami/`. Required. |
+| `ORIGAMI_WORK` | Scratch directory; each test uses a subdirectory. Required. No spaces: NFS export lists cannot hold them. |
+| `ORIGAMI_DISK_CACHE` | Where the pinned IRIX disk is downloaded and unpacked. Default `$ORIGAMI_WORK/disks`. |
+| `ORIGAMI_VMNET_SOCKET` | macOS: the socket `socket_vmnet` listens on. |
+| `ORIGAMI_VMNET_GATEWAY` | macOS: the host address of the vmnet network. Default `192.168.105.1`. |
+| `ORIGAMI_TAP_ADAPTER` | Windows: the TAP-Windows6 adapter's name, for `tap_windows_probe`. |
 
-## How it fits together
+Each guest is a copy-on-write overlay of the pinned, prepared Origin 200 disk
+(`support/disk.rs` names it and its SHA-256), which is never written. The
+disk's DHCP lease and resolver file were removed when it was prepared, so it
+takes an address on any network.
 
-- **Scenario**: `scenarios/<name>.py` defines `SCENARIO`
-  (`harness/scenario.py`): a name, the `ImageSpec` it needs, how many tap
-  devices, a timeout and a `run(ctx)` function that returns a dict of what it
-  measured. Raising fails it. Add a file and it is picked up.
-- **Image store**: `harness/images.py` lists installed images. `--cache` holds
-  one directory per image, named from the machine, profile and a hash of
-  `install.py`, and the install runs once, in a container with network access
-  for the public media. Every scenario and later run reuses it. `install.py`
-  drives the Origin 200 PROM and installer; another machine family needs its
-  own driver steps there.
-- **Lab**: each scenario gets a fresh container with no outside network, its
-  own namespace, a bridge, `tap0..` and a peer in a second namespace running
-  dnsmasq (DHCP), rpcbind and unfs3 (NFSv3). It needs `NET_ADMIN`, `NET_RAW`,
-  `SYS_ADMIN` (to make the peer's namespace) and `/dev/net/tun`.
-- **Results**: `--evidence DIR` gets `DIR/<scenario>/result.json` (status,
-  duration, error, data), the guests' serial logs, DHCP and packet captures
-  beside it, and `DIR/summary.json`.
-- **Timeouts and teardown**: `timeout` inside the container enforces each
-  scenario's limit and the install's. The scenario shuts guests down in a
-  `finally`, and the container takes anything left with it.
+## Tests
 
-Before a scenario's guests start, one boot removes the install network's DHCP
-lease from the overlay. IRIX otherwise keeps the old address on a new network
-and its DHCP client loops on the new server's offers.
+| Test | OS | What it checks |
+|---|---|---|
+| `lab_probe` | Linux | The bridge, the peer namespace and the peer's services come up and answer. Seconds, no guest. |
+| `lan_tap` | Linux | A guest on a tap device takes a DHCP lease from dnsmasq, pings the peer, mounts an unfs3 export with a plain `mount`, and reads and writes files whose checksums match on both sides. |
+| `nat_user` | Linux | A user-mode guest reaches the same server through NAT. An export that wants a reserved source port refuses the mount with `Permission denied`; one marked `insecure` works. |
+| `two_guests` | Linux | Two guests on one bridge get different MACs and leases, both mount the peer's export, and one mounts a directory the other exports. Creating a machine with a used MAC is refused. |
+| `vmnet_lan` | macOS | A guest on `socket_vmnet` takes a lease from dnsmasq on the vmnet bridge and pings the host. |
+| `vmnet_netboot` | macOS | An Octane2 PROM's BOOTP request crosses vmnet to dnsmasq, and the TFTP boot file comes back. |
+| `user_mode` | any | A user-mode guest takes the product's lease and pings its gateway. Windows has no bridge or peers, so this is all it can check. |
+| `tap_windows_probe` | Windows | Informational: does QEMU start on a TAP-Windows6 adapter? |
 
-## Scenarios
+## The Linux lab
 
-- `lan-tap`: `network-set --mode tap` joins the guest to the bridge. IRIX
-  takes an address from the peer's DHCP server, pings it, mounts its export
-  with a plain `mount`, and reads and writes files whose checksums match on
-  both sides.
-- `nat-user`: the same server from QEMU's user networking, through NAT. Ping
-  and NFS work against an export that accepts any client port. NAT sends
-  from an unprivileged source port, so an export that wants a reserved one
-  (unfs3's default, like Linux's `secure`) refuses the mount with
-  `Permission denied`. The test asserts both outcomes.
-- `two-guests`: two machines on one bridge get different MACs and
-  addresses, both mount the peer's export, and one mounts a directory the
-  other exports. Creating a machine with a used MAC is refused.
+`lab/linux.rs` builds this with `ip`, using `sudo -n` unless the test is root:
 
-`.github/workflows/network-integration.yml` runs all of them nightly.
+```text
+host: bridge 10.77.0.1/24 -- one tap per guest, owned by the caller
+        |
+       veth -- peer namespace 10.77.0.2/24: dnsmasq, rpcbind, unfsd
+```
+
+The peer is a separate namespace so guests reach it across the bridge, as they
+would another machine. The three daemons run in a private mount namespace with
+their own `/run`, so a host's rpcbind keeps its socket.
+
+Every object has the test's pid in its name (`oitb<pid>` for the bridge, `oit<pid>`
+for the namespace). A lab goes away three ways: its `Drop`; a SIGINT or
+SIGTERM, which runs every registered cleanup (`support/cleanup.rs`) before the
+process exits; and the next run, which removes labs whose pid is gone. A rootless container
+works as a root-owned lab if it has `NET_ADMIN`, `NET_RAW`, `SYS_ADMIN` and `/dev/net/tun`.
+
+## When a test fails
+
+A guest that is still running when its test panics leaves, in
+`$ORIGAMI_WORK/<test>/evidence/<guest>-failure/`: the sockets of this run's
+processes, QEMU's own view of the guest (`info status`, `info network`,
+`info registers`), what every thread is waiting on, and for the install test
+a goroutine dump from Instigator. Only this run's pids are read or signalled.
+`result.json` and the guests' serial logs are beside it.
+
+`.github/workflows/integration-network.yml` runs the Linux, macOS and Windows
+jobs daily when `main` has moved. `.github/workflows/acceptance-install.yml`
+runs the install weekly.

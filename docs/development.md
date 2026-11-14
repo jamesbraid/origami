@@ -269,6 +269,24 @@ ORIGAMI_RUNTIME_DIR="$PWD/out/linux/run/libexec/origami" \
   cargo test --test runtime -- --include-ignored
 ```
 
+## Integration and acceptance tests
+
+Two test targets boot real IRIX guests with a built product, and are ignored
+by a plain `cargo test`. `tests/integration` runs guests on networks with real
+peers: on Linux a bridge with a tap device per guest and dnsmasq and unfs3 in a
+network namespace, on macOS socket_vmnet with dnsmasq, on Windows user-mode
+networking and a TAP-Windows6 probe. `tests/acceptance` installs IRIX from the
+public media on an Origin 200. Both need `ORIGAMI_PRODUCT` (an extracted
+archive) and `ORIGAMI_WORK`; [the integration README](../tests/integration/README.md)
+has the variables, the tests and the Linux lab. GitHub runs them from
+`integration-network.yml` daily and `acceptance-install.yml` weekly, each only
+when `main` has moved:
+
+```sh
+ORIGAMI_PRODUCT="$PWD/out/linux/run" ORIGAMI_WORK=/scratch/it \
+  cargo test --test integration -- --ignored --test-threads=1 lab_probe lan_tap
+```
+
 ## Licenses and dependency sources
 
 The Origami CLI, Instigator and original Origami additions to QEMU use
