@@ -7,11 +7,13 @@ system disk the scenarios use as a read-only backing file.
 """
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(__file__))
+from capture import capture  # noqa: E402
 from console import Console, Timeout, login  # noqa: E402
 
 ORIGAMI = "/product/bin/origami"
@@ -39,6 +41,10 @@ def main():
         time.sleep(3)
         origami("network-set", BASE, "--mode", "user")
         return publish()
+    # The outer `timeout` sends SIGTERM, then SIGKILL 60 seconds later. Turn
+    # it into an exception so the capture below runs while QEMU and
+    # Instigator are still up.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     shutil.rmtree(WORK, ignore_errors=True)
     os.makedirs(f"{WORK}/xdg")
     os.makedirs(f"{WORK}/home")
@@ -55,6 +61,9 @@ def main():
         drive(Console(BASE, f"{LOGS}/install-console.log"))
         origami("install-apply", BASE)
         first_boot()
+    except BaseException:
+        capture("/work/evidence", BASE, serve.pid)
+        raise
     finally:
         serve.terminate()
     subprocess.run([ORIGAMI, "stop", BASE], env=env)

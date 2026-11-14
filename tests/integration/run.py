@@ -42,7 +42,7 @@ def common(engine, product, work, cache, name):
             "-e", "PYTHONUNBUFFERED=1", "-w", "/work"]
 
 
-def install(engine, product, work, cache, spec):
+def install(engine, product, work, cache, evidence, spec):
     """Install one image, in a container with outside network access for the
     public media and no tap devices."""
     d = cache / spec.dirname
@@ -54,7 +54,15 @@ def install(engine, product, work, cache, spec):
     cmd += ["-e", f"DISK_DIR=/cache/{spec.dirname}", "-e", f"PRESET={spec.preset}",
             "-e", f"PROFILE={spec.profile}", "-e", f"DISK_MB={spec.disk_mb}", IMAGE,
             "timeout", "-k", "60", str(INSTALL_TIMEOUT), "python3", "/it/install.py"]
-    return run(cmd).returncode
+    code = run(cmd).returncode
+    if code and evidence:
+        # install.py's capture of a failed or stalled install, and its logs.
+        dest = evidence / f"install-{spec.dirname}"
+        dest.mkdir(parents=True, exist_ok=True)
+        for sub in ("evidence", "logs"):
+            if (w / sub).is_dir():
+                run(["cp", "-r", f"{w / sub}/.", str(dest)])
+    return code
 
 
 def scenario(engine, product, work, cache, evidence, s):
@@ -120,7 +128,7 @@ def main():
     if r.returncode:
         return r.returncode
     for spec in dict.fromkeys(s.image for s in chosen):
-        if install(engine, product, work, cache, spec):
+        if install(engine, product, work, cache, args.evidence, spec):
             print(f"installing {spec.dirname} failed", file=sys.stderr)
             return 2
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
