@@ -1,0 +1,31 @@
+# The machines the functional tests boot, and what each guest must report.
+#
+# A family is a software platform: its systems boot the same installed disk and
+# name their hardware the same way. A system is one preset of the product, and
+# `engines` lists the emulators that boot it. Only `qemu` has a driver today;
+# a system that names another engine is listed as ignored until one exists.
+# `hosts` lists the operating systems that boot it in the nightly run.
+#
+# Disks are the published CHDs on origami-dist, checked against the SHA256SUMS
+# there, and booted directly with `drive-attach --overlay`. Memory is what
+# `hinv` reports as main memory, which is the preset's per-node memory times its
+# nodes.
+
+[family.ip27]
+uname = "IP27"
+nic = "ef0"
+# Installed on 192.0.2.0/24 with its address in /etc/hosts, so it does not take one by DHCP.
+address = "static"
+cd_target = 4
+disk_target = 1
+disk = { url = "https://origami-dist.irix.fans/irix/6.5.30/ip27-headless-3037f762.chd", sha256 = "3037f7626de8f2e5b9433d0fb3750a8b65fb2577e82acfc0f8997c17d3875c9c" }
+
+[[system]]
+id = "origin200-1"
+family = "ip27"
+preset = "origin200-1"
+engines = ["qemu"]
+hosts = ["linux", "macos", "windows"]
+cpu = "R10000"
+cpus = 1
+memory_mb = 256

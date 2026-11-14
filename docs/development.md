@@ -330,3 +330,31 @@ python3 build/smoke-test.py /path/to/origami-<version> --scratch /path/to/scratc
 This checks product integration, not firmware or guest compatibility. Run
 artifacts contain archives and SHA-256 files. Firmware and guest media are
 not included.
+
+## Functional tests
+
+A functional test is a full-machine boot. `tests/functional` boots a published
+IRIX 6.5.30 disk on each system in `tests/data/systems.toml` and checks login,
+`uname -m`, `hinv`, a network address, a ping, NFS reads and writes, a CD-ROM
+read and a clean halt. A trial is an (engine, system) pair named
+`<engine>::<family>::<system>`; QEMU is the only engine with a driver, and a
+row that names another engine is listed as ignored. The `functional` workflow
+runs them nightly on Linux, macOS and Windows against the built archive.
+Adding a system is a row in `systems.toml`.
+
+They test an extracted product archive, so without `ORIGAMI_PRODUCT` every
+trial is listed as ignored. Locally, with a product tree that has `bin/origami`
+and `libexec/origami/`:
+
+```sh
+ORIGAMI_PRODUCT=/path/to/origami-<version> \
+ORIGAMI_FUNCTIONAL_DISKS=/path/to/disk-cache \
+  cargo test --test functional -- qemu::ip27::
+```
+
+The disk is 1.6 GB: it is downloaded once into `ORIGAMI_FUNCTIONAL_DISKS` and
+checked against the hash in `systems.toml`. `ORIGAMI_FUNCTIONAL_WORK` holds the
+machines and the PROM cache and `ORIGAMI_FUNCTIONAL_OUT` receives each trial's
+`results.json` and console log. Trials run one at a time. A system whose disk
+is not published, or that names an engine without a driver, is listed with the
+reason and never runs.

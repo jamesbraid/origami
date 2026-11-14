@@ -1,0 +1,65 @@
+name: Set up a functional test job
+description: Fetch the product archive for this OS, unpack it and build the functional tests' dependencies. Run it after checkout.
+inputs:
+  os:
+    description: linux, macos or windows
+    required: true
+  token:
+    description: A token that can read the instigator repository
+    required: true
+runs:
+  using: composite
+  steps:
+    # The tests are a target of the product crate, which embeds files from the
+    # instigator submodule. Nothing else of the build is needed.
+    - name: Fetch the instigator submodule
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+      run: |
+        # The checkout step injects credentials only when it fetches submodules
+        # itself, so give git the token for this one clone.
+        git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+        git submodule update --init instigator
+        git config --global --unset url."https://x-access-token:${TOKEN}@github.com/".insteadOf
+    - name: QEMU links the host's audio clients
+      if: inputs.os == 'linux'
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpulse0 libasound2t64
+    - uses: actions/download-artifact@v4
+      with:
+        name: origami-${{ inputs.os }}
+        path: in/archive
+    - name: Unpack the product archive
+      if: inputs.os != 'windows'
+      shell: bash
+      run: |
+        archive=$(find in/archive -maxdepth 1 -name 'origami-*.tar.gz' | head -n 1)
+        test -n "$archive"
+        mkdir -p "$RUNNER_TEMP/product"
+        tar -xzf "$archive" -C "$RUNNER_TEMP/product"
+        root=$(find "$RUNNER_TEMP/product" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+        test -x "$root/bin/origami"
+        echo "ORIGAMI_PRODUCT=$root" >> "$GITHUB_ENV"
+    - name: Unpack the product archive
+      if: inputs.os == 'windows'
+      shell: pwsh
+      run: |
+        $zip = Get-ChildItem in/archive -Filter 'origami-*.zip' | Select-Object -First 1
+        if (-not $zip) { throw 'no origami-*.zip in the artifact' }
+        Expand-Archive -LiteralPath $zip.FullName -DestinationPath "$env:RUNNER_TEMP\product"
+        $root = (Get-ChildItem "$env:RUNNER_TEMP\product" -Directory | Select-Object -First 1).FullName
+        if (-not (Test-Path "$root\bin\origami.exe")) { throw "no bin\origami.exe in $root" }
+        "ORIGAMI_PRODUCT=$root" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+    - name: Choose where the tests keep their files
+      shell: bash
+      run: |
+        {
+          echo "ORIGAMI_FUNCTIONAL_WORK=$RUNNER_TEMP/functional"
+          echo "ORIGAMI_FUNCTIONAL_DISKS=$RUNNER_TEMP/disks"
+          echo "ORIGAMI_FUNCTIONAL_OUT=$RUNNER_TEMP/functional-out"
+        } >> "$GITHUB_ENV"
+    - uses: Swatinem/rust-cache@v2
+    - name: Build the functional tests
+      shell: bash
+      run: cargo test --test functional --no-run

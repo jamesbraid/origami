@@ -1,8 +1,8 @@
 # Origami
 
-[![smoke](https://github.com/jamesbraid/origami/actions/workflows/smoke.yml/badge.svg?branch=main)](https://github.com/jamesbraid/origami/actions/workflows/smoke.yml)
+[![functional tests](https://github.com/jamesbraid/origami/actions/workflows/functional.yml/badge.svg?branch=main)](https://github.com/jamesbraid/origami/actions/workflows/functional.yml)
 
-Nightly: a built archive boots a prepared IRIX 6.5.30 Origin 200 on each OS ([what it checks](tests/smoke/boot.py)).
+Nightly, when main has moved: a built archive boots a published IRIX 6.5.30 Origin 200 on Linux, macOS and Windows and checks login, `hinv`, networking, NFS, a CD-ROM and a clean halt ([the systems](tests/data/systems.toml), [the checks](tests/functional/checks.rs)).
 
 An experimental SGI emulator built on QEMU. Vibe coded paper silicon.
 

@@ -1,11 +1,11 @@
-name: Smoke
+name: Functional tests (IRIX boots)
 
-# Nightly: build the product on each OS, boot a prepared IRIX 6.5.30 Origin 200
-# with it and check login, hinv, ping, NFS, CD-ROM and a clean halt.
-#
-# A failed build or check fails the run, and the README's built-in workflow
-# badge follows the run. Each OS's per-check results go to the run summary;
-# results.json and the console logs are kept as the smoke-<os> artifact.
+# Nightly, when main has moved since the last passing run: build the product
+# archive on each OS, then boot a published IRIX 6.5.30 Origin 200 disk with it
+# and check login, uname, hinv, a network address, a ping, NFS reads and writes, a
+# CD-ROM read and a clean halt. The systems and their expected answers are the
+# rows of tests/data/systems.toml; the trials are tests/functional. A failure
+# fails the run, and the README badge follows the run.
 on:
   schedule:
     - cron: '23 4 * * *'
@@ -13,20 +13,47 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: smoke
+  group: functional
   cancel-in-progress: false
 
 jobs:
-  archive:
+  # A scheduled run does nothing when the last passing run was of this commit.
+  plan:
     if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.moved.outputs.run }}
+    steps:
+      - id: moved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != schedule ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          last=$(gh run list -R "$GITHUB_REPOSITORY" --workflow functional.yml --status success --limit 1 --json headSha --jq '.[0].headSha // ""')
+          if [ "$last" = "$GITHUB_SHA" ]; then
+            echo "main has not moved since the last passing run ($last)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Until the Cargo build replaces CMake, the archives are built here as the
+  # other workflows build them.
+  archive:
+    needs: plan
+    if: needs.plan.outputs.run == 'true' && github.server_url == 'https://github.com'
     strategy:
       fail-fast: false
       matrix:
         include:
           - { os: linux, runner: ubuntu-24.04, platform: linux-x86_64, preset: linux, kind: container }
-          # Cross-built here, booted on windows-latest by the smoke job.
+          # Cross-built here, booted on windows-latest by the functional job.
           - { os: windows, runner: ubuntu-24.04, platform: windows-x86_64, preset: windows-cross, kind: container }
           - { os: macos, runner: macos-15, platform: macos-arm64, preset: macos, kind: native }
     runs-on: ${{ matrix.runner }}
@@ -80,11 +107,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  smoke:
-    needs: archive
-    # Runs even when the archive job failed, so the missing archive shows up as a
-    # failed boot step and a summary rather than a skipped job.
-    if: always() && github.server_url == 'https://github.com'
+  boot:
+    name: boot on ${{ matrix.os }}
+    needs: [plan, archive]
+    # Not skipped by another OS's failed archive; a missing artifact fails here.
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && github.server_url == 'https://github.com' }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,61 +120,28 @@ jobs:
           - { os: macos, runner: macos-15 }
           - { os: windows, runner: windows-latest }
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 75
     defaults:
       run:
         shell: bash
-    env:
-      # Windows pipes default to the ANSI code page; the product's output need not be ASCII.
-      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          sparse-checkout: tests
-      - uses: actions/setup-python@v5
+          fetch-depth: 0
+          submodules: false
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+      - uses: ./.github/actions/functional-setup
         with:
-          python-version: '3.12'
-      - name: QEMU links the host's audio clients
-        if: matrix.os == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpulse0 libasound2t64
-      - uses: actions/download-artifact@v4
-        with:
-          name: origami-${{ matrix.os }}
-          path: in/archive
+          os: ${{ matrix.os }}
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
       - name: Boot and check
-        timeout-minutes: 22
-        run: |
-          # Not `ls a b`: it exits 2 when only one of the two patterns matches,
-          # which fails the step under bash's -e -o pipefail.
-          archive=$(find in/archive -maxdepth 1 \( -name 'origami-*.tar.gz' -o -name 'origami-*.zip' \) | head -n 1)
-          test -n "$archive"
-          mkdir -p out
-          python tests/smoke/boot.py --product "$archive" --work "$RUNNER_TEMP/smoke" --results out/results.json
-      - name: Summarize the checks
-        if: always()
-        env:
-          OS: ${{ matrix.os }}
-        run: |
-          python - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
-          import json, os
-          try:
-              r = json.load(open("out/results.json"))
-          except (OSError, ValueError):
-              print(f"### {os.environ['OS']}: no results\n\nboot.py wrote no results; the archive or the download failed first.")
-          else:
-              print(f"### {os.environ['OS']}: {r['status']} in {r.get('duration_s')}s, attempts {r.get('attempts')}\n")
-              if r.get("error"):
-                  print(f"Error: {r['error']}\n")
-              for name, c in r.get("checks", {}).items():
-                  print(f"- {'pass' if c['ok'] else 'FAIL'} {name}" + ("" if c["ok"] else f": {c['detail']}"))
-          EOF
+        timeout-minutes: 65
+        run: cargo test --test functional -- 'qemu::'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: smoke-${{ matrix.os }}
-          path: |
-            out
-            ${{ runner.temp }}/smoke/evidence
+          name: functional-${{ matrix.os }}
+          path: ${{ runner.temp }}/functional-out
           if-no-files-found: ignore
           retention-days: 14

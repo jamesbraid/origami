@@ -43,10 +43,16 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation"] }
 [dev-dependencies]
 # The integration and acceptance tests drive a guest's serial console and clean
 # up their network lab on SIGINT and SIGTERM.
+libtest-mimic = "0.8"
 regex = "1"
 
 [target.'cfg(unix)'.dev-dependencies]
 signal-hook = "0.3"
+
+[[test]]
+name = "functional"
+path = "tests/functional/main.rs"
+harness = false
 
 [build-dependencies]
 vergen-gitcl = "10"
