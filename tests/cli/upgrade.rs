@@ -2,20 +2,15 @@
 //! them: the machine.toml its create wrote, the PROM copy in firmware/, and
 //! the state files its first run made. Also on format 2 machines, laid out
 //! as Origami 0.2.1's create and first run left them.
-#![cfg(unix)]
 
-mod common;
-
+use crate::support;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
 fn origami(root: &Path, args: &[&str]) -> Output {
-    common::origami(Path::new(env!("CARGO_BIN_EXE_origami")), root)
-        .args(args)
-        .output()
-        .unwrap()
+    support::origami(root).args(args).output().unwrap()
 }
 
 /// Every file under `dir` and its contents.
@@ -221,8 +216,7 @@ fn origin2000_and_onyx2_read_the_io_prom_given() {
             &["upgrade", path, "--io-prom", io_prom.to_str().unwrap()],
         );
         assert!(output.status.success(), "{name}: {}", stderr(&output));
-        let arguments =
-            fs::read_to_string(root.path().join("runtime/qemu-sgi-machine-init.args")).unwrap();
+        let arguments = support::init_args(root.path());
         assert!(
             arguments.contains(&format!("--io-prom\n{}\n", io_prom.display())),
             "{arguments}"
@@ -261,7 +255,7 @@ fn a_failed_upgrade_changes_nothing_and_a_later_one_keeps_every_old_file() {
         )
     };
     let before = snapshot(&machine);
-    let tool = common::init_tool(root.path());
+    let tool = support::init_tool(root.path());
     let away = tool.with_extension("away");
     fs::rename(&tool, &away).unwrap();
     assert!(!upgrade().status.success());
@@ -334,6 +328,7 @@ fn io_prom_without_a_file_or_cached_copy_names_the_option() {
     assert_eq!(snapshot(&machine), before);
 }
 
+#[cfg(unix)]
 #[test]
 fn nvram_already_under_its_new_name_stays_in_place() {
     use std::os::unix::fs::MetadataExt;
@@ -493,8 +488,7 @@ fn format2_origin200_gains_module_nvram_and_keeps_everything_else() {
         &["upgrade", path, "--prom", prom.to_str().unwrap()],
     );
     assert!(output.status.success(), "{}", stderr(&output));
-    let arguments =
-        fs::read_to_string(root.path().join("runtime/qemu-sgi-machine-init.args")).unwrap();
+    let arguments = support::init_args(root.path());
     assert!(
         arguments.contains(&format!("--boot-prom\n{}\n", prom.display())),
         "{arguments}"
@@ -648,8 +642,7 @@ fn format2_origin2000_reads_both_proms_and_a_fuel_needs_none() {
         ],
     );
     assert!(output.status.success(), "{}", stderr(&output));
-    let arguments =
-        fs::read_to_string(root.path().join("runtime/qemu-sgi-machine-init.args")).unwrap();
+    let arguments = support::init_args(root.path());
     assert!(arguments.contains(&format!("--io-prom\n{}\n", io_prom.display())));
     assert_eq!(
         fs::read(machine.join("state/io0-flash.raw")).unwrap(),
@@ -825,8 +818,7 @@ fn a_current_machine_gains_the_pipe_flash_and_keeps_its_state() {
     assert!(stdout.contains("io3-kona-flash.raw"), "{stdout}");
     assert!(stdout.contains("io7-kona-flash.raw"), "{stdout}");
     // The tool is asked for the machine's own selection.
-    let arguments =
-        fs::read_to_string(root.path().join("runtime/qemu-sgi-machine-init.args")).unwrap();
+    let arguments = support::init_args(root.path());
     assert!(
         arguments.contains("onyx2,topology=onyx2-rack,nodes=2\n"),
         "{arguments}"

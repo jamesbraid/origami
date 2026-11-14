@@ -1091,9 +1091,8 @@ pub(crate) fn test_machines() -> Machines {
     serde_json::from_str(include_str!("../tests/fixtures/sgi-machines.json")).unwrap()
 }
 
-/// The stand-in QEMU tools the command tests use.
+/// The stand-in init tool the unit tests use.
 #[cfg(all(test, unix))]
-#[path = "../tests/common/mod.rs"]
 pub(crate) mod test_support;
 
 #[cfg(test)]

@@ -6,6 +6,15 @@ edition = "2021"
 rust-version = "1.95"
 license = "BSD-3-Clause"
 
+# A stand-in for QEMU and Instigator that the tests run the product against.
+# Cargo builds it for the tests; the release archive is made from
+# `--bin origami` and never carries it.
+[[bin]]
+name = "origami-fake"
+path = "tests/bin/fake.rs"
+test = false
+doctest = false
+
 [workspace]
 members = ["crates/origami-nfs", "crates/origami-net"]
 

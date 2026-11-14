@@ -1,14 +1,11 @@
-#![cfg(unix)]
-
-mod common;
-
+use crate::support;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Output;
 
-fn run(executable: &Path, root: &Path, args: &[&str]) -> Output {
-    common::origami(executable, root)
+fn run(root: &Path, args: &[&str]) -> Output {
+    support::origami(root)
+        .env("ORIGAMI_FAKE", "serve-fails")
         .args(args)
         .output()
         .unwrap()
@@ -17,26 +14,6 @@ fn run(executable: &Path, root: &Path, args: &[&str]) -> Output {
 #[test]
 fn install_serve_preserves_each_runs_output_and_capture_on_failure() {
     let root = tempfile::tempdir().unwrap();
-    let executable = root.path().join("origami");
-    fs::copy(env!("CARGO_BIN_EXE_origami"), &executable).unwrap();
-    let server = root.path().join("instigator");
-    fs::write(
-        &server,
-        r#"#!/bin/sh
-printf 'server stdout\n'
-printf 'server stderr\n' >&2
-while [ "$#" -gt 0 ]; do
-    if [ "$1" = --capture-dir ]; then
-        printf '{"event":"command_exit","elapsed_ms":125}\n' > "$2/events.jsonl"
-        exit 7
-    fi
-    shift
-done
-exit 7
-"#,
-    )
-    .unwrap();
-    fs::set_permissions(&server, fs::Permissions::from_mode(0o755)).unwrap();
     let prom = root.path().join("synthetic-prom.bin");
     fs::write(&prom, vec![0; 1024 * 1024]).unwrap();
     let machine = root.path().join("machine with spaces");
@@ -60,7 +37,7 @@ exit 7
             "standard",
         ],
     ] {
-        let output = run(&executable, root.path(), &args);
+        let output = run(root.path(), &args);
         assert!(
             output.status.success(),
             "{}",
@@ -68,11 +45,7 @@ exit 7
         );
     }
     for _ in 0..2 {
-        let output = run(
-            &executable,
-            root.path(),
-            &["install-serve", machine.to_str().unwrap()],
-        );
+        let output = run(root.path(), &["install-serve", machine.to_str().unwrap()]);
         assert!(!output.status.success());
         assert!(String::from_utf8_lossy(&output.stderr).contains("server.log"));
     }

@@ -1,5 +1,3 @@
-#![cfg(unix)]
-
 use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
 

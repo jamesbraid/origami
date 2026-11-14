@@ -1,19 +1,14 @@
 //! Machine emu-id numbers: `create` mints and records them, derives the MAC
 //! from them, and a launch passes them on. Runs against the fake runtime,
 //! whose machine list offers `emu-id` on the Origin 200 and Octane only.
-#![cfg(unix)]
 
-mod common;
-
+use crate::support;
 use std::fs;
 use std::path::Path;
 
 /// Run origami with the fake runtime; Ok(stdout) or Err(stderr).
 fn origami(root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = common::origami(Path::new(env!("CARGO_BIN_EXE_origami")), root)
-        .args(args)
-        .output()
-        .unwrap();
+    let output = support::origami(root).args(args).output().unwrap();
     let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
     if output.status.success() {
         // Warnings go to stderr, so keep both for the tests that look.
@@ -134,13 +129,7 @@ fn a_copied_machine_keeps_its_emu_id_and_validate_warns() {
     let root = root.path();
     create(root, "a", "origin200-1", &["--emu-id", "42"]).unwrap();
     let clone = root.join("clone");
-    let copied = std::process::Command::new("cp")
-        .args(["-r"])
-        .arg(root.join("a"))
-        .arg(&clone)
-        .status()
-        .unwrap();
-    assert!(copied.success());
+    support::copy_dir(&root.join("a"), &clone);
     assert_eq!(identity(root, "clone"), identity(root, "a"));
     let output = origami(root, &["validate", clone.to_str().unwrap()]).unwrap();
     assert!(
@@ -223,7 +212,7 @@ fn concurrent_creates_never_share_a_emu_id() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
     // The fake runtime and PROM are made once, as a real session has them.
-    common::fake_runtime(root);
+    support::fake_runtime(root);
     let handles: Vec<_> = (0..8)
         .map(|index| {
             let root = root.to_path_buf();
@@ -244,30 +233,23 @@ fn concurrent_creates_never_share_a_emu_id() {
 
 #[test]
 fn run_warns_about_a_clone_while_its_twin_is_running_and_still_starts_it() {
-    let top = tempfile::tempdir().unwrap();
-    // The packaged keymap sits two directories above the runtime, and a
-    // start checks for it before it warns.
-    let root = top.path().join("work/machines");
-    let keymap = top.path().join("work/share/origami/qemu/keymaps");
-    fs::create_dir_all(&root).unwrap();
-    fs::create_dir_all(&keymap).unwrap();
-    fs::write(keymap.join("en-us"), "").unwrap();
-    let root = root.as_path();
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
     create(root, "twin", "origin200-1", &["--emu-id", "42"]).unwrap();
     let clone = root.join("clone");
-    let copied = std::process::Command::new("cp")
-        .arg("-r")
-        .arg(root.join("twin"))
-        .arg(&clone)
-        .status()
-        .unwrap();
-    assert!(copied.success());
+    support::copy_dir(&root.join("twin"), &clone);
     let run = |extra: &[&str]| {
         // The fake QEMU exits at once, so a start that gets as far as the
         // runner fails; either way the output holds the warnings.
         let mut args = vec!["run", clone.to_str().unwrap()];
         args.extend(extra);
-        origami(root, &args).unwrap_or_else(|error| error)
+        let output = support::origami(root)
+            .env("ORIGAMI_FAKE", "exit-early")
+            .args(&args)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).into_owned()
+            + &String::from_utf8_lossy(&output.stderr)
     };
     let warning = "warning: emu-id 42 is also the emu-id of the running machine";
     assert!(

@@ -1,0 +1,16 @@
+# A guest that boots to a root shell. Played by tests/bin/fake.rs, which
+# documents the directives. The text is the fake's own, not a recorded boot.
+outln
+outln fake PROM: starting the system
+outln
+outln The system is coming up.
+outln
+out IRIS console login:\x20
+in root
+out \r\n#\x20
+in uname -m
+out \r\nIP27\r\n#\x20
+in hinv
+out \r\nProcessor 0: 1 MIPS R10000 Processor\r\nMain memory size: 256 Mbytes\r\n#\x20
+in halt
+outln \r\nThe system is halted.

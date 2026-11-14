@@ -1,16 +1,10 @@
-#![cfg(unix)]
-
-mod common;
-
+use crate::support;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
 fn run(root: &Path, args: &[&str]) -> Output {
-    common::origami(Path::new(env!("CARGO_BIN_EXE_origami")), root)
-        .args(args)
-        .output()
-        .unwrap()
+    support::origami(root).args(args).output().unwrap()
 }
 
 fn stderr(output: &Output) -> String {

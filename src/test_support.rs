@@ -1,6 +1,6 @@
-//! Stand-ins for the bundled QEMU tools, so command and unit tests run
-//! without a product build. The crate's unit tests include this file too.
-#![allow(dead_code)]
+//! Shell-script stand-ins for the init tool, for the unit tests, which
+//! cannot reach the fake runtime binary (Cargo builds it for integration
+//! tests only). The component tests in `tests/cli` use that binary.
 
 use std::fs;
 use std::io::Write;
@@ -81,16 +81,4 @@ fn script(path: &Path, body: &str) {
         .unwrap();
     writeln!(writer.stdin.take().unwrap(), "#!/bin/sh\n{body}").unwrap();
     assert!(writer.wait().unwrap().success());
-}
-
-/// An `origami` command that uses the fake runtime and keeps its PROM cache
-/// inside the test directory.
-pub fn origami(executable: &Path, root: &Path) -> Command {
-    let mut command = Command::new(executable);
-    command
-        .env("ORIGAMI_RUNTIME_DIR", fake_runtime(root))
-        .env("XDG_CACHE_HOME", root.join("cache"))
-        // macOS keeps its cache under $HOME/Library/Caches and ignores XDG.
-        .env("HOME", root.join("home"));
-    command
 }

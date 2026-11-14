@@ -244,21 +244,29 @@ tests/fixtures/generate-machines.py out/linux/run/libexec/origami/qemu-system-mi
   > tests/fixtures/sgi-machines.json
 ```
 
-Anything that needs the full machine list belongs in the product-state test
-below, which queries the real QEMU.
+Anything that needs the full machine list belongs in the runtime contract
+tests below, which query the real QEMU.
 
 `create` runs `qemu-sgi-machine-init` from beside QEMU to build a machine's
 storage, and launches attach each storage item in the machine list as a block node of
-the same name. `cargo test` uses stand-ins for QEMU and the init tool, so it
-needs neither a QEMU build nor the submodules. The ignored product-state
-tests check that every starter preset names an offering of the real
-machine list, then create, reopen, start and stop each with the real tools,
-and upgrade and start a format 1 machine. Native product builds run them
-in CTest as `product-state`. To run it against an existing build:
+the same name. `cargo test` runs the component tests in `tests/cli` against
+`origami-fake` (`tests/bin/fake.rs`), a test-only binary that acts as QEMU,
+qemu-img, the init tool and Instigator under their names, so it needs neither
+a QEMU build nor the submodules. `ORIGAMI_FAKE` makes it misbehave: see the
+header of `tests/bin/fake.rs`. `cargo build` builds it too; the release archive
+does not carry it.
+
+The ignored tests in `tests/runtime` are contract tests. They check that every
+starter preset names an offering of the real machine list, then create, reopen
+and start each paused (`-S`) with the real tools, start each network mode that
+needs no host device, check that the fake's machine list is cut from the real
+one, and upgrade and start older machines. To run them against an existing
+runtime directory holding `qemu-system-mips64`, `qemu-img` and
+`qemu-sgi-machine-init`:
 
 ```sh
 ORIGAMI_RUNTIME_DIR="$PWD/out/linux/run/libexec/origami" \
-  cargo test --test product_state -- --ignored
+  cargo test --test runtime -- --include-ignored
 ```
 
 ## Licenses and dependency sources

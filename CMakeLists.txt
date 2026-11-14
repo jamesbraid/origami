@@ -187,24 +187,6 @@ if(BUILD_TESTING)
   add_test(NAME instigator COMMAND "${CMAKE_COMMAND}" -E env ${go_environment}
     "${PRODUCT_GO}" test -mod=readonly ./internal/qemunet ./cmd/instigator)
   set_tests_properties(instigator PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/instigator")
-  if(NOT PRODUCT_PLATFORM STREQUAL "windows")
-    # The frontend test that creates and starts every preset needs QEMU, its
-    # init tool and keymaps laid out as the installed tree holds them. Release
-    # builds test before anything is installed.
-    set(test_runtime "${CMAKE_BINARY_DIR}/test-runtime")
-    file(MAKE_DIRECTORY "${test_runtime}/libexec/origami" "${test_runtime}/share/origami/qemu"
-      "${CMAKE_BINARY_DIR}/test-tmp")
-    file(CREATE_LINK "${qemu_build}/qemu-system-mips64"
-      "${test_runtime}/libexec/origami/qemu-system-mips64" SYMBOLIC)
-    file(CREATE_LINK "${qemu_build}/tools/sgi/qemu-sgi-machine-init"
-      "${test_runtime}/libexec/origami/qemu-sgi-machine-init" SYMBOLIC)
-    file(CREATE_LINK "${CMAKE_SOURCE_DIR}/qemu/pc-bios/keymaps"
-      "${test_runtime}/share/origami/qemu/keymaps" SYMBOLIC)
-    add_test(NAME product-state COMMAND "${CMAKE_COMMAND}" -E env ${cargo_environment}
-      "ORIGAMI_RUNTIME_DIR=${test_runtime}/libexec/origami" "TMPDIR=${CMAKE_BINARY_DIR}/test-tmp"
-      "${PRODUCT_CARGO}" test --locked --test product_state -- --ignored)
-    set_tests_properties(product-state PROPERTIES WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-  endif()
 endif()
 
 install(PROGRAMS "${frontend_binary}" "${instigator_binary}" DESTINATION bin)

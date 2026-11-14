@@ -1,16 +1,10 @@
-#![cfg(unix)]
-
-mod common;
-
+use crate::support;
 use std::fs;
 use std::path::Path;
 
 /// Run origami with the fake runtime; Ok(stdout) or Err(stderr).
 fn origami(root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = common::origami(Path::new(env!("CARGO_BIN_EXE_origami")), root)
-        .args(args)
-        .output()
-        .unwrap();
+    let output = support::origami(root).args(args).output().unwrap();
     let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
     if output.status.success() {
         Ok(text(&output.stdout))
@@ -65,7 +59,7 @@ fn create_fixes_the_processor_module_in_machine_toml() {
     let file = origami::read_machine(&machine).unwrap();
     assert_eq!(file.machine.processor.as_deref(), Some("r12000-270mhz-4mb"));
     assert_eq!(file.machine.population, [2]);
-    let args = fs::read_to_string(root.join("runtime/qemu-sgi-machine-init.args")).unwrap();
+    let args = support::init_args(root);
     assert!(args.contains(",processor=r12000-270mhz-4mb\n"), "{args}");
     let valid = origami(root, &["validate", dir]).unwrap();
     assert_eq!(valid, "valid: origin200 (2 CPUs, r12000-270mhz-4mb)\n");

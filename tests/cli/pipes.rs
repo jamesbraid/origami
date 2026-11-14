@@ -1,16 +1,10 @@
-#![cfg(unix)]
-
-mod common;
-
+use crate::support;
 use std::fs;
 use std::path::Path;
 
 /// Run origami with the fake runtime; Ok(stdout) or Err(stderr).
 fn origami(root: &Path, args: &[&str]) -> Result<String, String> {
-    let output = common::origami(Path::new(env!("CARGO_BIN_EXE_origami")), root)
-        .args(args)
-        .output()
-        .unwrap();
+    let output = support::origami(root).args(args).output().unwrap();
     let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
     if output.status.success() {
         Ok(text(&output.stdout))

@@ -1,0 +1,92 @@
+# An IRIX 6.5.30 minimal install on an Origin 200, as it looks on the serial
+# console to `origami install-apply`: the guest sits at the inst menu, the
+# product loads the install script and picks the distribution, inst installs
+# and runs the post-install commands, "quit" restarts the machine, and the
+# first boot ends at the login prompt. Cut from the console of a recorded
+# install, with the README, most progress lines and the PROM banner left out.
+# Played by tests/bin/fake.rs, which documents the directives.
+outln Inst 4.1 Main Menu
+outln
+outln  1. from [source ...]            Specify location of software to be installed
+outln  2. open [source ...]            Specify additional software locations
+outln  3. close [source ...]           Close a software distribution location
+outln  4. list [keywords] [names]      Display information about software subsystems
+outln  5. go                           Perform software installation and removal now
+outln  6. install [keywords] [names]   Select subsystems to be installed
+outln  7. remove [keywords] [names]    Select subsystems to be removed
+outln  8. keep [keywords] [names]      Do not install or remove these subsystems
+outln  9. step [keywords] [names]      Interactive mode for install/remove/keep
+outln 10. conflicts [choice ...]       List or resolve installation conflicts
+outln 11. help [topic]                 Get help in general or on a specific word
+outln 12. view ...                     Go to the View Commands Menu
+outln 13. admin ...                    Go to the Administrative Commands Menu
+outln 14. quit                         Terminate software installation
+in \n
+out \r\nInst>\x20
+in admin source 10.98.0.2:/irix.cmds\n
+outln
+outln Reading product descriptions ..   0%  100% Done.
+outln
+outln This distribution contains overlay products.  You may need to specify
+outln additional distributions that contain the base software for these overlays.
+outln If you do not load all the related distributions now, "Conflict" messages
+outln later in the installation will prompt you to load any other necessary CDs.
+outln (See the "overlay" help topic for more information.)
+outln
+outln You can enter the name of a different distribution and press "Enter."
+outln
+outln Or, enter "done" if you are ready to proceed with the installation now.
+outln
+outln  1 10.98.0.2:/6.5.30/dist
+outln  2 10.98.0.2:/foundations/dist
+outln  3 done (distribution information read, return to inst prompt)
+outln
+out Install software from: [10.98.0.2:/6.5.30/dist]\x20
+in 3\n
+outln
+outln No matches for "java_dev.sw.base" were found
+outln Reading fileset information ..   0%   4%
+outln Pre-installation check ..   8%   16%
+outln Checking space requirements ..  16%  24%
+outln Installing/removing files ..  24%
+outln Installing new versions of selected eoe.sw subsystems
+outln Installing new versions of selected eoe.sw64 subsystems
+outln Installing new versions of selected eoe.man subsystems
+outln Installing/removing files ..  94%
+outln Running exit-commands ..  96%
+outln Running exit-commands ..  98%  99%
+outln Checking dependencies ..  99% 100% Done.
+outln Calculating sizes ..   0% 100% Done.
+outln
+outln chrooting to /root
+outln
+outln Calculating sizes ..   0% 100% Done.
+outln
+outln chrooting to /root
+outln
+outln
+outln instigator: post-install commands finished
+outln
+out \r\nInst>\x20
+in quit\n
+outln
+outln Requickstarting ELF files (see rqsall(1)) ..   0%   100% Done.
+outln Automatically reconfiguring the operating system.
+out Ready to restart the system.  Restart? { (y)es, (n)o, (sh)ell, (h)elp }:\x20
+in y\n
+outln
+outln Preparing to restart system ...
+outln
+outln The system is being restarted.
+outln
+outln                            Starting up the system...
+outln
+outln Setting rbaud to 19200
+outln NOTICE: Starting failsoftd
+outln The system is coming up.
+outln network: WARNING: IRIS's Internet address is the default.
+outln Using standalone network mode.
+outln Doing firstrun configuration...
+outln System change detected.
+outln
+out base console login:\x20

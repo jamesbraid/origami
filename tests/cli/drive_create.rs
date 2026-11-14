@@ -1,16 +1,10 @@
-#![cfg(unix)]
-
-mod common;
-
+use crate::support;
 use std::fs;
 use std::path::Path;
 use std::process::Output;
 
 fn run(root: &Path, args: &[&str]) -> Output {
-    common::origami(Path::new(env!("CARGO_BIN_EXE_origami")), root)
-        .args(args)
-        .output()
-        .unwrap()
+    support::origami(root).args(args).output().unwrap()
 }
 
 #[test]
@@ -59,8 +53,6 @@ fn drive_create_rejects_an_occupied_system_target_before_writing() {
     let machine_file = machine.join("machine.toml");
     let machine_before = fs::read(&machine_file).unwrap();
     let sentinel_before = fs::read(&sentinel).unwrap();
-    // The fake runtime has no qemu-img, so reaching it would fail differently.
-    assert!(!root.path().join("runtime/qemu-img").exists());
     let create_disk = run(
         root.path(),
         &["drive-create", machine.to_str().unwrap(), "16"],
