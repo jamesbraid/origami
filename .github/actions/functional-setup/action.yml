@@ -59,6 +59,13 @@ runs:
           echo "ORIGAMI_FUNCTIONAL_DISKS=$RUNNER_TEMP/disks"
           echo "ORIGAMI_FUNCTIONAL_OUT=$RUNNER_TEMP/functional-out"
         } >> "$GITHUB_ENV"
+    - name: Let cargo check out symlinks
+      if: inputs.os == 'windows'
+      shell: bash
+      # The qapi-rs dependency's schema files are symlinks. Without this
+      # cargo checks them out as text files and qapi-qmp's build script fails
+      # with "Access is denied".
+      run: git config --global core.symlinks true
     - uses: Swatinem/rust-cache@v2
     - name: Build the functional tests
       shell: bash
