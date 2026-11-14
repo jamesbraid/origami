@@ -830,7 +830,10 @@ pub fn validate_create_inputs(
     memory_per_node: Option<u32>,
     mac: Option<&str>,
 ) -> Result<()> {
-    check_memory(offering, memory_per_node.unwrap_or(offering.memory.default))?;
+    check_memory(
+        offering,
+        memory_per_node.unwrap_or(profiles::default_memory(offering)),
+    )?;
     match fs::symlink_metadata(dir) {
         Ok(_) => return Err(format!("destination already exists: {}", dir.display()).into()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -889,7 +892,7 @@ pub fn create_configured(
     pipes: Vec<graphics::Pipe>,
     inputs: std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
-    let memory_per_node = memory_per_node.unwrap_or(offering.memory.default);
+    let memory_per_node = memory_per_node.unwrap_or(profiles::default_memory(offering));
     let arguments =
         runtime::init_arguments(offering, init.boot_prom, init.io_prom, &dir.join("state"));
     if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
@@ -1017,6 +1020,20 @@ mod tests {
         let file = read_machine(&machine).unwrap();
         assert_eq!(file.machine.memory_per_node, "128MiB");
         validate(&machines, &machine, &file).unwrap();
+        // Without a size an Origin 200 gets the preset's 256 MiB.
+        let default_size = root.join("default-size");
+        create_configured(
+            &default_size,
+            offer,
+            &init,
+            None,
+            None,
+            vec![],
+            Default::default(),
+        )
+        .unwrap();
+        let file = read_machine(&default_size).unwrap();
+        assert_eq!(file.machine.memory_per_node, "256MiB");
         let missing_tool = root.join("absent-tool");
         let broken = MachineInit {
             tool: &missing_tool,

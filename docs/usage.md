@@ -86,7 +86,8 @@ Onyx2, also need an IO PROM. `--io-prom FILE` supplies a local one.
 Common options:
 
 - `--memory-per-node MiB` sets memory per node. A size the machine does not
-  take is refused with the list of sizes it does.
+  take is refused with the list of sizes it does. Origin 200 presets start
+  with 256 MiB.
 - `--processor ID` picks a processor module where the machine has a choice,
   such as `r12000-270mhz-4mb` on an Origin 200 or `r14000-600mhz-8mb` on an
   Origin 3200. `origami machines PRESET` lists them.

@@ -26,6 +26,9 @@
     so the guest sees a new host id; `upgrade` says so and how to keep the
     old one.
   - Presets `tezro-vpro` and `onyx350-vpro` are now `tezro` and `onyx350`.
+  - New Origin 200 machines get 256 MiB per node, up from 64 MiB; the
+    `origin200-impact` GigaChannel preset had 128 MiB. Existing machines keep
+    their size, and `--memory-per-node` still picks another.
   - `--set` takes the inputs the preset lists as settings, each checked for
     its kind of value. A list takes a slot, as in `--set chassis-eeprom.0=FILE`.
     `origami machines PRESET` lists them. A CPU input is `prid` or `fpu-id`

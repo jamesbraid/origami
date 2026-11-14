@@ -122,6 +122,20 @@ pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
         .collect()
 }
 
+/// An Origin 200 starts with this much memory per node, not the 64 MiB the
+/// catalogue lists first: IRIX 6.5 on 64 MiB has little left for a user.
+const ORIGIN200_MEMORY_MIB: u32 = 256;
+
+/// MiB per node a new machine from a preset with `offering` gets unless
+/// `create --memory-per-node` says otherwise.
+pub fn default_memory(offering: &Offering) -> u32 {
+    if offering.product == "origin200" {
+        ORIGIN200_MEMORY_MIB
+    } else {
+        offering.memory.default
+    }
+}
+
 /// The processor modules `topology` offers, its default first; empty where
 /// it offers no choice.
 pub fn processor_options<'a>(machines: &'a Machines, topology: &str) -> &'a [ProcessorOption] {
@@ -491,6 +505,27 @@ mod tests {
         assert_eq!(rad4.graphics, Some("rad4"));
         for name in ["origin200-1", "origin200-2", "origin200-dual"] {
             assert_eq!(starter(name).unwrap().graphics, None, "{name}");
+        }
+    }
+
+    #[test]
+    fn origin200_presets_start_with_256_mib() {
+        let machines = crate::test_machines();
+        for name in [
+            "origin200-1",
+            "origin200-2",
+            "origin200-dual",
+            "origin200-rad4",
+            "origin200-impact",
+        ] {
+            let offering = preset(&machines, name).unwrap();
+            assert_eq!(default_memory(offering), 256, "{name}");
+            assert!(offering.memory.accepted.contains(&256), "{name}");
+        }
+        // Other machines keep the catalogue's default.
+        for name in ["origin2000-8", "octane2-vpro", "fuel-1"] {
+            let offering = preset(&machines, name).unwrap();
+            assert_eq!(default_memory(offering), offering.memory.default, "{name}");
         }
     }
 }

@@ -279,7 +279,7 @@ fn detail_of(machines: &Machines, name: &str, offering: &Offering) -> Result<Str
         "{name}: {}, {}, {} MiB per node, ",
         machine_name(&offering.topology),
         plural(offering.smp, "CPU"),
-        offering.memory.default
+        crate::profiles::default_memory(offering)
     );
     match pipes.as_slice() {
         [] => header.push_str("no graphics"),
