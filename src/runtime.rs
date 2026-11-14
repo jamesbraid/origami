@@ -548,11 +548,10 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, offering: &Offering, drive: &Dr
     // A port on a Fibre Channel private loop needs names of its own. These
     // are synthetic, NAA type 2 with no vendor part, and the loop ID keeps
     // every port's apart.
-    let bus = format!("scsi.{}", drive.bus);
+    let bus = offering.scsi_bus_name(drive.bus);
     let loop_names = if offering
-        .scsi_adapters
-        .iter()
-        .any(|adapter| adapter.bus == bus && adapter.kind == "fc-loop")
+        .scsi_bus(drive.bus)
+        .is_some_and(|adapter| adapter.kind == "fc-loop")
     {
         format!(
             ",port_wwn=0x21000000000000{0:02x},wwn=0x20000000000000{0:02x}",

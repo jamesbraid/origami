@@ -280,6 +280,20 @@ pub struct StorageItem {
     pub initial: String,
 }
 
+impl Offering {
+    /// The SCSI bus a drive's `bus` number names: the machine list's
+    /// adapters in order, whatever QEMU calls each (`scsi.0`, `aic0.0`).
+    pub fn scsi_bus(&self, index: u32) -> Option<&ScsiAdapter> {
+        self.scsi_adapters.get(index as usize)
+    }
+
+    /// That bus's QEMU name; `scsi.N` for a number the machine lacks.
+    pub fn scsi_bus_name(&self, index: u32) -> String {
+        self.scsi_bus(index)
+            .map_or_else(|| format!("scsi.{index}"), |adapter| adapter.bus.clone())
+    }
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct ScsiAdapter {
     pub bus: String,
@@ -834,11 +848,10 @@ pub fn validate<'a>(
     }
     let mut occupied = std::collections::HashSet::new();
     for drive in &file.drive {
-        let bus = format!("scsi.{}", drive.bus);
+        let bus = offering.scsi_bus_name(drive.bus);
         if !offering
-            .scsi_adapters
-            .iter()
-            .any(|s| s.bus == bus && s.targets.contains(&drive.target))
+            .scsi_bus(drive.bus)
+            .is_some_and(|s| s.targets.contains(&drive.target))
         {
             return Err(format!("unsupported SCSI target {} on {}", drive.target, bus).into());
         }
@@ -1041,6 +1054,21 @@ mod tests {
         ] {
             assert!(tcp_endpoint(endpoint).is_err(), "{endpoint}");
         }
+    }
+
+    #[test]
+    fn drives_name_their_bus_as_the_machine_list_does() {
+        let machines = test_machines();
+        let by_id = |id: &str| machines.offerings.iter().find(|o| o.id == id).unwrap();
+        // The O2's onboard controllers are aic0.0 and aic1.0, not scsi.N.
+        let o2 = by_id("o2.1");
+        assert_eq!(o2.scsi_bus_name(0), "aic0.0");
+        assert_eq!(o2.scsi_bus_name(1), "aic1.0");
+        assert!(o2.scsi_bus(2).is_none());
+        assert_eq!(o2.scsi_bus_name(2), "scsi.2");
+        // Every other machine's buses are scsi.0, scsi.1 and so on.
+        let octane = by_id("octane.1");
+        assert_eq!(octane.scsi_bus_name(1), "scsi.1");
     }
 
     #[cfg(unix)]

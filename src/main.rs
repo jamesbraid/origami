@@ -205,8 +205,12 @@ fn command(action: Action) -> Result<()> {
             }
             for drive in &file.drive {
                 println!(
-                    "{}: {} at scsi.{}:{} ({})",
-                    drive.name, drive.kind, drive.bus, drive.target, drive.image
+                    "{}: {} at {}:{} ({})",
+                    drive.name,
+                    drive.kind,
+                    offer.scsi_bus_name(drive.bus),
+                    drive.target,
+                    drive.image
                 );
             }
         }

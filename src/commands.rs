@@ -150,11 +150,7 @@ pub fn create_disk(machines: &Machines, dir: &Path, size: u64) -> Result<()> {
     {
         return Err("system disk target 1 is occupied".into());
     }
-    if !offer
-        .scsi_adapters
-        .iter()
-        .any(|s| s.bus == "scsi.0" && s.targets.contains(&1))
-    {
+    if !offer.scsi_bus(0).is_some_and(|s| s.targets.contains(&1)) {
         return Err("this machine has no system disk target".into());
     }
     let path = dir.join("drives/system.qcow2");
