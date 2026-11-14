@@ -19,6 +19,21 @@ pub enum Display {
     None,
 }
 
+/// How long QEMU has to answer on QMP after it starts. QEMU opens the control
+/// port at once but greets only when its main loop runs. The first start of a
+/// CHD overlay, which has no diff file yet, took 33 seconds to greet for a
+/// 1.6 GB image on a busy host; a start with the diff in place took 1 second.
+const QMP_READY_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// `QMP_READY_TIMEOUT`, or the seconds in ORIGAMI_QMP_TIMEOUT, which the tests
+/// of a QEMU that never answers set so they do not wait two minutes.
+fn qmp_ready_timeout() -> Duration {
+    std::env::var("ORIGAMI_QMP_TIMEOUT")
+        .ok()
+        .and_then(|seconds| seconds.parse().ok())
+        .map_or(QMP_READY_TIMEOUT, Duration::from_secs)
+}
+
 /// Where each head of the machine is served for `--display vnc` from
 /// `port`: the head and its TCP port, in port order. A machine with one
 /// head has the single server a VNC display always had.
@@ -708,7 +723,8 @@ pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log))
         .spawn()?;
-    let deadline = Instant::now() + Duration::from_secs(20);
+    // The runner process waits qmp_ready_timeout() for QEMU, so wait a little longer.
+    let deadline = Instant::now() + qmp_ready_timeout() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if let Ok(record) = control::read(dir) {
             if record.pid == child.id() && control::verified_qmp(&record).is_ok() {
@@ -892,7 +908,7 @@ fn run_inner(
         .current_dir(dir)
         .stdin(Stdio::null())
         .spawn()?;
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + qmp_ready_timeout();
     while Instant::now() < deadline {
         if control::verified_qmp(&record).is_ok() {
             if let Err(error) = control::write(dir, &record) {

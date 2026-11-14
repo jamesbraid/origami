@@ -144,6 +144,7 @@ fn qemu_that_never_opens_qmp_is_killed_and_reported() {
     let path = machine.to_str().unwrap();
     let output = support::origami(root)
         .env("ORIGAMI_FAKE", "no-qmp")
+        .env("ORIGAMI_QMP_TIMEOUT", "15")
         .args(["run", path, "--background", "--display", "none"])
         .output()
         .unwrap();
@@ -167,6 +168,7 @@ fn qemu_that_accepts_qmp_but_never_answers_is_not_a_started_machine() {
     let output = support::origami(root)
         // The fake gives up soon after the product does.
         .env("ORIGAMI_FAKE", "hang,lifetime=40")
+        .env("ORIGAMI_QMP_TIMEOUT", "15")
         .args(["run", path, "--background", "--display", "none"])
         .output()
         .unwrap();
