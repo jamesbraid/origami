@@ -16,7 +16,7 @@ test = false
 doctest = false
 
 [workspace]
-members = ["crates/origami-nfs", "crates/origami-net"]
+members = ["crates/origami-nfs", "crates/origami-net", "xtask"]
 
 [dependencies]
 origami-net = { path = "crates/origami-net" }

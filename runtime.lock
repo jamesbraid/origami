@@ -1,0 +1,19 @@
+# The QEMU and Instigator releases this product runs against. `cargo xtask
+# bump qemu TAG` and `cargo xtask bump instigator TAG` rewrite this file from
+# the release's published checksums; do not edit the hashes by hand.
+
+format = 1
+
+[qemu]
+tag = "sgi-origami-11.1.50-1"
+[qemu.platforms]
+linux-x86_64   = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.50-1/sgi-origami-11.1.50-1-linux-x86_64.tar.gz", sha256 = "a45c60887036d907767fd52a7385eaa049a08681cc50b4379e05576a8913a78a" }
+macos-arm64    = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.50-1/sgi-origami-11.1.50-1-macos-arm64.tar.gz", sha256 = "f6952a4e8c0cecd251ec2df78d8179fac985a35d56b55d69384f2c29a17ba0db" }
+windows-x86_64 = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.50-1/sgi-origami-11.1.50-1-windows-x86_64.zip", sha256 = "051b2f5daac954d794ac4609fd8e80499b24d57d65398adde9e1909144978be9" }
+
+[instigator]
+tag = "v0.5.0"
+[instigator.platforms]
+linux-x86_64   = { url = "https://github.com/jamesbraid/instigator/releases/download/v0.5.0/instigator_0.5.0_linux_amd64.tar.gz", sha256 = "3d7b375027acdceef71eec2c5998da861058949297f892d60a38f2d29d5b8d30" }
+macos-arm64    = { url = "https://github.com/jamesbraid/instigator/releases/download/v0.5.0/instigator_0.5.0_darwin_arm64.tar.gz", sha256 = "ddfc1514dde418aa9dbfc964b7afed1224d008f7d45786243220045900de2e8f" }
+windows-x86_64 = { url = "https://github.com/jamesbraid/instigator/releases/download/v0.5.0/instigator_0.5.0_windows_amd64.zip", sha256 = "09452307b1942a1700fc6385221a2d4389839f5aed61cf16c89257997e1949b9" }
