@@ -14,7 +14,7 @@ use crate::lab::vmnet::{VmnetLab, POOL_PREFIX};
 use crate::support::console::Console;
 use crate::support::guest::mac_of;
 use crate::support::product::Product;
-use crate::support::{pause, secs, Result};
+use crate::support::{pause, secs, tail, Result};
 
 /// What the logs fail to show; an empty list means the guest used vmnet.
 fn evidence_failures(

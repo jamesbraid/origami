@@ -145,7 +145,10 @@ fn teardown(id: u32) {
             pause(std::time::Duration::from_millis(500));
         }
     }
-    let _ = fs::remove_file(peer_pidfile(id));
+    // /run belongs to root, so a plain remove fails for the caller.
+    let mut rm = privileged("rm");
+    rm.args(["-f", &peer_pidfile(id)]);
+    let _ = run_limited(rm, secs(10));
     for round in 0..20 {
         let pids = ip(&["netns", "pids", &n.ns]).unwrap_or_default();
         let pids: Vec<&str> = pids.split_whitespace().collect();
@@ -503,6 +506,15 @@ impl Drop for LinuxLab {
         teardown(self.id);
         if let Some(mut peer) = self.peer.take() {
             let _ = peer.wait();
+        }
+        // The daemons wrote their logs, the leases and the exported files as
+        // root. Open them to the caller so a job can upload them.
+        if !is_root() {
+            for dir in [&self.logs, &self.export, &self.export_open] {
+                let mut chmod = privileged("chmod");
+                chmod.arg("-R").arg("a+rX").arg(dir);
+                let _ = run_limited(chmod, secs(30));
+            }
         }
     }
 }

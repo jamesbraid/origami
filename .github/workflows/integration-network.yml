@@ -133,6 +133,11 @@ jobs:
           ./configure
           make -j"$(nproc)"
           sudo install -m 755 unfsd /usr/local/sbin/unfsd
+      - name: Let user networking forward guest pings
+        # QEMU's user networking sends a guest's ping as an ICMP datagram
+        # socket, which the kernel allows only to the groups in this range.
+        # Without it the guest sees "Destination Port Unreachable".
+        run: sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
