@@ -457,15 +457,20 @@ jobs:
             echo "ORIGAMI_WORK=$(cygpath -m "$RUNNER_TEMP")/it"
           } >> "$GITHUB_ENV"
       - name: Install the TAP-Windows6 driver and make an adapter
+        shell: pwsh
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/openvpn.msi" "https://swupdate.openvpn.net/community/releases/$OPENVPN_MSI"
-          echo "$OPENVPN_SHA256  $RUNNER_TEMP/openvpn.msi" | sha256sum -c -
-          powershell -NoProfile -Command "\$p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/i', \"\$env:RUNNER_TEMP\\openvpn.msi\", '/qn', '/l*v', \"\$env:RUNNER_TEMP\\msi.log\"; exit \$p.ExitCode" || { tail -40 "$RUNNER_TEMP/msi.log"; exit 1; }
-          tapctl=$(ls "/c/Program Files/OpenVPN/bin/tapctl.exe" "/c/Program Files/OpenVPN Connect"/tapctl.exe 2>/dev/null | head -1)
-          [ -n "$tapctl" ] || { ls -R "/c/Program Files/OpenVPN" | head -40; exit 1; }
-          "$tapctl" create --hwid root\\tap0901 --name origami-tap
-          "$tapctl" list
-          echo "ORIGAMI_TAP_ADAPTER=origami-tap" >> "$GITHUB_ENV"
+          $msi = Join-Path $env:RUNNER_TEMP 'openvpn.msi'
+          Invoke-WebRequest -Uri "https://swupdate.openvpn.net/community/releases/$env:OPENVPN_MSI" -OutFile $msi
+          if ((Get-FileHash $msi -Algorithm SHA256).Hash.ToLower() -ne $env:OPENVPN_SHA256) { throw 'the OpenVPN installer does not match its pinned checksum' }
+          $log = Join-Path $env:RUNNER_TEMP 'msi.log'
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/i', $msi, '/qn', '/l*v', $log
+          if ($p.ExitCode -ne 0) { Get-Content $log -Tail 60; exit $p.ExitCode }
+          $tapctl = Get-ChildItem 'C:\Program Files\OpenVPN' -Recurse -Filter tapctl.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $tapctl) { Get-ChildItem 'C:\Program Files\OpenVPN' -Recurse | Select-Object -First 60 -ExpandProperty FullName; throw 'tapctl.exe was not installed' }
+          & $tapctl.FullName create --hwid root\tap0901 --name origami-tap
+          if ($LASTEXITCODE -ne 0) { throw "tapctl create exited $LASTEXITCODE" }
+          & $tapctl.FullName list
+          'ORIGAMI_TAP_ADAPTER=origami-tap' | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
       - uses: actions/download-artifact@v4
         with:
           name: integration-windows-test-program
