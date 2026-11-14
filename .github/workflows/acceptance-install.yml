@@ -1,0 +1,139 @@
+name: "Acceptance tests: IRIX installs from the public media (weekly)"
+
+# Installs IRIX 6.5.30 on an Origin 200 from the media on origami-dist, with the
+# product's own `install-init`, `install-serve` and `install-apply`, and checks
+# it boots to a login that reports 6.5.30. It takes about an hour, so it runs
+# weekly, and only when main has moved since the last successful run.
+#
+# An install that stalls leaves the console quiet and the logs stopped, so a
+# failed run uploads what tells the layers apart: this run's sockets, QEMU's own
+# view of the guest, thread states and a goroutine dump from Instigator.
+# tests/acceptance/install.rs drives it.
+on:
+  schedule:
+    - cron: '41 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      archive-run:
+        description: Smoke run ID whose Linux archive (origami-linux) to test instead of building one
+        required: false
+        type: string
+      force:
+        description: Install even if main has not moved since the last successful run
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: acceptance-install
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan (has main moved?)
+    if: github.server_url == 'https://github.com' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow acceptance-install.yml \
+            --status success --json headSha --limit 1 --jq '.[0].headSha // ""')
+          if [ "$EVENT" = schedule ] && [ "$last" = "$GITHUB_SHA" ] && [ "$FORCE" != true ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "main is still at $GITHUB_SHA, which the last successful install tested." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  install:
+    name: "Acceptance tests: IRIX installs from the public media (Linux)"
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      ARCHIVE_RUN: ${{ inputs.archive-run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: ${{ inputs.archive-run == '' }}
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+      - name: Check out Instigator, which the test build needs
+        run: git submodule update --init instigator
+      - name: Choose paths
+        run: |
+          {
+            echo "ORIGAMI_PRODUCT=$RUNNER_TEMP/product"
+            echo "ORIGAMI_WORK=$RUNNER_TEMP/it"
+          } >> "$GITHUB_ENV"
+      - id: vcpkg
+        if: inputs.archive-run == ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/build-vcpkg-cache"
+          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        if: inputs.archive-run == ''
+        with:
+          path: ${{ runner.temp }}/build-vcpkg-cache
+          key: vcpkg-linux-x86_64-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
+          restore-keys: vcpkg-linux-x86_64-
+      - name: Build the product archive
+        if: inputs.archive-run == ''
+        timeout-minutes: 120
+        uses: ./.github/actions/build-archive
+        with:
+          preset: linux
+          build-dir: ${{ runner.temp }}/build
+      - name: Fetch the product archive from an earlier run
+        if: inputs.archive-run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name origami-linux --dir "$RUNNER_TEMP/build/artifacts"
+      - name: Unpack the product
+        run: |
+          mkdir -p "$ORIGAMI_PRODUCT"
+          tar -xzf "$RUNNER_TEMP"/build/artifacts/origami-*-linux-x86_64.tar.gz \
+            --strip-components=1 -C "$ORIGAMI_PRODUCT"
+      - name: Install the libraries QEMU links
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpulse0 libasound2t64
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc -Vv
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the test
+        run: cargo test --locked --test acceptance --no-run
+      - name: Install IRIX 6.5.30 on an Origin 200 and boot it
+        timeout-minutes: 180
+        run: cargo test --locked --test acceptance -- --ignored --nocapture
+      - name: Summarize the install
+        if: ${{ !cancelled() }}
+        run: |
+          f="$ORIGAMI_WORK/install/evidence/result.json"
+          if [ -f "$f" ]; then
+            { echo '```json'; cat "$f"; echo; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: acceptance-install
+          path: |
+            ${{ runner.temp }}/it/install/evidence
+            ${{ runner.temp }}/it/install/logs
+          if-no-files-found: ignore
+          retention-days: 14

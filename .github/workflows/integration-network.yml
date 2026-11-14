@@ -1,0 +1,456 @@
+name: "Integration tests: guests on a real LAN"
+
+# IRIX guests, run by the real product, on networks with real peers.
+#
+#   Linux    a bridge, a tap device per guest and a peer in its own network
+#            namespace running real dnsmasq and unfs3: lan-tap, nat-user,
+#            two-guests
+#   macOS    socket_vmnet with a real dnsmasq on its bridge: an IRIX guest
+#            takes a lease, and an Octane2 PROM netboots
+#   Windows  user-mode networking only (no bridge, namespaces or peers there),
+#            plus one informational probe of a TAP-Windows6 adapter
+#
+# The tests are tests/integration (see its README). Each job builds the product
+# archive it tests, or takes one from an earlier Smoke run, and a failed
+# scenario fails the run. A scheduled run does nothing when main has not moved
+# since the last successful run of this workflow.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+    inputs:
+      archive-run:
+        description: Smoke run ID whose archives (origami-linux, origami-macos, origami-windows) to test instead of building them
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: integration-network
+  cancel-in-progress: false
+
+env:
+  # unfs3 is not packaged for Ubuntu 24.04, so the Linux job builds this release.
+  UNFS3_VERSION: '0.11.0'
+  UNFS3_SHA256: 42ef63cd949b65a4ead30bee269703059a8c4269bef6aa1533215ad1c2a26d6f
+
+jobs:
+  plan:
+    name: Plan (has main moved?)
+    if: github.server_url == 'https://github.com' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/test/') || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          last=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow integration-network.yml \
+            --status success --json headSha --limit 1 --jq '.[0].headSha // ""')
+          if [ "$EVENT" = schedule ] && [ "$last" = "$GITHUB_SHA" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "main is still at $GITHUB_SHA, which the last successful run tested." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  linux:
+    name: "Integration tests: guests on a real LAN (Linux)"
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      ARCHIVE_RUN: ${{ inputs.archive-run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: ${{ inputs.archive-run == '' }}
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+      - name: Check out Instigator, which the test build needs
+        run: git submodule update --init instigator
+      - name: Choose paths
+        run: |
+          {
+            echo "ORIGAMI_PRODUCT=$RUNNER_TEMP/product"
+            echo "ORIGAMI_WORK=$RUNNER_TEMP/it"
+            echo "ORIGAMI_DISK_CACHE=$RUNNER_TEMP/disks"
+          } >> "$GITHUB_ENV"
+      - id: vcpkg
+        if: inputs.archive-run == ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/build-vcpkg-cache"
+          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        if: inputs.archive-run == ''
+        with:
+          path: ${{ runner.temp }}/build-vcpkg-cache
+          key: vcpkg-linux-x86_64-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
+          restore-keys: vcpkg-linux-x86_64-
+      - name: Build the product archive
+        if: inputs.archive-run == ''
+        timeout-minutes: 120
+        uses: ./.github/actions/build-archive
+        with:
+          preset: linux
+          build-dir: ${{ runner.temp }}/build
+      - name: Fetch the product archive from an earlier run
+        if: inputs.archive-run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name origami-linux --dir "$RUNNER_TEMP/build/artifacts"
+      - name: Unpack the product
+        run: |
+          mkdir -p "$ORIGAMI_PRODUCT"
+          tar -xzf "$RUNNER_TEMP"/build/artifacts/origami-*-linux-x86_64.tar.gz \
+            --strip-components=1 -C "$ORIGAMI_PRODUCT"
+      - name: Install the peers' packages and the libraries QEMU links
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            dnsmasq rpcbind iproute2 tcpdump iptables \
+            build-essential flex bison libtirpc-dev pkg-config \
+            libpulse0 libasound2t64
+          # The package starts its own copies on the host; the lab runs its own
+          # in a network namespace.
+          sudo systemctl disable --now dnsmasq.service rpcbind.service rpcbind.socket || true
+      - name: Build unfs3 ${{ env.UNFS3_VERSION }}
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/unfs3.tar.gz" \
+            "https://github.com/unfs3/unfs3/releases/download/unfs3-$UNFS3_VERSION/unfs3-$UNFS3_VERSION.tar.gz"
+          echo "$UNFS3_SHA256  $RUNNER_TEMP/unfs3.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/unfs3.tar.gz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/unfs3-$UNFS3_VERSION"
+          ./configure
+          make -j"$(nproc)"
+          sudo install -m 755 unfsd /usr/local/sbin/unfsd
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc -Vv
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the tests
+        run: cargo test --locked --test integration --no-run
+
+      - name: "Lab probe: bridge, namespace, dnsmasq and unfs3 answer"
+        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture lab_probe
+      - name: "Scenario lan-tap: DHCP, ping and NFS on a bridge"
+        if: ${{ !cancelled() }}
+        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture lan_tap
+      - name: "Scenario nat-user: NAT to the same server"
+        if: ${{ !cancelled() }}
+        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture nat_user
+      - name: "Scenario two-guests: two guests on one bridge"
+        if: ${{ !cancelled() }}
+        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture two_guests
+
+      - name: Check the lab left nothing behind
+        if: ${{ !cancelled() }}
+        run: |
+          left=$( { ip -o link show | grep -E ' oit[bvpt][0-9]' || true; ip netns list | grep -E '^oit[0-9]' || true; sudo iptables -S FORWARD | grep origami-it- || true; ls /run/oit*.pid 2>/dev/null || true; } )
+          if [ -n "$left" ]; then echo "$left"; exit 1; fi
+      - name: Summarize the scenarios
+        if: ${{ !cancelled() }}
+        run: |
+          for f in "$ORIGAMI_WORK"/*/evidence/result.json; do
+            [ -f "$f" ] || continue
+            echo "### $(basename "$(dirname "$(dirname "$f")")")"
+            echo '```json'
+            cat "$f"
+            echo
+            echo '```'
+          done >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: integration-linux
+          path: |
+            ${{ runner.temp }}/it/*/evidence
+            ${{ runner.temp }}/it/*/lab
+          if-no-files-found: ignore
+          retention-days: 14
+
+  macos:
+    name: "Integration tests: guests on a real LAN (macOS vmnet)"
+    needs: plan
+    if: needs.plan.outputs.run == 'true'
+    runs-on: macos-15
+    timeout-minutes: 300
+    env:
+      ARCHIVE_RUN: ${{ inputs.archive-run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: ${{ inputs.archive-run == '' }}
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+      - name: Check out Instigator, which the test build needs
+        run: git submodule update --init instigator
+      - name: Choose paths
+        run: |
+          {
+            echo "ORIGAMI_PRODUCT=$RUNNER_TEMP/package"
+            echo "ORIGAMI_WORK=$RUNNER_TEMP/it"
+            echo "ORIGAMI_DISK_CACHE=$RUNNER_TEMP/disks"
+          } >> "$GITHUB_ENV"
+      - id: vcpkg
+        if: inputs.archive-run == ''
+        run: |
+          mkdir -p "$RUNNER_TEMP/build-vcpkg-cache"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=$RUNNER_TEMP/build-vcpkg-cache" >> "$GITHUB_ENV"
+          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        if: inputs.archive-run == ''
+        with:
+          path: ${{ runner.temp }}/build-vcpkg-cache
+          key: vcpkg-macos-arm64-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
+          restore-keys: vcpkg-macos-arm64-
+      - uses: actions/setup-python@v5
+        if: inputs.archive-run == ''
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        if: inputs.archive-run == ''
+        with:
+          go-version-file: instigator/go.mod
+      - name: Build the product archive
+        if: inputs.archive-run == ''
+        timeout-minutes: 120
+        run: |
+          brew install cmake ninja pkg-config meson rust autoconf automake libtool
+          cmake --preset macos -B "$RUNNER_TEMP/build"
+          cmake --build "$RUNNER_TEMP/build" --target binaries --parallel 4
+          cpack --config "$RUNNER_TEMP/build/CPackConfig.cmake" -B "$RUNNER_TEMP/build/artifacts"
+      - name: Fetch the product archive from an earlier run
+        if: inputs.archive-run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name origami-macos --dir "$RUNNER_TEMP/build/artifacts"
+      - name: Unpack the product
+        run: |
+          mkdir -p "$ORIGAMI_PRODUCT"
+          tar -xzf "$RUNNER_TEMP"/build/artifacts/origami-*-macos-arm64.tar.gz \
+            --strip-components=1 -C "$ORIGAMI_PRODUCT"
+      - name: Start socket_vmnet and install dnsmasq
+        run: |
+          brew install socket_vmnet dnsmasq
+          mkdir -p "$(brew --prefix)/var/run"
+          sudo nohup "$(brew --prefix)/opt/socket_vmnet/bin/socket_vmnet" \
+            --vmnet-gateway=192.168.105.1 "$(brew --prefix)/var/run/socket_vmnet" \
+            > "$RUNNER_TEMP/socket_vmnet.log" 2>&1 &
+          for _ in $(seq 30); do
+            test -S "$(brew --prefix)/var/run/socket_vmnet" && break
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/socket_vmnet.log"
+          test -S "$(brew --prefix)/var/run/socket_vmnet"
+          echo "ORIGAMI_VMNET_SOCKET=$(brew --prefix)/var/run/socket_vmnet" >> "$GITHUB_ENV"
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc -Vv
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the tests
+        run: cargo test --locked --test integration --no-run
+
+      - name: "Scenario vmnet-netboot: an Octane2 PROM netboots from dnsmasq"
+        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture vmnet_netboot
+      - name: "Scenario vmnet-lan: an IRIX guest takes a lease and pings the host"
+        if: ${{ !cancelled() }}
+        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture vmnet_lan
+
+      - name: Summarize the scenarios
+        if: ${{ !cancelled() }}
+        run: |
+          for f in "$ORIGAMI_WORK"/*/evidence/result.json; do
+            [ -f "$f" ] || continue
+            echo "### $(basename "$(dirname "$(dirname "$f")")")"
+            echo '```json'
+            cat "$f"
+            echo
+            echo '```'
+          done >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: integration-macos
+          path: |
+            ${{ runner.temp }}/it/*/evidence
+            ${{ runner.temp }}/it/*/lab
+            ${{ runner.temp }}/socket_vmnet.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  windows-archive:
+    name: Build product archive (Windows, cross-built on Linux)
+    needs: plan
+    if: needs.plan.outputs.run == 'true' && inputs.archive-run == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: true
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+      - id: vcpkg
+        run: |
+          mkdir -p "$RUNNER_TEMP/build-vcpkg-cache"
+          echo "commit=$(git -C vcpkg rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/build-vcpkg-cache
+          key: vcpkg-windows-x86_64-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('vcpkg.json', 'cmake/vcpkg/**') }}
+          restore-keys: vcpkg-windows-x86_64-
+      - uses: ./.github/actions/build-archive
+        with:
+          preset: windows-cross
+          build-dir: ${{ runner.temp }}/build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: integration-origami-windows
+          path: ${{ runner.temp }}/build/artifacts/origami-*-windows-x86_64.*
+          if-no-files-found: error
+          retention-days: 3
+
+  windows:
+    name: "Integration tests: user-mode guest (Windows)"
+    needs: [plan, windows-archive]
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && (needs.windows-archive.result == 'success' || needs.windows-archive.result == 'skipped') }}
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      ARCHIVE_RUN: ${{ inputs.archive-run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out Instigator, which the test build needs
+        run: git submodule update --init instigator
+      - name: Fetch the product archive from an earlier run
+        if: inputs.archive-run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name origami-windows --dir "$RUNNER_TEMP/archive"
+      - uses: actions/download-artifact@v4
+        if: inputs.archive-run == ''
+        with:
+          name: integration-origami-windows
+          path: ${{ runner.temp }}/archive
+      - name: Unpack the product
+        run: |
+          mkdir -p "$RUNNER_TEMP/package"
+          powershell -NoProfile -Command "Expand-Archive -Path (Get-ChildItem \"\$env:RUNNER_TEMP/archive/origami-*.zip\").FullName -DestinationPath \"\$env:RUNNER_TEMP/package\""
+          dir=$(ls -d "$RUNNER_TEMP"/package/origami-*)
+          {
+            echo "ORIGAMI_PRODUCT=$(cygpath -m "$dir")"
+            echo "ORIGAMI_WORK=$(cygpath -m "$RUNNER_TEMP")/it"
+            echo "ORIGAMI_DISK_CACHE=$(cygpath -m "$RUNNER_TEMP")/disks"
+          } >> "$GITHUB_ENV"
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc -Vv
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the tests
+        run: cargo test --locked --test integration --no-run
+      - name: "Scenario user-mode: DHCP and ping on user networking"
+        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture user_mode
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: integration-windows
+          path: ${{ runner.temp }}/it/*/evidence
+          if-no-files-found: ignore
+          retention-days: 14
+
+  tap-probe:
+    name: "Integration probe: TAP-Windows6 adapter (Windows, informational)"
+    needs: [plan, windows-archive]
+    if: ${{ !cancelled() && needs.plan.outputs.run == 'true' && (needs.windows-archive.result == 'success' || needs.windows-archive.result == 'skipped') }}
+    # Whether a hosted runner accepts a TAP driver is what this asks. Its result
+    # is read from the job, and a failure does not fail the run.
+    continue-on-error: true
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      ARCHIVE_RUN: ${{ inputs.archive-run }}
+      OPENVPN_MSI: OpenVPN-2.6.14-I001-amd64.msi
+      OPENVPN_SHA256: 19bca902826ef0dc9a6cf849297ce43ba8b2844bdb913c37230308d3274c953c
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check out Instigator, which the test build needs
+        run: git submodule update --init instigator
+      - name: Fetch the product archive from an earlier run
+        if: inputs.archive-run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$ARCHIVE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name origami-windows --dir "$RUNNER_TEMP/archive"
+      - uses: actions/download-artifact@v4
+        if: inputs.archive-run == ''
+        with:
+          name: integration-origami-windows
+          path: ${{ runner.temp }}/archive
+      - name: Unpack the product
+        run: |
+          mkdir -p "$RUNNER_TEMP/package"
+          powershell -NoProfile -Command "Expand-Archive -Path (Get-ChildItem \"\$env:RUNNER_TEMP/archive/origami-*.zip\").FullName -DestinationPath \"\$env:RUNNER_TEMP/package\""
+          dir=$(ls -d "$RUNNER_TEMP"/package/origami-*)
+          {
+            echo "ORIGAMI_PRODUCT=$(cygpath -m "$dir")"
+            echo "ORIGAMI_WORK=$(cygpath -m "$RUNNER_TEMP")/it"
+          } >> "$GITHUB_ENV"
+      - name: Install the TAP-Windows6 driver and make an adapter
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/openvpn.msi" "https://swupdate.openvpn.net/community/releases/$OPENVPN_MSI"
+          echo "$OPENVPN_SHA256  $RUNNER_TEMP/openvpn.msi" | sha256sum -c -
+          # Only the driver and the tool that makes adapters from it.
+          powershell -NoProfile -Command "Start-Process msiexec.exe -Wait -ArgumentList '/i', \"\$env:RUNNER_TEMP\\openvpn.msi\", '/qn', 'ADDLOCAL=Drivers.TAPWindows6,Drivers'"
+          tapctl="/c/Program Files/OpenVPN/bin/tapctl.exe"
+          "$tapctl" create --hwid root\\tap0901 --name origami-tap
+          "$tapctl" list
+          echo "ORIGAMI_TAP_ADAPTER=origami-tap" >> "$GITHUB_ENV"
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the tests
+        run: cargo test --locked --test integration --no-run
+      - name: "Probe: QEMU starts a machine on the adapter"
+        run: cargo test --locked --test integration -- --ignored --test-threads=1 --nocapture tap_windows_probe
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: integration-tap-probe
+          path: ${{ runner.temp }}/it/*/evidence
+          if-no-files-found: ignore
+          retention-days: 14
