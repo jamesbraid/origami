@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Boot a prepared IRIX guest with a product archive and check that it works.
 
-    tests/smoke/boot.py --product DIR --work DIR [--results FILE] [--strict]
+    tests/smoke/boot.py --product DIR --work DIR [--results FILE]
 
 --product is an extracted product tree (`bin/origami`, `libexec/origami/`) or
 the release archive itself (.tar.gz or .zip), which is extracted into --work.
@@ -13,8 +13,8 @@ macOS and Windows.
 Checks: login, hinv, ping the user-network gateway, an NFS mount of
 `origami share` with read and write checksums, a CD-ROM read checksum and a
 clean `halt -p`. A failed check is recorded, not raised, and the results file
-is always written. The exit status is 0 unless --strict is given, so a nightly
-workflow can publish the outcome without failing its own run.
+is always written before the exit status is set: 1 when anything failed, 0
+when every check passed.
 """
 import argparse
 import hashlib
@@ -351,7 +351,6 @@ def main():
     ap.add_argument("--budget", type=int, default=1260,
                     help="seconds for the whole run, download included; a second boot starts only if "
                          "RETRY_NEEDS seconds are left. The workflow step's own timeout is just above it")
-    ap.add_argument("--strict", action="store_true", help="exit 1 when anything failed")
     args = ap.parse_args()
     args.work = args.work.resolve()
     args.work.mkdir(parents=True, exist_ok=True)
@@ -385,7 +384,7 @@ def main():
     finally:
         results.write()
     print(json.dumps(results.data, indent=2))
-    return 1 if args.strict and results.data["status"] != "pass" else 0
+    return 0 if results.data["status"] == "pass" else 1
 
 
 if __name__ == "__main__":
