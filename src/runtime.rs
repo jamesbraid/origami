@@ -40,16 +40,86 @@ pub fn vnc_ports(
     Ok(heads.into_iter().zip(port..).collect())
 }
 
-pub fn qemu_path() -> Result<PathBuf> {
-    if let Some(root) = std::env::var_os("ORIGAMI_RUNTIME_DIR") {
-        return Ok(PathBuf::from(root).join(binary_name("qemu-system-mips64")));
+/// Where the bundled programs are. Resolved once, from `ORIGAMI_RUNTIME_DIR`
+/// when it is set (a directory holding QEMU and its tools, as the archive's
+/// `libexec/origami` does) and otherwise relative to this executable.
+#[derive(Clone, Debug)]
+pub struct Runtime {
+    dir: PathBuf,
+    data: PathBuf,
+    instigator: PathBuf,
+}
+
+impl Runtime {
+    pub fn locate() -> Result<Self> {
+        Self::resolve(
+            std::env::var_os("ORIGAMI_RUNTIME_DIR").map(PathBuf::from),
+            &std::env::current_exe()?,
+        )
     }
-    let exe = std::env::current_exe()?;
-    Ok(exe
-        .parent()
-        .ok_or("cannot locate origami executable directory")?
-        .join("../libexec/origami")
-        .join(binary_name("qemu-system-mips64")))
+
+    /// The runtime for the executable `exe` and the runtime directory
+    /// named by the environment, if any.
+    fn resolve(selected: Option<PathBuf>, exe: &Path) -> Result<Self> {
+        let beside = exe
+            .parent()
+            .ok_or("cannot locate origami executable directory")?;
+        let (dir, instigator) = match selected {
+            Some(dir) => {
+                // A runtime directory may carry its own Instigator; without
+                // one, the product's own sits beside this executable.
+                let own = dir.join(binary_name("instigator"));
+                let instigator = if own.is_file() {
+                    own
+                } else {
+                    beside.join(binary_name("instigator"))
+                };
+                (dir, instigator)
+            }
+            None => (
+                beside.join("../libexec/origami"),
+                beside.join(binary_name("instigator")),
+            ),
+        };
+        let data = dir.join("../../share/origami/qemu");
+        Ok(Self {
+            dir,
+            data,
+            instigator,
+        })
+    }
+
+    pub fn qemu(&self) -> PathBuf {
+        self.dir.join(binary_name("qemu-system-mips64"))
+    }
+
+    pub fn qemu_img(&self) -> PathBuf {
+        self.dir.join(binary_name("qemu-img"))
+    }
+
+    pub fn machine_init(&self) -> PathBuf {
+        self.dir.join(binary_name("qemu-sgi-machine-init"))
+    }
+
+    /// QEMU's data directory, which holds the keymaps.
+    pub fn data(&self) -> &Path {
+        &self.data
+    }
+
+    /// The options that point QEMU at its data directory.
+    pub fn data_arguments(&self) -> [String; 2] {
+        ["-L".into(), self.data.display().to_string()]
+    }
+
+    /// The bundled Instigator, which must exist.
+    pub fn instigator(&self) -> Result<&Path> {
+        if !self.instigator.is_file() {
+            return Err(
+                format!("packaged Instigator missing: {}", self.instigator.display()).into(),
+            );
+        }
+        Ok(&self.instigator)
+    }
 }
 
 fn binary_name(stem: &str) -> String {
@@ -58,21 +128,6 @@ fn binary_name(stem: &str) -> String {
     } else {
         stem.into()
     }
-}
-
-pub fn qemu_img_path() -> Result<PathBuf> {
-    Ok(qemu_path()?.with_file_name(binary_name("qemu-img")))
-}
-
-fn qemu_data_path() -> Result<PathBuf> {
-    Ok(qemu_path()?
-        .parent()
-        .ok_or("cannot locate packaged QEMU directory")?
-        .join("../../share/origami/qemu"))
-}
-
-pub fn machine_init_path() -> Result<PathBuf> {
-    Ok(qemu_path()?.with_file_name(binary_name("qemu-sgi-machine-init")))
 }
 
 /// The init tool's command line for a new machine whose storage goes in
@@ -383,8 +438,6 @@ pub fn arguments_with(
     let mut args = vec![
         // Default devices create a second, empty SDL window beside RAD4.
         "-nodefaults".into(),
-        "-L".into(),
-        qemu_data_path()?.display().to_string(),
         "-accel".into(),
         if counted_clock.is_some() {
             "tcg,thread=single"
@@ -603,7 +656,8 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, offering: &Offering, drive: &Dr
     ]);
 }
 
-pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result<()> {
+/// Start the machine in a background runner and return the runner's pid.
+pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result<u32> {
     if control::is_locked(dir)? {
         return Err("machine is already running".into());
     }
@@ -658,8 +712,7 @@ pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result
     while Instant::now() < deadline {
         if let Ok(record) = control::read(dir) {
             if record.pid == child.id() && control::verified_qmp(&record).is_ok() {
-                println!("running: pid {}", record.pid);
-                return Ok(());
+                return Ok(record.pid);
             }
         }
         if let Some(status) = child.try_wait()? {
@@ -680,6 +733,7 @@ pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result
 }
 
 pub fn run(
+    rt: &Runtime,
     machines: &Machines,
     dir: &Path,
     file: &MachineFile,
@@ -687,10 +741,11 @@ pub fn run(
     display: Display,
     once: &[String],
 ) -> Result<ExitStatus> {
-    run_inner(machines, dir, file, offering, display, once, false)
+    run_inner(rt, machines, dir, file, offering, display, once, false)
 }
 
 pub fn serve(
+    rt: &Runtime,
     machines: &Machines,
     dir: &Path,
     file: &MachineFile,
@@ -698,10 +753,13 @@ pub fn serve(
     display: Display,
     once: &[String],
 ) -> Result<ExitStatus> {
-    run_inner(machines, dir, file, offering, display, once, true)
+    run_inner(rt, machines, dir, file, offering, display, once, true)
 }
 
+// One call site per mode shares this; the arguments are one launch.
+#[allow(clippy::too_many_arguments)]
 fn run_inner(
+    rt: &Runtime,
     machines: &Machines,
     dir: &Path,
     file: &MachineFile,
@@ -710,11 +768,11 @@ fn run_inner(
     once: &[String],
     background: bool,
 ) -> Result<ExitStatus> {
-    let qemu = qemu_path()?;
+    let qemu = rt.qemu();
     if !qemu.is_file() {
         return Err(format!("packaged QEMU missing: {}", qemu.display()).into());
     }
-    let keymap = qemu_data_path()?.join("keymaps/en-us");
+    let keymap = rt.data().join("keymaps/en-us");
     if !keymap.is_file() {
         return Err(format!("packaged QEMU keymap missing: {}", keymap.display()).into());
     }
@@ -748,6 +806,7 @@ fn run_inner(
         None => file,
     };
     let mut args = arguments_with(machines, dir, file, offering, display, ports.as_ref())?;
+    args.splice(0..0, rt.data_arguments());
     let mode = file.network.mode.as_str();
     if matches!(mode, "private" | "vmnet") {
         let endpoint = file
@@ -906,6 +965,64 @@ mod tests {
             share: vec![],
             qemu: Default::default(),
         }
+    }
+
+    #[test]
+    fn the_runtime_is_found_beside_the_executable_unless_one_is_selected() {
+        let root = tempfile::tempdir().unwrap();
+        let exe = root.path().join("bin").join(binary_name("origami"));
+        let runtime = Runtime::resolve(None, &exe).unwrap();
+        let libexec = root.path().join("bin/../libexec/origami");
+        assert_eq!(
+            runtime.qemu(),
+            libexec.join(binary_name("qemu-system-mips64"))
+        );
+        assert_eq!(runtime.qemu_img(), libexec.join(binary_name("qemu-img")));
+        assert_eq!(
+            runtime.machine_init(),
+            libexec.join(binary_name("qemu-sgi-machine-init"))
+        );
+        assert_eq!(
+            runtime.data_arguments(),
+            [
+                "-L".to_string(),
+                root.path()
+                    .join("bin/../libexec/origami/../../share/origami/qemu")
+                    .display()
+                    .to_string()
+            ]
+        );
+        // Instigator sits with the executable, and is missing here.
+        assert!(runtime
+            .instigator()
+            .unwrap_err()
+            .to_string()
+            .contains("missing"));
+
+        let selected = root.path().join("selected");
+        let runtime = Runtime::resolve(Some(selected.clone()), &exe).unwrap();
+        assert_eq!(
+            runtime.qemu(),
+            selected.join(binary_name("qemu-system-mips64"))
+        );
+    }
+
+    #[test]
+    fn a_selected_runtime_directory_may_carry_its_own_instigator() {
+        let root = tempfile::tempdir().unwrap();
+        let bin = root.path().join("bin");
+        let selected = root.path().join("selected");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(&selected).unwrap();
+        let exe = bin.join(binary_name("origami"));
+        let beside = bin.join(binary_name("instigator"));
+        fs::write(&beside, "").unwrap();
+        let runtime = Runtime::resolve(Some(selected.clone()), &exe).unwrap();
+        assert_eq!(runtime.instigator().unwrap(), beside);
+        let own = selected.join(binary_name("instigator"));
+        fs::write(&own, "").unwrap();
+        let runtime = Runtime::resolve(Some(selected), &exe).unwrap();
+        assert_eq!(runtime.instigator().unwrap(), own);
     }
 
     #[test]

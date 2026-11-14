@@ -7,7 +7,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
+pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateArgs) -> Result<()> {
     let options = &args.options;
     let preset_offer = preset(machines, &args.preset)?;
     let offer = match &options.processor {
@@ -49,7 +49,7 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
     if let Some(emu_id) = options.emu_id {
         origami::emu_id::check_range(emu_id)?;
     }
-    let tool = runtime::machine_init_path()?;
+    let tool = rt.machine_init();
     // Check the tool before any download that it would consume.
     if !tool.is_file() {
         return Err(format!("packaged machine init tool missing: {}", tool.display()).into());
@@ -140,7 +140,12 @@ pub fn set_graphics(machines: &Machines, dir: &Path, args: &GraphicsArgs) -> Res
     Ok(())
 }
 
-pub fn create_disk(machines: &Machines, dir: &Path, size: u64) -> Result<()> {
+pub fn create_disk(
+    rt: &runtime::Runtime,
+    machines: &Machines,
+    dir: &Path,
+    size: u64,
+) -> Result<()> {
     let _lock = control::lock_for_edit(dir, "changing drives")?;
     let mut file = read_machine(dir)?;
     let offer = validate(machines, dir, &file)?;
@@ -161,7 +166,7 @@ pub fn create_disk(machines: &Machines, dir: &Path, size: u64) -> Result<()> {
     if path.exists() {
         return Err(format!("disk exists: {}", path.display()).into());
     }
-    let output = Command::new(runtime::qemu_img_path()?)
+    let output = Command::new(rt.qemu_img())
         .args(["create", "-f", "qcow2"])
         .arg(&path)
         .arg(format!("{size}M"))

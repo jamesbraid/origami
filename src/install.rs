@@ -1,10 +1,11 @@
-use crate::{addressing::Addresses, control, resolve, tcp_endpoint, MachineFile, Machines, Result};
+use crate::console::Console;
+use crate::{addressing::Addresses, resolve, runtime, tcp_endpoint, MachineFile, Machines, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::io::{self, Read, Write};
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+use std::io::Write;
+use std::net::{Ipv4Addr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -236,6 +237,13 @@ pub fn needs_rad4_driver(file: &MachineFile) -> bool {
     file.pipe.iter().any(|pipe| pipe.product == "rad4")
 }
 
+/// What `install-init` wrote: the media list, and the MAC address it gave
+/// the machine when it had none.
+pub struct Initialised {
+    pub manifest: PathBuf,
+    pub assigned_mac: Option<String>,
+}
+
 pub fn init_profile(
     machines: &Machines,
     dir: &Path,
@@ -244,7 +252,7 @@ pub fn init_profile(
     file: &mut MachineFile,
     release: &str,
     profile: &str,
-) -> Result<PathBuf> {
+) -> Result<Initialised> {
     let root = media_root.canonicalize()?;
     init_sources(machines, dir, mac, file, Some(&root), release, profile)
 }
@@ -256,7 +264,7 @@ pub fn init_remote_profile(
     file: &mut MachineFile,
     release: &str,
     profile: &str,
-) -> Result<PathBuf> {
+) -> Result<Initialised> {
     init_sources(machines, dir, mac, file, None, release, profile)
 }
 
@@ -268,7 +276,7 @@ fn init_sources(
     root: Option<&Path>,
     release: &str,
     profile: &str,
-) -> Result<PathBuf> {
+) -> Result<Initialised> {
     let recipe = recipe(release, profile)?;
     let install_dir = dir.join("install");
     let manifest_path = install_dir.join("media.toml");
@@ -326,10 +334,10 @@ fn init_sources(
     fs::create_dir_all(&install_dir)?;
     fs::write(&manifest_path, toml::to_string_pretty(&manifest)?)?;
     fs::write(dir.join("machine.toml"), toml::to_string_pretty(file)?)?;
-    if let Some(mac) = assigned {
-        println!("assigned MAC {mac}");
-    }
-    Ok(manifest_path)
+    Ok(Initialised {
+        manifest: manifest_path,
+        assigned_mac: assigned,
+    })
 }
 
 fn valid_addon_name(name: &str) -> bool {
@@ -543,22 +551,10 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
     })
 }
 
-pub fn instigator_path() -> Result<PathBuf> {
-    let executable = std::env::current_exe()?.with_file_name(if cfg!(windows) {
-        "instigator.exe"
-    } else {
-        "instigator"
-    });
-    if !executable.is_file() {
-        return Err(format!("packaged Instigator missing: {}", executable.display()).into());
-    }
-    Ok(executable)
-}
-
 /// Runs Instigator's check on the generated configuration. Remote media are
 /// only probed for reachability unless `full` asks Instigator to read and
 /// assemble them as install-serve does.
-pub fn check(dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
+pub fn check(rt: &runtime::Runtime, dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
     config.write_addon_files()?;
@@ -568,7 +564,7 @@ pub fn check(dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
         args.push("--full");
     }
     args.push("-");
-    let mut child = Command::new(instigator_path()?)
+    let mut child = Command::new(rt.instigator()?)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -590,7 +586,7 @@ pub fn check(dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
+pub fn serve(rt: &runtime::Runtime, dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
     let install_dir = dir.join("install");
@@ -603,7 +599,7 @@ pub fn serve(dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
         .endpoint
         .as_deref()
         .ok_or("private network needs endpoint")?;
-    let mut command = Command::new(instigator_path()?);
+    let mut command = Command::new(rt.instigator()?);
     command.arg("serve");
     if let Some(address) = tcp_endpoint(endpoint)? {
         command.arg("--network-tcp").arg(address.to_string());
@@ -653,71 +649,6 @@ const TERMINAL_PROMPT: &[u8] = b"TERM = (vt100) ";
 // IRIX's startup autoconfig prints this when it built a kernel that only a
 // further restart loads.
 const STARTUP_REBUILD: &str = "Reboot to start using the reconfigured kernel.";
-
-struct InstallConsole {
-    stream: TcpStream,
-}
-
-impl InstallConsole {
-    fn connect(dir: &Path) -> Result<Self> {
-        let record = control::read(dir).map_err(|error| {
-            if error
-                .downcast_ref::<io::Error>()
-                .is_some_and(|error| error.kind() == io::ErrorKind::NotFound)
-            {
-                "install commands require a background run; start with origami run DIR --background"
-                    .into()
-            } else {
-                error
-            }
-        })?;
-        control::verified_qmp(&record)?;
-        let address = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, record.console_port);
-        let stream = TcpStream::connect_timeout(&address.into(), Duration::from_secs(5))?;
-        stream.set_read_timeout(Some(Duration::from_secs(1)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        Ok(Self { stream })
-    }
-
-    fn wait_for(&mut self, prompt: &[u8], timeout: Duration) -> Result<String> {
-        let deadline = Instant::now() + timeout;
-        let mut output = Vec::new();
-        let mut chunk = [0u8; 4096];
-        while Instant::now() < deadline {
-            match self.stream.read(&mut chunk) {
-                Ok(0) => return Err("guest serial console closed".into()),
-                Ok(count) => {
-                    io::stdout().write_all(&chunk[..count])?;
-                    io::stdout().flush()?;
-                    output.extend_from_slice(&chunk[..count]);
-                    if output.len() > 65536 {
-                        output.drain(..output.len() - 65536);
-                    }
-                    if output.ends_with(prompt) {
-                        return Ok(String::from_utf8_lossy(&output).into_owned());
-                    }
-                }
-                Err(error)
-                    if error.kind() == io::ErrorKind::WouldBlock
-                        || error.kind() == io::ErrorKind::TimedOut
-                        || error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(format!(
-            "guest did not reach {} within {} seconds; machine remains running",
-            String::from_utf8_lossy(prompt),
-            timeout.as_secs()
-        )
-        .into())
-    }
-
-    fn command(&mut self, command: &str, prompt: &[u8], timeout: Duration) -> Result<String> {
-        self.stream.write_all(command.as_bytes())?;
-        self.stream.write_all(b"\n")?;
-        self.wait_for(prompt, timeout)
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum InstallPhase {
@@ -888,22 +819,27 @@ impl InstallProgress {
     }
 }
 
-impl InstallConsole {
+impl Console {
     /// Follow `passes` runs of go back to Inst>. Only the first pass reopens
     /// the primary distribution, so only it can show the distribution menu.
-    fn wait_for_install(&mut self, passes: usize, timeout: Duration) -> Result<()> {
+    fn wait_for_install(
+        &mut self,
+        passes: usize,
+        timeout: Duration,
+        out: &mut dyn Write,
+    ) -> Result<()> {
         let deadline = Instant::now() + timeout;
         let mut progress = InstallProgress::new(passes);
         let mut chunk = [0u8; 4096];
         while Instant::now() < deadline {
-            match self.stream.read(&mut chunk) {
-                Ok(0) => return Err("guest serial console closed during installation".into()),
-                Ok(count) => {
-                    io::stdout().write_all(&chunk[..count])?;
-                    io::stdout().flush()?;
+            match self.read_some(&mut chunk)? {
+                Some(0) => return Err("guest serial console closed during installation".into()),
+                Some(count) => {
+                    out.write_all(&chunk[..count])?;
+                    out.flush()?;
                     let conflict_prompt = progress.observe_conflicts(&chunk[..count]);
                     if let Some(choice) = progress.distribution_choice(&chunk[..count]) {
-                        self.stream.write_all(format!("{choice}\n").as_bytes())?;
+                        self.send(format!("{choice}\n"))?;
                     }
                     if conflict_prompt {
                         return Err("IRIX reported unresolved installation conflicts; guest remains running".into());
@@ -916,11 +852,7 @@ impl InstallConsole {
                         return Ok(());
                     }
                 }
-                Err(error)
-                    if error.kind() == io::ErrorKind::WouldBlock
-                        || error.kind() == io::ErrorKind::TimedOut
-                        || error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) => return Err(error.into()),
+                None => {}
             }
         }
         Err(format!(
@@ -958,41 +890,52 @@ fn check_quit(output: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn apply(dir: &Path, file: &MachineFile) -> Result<()> {
+/// Drive the guest's installer over its console, echoing the console to
+/// `out`.
+pub fn apply(dir: &Path, file: &MachineFile, out: &mut dyn Write) -> Result<()> {
     if file.network.mode != "private" {
         return Err("package installation requires private installation networking".into());
     }
     let media = read_media(dir)?;
     let (command, passes) = install_script(&media, Addresses::of(file)?.host());
-    let mut console = InstallConsole::connect(dir)?;
-    println!("Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.");
-    console.command("", INSTALL_PROMPT, Duration::from_secs(30))?;
-    console.stream.write_all(command.as_bytes())?;
-    console.wait_for_install(passes, Duration::from_secs(4 * 60 * 60))?;
-    let quit = console.command("quit", RESTART_PROMPT, Duration::from_secs(900))?;
+    let mut console = Console::connect(dir)?;
+    writeln!(out, "Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.")?;
+    console.command("", INSTALL_PROMPT, Duration::from_secs(30), out)?;
+    console.send(command)?;
+    console.wait_for_install(passes, Duration::from_secs(4 * 60 * 60), out)?;
+    let quit = console.command("quit", RESTART_PROMPT, Duration::from_secs(900), out)?;
     check_quit(&quit)?;
-    console.restart()?;
-    println!("Installed IRIX reached serial login. Stop the machine before switching to user networking.");
+    console.restart(out)?;
+    writeln!(out, "Installed IRIX reached serial login. Stop the machine before switching to user networking.")?;
     Ok(())
 }
 
-impl InstallConsole {
+impl Console {
     /// Answer the restart prompt and wait for login. If the first boot's
     /// autoconfig built a kernel instead of the quit-time reconfiguration,
     /// log in as root, which has no password on a new install, and restart
     /// once more so the guest runs that kernel.
-    fn restart(&mut self) -> Result<()> {
-        let boot = self.command("y", SERIAL_LOGIN_PROMPT_SUFFIX, Duration::from_secs(900))?;
+    fn restart(&mut self, out: &mut dyn Write) -> Result<()> {
+        let boot = self.command(
+            "y",
+            SERIAL_LOGIN_PROMPT_SUFFIX,
+            Duration::from_secs(900),
+            out,
+        )?;
         if !boot.contains(STARTUP_REBUILD) {
             return Ok(());
         }
-        println!("\nFirst boot rebuilt the kernel. Restarting once more to load it.");
-        self.command("root", TERMINAL_PROMPT, Duration::from_secs(60))?;
-        self.command("", SHELL_PROMPT, Duration::from_secs(60))?;
+        writeln!(
+            out,
+            "\nFirst boot rebuilt the kernel. Restarting once more to load it."
+        )?;
+        self.command("root", TERMINAL_PROMPT, Duration::from_secs(60), out)?;
+        self.command("", SHELL_PROMPT, Duration::from_secs(60), out)?;
         self.command(
             "reboot",
             SERIAL_LOGIN_PROMPT_SUFFIX,
             Duration::from_secs(900),
+            out,
         )?;
         Ok(())
     }
@@ -1001,6 +944,8 @@ impl InstallConsole {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
+    use std::net::TcpStream;
 
     /// The first-pass selection of the shipped `irix` script.
     fn selection(recipe: &InstallRecipe, field: &str) -> Vec<String> {
@@ -1082,11 +1027,9 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(150));
         });
-        let mut console = InstallConsole {
-            stream: TcpStream::connect(address).unwrap(),
-        };
+        let mut console = Console::from_stream(TcpStream::connect(address).unwrap());
         let error = console
-            .wait_for_install(1, Duration::from_secs(1))
+            .wait_for_install(1, Duration::from_secs(1), &mut io::sink())
             .unwrap_err()
             .to_string();
         writer.join().unwrap();
@@ -1146,12 +1089,10 @@ mod tests {
         assert!(progress.observe(b" "));
     }
 
-    /// Serve `chunks` to an InstallConsole, pausing between them so each
+    /// Serve `chunks` to a Console, pausing between them so each
     /// arrives as its own read, then stay connected past the one-second
     /// timeouts the tests use.
-    fn scripted_console(
-        chunks: Vec<&'static [u8]>,
-    ) -> (InstallConsole, std::thread::JoinHandle<()>) {
+    fn scripted_console(chunks: Vec<&'static [u8]>) -> (Console, std::thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let writer = std::thread::spawn(move || {
@@ -1167,7 +1108,7 @@ mod tests {
         stream
             .set_read_timeout(Some(Duration::from_millis(100)))
             .unwrap();
-        (InstallConsole { stream }, writer)
+        (Console::from_stream(stream), writer)
     }
 
     /// A stop and continue (Ctrl-Z, then fg) interrupts a blocked read with
@@ -1199,14 +1140,14 @@ mod tests {
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
-        let mut console = InstallConsole { stream };
+        let mut console = Console::from_stream(stream);
         let reader = unsafe { libc::pthread_self() };
         let kicker = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(200));
             unsafe { libc::pthread_kill(reader, libc::SIGUSR2) };
         });
         let output = console
-            .wait_for(INSTALL_PROMPT, Duration::from_secs(10))
+            .wait_for(INSTALL_PROMPT, Duration::from_secs(10), &mut io::sink())
             .unwrap();
         kicker.join().unwrap();
         writer.join().unwrap();
@@ -1222,7 +1163,7 @@ mod tests {
         // A prompt after the first pass does not end a two-pass install.
         let (mut console, writer) = scripted_console(vec![PASS, b"\r\nInst> "]);
         let error = console
-            .wait_for_install(2, Duration::from_secs(1))
+            .wait_for_install(2, Duration::from_secs(1), &mut io::sink())
             .unwrap_err()
             .to_string();
         writer.join().unwrap();
@@ -1237,7 +1178,9 @@ mod tests {
             POST_INSTALL_OUTPUT,
             b"Inst> ",
         ]);
-        console.wait_for_install(2, Duration::from_secs(5)).unwrap();
+        console
+            .wait_for_install(2, Duration::from_secs(5), &mut io::sink())
+            .unwrap();
         writer.join().unwrap();
     }
 
@@ -1249,7 +1192,7 @@ mod tests {
             b"iled)\r\nInst> ",
         ]);
         let error = console
-            .wait_for_install(1, Duration::from_secs(5))
+            .wait_for_install(1, Duration::from_secs(5), &mut io::sink())
             .unwrap_err()
             .to_string();
         writer.join().unwrap();
@@ -1257,7 +1200,7 @@ mod tests {
 
         let (mut console, writer) = scripted_console(vec![PASS, b"\r\nInst> "]);
         let error = console
-            .wait_for_install(1, Duration::from_secs(5))
+            .wait_for_install(1, Duration::from_secs(5), &mut io::sink())
             .unwrap_err()
             .to_string();
         writer.join().unwrap();
@@ -1280,7 +1223,7 @@ mod tests {
             b"ERROR: Conflicts must be resolved.\r\nrad4x.sw.driver cannot be installed\r\nInst> ",
         ]);
         let error = console
-            .wait_for_install(2, Duration::from_secs(5))
+            .wait_for_install(2, Duration::from_secs(5), &mut io::sink())
             .unwrap_err()
             .to_string();
         writer.join().unwrap();
@@ -1291,7 +1234,7 @@ mod tests {
     fn install_apply_stops_when_quit_never_reaches_restart() {
         let (mut console, writer) = scripted_console(vec![b"Requickstarting ELF files .. 15% "]);
         let error = console
-            .wait_for(RESTART_PROMPT, Duration::from_secs(1))
+            .wait_for(RESTART_PROMPT, Duration::from_secs(1), &mut io::sink())
             .unwrap_err()
             .to_string();
         writer.join().unwrap();
@@ -1329,10 +1272,8 @@ mod tests {
             }
             received
         });
-        let mut console = InstallConsole {
-            stream: TcpStream::connect(address).unwrap(),
-        };
-        console.restart().unwrap();
+        let mut console = Console::from_stream(TcpStream::connect(address).unwrap());
+        console.restart(&mut io::sink()).unwrap();
         assert_eq!(guest.join().unwrap(), ["y", "root", "", "reboot"]);
     }
 
@@ -1341,7 +1282,7 @@ mod tests {
         let (mut console, writer) = scripted_console(vec![
             b"RAD4 driver 1.101\r\nThe system is coming up.\r\nIRIS console login: ",
         ]);
-        console.restart().unwrap();
+        console.restart(&mut io::sink()).unwrap();
         writer.join().unwrap();
     }
 
@@ -1357,11 +1298,13 @@ mod tests {
             stream.write_all(writer_expected.as_bytes()).unwrap();
             stream.flush().unwrap();
         });
-        let mut console = InstallConsole {
-            stream: TcpStream::connect(address).unwrap(),
-        };
+        let mut console = Console::from_stream(TcpStream::connect(address).unwrap());
         let output = console
-            .wait_for(SERIAL_LOGIN_PROMPT_SUFFIX, Duration::from_secs(5))
+            .wait_for(
+                SERIAL_LOGIN_PROMPT_SUFFIX,
+                Duration::from_secs(5),
+                &mut io::sink(),
+            )
             .unwrap();
         writer.join().unwrap();
         assert_eq!(output, expected);

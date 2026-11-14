@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 pub mod addressing;
 pub mod assets;
+pub mod console;
 pub mod control;
 pub mod emu_id;
 pub mod graphics;
@@ -547,8 +548,8 @@ pub fn check_chd(path: &Path) -> Result<()> {
 }
 
 /// The machine list of the QEMU that launches guests.
-pub fn machines() -> Result<Machines> {
-    machines::load(&runtime::qemu_path()?)
+pub fn machines(runtime: &runtime::Runtime) -> Result<Machines> {
+    machines::load(&runtime.qemu())
 }
 
 pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {

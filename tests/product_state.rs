@@ -76,7 +76,7 @@ fn synthetic_image(path: &Path, kind: &str) -> Vec<u8> {
 fn every_preset_creates_reopens_and_starts() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
-    let machines = origami::machines().unwrap();
+    let machines = origami::machines(&origami::runtime::Runtime::locate().unwrap()).unwrap();
     let mut failures = Vec::new();
     // Each starter must name an offering of this QEMU, and the registry
     // must have every image kind a preset's offering reads.
@@ -180,7 +180,7 @@ fn every_preset_creates_reopens_and_starts() {
 fn machines_with_the_051_topology_names_upgrade_and_start() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
-    let machines = origami::machines().unwrap();
+    let machines = origami::machines(&origami::runtime::Runtime::locate().unwrap()).unwrap();
     for (preset, old) in [
         ("tezro", "tezro-tower-multi"),
         ("onyx350", "onyx350-compat"),

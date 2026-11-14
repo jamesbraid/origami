@@ -79,6 +79,21 @@ fn validate_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Where downloads are kept: `ORIGAMI_CACHE_DIR` when set, which tests use
+/// to keep their downloads apart, and otherwise the user's cache directory.
+fn cache_dir() -> Result<PathBuf> {
+    cache_dir_in(std::env::var_os("ORIGAMI_CACHE_DIR"), dirs::cache_dir())
+}
+
+fn cache_dir_in(selected: Option<std::ffi::OsString>, user: Option<PathBuf>) -> Result<PathBuf> {
+    if let Some(dir) = selected.filter(|dir| !dir.is_empty()) {
+        return Ok(dir.into());
+    }
+    Ok(user
+        .ok_or("cannot determine user cache directory; supply local PROM files")?
+        .join("origami"))
+}
+
 /// Download the registry's image of kind `kind`, or reuse a
 /// verified cached copy.
 pub fn acquire(kind: &str) -> Result<PathBuf> {
@@ -87,11 +102,7 @@ pub fn acquire(kind: &str) -> Result<PathBuf> {
     let prom = manifest.get(kind)?;
     let name = prom.path.rsplit('/').next().unwrap_or(&prom.path);
     // Each image keeps SGI's file name, under a directory named by its digest.
-    let cache = dirs::cache_dir()
-        .ok_or("cannot determine user cache directory; supply local PROM files")?
-        .join("origami")
-        .join("proms")
-        .join(&prom.sha256);
+    let cache = cache_dir()?.join("proms").join(&prom.sha256);
     let fetch = || -> Result<PathBuf> {
         std::fs::create_dir_all(&cache)?;
         let path = cache.join(name);
@@ -139,6 +150,20 @@ pub fn acquire(kind: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_cache_override_replaces_the_user_cache_directory() {
+        let user = Some(PathBuf::from("/home/me/.cache"));
+        assert_eq!(
+            cache_dir_in(Some("/tmp/test".into()), user.clone()).unwrap(),
+            PathBuf::from("/tmp/test")
+        );
+        assert_eq!(
+            cache_dir_in(None, user).unwrap(),
+            PathBuf::from("/home/me/.cache/origami")
+        );
+        assert!(cache_dir_in(None, None).is_err());
+    }
+
     #[test]
     fn rejects_unsafe_urls() {
         for value in [
