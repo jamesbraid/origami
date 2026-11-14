@@ -72,11 +72,13 @@ runs:
       run: cargo test --test functional --no-run
     - name: Show how cargo checked out qapi-rs
       if: failure() && inputs.os == 'windows'
-      shell: bash
+      shell: pwsh
       run: |
-        git config --global --list
-        for d in "$USERPROFILE"/.cargo/git/checkouts/qapi-rs-*/*; do
-          ls -la "$d" "$d/schema" "$d/qmp/schema/qapi" | head -40
-          head -c 200 "$d/qmp/schema/qapi/qapi-schema.json"
-          cmd //c "dir /AL \"$(cygpath -w "$d")\\qmp\\schema\\qapi\"" | head -10
-        done
+        $d = (Get-ChildItem "$env:USERPROFILE\.cargo\git\checkouts\qapi-rs-*\*" -Directory | Select-Object -First 1).FullName
+        Get-ChildItem "$d\schema" | Select-Object -First 8 | Format-List Name, Attributes, LinkType, Target
+        Get-ChildItem "$d\schema\qapi" -ErrorAction Continue | Select-Object -First 5 | Format-List Name, Attributes, LinkType, Target
+        Get-ChildItem "$d\qmp\schema\qapi" | Select-Object -First 3 | Format-List Name, Attributes, LinkType, Target, Length
+        foreach ($f in 'qapi-schema.json','acpi.json') {
+          try { [System.IO.File]::ReadAllBytes("$d\qmp\schema\qapi\$f").Length } catch { "$f : $_" }
+        }
+        Get-Content "$d\.gitmodules"
