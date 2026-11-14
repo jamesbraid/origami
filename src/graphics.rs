@@ -946,7 +946,7 @@ mod tests {
             ),
             (
                 "onyx2-rack",
-                request(Some("ir3"), None, &[("display", "dg5-2-gvo")]),
+                request(Some("ir3"), None, &[("display", "dg5-4")]),
                 "choose dg5-2, dg5-8",
             ),
             (
