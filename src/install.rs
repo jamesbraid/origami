@@ -110,13 +110,13 @@ fn default_release() -> String {
 fn release_config(release: &str, profile: &str) -> Result<&'static str> {
     match (release, profile) {
         ("6.5.30", "minimal") => Ok(include_str!(
-            "../instigator/configs/irix-6.5.30-minimal.yaml"
+            "../resources/instigator/configs/irix-6.5.30-minimal.yaml"
         )),
         ("6.5.30", "standard") => Ok(include_str!(
-            "../instigator/configs/irix-6.5.30-standard.yaml"
+            "../resources/instigator/configs/irix-6.5.30-standard.yaml"
         )),
         ("6.5.22", "standard") => Ok(include_str!(
-            "../instigator/configs/irix-6.5.22-standard.yaml"
+            "../resources/instigator/configs/irix-6.5.22-standard.yaml"
         )),
         ("6.5.22", _) => Err(format!("IRIX {release} has no {profile} install profile").into()),
         _ => Err(format!("unknown IRIX release: {release}").into()),
@@ -126,8 +126,12 @@ fn release_config(release: &str, profile: &str) -> Result<&'static str> {
 /// An add-on Instigator ships.
 fn addon_file(name: &str) -> Option<&'static str> {
     match name {
-        "mipspro" => Some(include_str!("../instigator/configs/addons/mipspro.yaml")),
-        "rad4" => Some(include_str!("../instigator/configs/addons/rad4.yaml")),
+        "mipspro" => Some(include_str!(
+            "../resources/instigator/configs/addons/mipspro.yaml"
+        )),
+        "rad4" => Some(include_str!(
+            "../resources/instigator/configs/addons/rad4.yaml"
+        )),
         _ => None,
     }
 }

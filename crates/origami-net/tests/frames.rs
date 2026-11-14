@@ -17,13 +17,8 @@ const HOST_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x00, 0x00, 0x02];
 const MACHINE_MAC: [u8; 6] = [0x08, 0x00, 0x69, 0x12, 0x34, 0x56];
 
 fn transcripts() -> Vec<PathBuf> {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../instigator/internal/qemunet/testdata/transcripts");
-    assert!(
-        dir.is_dir(),
-        "{} is missing: run `git submodule update --init instigator`",
-        dir.display()
-    );
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/transcripts");
+    assert!(dir.is_dir(), "{} is missing", dir.display());
     let mut files: Vec<PathBuf> = fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().path())

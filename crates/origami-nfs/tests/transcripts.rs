@@ -1,7 +1,7 @@
 //! Replays every RPC transcript in Instigator's `nfs/testdata/transcripts`
 //! against this server, over UDP and over TCP, as Instigator's own Go
 //! harness does, and requires every reply to match byte for byte. The
-//! fixture and transcripts are read from the instigator submodule; the
+//! fixture and transcripts are copies in tests/data (see its README); the
 //! format is described in Instigator's docs/nfs-shares.md.
 
 use std::fs;
@@ -16,10 +16,10 @@ use origami_nfs::tree::{Content, MemTree, TreeEntry};
 use origami_nfs::{Attr, Ports, Server, Serving, Time};
 
 fn testdata() -> PathBuf {
-    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../instigator/nfs/testdata");
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
     assert!(
         p.join("fixture.txt").is_file(),
-        "{} is missing: run `git submodule update --init instigator`",
+        "{} is missing",
         p.display()
     );
     p
