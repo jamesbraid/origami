@@ -31,6 +31,7 @@ const NAMES: &[(&str, &str)] = &[
     ("octane", "Octane"),
     ("octane2", "Octane2"),
     ("fuel", "Fuel"),
+    ("o2", "O2"),
     ("tezro-ip53", "Tezro"),
     ("tezro-ip59", "Tezro IP59"),
     ("tezro-one-processor", "Tezro"),
@@ -234,7 +235,7 @@ fn settings(record: &graphics::Graphics, product: &Product) -> String {
 
 /// What each setting of `offering` takes, one line each: the kind of value,
 /// the slots a list has, and the default with how well it is known.
-fn setting_lines(machines: &Machines, offering: &Offering) -> Vec<String> {
+fn setting_lines(machines: &Machines, name: &str, offering: &Offering) -> Vec<String> {
     offering
         .settings
         .iter()
@@ -255,7 +256,12 @@ fn setting_lines(machines: &Machines, offering: &Offering) -> Vec<String> {
                 let names: Vec<_> = setting.choices.iter().map(|c| c.name.as_str()).collect();
                 line.push_str(&format!(" names {}", names.join(" ")));
             }
+            let preset = crate::profiles::starter(name)
+                .and_then(|profile| profile.settings.iter().find(|(n, _)| *n == setting.name));
             match (&setting.default, &setting.default_provenance) {
+                (None, _) if preset.is_some() => {
+                    line.push_str(&format!(", preset sets {}", preset.map_or("", |p| p.1)))
+                }
                 (Some(value), Some(how)) => line.push_str(&format!(", default {value} ({how})")),
                 (Some(value), None) => line.push_str(&format!(", default {value}")),
                 (None, _) if setting.required => line.push_str(", required"),
@@ -359,7 +365,7 @@ fn detail_of(machines: &Machines, name: &str, offering: &Offering) -> Result<Str
         }
     }
 
-    let settings = setting_lines(machines, offering);
+    let settings = setting_lines(machines, name, offering);
     if !settings.is_empty() {
         out.push_str("\nSettings (create --set NAME[.SLOT]=VALUE):\n");
         for line in settings {
@@ -426,12 +432,33 @@ octane-impact                Octane                   1  SI
 octane2-impact               Octane2                  1  SI
 octane2-vpro                 Octane2                  1  VPro V12
 fuel-1                       Fuel                     1  VPro V12
+o2                           O2                       1  none
 tezro                        Tezro                    4  VPro V12
 
 Everything here is experimental.
 Details and graphics choices: origami machines PRESET
 "
         );
+    }
+
+    #[test]
+    fn the_o2_detail_shows_the_inputs_its_preset_sets() {
+        let machines = crate::test_machines();
+        let o2 = detail(&machines, "o2").unwrap();
+        assert!(
+            o2.starts_with("o2: O2, 1 CPU, 1024 MiB per node, no graphics"),
+            "{o2}"
+        );
+        for line in [
+            "password-clear-input (0|1), preset sets 1",
+            "rom-at29c040a-protection (disabled|enabled), preset sets disabled",
+            "rom-at29c040a-lower-lock (unlocked|locked), preset sets unlocked",
+            "rom-at29c040a-upper-lock (unlocked|locked), preset sets unlocked",
+            "identity-eprom-file (file)",
+        ] {
+            assert!(o2.contains(line), "{line}\n{o2}");
+        }
+        assert!(!o2.contains("required"), "{o2}");
     }
 
     #[test]

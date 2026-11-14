@@ -43,7 +43,8 @@ tezro-rack-ip53.4.r16000-700mhz-4mb tezro-rack-ip59.4
 # What the CLI reads of an offering and of a topology.
 OFFERING_KEYS = """id product topology nodes smp cpus-per-node default-cpu-model
 processor memory-per-node-mib machine-options init-inputs storage scsi-adapters
-needs-debug-leds-off settings setting-groups consoles networks hostid-source""".split()
+needs-debug-leds-off settings setting-groups consoles networks hostid-source
+clock firmware launch-recipe""".split()
 TOPOLOGY_KEYS = ["name", "processor-options", "graphics"]
 
 

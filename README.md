@@ -21,7 +21,7 @@ My personal SGI era is the post-Indy, Origin/Octane/Onyx systems. So that's what
 
 - **SN0:** Origin 200, Origin 2000, Onyx2.
 - **SN1:** Origin 300, Origin 3200, 3400 and 3900, Onyx 3000, Onyx 350, Fuel, Tezro.
-- **Other:** Octane / Octane2.
+- **Other:** Octane / Octane2, O2.
 
 | Hardware | Emulated bits |
 |---|---|

@@ -61,6 +61,7 @@ processor modules and settings. `origami machines --all` shows them all.
 | `onyx2-infinite-reality` | Onyx2 deskside, 4 CPUs | InfiniteReality2 |
 | `onyx2-rack-infinite-reality` | Onyx2 rack, 1 CPU | InfiniteReality3 |
 | `fuel-1` | Fuel | VPro V12 |
+| `o2` | O2 | none |
 | `onyx350` | Onyx 350, 4 CPUs | VPro V12 |
 | `tezro` | Tezro tower, 4 CPUs | VPro V12 |
 
@@ -223,6 +224,34 @@ Menu instead.
 `origami validate my-origin` checks the configuration without starting it.
 `origami show my-origin` prints it. `origami show-command my-origin` prints
 the QEMU command a run would use.
+
+## The O2
+
+```sh
+origami create my-o2 --preset o2
+```
+
+The O2 is an IP32 machine: one R10000 at 195 MHz, 1 GiB of memory and CRIME
+graphics, which every O2 has, so there is no `--graphics`. `create` downloads
+its PROM, strips the update header from the published image and pads it with
+0xFF to the board's 512 KiB flash. The `o2.1` machine takes no other memory
+size and no `--processor`.
+
+QEMU asks for four board inputs that no measurement has settled. The preset
+sets them to the values an O2 was booted to IRIX with: `password-clear-input=1`,
+and a ROM part with its protection `disabled` and both boot blocks `unlocked`.
+`origami machines o2` lists them and `--set NAME=VALUE` changes one.
+
+The drives sit on the first onboard SCSI controller, which QEMU calls
+`aic0.0`, so `drive-attach --type disk --target 1` works as on the other
+machines. A run counts instructions (`-icount shift=3`, with the virtual-time
+clock): the O2 takes about five minutes to reach the IRIX login.
+
+A new O2's PROM talks on the graphics head, not the serial line, and
+`origami nvram` does not know the O2's NVRAM yet. Run with `--display vnc` or
+`--display local` to see the PROM menu and the console, and set the PROM's
+`console` variable to `d` at its Command Monitor to move the console to
+serial line A.
 
 ## Install IRIX
 

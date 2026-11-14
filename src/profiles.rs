@@ -19,6 +19,9 @@ pub struct Profile {
     pub graphics: Option<&'static str>,
     /// The slot for that product; None for the catalogue's choice.
     pub slot: Option<&'static str>,
+    /// Machine inputs the preset sets unless `create --set` gives them. They
+    /// fill inputs the machine list marks required and gives no default.
+    pub settings: &'static [(&'static str, &'static str)],
 }
 
 const fn profile(
@@ -32,8 +35,31 @@ const fn profile(
         offering,
         graphics,
         slot,
+        settings: &[],
     }
 }
+
+/// `profile` with machine inputs of its own.
+const fn with_settings(
+    profile: Profile,
+    settings: &'static [(&'static str, &'static str)],
+) -> Profile {
+    Profile {
+        settings,
+        ..profile
+    }
+}
+
+/// The O2 board inputs the machine list requires and leaves open, because
+/// the hardware's values are unknown. These are the values an O2 was booted
+/// to IRIX with, not measurements: the password clear input at 1, and the ROM
+/// part unprotected with both boot blocks unlocked.
+const O2_BOARD: &[(&str, &str)] = &[
+    ("password-clear-input", "1"),
+    ("rom-at29c040a-protection", "disabled"),
+    ("rom-at29c040a-lower-lock", "unlocked"),
+    ("rom-at29c040a-upper-lock", "unlocked"),
+];
 
 pub const STARTERS: &[Profile] = &[
     profile("origin200-1", "origin200.1.r10000-180mhz-1mb", None, None),
@@ -82,6 +108,8 @@ pub const STARTERS: &[Profile] = &[
     // One node with its rack graphics module: the default InfiniteReality3.
     profile("onyx2-rack-infinite-reality", "onyx2-rack.1", None, None),
     profile("fuel-1", "fuel.1", None, None),
+    // The R10000 O2. The catalogue's R12000 O2+ is a separate offering.
+    with_settings(profile("o2", "o2.1", None, None), O2_BOARD),
     // The captured Onyx 350 module: four CPUs and its VPro at widget 12.
     profile("onyx350", "onyx350-ip53.4", Some("v12"), None),
     // Two C-bricks, an I-brick and the V-brick's VPro V12, its only pipe.
@@ -273,6 +301,16 @@ pub fn graphics_request<'a>(
         settings,
         pipes,
     }
+}
+
+/// `given` with the inputs preset `name` sets under them: `create --set` wins.
+pub fn preset_inputs(name: &str, mut given: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    for (setting, value) in starter(name).map_or(&[][..], |profile| profile.settings) {
+        given
+            .entry((*setting).to_string())
+            .or_insert_with(|| (*value).to_string());
+    }
+    given
 }
 
 /// Whether the machine takes its keyboard and mouse over USB alone, so a
@@ -493,6 +531,30 @@ mod tests {
         assert_eq!(option(&args, "-cpu"), "R10000,r10000-prid=0xe24");
         assert!(preset(&machines, "origin350-2").is_err());
         assert!(preset(&machines, "tezro-4").is_err());
+    }
+
+    #[test]
+    fn a_preset_sets_inputs_that_create_set_overrides() {
+        let given = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        let plain = preset_inputs("o2", BTreeMap::new());
+        assert_eq!(plain["password-clear-input"], "1");
+        assert_eq!(plain["rom-at29c040a-protection"], "disabled");
+        assert_eq!(plain.len(), 4);
+        let overridden = preset_inputs("o2", given(&[("password-clear-input", "0"), ("x", "y")]));
+        assert_eq!(overridden["password-clear-input"], "0");
+        assert_eq!(overridden["x"], "y");
+        assert_eq!(overridden.len(), 5);
+        // A preset with no inputs adds none.
+        assert!(preset_inputs("fuel-1", BTreeMap::new()).is_empty());
+        // The inputs satisfy what the machine list requires of the O2.
+        let machines = crate::test_machines();
+        let offering = preset(&machines, "o2").unwrap();
+        crate::settings::validate(&machines, offering, &plain).unwrap();
     }
 
     #[test]

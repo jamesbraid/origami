@@ -24,6 +24,15 @@
     `08:00:69:e1:02:a0`, host id `69e102a0` on an Octane, Octane2, Origin 200
     or Fuel) unless `--mac` is given. A machine that first gets a MAC from
     `network-set` or `install-init` gets an emu-id the same way.
+  - O2 support. The `o2` preset creates an R10000 O2 (IP32) with its published
+    4.18 PROM, which `create` strips of its update header and pads to the 512 KiB
+    flash. The preset supplies the four board inputs QEMU requires (a password
+    clear input of 1 and an unprotected, unlocked ROM part); `--set` changes
+    them. A run counts instructions with the virtual-time clock, as QEMU's
+    machine list asks. Disks attach with `drive-attach --target`. `origami
+    nvram` does not support the O2 yet, so a new O2's PROM keeps its console on
+    the graphics head. The IRIX 6.5.30 login appears about five minutes after
+    start.
 - Changed:
   - `stop` now waits until QEMU has exited and prints `stopped`, instead of
     returning once the quit is requested. A CHD disk folds its diff into the

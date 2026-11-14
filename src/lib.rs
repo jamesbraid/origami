@@ -114,6 +114,38 @@ pub struct Offering {
     /// The onboard Ethernets.
     #[serde(default)]
     pub networks: Vec<NetworkAdapter>,
+    /// Launch preparation the machine needs beyond its options, such as
+    /// `ip32`; absent from a machine with none.
+    #[serde(rename = "launch-recipe", default)]
+    pub launch_recipe: Option<String>,
+    /// The boot PROM as the launch hands it to QEMU, for a machine that
+    /// takes it as a machine option.
+    #[serde(default)]
+    pub firmware: Option<Firmware>,
+    /// How the guest's time runs; absent from a QEMU whose machine list
+    /// does not say.
+    #[serde(default)]
+    pub clock: Option<Clock>,
+}
+
+/// The boot PROM's place in the machine's flash.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Firmware {
+    /// The flash array's size in bytes.
+    pub size: u64,
+}
+
+/// The guest-time choices of a machine. Only the defaults matter to a
+/// launch.
+#[derive(Clone, Debug, Deserialize)]
+pub struct Clock {
+    /// The `-icount` shift the machine starts with; absent for a machine
+    /// that runs without instruction counting.
+    #[serde(rename = "default-icount-shift", default)]
+    pub default_icount_shift: Option<u32>,
+    /// The `-rtc clock=` that goes with instruction counting.
+    #[serde(rename = "default-rtc", default)]
+    pub default_rtc: Option<String>,
 }
 
 impl Offering {
@@ -956,6 +988,48 @@ pub fn firmware(
     Ok((boot_prom, image("io-prom", io_prom, "--io-prom")?))
 }
 
+/// The 256-byte update header that opens an O2 PROM media image, which the
+/// flash does not hold. It starts with the bytes `PROM`.
+const O2_UPDATE_HEADER: usize = 256;
+
+/// The O2's init tool takes its boot PROM as the flash array's own bytes,
+/// but the published image is the media file: an update header, then the
+/// code, ending short of the 512 KiB part. The board holds the code from
+/// the start of the flash, and erased flash reads 0xFF, which is also the
+/// pad byte the machine's `rom-image` loading uses. So the tool gets a copy
+/// without the header, padded. Other machines' images are decoded by the
+/// tool and pass through.
+fn flash_image_boot_prom(
+    offering: &Offering,
+    boot_prom: &Path,
+) -> Result<Option<tempfile::TempPath>> {
+    let raw = offering
+        .init_inputs
+        .iter()
+        .any(|input| input.name == "boot-prom" && input.kind == "ip32-prom");
+    let Some(flash) = offering
+        .storage
+        .iter()
+        .find(|item| raw && item.initial == "boot-prom")
+    else {
+        return Ok(None);
+    };
+    let mut image = fs::read(boot_prom)
+        .map_err(|error| format!("cannot read PROM image {}: {error}", boot_prom.display()))?;
+    if image.starts_with(b"PROM") && image.len() > O2_UPDATE_HEADER {
+        image.drain(..O2_UPDATE_HEADER);
+    }
+    if image.len() as u64 > flash.size {
+        // The tool names the size it wants.
+        return Ok(None);
+    }
+    image.resize(flash.size as usize, 0xff);
+    let mut file = tempfile::NamedTempFile::new()?;
+    std::io::Write::write_all(&mut file, &image)?;
+    // Close the write handle so the init tool can open the file on Windows.
+    Ok(Some(file.into_temp_path()))
+}
+
 pub fn create_configured(
     dir: &Path,
     offering: &Offering,
@@ -966,8 +1040,9 @@ pub fn create_configured(
     inputs: std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
     let memory_per_node = memory_per_node.unwrap_or(profiles::default_memory(offering));
-    let arguments =
-        runtime::init_arguments(offering, init.boot_prom, init.io_prom, &dir.join("state"));
+    let padded = flash_image_boot_prom(offering, init.boot_prom)?;
+    let boot_prom = padded.as_ref().map_or(init.boot_prom, |file| file.as_ref());
+    let arguments = runtime::init_arguments(offering, boot_prom, init.io_prom, &dir.join("state"));
     if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
     }
@@ -1069,6 +1144,33 @@ mod tests {
         // Every other machine's buses are scsi.0, scsi.1 and so on.
         let octane = by_id("octane.1");
         assert_eq!(octane.scsi_bus_name(1), "scsi.1");
+    }
+
+    #[test]
+    fn the_o2_flash_image_drops_the_media_header_and_pads_with_ff() {
+        let machines = test_machines();
+        let o2 = preset(&machines, "o2").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let media = dir.path().join("media.image");
+        let mut bytes = b"PROM".to_vec();
+        bytes.resize(O2_UPDATE_HEADER, 0);
+        bytes.extend_from_slice(&[1, 2, 3]);
+        fs::write(&media, &bytes).unwrap();
+        let padded = flash_image_boot_prom(o2, &media).unwrap().unwrap();
+        let flash = fs::read(&padded).unwrap();
+        assert_eq!(flash.len(), 512 * 1024);
+        assert_eq!(flash[..3], [1, 2, 3]);
+        assert!(flash[3..].iter().all(|&byte| byte == 0xff));
+        // An image without the header is only padded.
+        fs::write(&media, [9u8, 8]).unwrap();
+        let flash = fs::read(flash_image_boot_prom(o2, &media).unwrap().unwrap()).unwrap();
+        assert_eq!(flash[..2], [9, 8]);
+        // One that overfills the flash is left for the init tool to refuse.
+        fs::write(&media, vec![0u8; 512 * 1024 + 1]).unwrap();
+        assert!(flash_image_boot_prom(o2, &media).unwrap().is_none());
+        // Other machines' images pass through.
+        let fuel = preset(&machines, "fuel-1").unwrap();
+        assert!(flash_image_boot_prom(fuel, &media).unwrap().is_none());
     }
 
     #[cfg(unix)]

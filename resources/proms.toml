@@ -23,6 +23,13 @@ size = 879312
 sha256 = "ee4722ca6f9b821ffadf156346c4d69bf5be71fc4b911cee75e36a1f51a49972"
 
 [[proms]]
+kind = "ip32-prom"
+version = "4.18"
+path = "prom/ip32prom-4.18.image"
+size = 431872
+sha256 = "11230c353cb14fcc50ede286df228e169e32fc9e5a2206276ae29c259fafb23c"
+
+[[proms]]
 kind = "io6-prom"
 version = "6.156"
 path = "prom/io6prom-6.156.img"

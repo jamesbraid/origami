@@ -311,7 +311,8 @@ pub fn arguments_with(
     shares: Option<&crate::shares::Ports>,
 ) -> Result<Vec<String>> {
     let mut machine = offering.machine_options.clone();
-    if !matches!(offering.product.as_str(), "octane" | "octane2") {
+    // The Octane and O2 machines have one CPU board and no population property.
+    if !matches!(offering.product.as_str(), "octane" | "octane2" | "o2") {
         let population = offering
             .cpus_per_node
             .iter()
@@ -351,18 +352,43 @@ pub fn arguments_with(
             ),
         ]);
     }
+    // The O2 starts its PROM from the flash store but still wants the image
+    // named, with its geometry. The store is the whole array and is a regular
+    // file of the right size, so it stands for the image.
+    if offering.launch_recipe.as_deref() == Some("ip32") {
+        let flash = offering
+            .storage
+            .iter()
+            .find(|item| item.initial == "boot-prom")
+            .zip(offering.firmware.as_ref())
+            .ok_or("the O2 launch recipe needs a boot PROM store and firmware size")?;
+        machine.push_str(&format!(
+            ",rom-image={},rom-size={},rom-offset=0,rom-pad-byte=255",
+            qemu_path_option(&state_path(dir, flash.0)),
+            flash.1.size
+        ));
+    }
     let memory: u32 = file
         .machine
         .memory_per_node
         .trim_end_matches("MiB")
         .parse()?;
+    // A machine that starts with instruction counting runs on virtual time:
+    // counting needs one TCG thread, and the guest's clock follows the count.
+    let counted_clock = offering.clock.as_ref().and_then(|clock| {
+        clock
+            .default_icount_shift
+            .map(|shift| (shift, clock.default_rtc.as_deref().unwrap_or("vm")))
+    });
     let mut args = vec![
         // Default devices create a second, empty SDL window beside RAD4.
         "-nodefaults".into(),
         "-L".into(),
         qemu_data_path()?.display().to_string(),
         "-accel".into(),
-        if offering.smp > 1 {
+        if counted_clock.is_some() {
+            "tcg,thread=single"
+        } else if offering.smp > 1 {
             "tcg,thread=multi"
         } else {
             "tcg"
@@ -377,6 +403,14 @@ pub fn arguments_with(
         "-m".into(),
         (memory * offering.nodes).to_string(),
     ];
+    if let Some((shift, rtc)) = counted_clock {
+        args.extend([
+            "-icount".into(),
+            format!("shift={shift},align=off,sleep=off"),
+            "-rtc".into(),
+            format!("clock={rtc}"),
+        ]);
+    }
     args.extend(storage);
     match display {
         Display::Local => args.extend(["-display".into(), "sdl,window-close=off".into()]),
@@ -904,6 +938,59 @@ mod tests {
             .windows(2)
             .any(|pair| pair == ["-device", "psitech-rad4,bus=pci,addr=5,product=rad4"]));
         assert!(args.windows(2).any(|pair| pair == ["-serial", "stdio"]));
+    }
+
+    #[test]
+    fn the_o2_launch_counts_instructions_and_names_its_flash_image() {
+        let machines = crate::test_machines();
+        let launch = |name: &str| {
+            let offer = preset(&machines, name).unwrap();
+            let mut file = machine(offer);
+            file.machine.inputs = crate::profiles::preset_inputs(name, Default::default());
+            file.drive.push(Drive {
+                name: "disk1".into(),
+                kind: "disk".into(),
+                bus: 0,
+                target: 1,
+                image: "disk.qcow2".into(),
+                read_only: false,
+                overlay: false,
+            });
+            let args = arguments(
+                &machines,
+                Path::new("/machine"),
+                &file,
+                offer,
+                Display::None,
+            )
+            .unwrap();
+            let option = args[args.iter().position(|a| a == "-M").unwrap() + 1].clone();
+            (args, option)
+        };
+        let (args, option) = launch("o2");
+        let has = |pair: [&str; 2]| args.windows(2).any(|w| w == pair);
+        assert!(has(["-accel", "tcg,thread=single"]));
+        assert!(has(["-icount", "shift=3,align=off,sleep=off"]));
+        assert!(has(["-rtc", "clock=vm"]));
+        // The flash store stands for the image, with the 512 KiB geometry.
+        assert!(
+            option.contains(
+                ",rom-image=/machine/state/node0-flash.raw,rom-size=524288,rom-offset=0,\
+                 rom-pad-byte=255"
+            ),
+            "{option}"
+        );
+        // The preset's board inputs reach QEMU; the O2 has no population.
+        assert!(option.contains(",password-clear-input=1"), "{option}");
+        assert!(!option.contains("population"), "{option}");
+        // The disk goes on the first onboard controller, which QEMU calls aic0.0.
+        assert!(args
+            .iter()
+            .any(|a| a.starts_with("scsi-hd,bus=aic0.0,scsi-id=1,")));
+        // Other machines keep QEMU's own clock and need no image.
+        let (args, option) = launch("origin200-1");
+        assert!(!args.iter().any(|a| a == "-icount" || a == "-rtc"));
+        assert!(!option.contains("rom-image"), "{option}");
     }
 
     #[test]
