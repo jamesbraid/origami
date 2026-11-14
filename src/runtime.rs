@@ -326,6 +326,9 @@ pub fn arguments_with(
     let cpu = format!("{}{}", offering.cpu, inputs.cpu);
     if let Some(identity) = &file.identity {
         machine.push_str(&format!(",{}={}", offering.mac_property(), identity.mac));
+        if let Some(emu_id) = identity.emu_id {
+            machine.push_str(&format!(",emu-id={emu_id}"));
+        }
     }
     if offering.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");
@@ -680,6 +683,9 @@ fn run_inner(
     // A machine without its storage is not started, and gains nothing.
     check_state(dir, offering)?;
     let _lock = control::lock_for_edit(dir, "starting it again")?;
+    for warning in crate::emu_id::running_twin_warnings(dir, file) {
+        eprintln!("warning: {warning}");
+    }
     // The switch runs in this process, which also waits on QEMU, so it
     // lives exactly as long as the guest.
     let share_net = crate::shares::start(dir, file)?;
@@ -1275,6 +1281,7 @@ mod tests {
         file.network.forward = rules;
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
+            emu_id: None,
         });
         let args = arguments(
             &machines,
@@ -1300,6 +1307,7 @@ mod tests {
             let mut file = machine(offer);
             file.identity = Some(crate::Identity {
                 mac: "08:00:69:12:34:56".into(),
+                emu_id: None,
             });
             file.network = Network {
                 mode: mode.into(),
@@ -1342,6 +1350,7 @@ mod tests {
         let mut file = machine(offer);
         file.identity = Some(crate::Identity {
             mac: "02:00:5d:aa:bb:cc".into(),
+            emu_id: None,
         });
         let args = arguments(
             &machines,
@@ -1373,6 +1382,7 @@ mod tests {
         };
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
+            emu_id: None,
         });
         let args = arguments(
             &machines,
@@ -1410,6 +1420,7 @@ mod tests {
         };
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
+            emu_id: None,
         });
         let args = arguments(
             &machines,
@@ -1473,6 +1484,7 @@ mod tests {
         let mut file = machine(offer);
         file.identity = Some(crate::Identity {
             mac: "08:00:69:12:34:56".into(),
+            emu_id: None,
         });
         let netdev = |file: &MachineFile| {
             let args =

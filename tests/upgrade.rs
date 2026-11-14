@@ -514,6 +514,10 @@ fn format2_origin200_gains_module_nvram_and_keeps_everything_else() {
         (ORIGIN200_FORMAT2
             .replace("format = 2", "format = 4")
             .replace("graphics = \"rad4\"\n", "")
+            .replace(
+                "mac = \"08:00:69:12:34:56\"\n",
+                "mac = \"08:00:69:12:34:56\"\nemu-id = 1\n"
+            )
             + "\n[[pipe]]\nslot = \"pci-5\"\nfamily = \"psitech\"\nproduct = \"rad4\"\n")
             .parse::<toml::Table>()
             .unwrap()
@@ -972,7 +976,9 @@ fn stored_machine(
             machine.push_str(&format!("{key} = \"{value}\"\n"));
         }
     }
-    machine.push_str("\n[identity]\nmac = \"08:00:69:12:34:56\"\n\n[network]\nmode = \"user\"\n");
+    machine.push_str(
+        "\n[identity]\nmac = \"08:00:69:12:34:56\"\nemu-id = 7\n\n[network]\nmode = \"user\"\n",
+    );
     // The Onyx 3000 is not offered without its V-brick's pipe.
     if topology.starts_with("onyx3000") {
         machine.push_str(
@@ -1296,4 +1302,43 @@ fn removed_topologies_and_inputs_are_refused_with_their_reason() {
         }
         assert_eq!(fs::read(dir.join("machine.toml")).unwrap(), before);
     }
+}
+
+#[test]
+fn an_unreleased_builds_identity_serial_becomes_the_emu_id() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("o200");
+    fs::create_dir_all(dir.join("logs")).unwrap();
+    fs::write(
+        dir.join("machine.toml"),
+        "format = 4\n\n[machine]\ntopology = \"origin200\"\npopulation = [1]\nmodel = \"origin200\"\n\
+         nodes = 1\ncpus_per_node = 1\nmemory_per_node = \"64MiB\"\n\n[identity]\n\
+         mac = \"08:00:69:e1:02:a0\"\nserial = 42\n",
+    )
+    .unwrap();
+    catalogue_state(&dir, "origin200.1.r10000-180mhz-1mb");
+    let path = dir.to_str().unwrap();
+    // Until it is upgraded the file is refused, naming the command.
+    let output = origami(root.path(), &["show", path]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("[identity] serial")
+            && stderr(&output).contains("origami upgrade"),
+        "{}",
+        stderr(&output)
+    );
+    let output = origami(root.path(), &["upgrade", path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("[identity] serial 42 is now emu-id 42"),
+        "{stdout}"
+    );
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(text.contains("emu-id = 42"), "{text}");
+    assert!(!text.contains("serial"), "{text}");
+    assert!(text.contains("mac = \"08:00:69:e1:02:a0\""), "{text}");
+    let output = origami(root.path(), &["show", path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("emu-id: 42\n"));
 }

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 pub mod addressing;
 pub mod assets;
 pub mod control;
+pub mod emu_id;
 pub mod graphics;
 pub mod install;
 pub mod listing;
@@ -83,6 +84,10 @@ pub struct Offering {
     pub cpus_per_node: Vec<u32>,
     #[serde(rename = "default-cpu-model")]
     pub cpu: String,
+    /// What the guest's host id derives from: `text`, `module`, `address`
+    /// or `o2`. Every offering accepts the identity properties.
+    #[serde(rename = "hostid-source")]
+    pub hostid_source: String,
     pub processor: Processor,
     #[serde(rename = "memory-per-node-mib")]
     pub memory: Memory,
@@ -328,6 +333,20 @@ impl Qemu {
 #[serde(deny_unknown_fields)]
 pub struct Identity {
     pub mac: String,
+    /// The `emu-id` QEMU builds the machine's serials and station address
+    /// from, 1 to 4095. A machine made before emu-ids has none.
+    #[serde(default, rename = "emu-id", skip_serializing_if = "Option::is_none")]
+    pub emu_id: Option<u32>,
+}
+
+impl Identity {
+    /// An identity with `mac`, lowercased as machine files keep it.
+    pub fn new(mac: &str, emu_id: Option<u32>) -> Self {
+        Self {
+            mac: mac.to_ascii_lowercase(),
+            emu_id,
+        }
+    }
 }
 
 pub fn sha256_hex(data: &[u8]) -> String {
@@ -488,6 +507,20 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
         )
         .into());
     }
+    // An unreleased build kept the emu-id as `[identity] serial`, which is
+    // QEMU's text serial now.
+    let numbered_serial = toml::from_str::<toml::Table>(&text)
+        .ok()
+        .and_then(|table| table.get("identity")?.get("serial")?.as_integer());
+    if numbered_serial.is_some() {
+        return Err(format!(
+            "{} has the emu-id as [identity] serial, as an unreleased build wrote it; upgrade \
+             it once with origami upgrade {}",
+            path.display(),
+            dir.display()
+        )
+        .into());
+    }
     toml::from_str(&text).map_err(|error| {
         format!("invalid machine configuration {}: {error}", path.display()).into()
     })
@@ -532,29 +565,38 @@ pub fn set_machine_mac(
         Some(_) => Ok(()),
         None => {
             mac::check_free(machines, dir, offering(machines, &file.machine).ok(), &mac)?;
-            file.identity = Some(Identity { mac });
+            file.identity = Some(Identity { mac, emu_id: None });
             Ok(())
         }
     }
 }
 
 /// Like `set_machine_mac`, for a change that needs the machine to have a MAC:
-/// a machine with none and none asked for gets a generated one that no
-/// neighbouring machine holds. Returns the address it generated.
+/// a machine with no identity gets an emu-id, as `create` would give it, and
+/// the MAC that emu-id derives, unless one is asked for. Returns the address
+/// it generated.
 pub fn ensure_machine_mac(
     machines: &Machines,
     dir: &Path,
     file: &mut MachineFile,
     mac: Option<&str>,
 ) -> Result<Option<String>> {
-    if mac.is_some() || file.identity.is_some() {
+    let offer = offering(machines, &file.machine)?;
+    if file.identity.is_some() {
         set_machine_mac(machines, dir, file, mac)?;
         return Ok(None);
     }
-    let offer = offering(machines, &file.machine)?;
-    let generated = mac::assign(machines, dir, offer, None)?;
+    let emu_id = emu_id::assign(machines, dir, offer, None, mac.is_none())?;
+    if mac.is_some() {
+        set_machine_mac(machines, dir, file, mac)?;
+        if let Some(identity) = file.identity.as_mut() {
+            identity.emu_id = Some(emu_id);
+        }
+        return Ok(None);
+    }
+    let generated = mac::assign(machines, dir, offer, None, Some(emu_id))?;
     if let Some(mac) = &generated {
-        file.identity = Some(Identity { mac: mac.clone() });
+        file.identity = Some(Identity::new(mac, Some(emu_id)));
     }
     Ok(generated)
 }
@@ -724,6 +766,16 @@ pub fn validate<'a>(
         if !valid_mac(&identity.mac) {
             return Err("identity MAC must contain six hexadecimal bytes".into());
         }
+        // 0 is "not configured", valid in a hand-edited file; the CLI never
+        // writes it.
+        if identity.emu_id.is_some_and(|emu_id| emu_id > emu_id::MAX) {
+            return Err(format!(
+                "identity emu-id must be from 0 to {}. Change [identity] emu-id in {}",
+                emu_id::MAX,
+                dir.join("machine.toml").display()
+            )
+            .into());
+        }
         // An older machine may hold an address its PROM refuses. Say so,
         // rather than change the identity an installed guest knows.
         check_mac(offering, &identity.mac).map_err(|error| {
@@ -833,7 +885,7 @@ pub fn create_configured(
     offering: &Offering,
     init: &MachineInit<'_>,
     memory_per_node: Option<u32>,
-    mac: Option<&str>,
+    identity: Option<Identity>,
     pipes: Vec<graphics::Pipe>,
     inputs: std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
@@ -863,9 +915,7 @@ pub fn create_configured(
                 memory_per_node: format!("{memory_per_node}MiB"),
                 console: None,
             },
-            identity: mac.map(|mac| Identity {
-                mac: mac.to_ascii_lowercase(),
-            }),
+            identity,
             network: Network::default(),
             pipe: pipes,
             drive: vec![],
@@ -1113,7 +1163,7 @@ mod tests {
             offer,
             &init,
             None,
-            Some("08:00:69:aa:bb:cc"),
+            Some(Identity::new("08:00:69:aa:bb:cc", None)),
             vec![],
             Default::default(),
         )
@@ -1191,7 +1241,7 @@ mod tests {
             offer,
             &init,
             None,
-            Some("08:00:69:01:02:03"),
+            Some(Identity::new("08:00:69:01:02:03", None)),
             vec![],
             Default::default(),
         )
@@ -1208,10 +1258,9 @@ mod tests {
         let mac = ensure_machine_mac(&machines, &machine, &mut file, None)
             .unwrap()
             .unwrap();
-        assert!(
-            mac.starts_with("08:00:69:") && mac != "08:00:69:01:02:03",
-            "{mac}"
-        );
+        // No sibling holds an emu-id, so it is emu-id 1 and its derived MAC.
+        assert_eq!(mac, "08:00:69:e1:00:10");
+        assert_eq!(file.identity.as_ref().unwrap().emu_id, Some(1));
         assert_eq!(file.identity.as_ref().unwrap().mac, mac);
         validate(&machines, &machine, &file).unwrap();
         // It keeps that address, and an explicit duplicate is still refused.

@@ -402,6 +402,7 @@ mod tests {
         f.network.share_address = Some("192.168.1.50/24".into());
         f.identity = Some(Identity {
             mac: "08:00:69:12:34:56".into(),
+            emu_id: None,
         });
         let a = address(&f).unwrap();
         assert_eq!((a.ip.to_string(), a.prefix), ("192.168.1.50".into(), 24));
@@ -481,6 +482,7 @@ mod tests {
         f.share.clear();
         f.identity = Some(Identity {
             mac: "08:00:69:12:34:56".into(),
+            emu_id: None,
         });
         let dir = Path::new("/nonexistent/machine");
         let running = start(dir, &f).unwrap().expect("hosted");

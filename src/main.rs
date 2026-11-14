@@ -85,7 +85,11 @@ fn command(action: Action) -> Result<()> {
             let file = read_machine(&dir)?;
             let machines = machines()?;
             let offer = validate(&machines, &dir, &file)?;
-            for warning in origami::mac::duplicate_warnings(&machines, &dir, &file) {
+            let warnings = origami::mac::duplicate_warnings(&machines, &dir, &file)
+                .into_iter()
+                .chain(origami::emu_id::duplicate_warnings(&dir, &file))
+                .chain(origami::emu_id::unconfigured_warnings(&file));
+            for warning in warnings {
                 eprintln!("warning: {warning}");
             }
             match &file.machine.processor {
@@ -98,23 +102,34 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Upgrade { dir, prom, io_prom } => {
             let dir = directory(&dir)?;
-            match origami::migrate::upgrade(
-                &dir,
-                &machines()?,
-                prom.as_deref(),
-                io_prom.as_deref(),
-            )? {
-                Some(notes) => {
-                    println!("upgraded {}", dir.display());
-                    for note in notes {
-                        if origami::migrate::is_bookkeeping(&note) {
-                            println!("note: {note}");
-                        } else {
-                            println!("note: {note}; the guest sees this at its next boot");
-                        }
+            let machines = machines()?;
+            let upgraded =
+                origami::migrate::upgrade(&dir, &machines, prom.as_deref(), io_prom.as_deref())?;
+            // A machine made before emu-ids gets one, and keeps its MAC.
+            let emu_id = match origami::emu_id::add_to_machine(&dir, &machines) {
+                Ok(emu_id) => emu_id,
+                Err(error) => {
+                    // machine.toml is already rewritten; do not lose what it says.
+                    for note in upgraded.iter().flatten() {
+                        println!("note: {note}");
                     }
+                    return Err(error);
                 }
-                None => println!("{} is current; it needs no upgrade", dir.display()),
+            };
+            if upgraded.is_none() && emu_id.is_none() {
+                println!("{} is current; it needs no upgrade", dir.display());
+            } else {
+                println!("upgraded {}", dir.display());
+            }
+            for note in upgraded.into_iter().flatten() {
+                if origami::migrate::is_bookkeeping(&note) {
+                    println!("note: {note}");
+                } else {
+                    println!("note: {note}; the guest sees this at its next boot");
+                }
+            }
+            for note in emu_id.into_iter().flatten() {
+                println!("note: {note}");
             }
         }
         Action::Show(args) => {
@@ -184,6 +199,9 @@ fn command(action: Action) -> Result<()> {
             }
             if let Some(identity) = &file.identity {
                 println!("identity MAC: {}", identity.mac);
+                if let Some(emu_id) = identity.emu_id {
+                    println!("emu-id: {emu_id}");
+                }
             }
             for drive in &file.drive {
                 println!(
@@ -236,6 +254,10 @@ fn command(action: Action) -> Result<()> {
                 runtime::Display::None => (),
             }
             if args.background {
+                // The runner process warns into its log; say it here too.
+                for warning in origami::emu_id::running_twin_warnings(&dir, &file) {
+                    eprintln!("warning: {warning}");
+                }
                 runtime::start_background(&dir, display, &args.launch.qemu_args)?;
             } else {
                 let status = runtime::run(
@@ -408,6 +430,9 @@ fn command(action: Action) -> Result<()> {
                 subnet: subnet.or_else(|| file.network.subnet.clone()),
             };
             let machines = machines()?;
+            // Held until machine.toml is written, so no other mint rescans
+            // the siblings before this emu-id is on disk.
+            let _emu_ids = origami::emu_id::lock(&dir)?;
             // User and none networking run without one; the rest need it.
             let assigned = if matches!(mode, Private | Tap | Vmnet) {
                 origami::ensure_machine_mac(&machines, &dir, &mut file, mac.as_deref())?

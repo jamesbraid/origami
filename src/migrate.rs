@@ -162,8 +162,12 @@ fn from_current(
             .and_then(toml::Value::as_table_mut)
             .ok_or("no [machine] table")?,
     )?;
+    let converted = rename_identity_serial(&mut table);
     let file: MachineFile = toml::Value::Table(table).try_into()?;
     let mut notes = vec![];
+    if let Some(note) = &converted {
+        notes.push(note.clone());
+    }
     if !renamed.is_empty() {
         // The renamed machine must be one the catalogue offers, and keep its
         // storage: QEMU refuses a state directory that lacks an item.
@@ -184,11 +188,22 @@ fn from_current(
         notes.extend(renamed.iter().cloned());
     }
     notes.extend(add_pipe_flash(dir, machines, &file, prom, io_prom)?.unwrap_or_default());
-    if renamed.is_empty() {
+    if renamed.is_empty() && converted.is_none() {
         return Ok((!notes.is_empty()).then_some(notes));
     }
     replace_file(dir, &file)?;
     Ok(Some(notes))
+}
+
+/// Store the number an unreleased build kept as `[identity] serial` under
+/// its name in QEMU's interface, `emu-id`: `serial` there is the system
+/// serial as text. Returns what changed.
+fn rename_identity_serial(table: &mut toml::Table) -> Option<String> {
+    let identity = table.get_mut("identity")?.as_table_mut()?;
+    let number = identity.get("serial")?.as_integer()?;
+    identity.remove("serial");
+    identity.insert("emu-id".into(), number.into());
+    Some(format!("[identity] serial {number} is now emu-id {number}"))
 }
 
 /// Give the machine in `table` the topology, processor and settings the

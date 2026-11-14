@@ -2,7 +2,29 @@
 
 ## Unreleased
 
+- New:
+  - Every machine gets an emu-id at `create`, the lowest free one from 1 to
+    2999 among the machines beside it. QEMU builds the guest's system serial,
+    host id and Ethernet address from it. It is recorded in `machine.toml` as
+    `[identity] emu-id` and passed to QEMU as `emu-id=N`. `create --emu-id N`
+    picks one from 1 to 2999; 3000 to 4095 are reserved for harness and CI
+    machines. Concurrent creates in one directory never take the same emu-id.
+    `show` prints it and `validate` warns when a neighbouring machine has the
+    same one, or has emu-id 0 on tap or vmnet networking. A copied machine
+    directory keeps its emu-id, and `run` warns, but still starts it, while
+    the machine it was copied from is running: the two share a host id and
+    Ethernet address, which clash on a network they share.
+  - A new machine's MAC derives from its emu-id (42 gives
+    `08:00:69:e1:02:a0`, host id `69e102a0` on an Octane, Octane2, Origin 200
+    or Fuel) unless `--mac` is given. A machine that first gets a MAC from
+    `network-set` or `install-init` gets an emu-id the same way.
 - Changed:
+  - `origami upgrade` adds an emu-id to a machine that has none and keeps its
+    MAC. On an Octane, Octane2, Fuel or Origin 200 the host id comes from the
+    station address, so it stays unmarked. On the others, the IP35 machines,
+    Origin 2000 and Onyx2, it comes from a system serial that the emu-id sets,
+    so the guest sees a new host id; `upgrade` says so and how to keep the
+    old one.
   - Presets `tezro-vpro` and `onyx350-vpro` are now `tezro` and `onyx350`.
   - `--set` takes the inputs the preset lists as settings, each checked for
     its kind of value. A list takes a slot, as in `--set chassis-eeprom.0=FILE`.

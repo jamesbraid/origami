@@ -99,7 +99,18 @@ Common options:
 - `--graphics`, `--graphics-slot`, `--graphics-pipes` and
   `--graphics-setting` change the graphics. See [Graphics](#graphics).
 - `--mac 08:00:69:12:34:56` sets the machine's Ethernet address. Without it,
-  `create` picks a unique SGI one.
+  `create` derives one from the emu-id.
+- `--emu-id N` sets the machine's emu-id, 1 to 2999. Without it, `create` takes
+  the lowest number that no machine beside the new one holds; 3000 to 4095 are
+  reserved for harness and CI machines. QEMU builds the guest's system serial,
+  host id and Ethernet address from it: emu-id 42 gives the address
+  `08:00:69:e1:02:a0`, and a host id of `69e102a0` on an Octane, Octane2,
+  Origin 200 or Fuel, which read it from the address. The emu-id is recorded in
+  `machine.toml`, so a copied machine directory keeps it. `run` starts a
+  machine whose emu-id a running machine beside it holds, but warns: the two
+  guests have the same host id and Ethernet address, which clash on a network
+  they share, so a copy wants its own `emu-id` in `[identity]`. `origami upgrade` gives an older
+  machine an emu-id and keeps its MAC.
 
 ```sh
 origami create my-o200 --preset origin200-2 --processor r12000-270mhz-4mb

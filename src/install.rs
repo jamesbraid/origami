@@ -311,6 +311,8 @@ fn init_sources(
         share_address: None,
         subnet: old_network.subnet.clone(),
     };
+    // Held until machine.toml is written below.
+    let _emu_ids = crate::emu_id::lock(dir)?;
     let assigned = match crate::ensure_machine_mac(machines, dir, file, mac)
         .and_then(|assigned| crate::validate(machines, dir, file).map(|_| assigned))
     {
@@ -1414,6 +1416,7 @@ mod tests {
             },
             identity: Some(crate::Identity {
                 mac: "08:00:69:12:34:56".into(),
+                emu_id: None,
             }),
             network: Network {
                 mode: "private".into(),
@@ -1561,6 +1564,7 @@ mod tests {
             },
             identity: Some(crate::Identity {
                 mac: "08:00:69:12:34:56".into(),
+                emu_id: None,
             }),
             network: Network {
                 mode: "private".into(),
@@ -1701,6 +1705,42 @@ mod tests {
                 .to_string()
         );
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn init_gives_a_machine_without_an_identity_an_emu_id_and_its_mac() {
+        let root = tempfile::tempdir().unwrap();
+        let prom = root.path().join("prom.bin");
+        fs::write(&prom, vec![0; 1048576]).unwrap();
+        let machines = crate::test_machines();
+        let offer = crate::preset(&machines, "origin200-1").unwrap();
+        let tool = crate::test_support::init_tool(root.path());
+        let init = crate::MachineInit {
+            tool: &tool,
+            boot_prom: &prom,
+            io_prom: None,
+        };
+        let identity_after = |name: &str, mac: Option<&str>| {
+            let dir = root.path().join(name);
+            crate::create_configured(&dir, offer, &init, None, None, vec![], Default::default())
+                .unwrap();
+            let mut file = crate::read_machine(&dir).unwrap();
+            init_remote_profile(&machines, &dir, mac, &mut file, DEFAULT_RELEASE, "standard")
+                .unwrap();
+            let identity = crate::read_machine(&dir).unwrap().identity.unwrap();
+            (identity.mac, identity.emu_id)
+        };
+        assert_eq!(
+            identity_after("derived", None),
+            ("08:00:69:e1:00:10".into(), Some(1))
+        );
+        // A sibling now holds emu-id 1, so the next machine gets 2; an
+        // explicit MAC still wins but the machine still gets its emu-id.
+        assert_eq!(
+            identity_after("explicit", Some("08:00:69:12:34:56")),
+            ("08:00:69:12:34:56".into(), Some(2))
+        );
     }
 
     #[cfg(unix)]
@@ -1994,6 +2034,7 @@ mod tests {
             },
             identity: Some(crate::Identity {
                 mac: "08:00:69:12:34:56".into(),
+                emu_id: None,
             }),
             network: Network {
                 mode: "private".into(),

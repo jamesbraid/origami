@@ -42,7 +42,9 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
         options.memory_per_node,
         options.mac.as_deref(),
     )?;
-    let mac = origami::mac::assign(machines, &args.dir, offer, options.mac.as_deref())?;
+    if let Some(emu_id) = options.emu_id {
+        origami::emu_id::check_range(emu_id)?;
+    }
     let tool = runtime::machine_init_path()?;
     // Check the tool before any download that it would consume.
     if !tool.is_file() {
@@ -50,6 +52,23 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
     }
     let (prom, io_prom) =
         origami::firmware(offer, options.prom.as_deref(), options.io_prom.as_deref())?;
+    // Held until machine.toml is written, so a second create rescans the
+    // siblings only after this emu-id is on disk.
+    let _emu_ids = origami::emu_id::lock(&args.dir)?;
+    let emu_id = origami::emu_id::assign(
+        machines,
+        &args.dir,
+        offer,
+        options.emu_id,
+        options.mac.is_none(),
+    )?;
+    let mac = origami::mac::assign(
+        machines,
+        &args.dir,
+        offer,
+        options.mac.as_deref(),
+        Some(emu_id),
+    )?;
     origami::create_configured(
         &args.dir,
         offer,
@@ -59,7 +78,7 @@ pub fn create_machine(machines: &Machines, args: &CreateArgs) -> Result<()> {
             io_prom: io_prom.as_deref(),
         },
         options.memory_per_node,
-        mac.as_deref(),
+        mac.map(|mac| origami::Identity::new(&mac, Some(emu_id))),
         pipes,
         inputs,
     )?;

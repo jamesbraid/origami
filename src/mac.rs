@@ -86,9 +86,10 @@ fn claim_of(machines: &Machines, dir: &Path) -> Option<Claim> {
     })
 }
 
-/// The claims of every machine in the directories beside `dir`: its parent
-/// and the working directory. Unreadable entries are skipped.
-pub fn claims(machines: &Machines, dir: &Path) -> Vec<Claim> {
+/// The machine directories beside `dir`: the entries of its parent and of
+/// the working directory, except `dir` itself. Unreadable entries are
+/// skipped. Machine MACs and emu-ids are both checked against these.
+pub(crate) fn siblings(dir: &Path) -> Vec<PathBuf> {
     let own = dir
         .canonicalize()
         .ok()
@@ -110,7 +111,6 @@ pub fn claims(machines: &Machines, dir: &Path) -> Vec<Claim> {
         roots.push(cwd);
     }
     roots.dedup();
-    let mut found = Vec::new();
     for root in roots {
         let Ok(entries) = fs::read_dir(&root) else {
             continue;
@@ -123,10 +123,19 @@ pub fn claims(machines: &Machines, dir: &Path) -> Vec<Claim> {
             if path == own || scanned.contains(&path) || !path.is_dir() {
                 continue;
             }
-            scanned.push(path.clone());
-            found.extend(claim_of(machines, &path));
+            scanned.push(path);
         }
     }
+    scanned
+}
+
+/// The claims of every machine in the directories beside `dir`: its parent
+/// and the working directory. Unreadable entries are skipped.
+pub fn claims(machines: &Machines, dir: &Path) -> Vec<Claim> {
+    let mut found: Vec<Claim> = siblings(dir)
+        .iter()
+        .filter_map(|path| claim_of(machines, path))
+        .collect();
     found.sort_by(|a, b| a.dir.cmp(&b.dir));
     found
 }
@@ -143,12 +152,16 @@ pub fn check_free(
     offering: Option<&Offering>,
     mac: &str,
 ) -> Result<()> {
+    check_claims(&claims(machines, dir), offering.map_or(0, span), mac)
+}
+
+/// [`check_free`] against claims already gathered.
+pub fn check_claims(claims: &[Claim], reach: u32, mac: &str) -> Result<()> {
     let Some(first) = number(mac) else {
         return Ok(());
     };
-    let last = first + u64::from(offering.map_or(0, span));
-    let claims = claims(machines, dir);
-    match conflict(&claims, first, last) {
+    let last = first + u64::from(reach);
+    match conflict(claims, first, last) {
         Some(other) => Err(format!(
             "{mac} collides with the machine in {}, which {}. Machines on one \
              network need different MACs; choose another with --mac",
@@ -195,17 +208,57 @@ fn generate_from(
     Err("could not find an unused MAC beside this machine".into())
 }
 
+/// Addresses one emu-id-derived MAC leaves for the machine's own NICs.
+const EMU_ID_ADDRESSES: u32 = 16;
+
+/// The MAC QEMU's layout gives `emu_id`: SGI's prefix, `E1` for QEMU, the
+/// emu-id's high eight bits, then its low four bits over a four-bit index
+/// that numbers the machine's own NICs. Emu-id 42 gives `08:00:69:e1:02:a0`,
+/// whose host id is `69e102a0`.
+///
+/// The index leaves room for 16 addresses, so a machine whose catalogue
+/// derives a NIC further from the machine MAC cannot take one: the offset
+/// would carry into the emu-id.
+pub fn from_emu_id(offering: &Offering, emu_id: u32) -> Result<String> {
+    if !(1..=crate::emu_id::MAX).contains(&emu_id) {
+        return Err(format!("emu-id {emu_id} is outside 1 to {}", crate::emu_id::MAX).into());
+    }
+    let reach = span(offering);
+    if reach >= EMU_ID_ADDRESSES {
+        return Err(format!(
+            "{} derives a NIC {reach} addresses past the machine MAC, but an address made from \
+             an emu-id leaves room for {EMU_ID_ADDRESSES}. Choose the MAC with --mac",
+            offering.topology
+        )
+        .into());
+    }
+    let prefix = Some(offering.mac_prefix())
+        .filter(|prefix| prefix.len() == SGI_OUI.len())
+        .unwrap_or(SGI_OUI);
+    Ok(format!(
+        "{prefix}:e1:{:02x}:{:02x}",
+        (emu_id >> 4) & 0xff,
+        (emu_id & 0xf) << 4
+    ))
+}
+
 /// The MAC a new machine in `dir` gets: the one asked for, refused when a
-/// neighbour has it, else a generated one.
+/// neighbour has it, else the one `emu_id` gives, else a generated one.
 pub fn assign(
     machines: &Machines,
     dir: &Path,
     offering: &Offering,
     requested: Option<&str>,
+    emu_id: Option<u32>,
 ) -> Result<Option<String>> {
     if let Some(mac) = requested {
         check_free(machines, dir, Some(offering), mac)?;
         return Ok(Some(mac.to_ascii_lowercase()));
+    }
+    if let Some(emu_id) = emu_id {
+        let mac = from_emu_id(offering, emu_id)?;
+        check_free(machines, dir, Some(offering), &mac)?;
+        return Ok(Some(mac));
     }
     generate(offering, &claims(machines, dir)).map(Some)
 }
@@ -268,6 +321,71 @@ mod tests {
     }
 
     #[test]
+    fn an_emu_id_gives_the_mac_the_layout_names() {
+        let offer = with_offset(0);
+        assert_eq!(from_emu_id(&offer, 42).unwrap(), "08:00:69:e1:02:a0");
+        assert_eq!(from_emu_id(&offer, 1).unwrap(), "08:00:69:e1:00:10");
+        assert_eq!(from_emu_id(&offer, 0x0fff).unwrap(), "08:00:69:e1:ff:f0");
+        assert!(from_emu_id(&offer, 0).is_err());
+        assert!(from_emu_id(&offer, 4096).is_err());
+    }
+
+    #[test]
+    fn the_layout_matches_the_vectors_qemu_tests() {
+        // QEMU's test-sgi-board-identity: 42 is 08:00:69:E1:02:A0 with host
+        // id 69e102a0 (the last four bytes), and every emu-id's address
+        // holds the kind byte, then the emu-id across the next 12 bits, with
+        // the low nibble left for a node or port.
+        let offer = with_offset(0);
+        let host_id = |mac: &str| {
+            let bytes: Vec<u8> = mac
+                .split(':')
+                .map(|byte| u8::from_str_radix(byte, 16).unwrap())
+                .collect();
+            u32::from_be_bytes(bytes[2..].try_into().unwrap())
+        };
+        assert_eq!(host_id(&from_emu_id(&offer, 42).unwrap()), 0x69e102a0);
+        for emu_id in [1, 42, 255, 4094, 4095] {
+            let mac = from_emu_id(&offer, emu_id).unwrap();
+            let bytes: Vec<u32> = mac
+                .split(':')
+                .map(|byte| u32::from_str_radix(byte, 16).unwrap())
+                .collect();
+            assert_eq!(bytes[..4], [0x08, 0x00, 0x69, 0xe1], "{mac}");
+            assert_eq!((bytes[4] << 4) | (bytes[5] >> 4), emu_id, "{mac}");
+            assert_eq!(bytes[5] & 0xf, 0, "{mac}");
+        }
+    }
+
+    #[test]
+    fn a_nic_past_the_low_nibble_refuses_an_emu_id_mac() {
+        // 15 is the last index the emu-id's low nibble leaves.
+        assert!(from_emu_id(&with_offset(15), 42).is_ok());
+        let error = from_emu_id(&with_offset(16), 42).unwrap_err().to_string();
+        assert!(error.contains("16 addresses past"), "{error}");
+        assert!(error.contains("--mac"), "{error}");
+    }
+
+    #[test]
+    fn assign_derives_from_the_emu_id_unless_a_mac_is_asked_for() {
+        let root = tempfile::tempdir().unwrap();
+        let machines = test_machines();
+        let offer = preset(&machines, "origin200-1").unwrap();
+        let new = root.path().join("new");
+        assert_eq!(
+            assign(&machines, &new, offer, None, Some(42)).unwrap(),
+            Some("08:00:69:e1:02:a0".into())
+        );
+        assert_eq!(
+            assign(&machines, &new, offer, Some("08:00:69:12:34:56"), Some(42)).unwrap(),
+            Some("08:00:69:12:34:56".into())
+        );
+        // A neighbour already on that address refuses it.
+        sibling(root.path(), "other", "08:00:69:e1:02:a0");
+        assert!(assign(&machines, &new, offer, None, Some(42)).is_err());
+    }
+
+    #[test]
     fn a_sibling_that_holds_the_address_forces_regeneration() {
         let root = tempfile::tempdir().unwrap();
         let machines = test_machines();
@@ -295,14 +413,14 @@ mod tests {
         let offer = preset(&machines, "origin200-1").unwrap();
         let other = sibling(root.path(), "other", "08:00:69:01:02:10");
         let new = root.path().join("new");
-        let error = assign(&machines, &new, offer, Some("08:00:69:01:02:10"))
+        let error = assign(&machines, &new, offer, Some("08:00:69:01:02:10"), None)
             .unwrap_err()
             .to_string();
         let canonical = other.canonicalize().unwrap();
         assert!(error.contains(canonical.to_str().unwrap()), "{error}");
         assert!(error.contains("08:00:69:01:02:10"), "{error}");
         assert_eq!(
-            assign(&machines, &new, offer, Some("08:00:69:01:02:11")).unwrap(),
+            assign(&machines, &new, offer, Some("08:00:69:01:02:11"), None).unwrap(),
             Some("08:00:69:01:02:11".into())
         );
     }

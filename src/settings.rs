@@ -354,6 +354,9 @@ pub fn validate(
         if name == "mac" {
             return Err("set the machine MAC with --mac".into());
         }
+        if name == "emu-id" {
+            return Err("set the machine's emu-id with --emu-id when creating it".into());
+        }
         if IDENTITY.contains(&name) {
             if slot.is_some() {
                 return Err(format!("{name} takes no slot").into());
@@ -769,10 +772,12 @@ mod tests {
             render(&machines, fuel, &given).unwrap().machine,
             ",hostid=69100887,serial=M2100887"
         );
-        let error = validate(&machines, fuel, &inputs(&[("mac", "08:00:69:12:34:56")]))
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("--mac"), "{error}");
+        for (name, option) in [("mac", "--mac"), ("emu-id", "--emu-id")] {
+            let error = validate(&machines, fuel, &inputs(&[(name, "42")]))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(option), "{error}");
+        }
         let error = validate(&machines, fuel, &inputs(&[("no-such", "1")]))
             .unwrap_err()
             .to_string();

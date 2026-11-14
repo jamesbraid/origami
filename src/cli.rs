@@ -280,6 +280,12 @@ pub struct CreateOptions {
     /// The machine's Ethernet address, for its identity and onboard network
     #[arg(long, help_heading = "Hardware options")]
     pub mac: Option<String>,
+    /// The machine's emu-id, 1 to 2999, which its host id and, unless --mac
+    /// is given, its Ethernet address derive from. Without it `create` takes
+    /// the lowest free number; 3000 and up are reserved for harness and CI
+    /// machines
+    #[arg(long, help_heading = "Hardware options", value_name = "N")]
+    pub emu_id: Option<u32>,
     #[command(flatten)]
     pub hardware: HardwareArgs,
 }
