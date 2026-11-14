@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     // Tags can change the description without changing HEAD or source files.
-    // Git resolves shared refs correctly for submodules and linked worktrees.
+    // Git resolves shared refs correctly for linked worktrees.
     for name in ["index", "refs", "packed-refs"] {
         if let Ok(path) = Command::new("git")
             .args(["rev-parse", "--git-path", name])

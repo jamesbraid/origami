@@ -20,17 +20,10 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
-      - name: Use canonical QEMU repository
-        run: |
-          git config --global \
-            "url.${{ github.server_url }}/jamesb/qemu.git.insteadOf" \
-            "https://github.com/jamesbraid/qemu-sgi-origami.git"
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
           persist-credentials: false
           fetch-depth: 0
-          submodules: true
       - name: Install Rust
         run: |
           curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
@@ -41,9 +34,9 @@ jobs:
         run: rustc -Vv
       - name: Check formatting
         run: cargo fmt --all --check
-      - name: Lint CLI and NFS crate
+      - name: Lint the workspace
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - name: Test CLI and NFS crate (replays the Instigator RPC transcripts)
+      - name: Test the workspace (replays the Instigator transcripts)
         run: cargo test --locked --workspace
       - name: Test build helpers
         run: python3 -m unittest discover -s build/tests -p 'test_*.py' -v

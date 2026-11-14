@@ -14,7 +14,8 @@ reproduction is preferable when it can demonstrate the problem.
 
 Change emulator behavior and tests in the QEMU repository, and installer behavior
 and tests in Instigator. Submit each dependency change to its own repository.
-The product updates its submodule pin after that change is accepted.
+The product moves its pin in `runtime.lock` to the release that carries that
+change (`cargo xtask bump`).
 
 Origami is an experimental hobby project developed largely with AI assistance.
 Incomplete emulation and failing guest configurations are expected. Describe what
