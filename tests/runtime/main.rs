@@ -233,12 +233,15 @@ fn every_preset_creates_reopens_and_starts_paused() {
         }
     }
     // A few at a time: most of a start is QEMU allocating and the product
-    // waiting for it.
+    // waiting for it. Windows charges a started machine its whole RAM against
+    // the commit limit, so there one preset runs at a time: each machine is
+    // stopped and reaped before the next preset starts.
+    let workers = if cfg!(windows) { 1 } else { 4 };
     let presets = origami::presets(&machines);
     let next = std::sync::atomic::AtomicUsize::new(0);
     let found = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|scope| {
-        for _ in 0..4 {
+        for _ in 0..workers {
             scope.spawn(|| loop {
                 let index = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let Some((name, offering)) = presets.get(index) else {
