@@ -19,11 +19,24 @@ pub enum ScaleMode {
     Fit,
 }
 
+/// The guest's cursor to draw into the picture: its image, where its top left
+/// falls in head pixels, and which version of the image this is.
+pub struct CursorDraw<'a> {
+    pub texture: &'a wgpu::Texture,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub gen: u32,
+}
+
 pub struct Blit {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     linear: wgpu::Sampler,
     params: wgpu::Buffer,
+    /// Bound when there is no cursor.
+    blank: wgpu::Texture,
 }
 
 impl Blit {
@@ -56,6 +69,14 @@ impl Blit {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,
+                    },
+                ),
+                entry(
+                    3,
+                    wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
                     },
                 ),
             ],
@@ -101,25 +122,50 @@ impl Blit {
         });
         let params = d.create_buffer(&wgpu::BufferDescriptor {
             label: Some("blit params"),
-            size: 32,
+            size: 48,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let blank = cursor_texture(gpu);
         Blit {
             pipeline,
             layout,
             linear,
             params,
+            blank,
         }
     }
 }
+
+/// A texture for a cursor image: the largest cursor the protocol has.
+pub fn cursor_texture(gpu: &Gpu) -> wgpu::Texture {
+    gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("cursor"),
+        size: wgpu::Extent3d {
+            width: 64,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        // 0xAARRGGBB little-endian words: blue, green, red, alpha in memory.
+        format: wgpu::TextureFormat::Bgra8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
+}
+
+/// What an output texture shows: the head's sequence and generation, the
+/// scale mode, and the cursor's place and version.
+type Shown = (u64, u64, ScaleMode, Option<(i32, i32, u32, u32, u32)>);
 
 /// One machine's output texture, and what it last showed.
 #[derive(Default)]
 pub struct Presenter {
     out: Option<wgpu::Texture>,
     area: (u32, u32),
-    shown: Option<(u64, u64, ScaleMode)>,
+    shown: Option<Shown>,
     pub passes: u64,
     pub skipped: u64,
 }
@@ -156,21 +202,49 @@ impl Presenter {
         Some(t)
     }
 
-    /// Whether the output already shows this head, as it is, in this mode.
-    pub fn current(&self, head: &HeadTexture, mode: ScaleMode) -> bool {
-        self.out.is_some() && self.shown == Some((head.seq, head.generation, mode))
+    /// The output texture, for the tests to read back.
+    #[cfg(test)]
+    pub fn out_texture(&self) -> Option<&wgpu::Texture> {
+        self.out.as_ref()
+    }
+
+    fn state(head: &HeadTexture, mode: ScaleMode, cursor: Option<&CursorDraw>) -> Shown {
+        (
+            head.seq,
+            head.generation,
+            mode,
+            cursor.map(|c| (c.x, c.y, c.width, c.height, c.gen)),
+        )
+    }
+
+    /// Whether the output already shows this head, as it is, in this mode,
+    /// with the cursor where it is.
+    pub fn current(
+        &self,
+        head: &HeadTexture,
+        mode: ScaleMode,
+        cursor: Option<&CursorDraw>,
+    ) -> bool {
+        self.out.is_some() && self.shown == Some(Self::state(head, mode, cursor))
     }
 
     /// Run the pass if anything it depends on changed. Returns whether it ran.
-    pub fn run(&mut self, gpu: &Gpu, blit: &Blit, head: &HeadTexture, mode: ScaleMode) -> bool {
+    pub fn run(
+        &mut self,
+        gpu: &Gpu,
+        blit: &Blit,
+        head: &HeadTexture,
+        mode: ScaleMode,
+        cursor: Option<&CursorDraw>,
+    ) -> bool {
         let Some(out) = self.out.clone() else {
             return false;
         };
-        if self.current(head, mode) {
+        if self.current(head, mode, cursor) {
             self.skipped += 1;
             return false;
         }
-        let params: [f32; 8] = [
+        let params: [f32; 12] = [
             self.area.0 as f32,
             self.area.1 as f32,
             head.width as f32,
@@ -179,13 +253,20 @@ impl Presenter {
                 ScaleMode::Fit => 0,
                 ScaleMode::Integer => 1,
             }),
+            f32::from_bits(u32::from(cursor.is_some())),
             0.0,
             0.0,
-            0.0,
+            cursor.map_or(0.0, |c| c.x as f32),
+            cursor.map_or(0.0, |c| c.y as f32),
+            cursor.map_or(0.0, |c| c.width as f32),
+            cursor.map_or(0.0, |c| c.height as f32),
         ];
         gpu.queue
             .write_buffer(&blit.params, 0, bytemuck::cast_slice(&params));
         let sv = head.texture.create_view(&Default::default());
+        let cv = cursor
+            .map_or(&blit.blank, |c| c.texture)
+            .create_view(&Default::default());
         let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("blit"),
             layout: &blit.layout,
@@ -201,6 +282,10 @@ impl Presenter {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: blit.params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&cv),
                 },
             ],
         });
@@ -232,7 +317,7 @@ impl Presenter {
             pass.draw(0..3, 0..1);
         }
         gpu.queue.submit([enc.finish()]);
-        self.shown = Some((head.seq, head.generation, mode));
+        self.shown = Some(Self::state(head, mode, cursor));
         self.passes += 1;
         true
     }

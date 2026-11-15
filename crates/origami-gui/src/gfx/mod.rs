@@ -6,6 +6,6 @@ mod blit;
 mod device;
 mod head;
 
-pub use blit::{Blit, Presenter, ScaleMode};
+pub use blit::{cursor_texture, Blit, CursorDraw, Presenter, ScaleMode};
 pub use device::Gpu;
 pub use head::HeadTexture;

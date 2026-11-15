@@ -16,7 +16,10 @@ test = false
 doctest = false
 
 [workspace]
-members = ["crates/origami-nfs", "crates/origami-net", "xtask"]
+members = ["crates/origami-nfs", "crates/origami-net", "crates/origami-gui", "xtask"]
+# origami-gui pulls in Slint and wgpu, which the command-line tool's cargo
+# commands and checks should not build. `-p origami-gui` selects it.
+default-members = [".", "crates/origami-nfs", "crates/origami-net", "xtask"]
 
 [dependencies]
 origami-net = { path = "crates/origami-net" }

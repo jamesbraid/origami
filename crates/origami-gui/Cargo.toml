@@ -14,7 +14,6 @@ path = "src/main.rs"
 origami = { path = "../.." }
 bytemuck = "1"
 memmap2 = "0.9"
-qapi = { version = "0.15", features = ["qmp"] }
 # A pinned master commit until Slint 1.19 ships (its femtovg 0.28 carries the
 # pipeline-cache fix 1.18's femtovg 0.27 lacks).
 slint = { git = "https://github.com/slint-ui/slint", rev = "3b68276e2fb5cfd965bdbfc7e78be0a91ebf1e26", default-features = false, features = ["std", "backend-winit", "renderer-femtovg-wgpu", "unstable-wgpu-30", "compat-1-2"] }
@@ -26,7 +25,6 @@ slint = { git = "https://github.com/slint-ui/slint", rev = "3b68276e2fb5cfd965bd
 # Slint master (it is on wgpu's trunk API).
 wgpu = "30"
 pollster = "0.4"
-serde_json = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -39,3 +37,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 
 [build-dependencies]
 slint-build = { git = "https://github.com/slint-ui/slint", rev = "3b68276e2fb5cfd965bdbfc7e78be0a91ebf1e26" }
+
+[dev-dependencies]
+serde_json = "1"

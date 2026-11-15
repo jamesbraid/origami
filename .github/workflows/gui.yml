@@ -25,17 +25,10 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
-      - name: Use canonical QEMU repository
-        run: |
-          git config --global \
-            "url.${{ github.server_url }}/jamesb/qemu.git.insteadOf" \
-            "https://github.com/jamesbraid/qemu-sgi-origami.git"
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
           persist-credentials: false
           fetch-depth: 0
-          submodules: true
       - name: Install Rust
         run: |
           curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
@@ -52,17 +45,10 @@ jobs:
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
-      - name: Use canonical QEMU repository
-        run: |
-          git config --global \
-            "url.${{ github.server_url }}/jamesb/qemu.git.insteadOf" \
-            "https://github.com/jamesbraid/qemu-sgi-origami.git"
       - uses: actions/checkout@v4
         with:
-          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
           persist-credentials: false
           fetch-depth: 0
-          submodules: true
       - name: Install the cross compiler and Rust
         run: |
           sudo apt-get update

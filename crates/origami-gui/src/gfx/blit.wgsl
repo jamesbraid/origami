@@ -7,14 +7,18 @@ struct P {
     // 0: fit the view with linear filtering; 1: a whole-number scale with
     // nearest filtering (a scale below 1 falls back to fit).
     mode: u32,
-    pad0: u32,
+    // 1 when the guest's cursor is drawn.
+    cursor_on: u32,
     pad1: u32,
     pad2: u32,
+    // The cursor image's top left in head pixels, and its size.
+    cursor: vec4<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
 @group(0) @binding(2) var<uniform> p: P;
+@group(0) @binding(3) var cur: texture_2d<f32>;
 
 @vertex
 fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
@@ -45,6 +49,14 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         c = textureLoad(src, vec2<i32>(floor(q)), 0).rgb;
     } else {
         c = textureSampleLevel(src, samp, q / p.src_size, 0.0).rgb;
+    }
+    if (p.cursor_on == 1u) {
+        let cx = floor(q.x) - p.cursor.x;
+        let cy = floor(q.y) - p.cursor.y;
+        if (cx >= 0.0 && cy >= 0.0 && cx < p.cursor.z && cy < p.cursor.w) {
+            let t = textureLoad(cur, vec2<i32>(i32(cx), i32(cy)), 0);
+            c = mix(c, t.rgb, t.a);
+        }
     }
     return vec4<f32>(c, 1.0);
 }

@@ -16,6 +16,6 @@ mod engine;
 mod input;
 mod sink;
 
-pub use engine::{Engine, FrameUpdate, HeadInfo, MachineId, Result, Wake};
+pub use engine::{CursorInfo, Engine, FrameUpdate, HeadInfo, MachineId, Result, Wake};
 pub use input::{InputEvent, Key, PointerButton};
 pub use sink::InputSink;

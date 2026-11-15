@@ -40,7 +40,7 @@ cargo xtask bump qemu sgi-origami-11.1.50-2    # move a pin
 cargo xtask bump instigator v0.5.1
 ```
 
-Plain `cargo test --workspace` needs no download. `cargo xtask dist` writes
+Plain `cargo test` needs no download. `origami-gui` is not a default member (it builds Slint and wgpu); select it with `-p origami-gui`. `cargo xtask dist` writes
 `origami-<version>-<platform>.tar.gz` (`.zip` on Windows) and its `.sha256`
 for the platform it runs on: `linux-x86_64`, `macos-arm64` or
 `windows-x86_64`. The archive holds `origami-<version>/` with:

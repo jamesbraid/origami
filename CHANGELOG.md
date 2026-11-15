@@ -5,7 +5,14 @@
 - New:
   - `run --display shm` starts QEMU with no window and publishes each graphic
     head through shared memory (the machine property `display-shm`), named
-    after the machine directory, for a viewer that draws it.
+    after the machine directory, for a viewer that draws it. `origami-gui` is
+    the first: a tab for each machine, any tab poppable into its own window
+    and docked back while the guest keeps running, the picture drawn at a
+    whole-number scale, the guest's cursor shown as the host cursor, and
+    keyboard and mouse sent to the guest over the display socket. It runs the
+    machines it is given, `origami-gui DIR...`, and attaches to ones already
+    running. It is not built with the command-line tool; select it with
+    `cargo build -p origami-gui`.
   - `drive-attach` takes a MAME CHD hard disk image with `--type disk`. A
     compressed CHD takes guest writes in a `.diff.chd` beside it, which is
     folded back into the image when QEMU exits cleanly; `--overlay` keeps the

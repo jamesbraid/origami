@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, Model, VecModel};
 
-use crate::core::{Engine, InputEvent, MachineId, PointerButton};
-use crate::gfx::{Blit, Gpu, HeadTexture, Presenter, ScaleMode};
+use crate::core::{CursorInfo, Engine, InputEvent, MachineId, PointerButton};
+use crate::gfx::{cursor_texture, Blit, CursorDraw, Gpu, HeadTexture, Presenter, ScaleMode};
 use crate::keymap;
 use crate::{AboutWindow, Shell, TabInfo};
 
@@ -48,8 +48,9 @@ struct Machine {
     out_img: Option<slint::Image>,
     /// Physical size of the view area this machine is drawn in.
     area: (u32, u32),
-    last_ptr: Option<(f32, f32)>,
-    ptr_rem: (f32, f32),
+    /// The guest's cursor on the shown head, and its image on the GPU.
+    cursor: Option<CursorInfo>,
+    cursor_tex: Option<(wgpu::Texture, u32)>,
     pixels: Vec<u8>,
     visible: bool,
     /// Renders of the window that showed it, for the pop-out loop.
@@ -149,8 +150,8 @@ pub fn install(
                 pres: Presenter::default(),
                 out_img: None,
                 area: (0, 0),
-                last_ptr: None,
-                ptr_rem: (0.0, 0.0),
+                cursor: None,
+                cursor_tex: None,
                 pixels: Vec::new(),
                 visible: i == 0,
                 renders: 0,
@@ -184,6 +185,27 @@ pub fn install(
         }
     });
     counters
+}
+
+/// Release the GPU side in a defined order, here and now, while thread-locals
+/// are still alive: the UI's textures, buffers and pipelines first. Left to
+/// thread-local destructors at exit, wgpu's own thread-locals can already be
+/// gone (debug builds keep a lock trace in one) and dropping a buffer there
+/// panics inside a destructor, which aborts the process.
+///
+/// The device and queue are not so simple: Slint's backend holds its own
+/// handles to them in a thread-local that is torn down after this returns, and
+/// whoever drops the last one does it in that destructor. One handle is kept
+/// on purpose, so none of them ever is; the process is about to exit and the
+/// driver releases the device with it.
+pub fn shutdown() {
+    let ui = UI.with(|u| u.borrow_mut().take());
+    if let Some(ui) = ui {
+        let gpu = ui.gpu.clone();
+        drop(ui);
+        gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
+        std::mem::forget(gpu);
+    }
 }
 
 pub fn run() {
@@ -247,25 +269,12 @@ fn wire(w: &Shell, win: usize) {
     w.on_moved(move |x, y| {
         with_ui(move |u| {
             let Some(mi) = u.machine_in(win) else { return };
-            let scale = u.guest_scale(mi, win);
-            let m = &mut u.machines[mi];
-            let prev = m.last_ptr.replace((x, y));
-            if let Some((px, py)) = prev {
-                // View pixels to guest pixels, keeping the part-pixel left over.
-                let fx = (x - px) / scale + m.ptr_rem.0;
-                let fy = (y - py) / scale + m.ptr_rem.1;
-                let (dx, dy) = (fx.trunc(), fy.trunc());
-                m.ptr_rem = (fx - dx, fy - dy);
-                if dx != 0.0 || dy != 0.0 {
-                    u.counters.moves_sent.fetch_add(1, Ordering::Relaxed);
-                    u.send(
-                        mi,
-                        InputEvent::PointerMove {
-                            dx: dx as i32,
-                            dy: dy as i32,
-                        },
-                    );
-                }
+            // The pointer is where the user's is, in the head's pixels; the
+            // engine moves the guest's cursor there.
+            if let Some((hx, hy)) = u.guest_pos(mi, x, y) {
+                let head = u.machines[mi].head_sel as u32;
+                u.counters.moves_sent.fetch_add(1, Ordering::Relaxed);
+                u.send(mi, InputEvent::PointerAt { head, x: hx, y: hy });
             }
         })
     });
@@ -288,14 +297,7 @@ fn wire(w: &Shell, win: usize) {
             }
         })
     });
-    w.on_pointer_left(move || {
-        with_ui(move |u| {
-            if let Some(mi) = u.machine_in(win) {
-                u.machines[mi].last_ptr = None;
-                u.machines[mi].ptr_rem = (0.0, 0.0);
-            }
-        })
-    });
+    w.on_pointer_left(|| {});
     w.on_view_size(move |ww, hh| {
         with_ui(move |u| u.view_size(win, ww.max(0) as u32, hh.max(0) as u32))
     });
@@ -351,7 +353,7 @@ impl Ui {
         }
     }
 
-    fn send(&self, mi: usize, event: InputEvent) {
+    fn send(&mut self, mi: usize, event: InputEvent) {
         if let Err(e) = self.engine.send_input(self.machines[mi].id, event) {
             if self.counters.input_errors.fetch_add(1, Ordering::Relaxed) == 0 {
                 eprintln!("origami-gui: input to {}: {e}", self.machines[mi].name);
@@ -359,9 +361,9 @@ impl Ui {
         }
     }
 
-    /// Output pixels for each guest pixel, for turning pointer motion in the
-    /// view into guest motion.
-    fn guest_scale(&self, mi: usize, _win: usize) -> f32 {
+    /// Output pixels for each guest pixel, as the shader scales: a whole
+    /// number in integer mode when the picture fits at 1x, else the fit.
+    fn guest_scale(&self, mi: usize) -> f32 {
         let m = &self.machines[mi];
         let Some(Some(h)) = m.heads.get(m.head_sel) else {
             return 1.0;
@@ -371,6 +373,22 @@ impl Ui {
             ScaleMode::Integer if fit >= 1.0 => fit.floor(),
             _ => fit.max(0.01),
         }
+    }
+
+    /// The head pixel under view position (`x`, `y`) in physical pixels, or
+    /// None outside the picture. Mirrors the shader's placement: the picture
+    /// is centred with a floored origin.
+    fn guest_pos(&self, mi: usize, x: f32, y: f32) -> Option<(i32, i32)> {
+        let m = &self.machines[mi];
+        let Some(Some(h)) = m.heads.get(m.head_sel) else {
+            return None;
+        };
+        let s = self.guest_scale(mi);
+        let org_x = ((m.area.0 as f32 - h.width as f32 * s) / 2.0).floor();
+        let org_y = ((m.area.1 as f32 - h.height as f32 * s) / 2.0).floor();
+        let (gx, gy) = (((x - org_x) / s).floor(), ((y - org_y) / s).floor());
+        (gx >= 0.0 && gy >= 0.0 && gx < h.width as f32 && gy < h.height as f32)
+            .then_some((gx as i32, gy as i32))
     }
 
     fn show_about(&mut self) {
@@ -412,7 +430,7 @@ impl Ui {
         let status = match head {
             _ if !self.engine.is_running(m.id) => "the machine has stopped".to_string(),
             Some(h) => {
-                let s = self.guest_scale(mi, 0);
+                let s = self.guest_scale(mi);
                 format!("{}x{}, shown at {:.2}x", h.width, h.height, s)
             }
             None => "waiting for the guest's display".to_string(),
@@ -421,6 +439,7 @@ impl Ui {
             w.set_label(m.name.clone().into());
             w.set_popped(m.popped);
             w.set_img(m.out_img.clone().unwrap_or_default());
+            w.set_guest_cursor(m.cursor.as_ref().is_some_and(|c| c.on));
             w.set_scale_mode(if m.mode == ScaleMode::Integer { 1 } else { 0 });
             w.set_head_count(m.heads.len() as i32);
             w.set_head_sel(m.head_sel as i32);
@@ -479,7 +498,7 @@ impl Ui {
                     let c = &self.counters;
                     c.frames_taken.fetch_add(1, Ordering::Relaxed);
                     c.rows_uploaded
-                        .fetch_add(u64::from(update.y1 - update.y0), Ordering::Relaxed);
+                        .fetch_add(u64::from(update.lines()), Ordering::Relaxed);
                     c.bytes_uploaded
                         .fetch_add(pixels.len() as u64, Ordering::Relaxed);
                     let old = m.heads[hi].take();
@@ -496,7 +515,61 @@ impl Ui {
         if changed_sel {
             self.push(mi);
         }
+        self.refresh_cursor(mi);
         self.redraw(mi);
+    }
+
+    /// Ask the engine for the guest's cursor on the shown head and keep the
+    /// image on the GPU. True when something about it changed.
+    fn refresh_cursor(&mut self, mi: usize) -> bool {
+        let id = self.machines[mi].id;
+        let head = self.machines[mi].head_sel;
+        let known = self.machines[mi].cursor_tex.as_ref().map_or(0, |t| t.1);
+        let Some(mut info) = self.engine.cursor(id, head, known) else {
+            return false;
+        };
+        let m = &mut self.machines[mi];
+        if let Some(image) = info.image.take() {
+            let tex = m
+                .cursor_tex
+                .take()
+                .map_or_else(|| cursor_texture(&self.gpu), |t| t.0);
+            let w = info.width as usize;
+            for (y, row) in image.chunks(w * 4).enumerate() {
+                self.gpu.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &tex,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: y as u32,
+                            z: 0,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    row,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(row.len() as u32),
+                        rows_per_image: None,
+                    },
+                    wgpu::Extent3d {
+                        width: info.width,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+            m.cursor_tex = Some((tex, info.gen));
+        }
+        let changed = m.cursor.as_ref() != Some(&info);
+        let shown_changed = m.cursor.as_ref().is_none_or(|c| c.on) != info.on;
+        m.cursor = Some(info);
+        if shown_changed {
+            // Whether the host cursor hides depends on it.
+            self.push(mi);
+        }
+        changed
     }
 
     fn set_visible(&mut self, mi: usize, visible: bool) {
@@ -583,7 +656,6 @@ impl Ui {
             let _ = w.hide();
         }
         self.machines[mi].popped = false;
-        self.machines[mi].last_ptr = None;
         self.view_px.remove(&win_of(mi));
         self.machines[mi].area = (0, 0);
         self.update_visibility();
@@ -604,7 +676,20 @@ impl Ui {
         let Some(Some(head)) = m.heads.get(m.head_sel) else {
             return;
         };
-        if m.pres.run(&self.gpu, &self.blit, head, m.mode) {
+        let draw = match (&m.cursor, &m.cursor_tex) {
+            (Some(c), Some((tex, gen))) if c.on && *gen == c.gen => Some(CursorDraw {
+                texture: tex,
+                x: c.x - c.hot_x,
+                y: c.y - c.hot_y,
+                width: c.width,
+                height: c.height,
+                gen: c.gen,
+            }),
+            _ => None,
+        };
+        if m.pres
+            .run(&self.gpu, &self.blit, head, m.mode, draw.as_ref())
+        {
             self.counters.passes.fetch_add(1, Ordering::Relaxed);
         }
     }

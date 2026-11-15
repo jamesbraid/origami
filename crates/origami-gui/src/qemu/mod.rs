@@ -1,21 +1,25 @@
 //! The QEMU engine: machines are started with the product's own runner and
-//! `display-shm`, pictures come from QEMU's shared-memory display, and input
-//! goes back over QMP.
+//! `display-shm`, pictures come from QEMU's shared-memory display (protocol
+//! version 3, the generic xrgb path), and input goes back as binary messages
+//! on the same socket.
 //!
 //! Both transports are v1 and sit behind boundaries meant to be replaced: the
 //! frame source ([`display::Display`], behind [`Engine::take_frame`]) and the
 //! input sink ([`crate::core::InputSink`]).
 
+mod control;
 mod display;
-mod msg;
-mod qcode;
-mod qmp_input;
-pub mod shm;
+mod input;
+mod proto;
+mod region;
+mod socket_input;
 mod transport;
 
-use crate::core::{Engine, FrameUpdate, HeadInfo, InputEvent, InputSink, MachineId, Result, Wake};
+use crate::core::{
+    CursorInfo, Engine, FrameUpdate, HeadInfo, InputEvent, InputSink, MachineId, Result, Wake,
+};
 use display::{Display, Taken};
-use origami::{control, runtime};
+use origami::{control as machine_control, runtime};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -24,9 +28,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 pub use display::Stats;
-
-/// How long the input thread waits with nothing to send before telling its sink.
-const INPUT_IDLE: Duration = Duration::from_millis(300);
 
 pub struct QemuEngine {
     /// The `origami` executable that runs machines in the background.
@@ -51,9 +52,8 @@ impl Shared {
 struct Machine {
     id: MachineId,
     dir: PathBuf,
-    shm_name: String,
     display: Display,
-    visible: AtomicBool,
+    uplink: transport::Uplink,
     stop: AtomicBool,
     /// Set once the display's machine is gone.
     gone: AtomicBool,
@@ -127,17 +127,19 @@ impl Engine for QemuEngine {
         if let Some(m) = lock(&self.shared.machines).values().find(|m| m.dir == dir) {
             return Ok(m.id);
         }
-        if !control::is_running(&dir).map_err(|e| e.to_string())? {
+        if machine_control::running(&dir)
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
             runtime::start_background_as(&self.runner, &dir, runtime::Display::Shm, &[])
                 .map_err(|e| e.to_string())?;
         }
         let id = MachineId(self.next.fetch_add(1, Ordering::Relaxed));
         let machine = Arc::new(Machine {
             id,
-            shm_name: runtime::shm_name(&dir),
             dir,
             display: Display::default(),
-            visible: AtomicBool::new(true),
+            uplink: Arc::new(Mutex::new(None)),
             stop: AtomicBool::new(false),
             gone: AtomicBool::new(false),
             input: Mutex::new(None),
@@ -155,9 +157,9 @@ impl Engine for QemuEngine {
         *lock(&machine.input) = Some(tx);
         let input = {
             let m = machine.clone();
-            let sink = Box::new(qmp_input::QmpInput::new(m.dir.clone()));
+            let sink = Box::new(socket_input::SocketInput::new(m.uplink.clone()));
             std::thread::Builder::new()
-                .name("qmp-input".into())
+                .name("display-input".into())
                 .spawn(move || input_worker(sink, rx))?
         };
         lock(&machine.threads).push(reader);
@@ -175,12 +177,11 @@ impl Engine for QemuEngine {
         let m = self.machine(id)?;
         m.stop.store(true, Ordering::Release);
         *lock(&m.input) = None;
-        // The input thread's QMP connection must be gone before `stop` asks
-        // QEMU to quit over a connection of its own.
+        // Input stops before the machine does.
         if let Some(t) = lock(&m.input_thread).take() {
             let _ = t.join();
         }
-        let result = control::stop(&m.dir).map_err(|e| e.to_string().into());
+        let result = machine_control::stop(&m.dir).map_err(|e| e.to_string().into());
         for t in lock(&m.threads).drain(..) {
             let _ = t.join();
         }
@@ -199,21 +200,37 @@ impl Engine for QemuEngine {
         pixels: &mut Vec<u8>,
     ) -> Result<Option<FrameUpdate>> {
         let m = self.machine(id)?;
-        match m.display.take(head, pixels)? {
-            Taken::Frame(update) => Ok(Some(update)),
-            Taken::Nothing => Ok(None),
+        let taken = m.display.take(head, pixels)?;
+        match taken {
             Taken::Retry => {
                 // Ask again from the UI thread rather than spin here.
                 m.shared.wake(id);
-                Ok(None)
+                return Ok(None);
             }
+            _ if m.display.visible() => {
+                // Armed again for the next change, then check it did not
+                // already happen.
+                if m.display.arm(head) {
+                    m.shared.wake(id);
+                }
+            }
+            _ => {}
         }
+        Ok(match taken {
+            Taken::Frame(update) => Some(update),
+            _ => None,
+        })
+    }
+
+    fn cursor(&self, id: MachineId, head: usize, known_gen: u32) -> Option<CursorInfo> {
+        self.machine(id).ok()?.display.cursor(head, known_gen)
     }
 
     fn set_visible(&self, id: MachineId, visible: bool) {
         let Ok(m) = self.machine(id) else { return };
-        let was = m.visible.swap(visible, Ordering::AcqRel);
-        if visible && !was && m.display.pending() {
+        let was = m.display.visible();
+        m.display.set_visible(visible);
+        if visible && !was && m.display.arm_all() {
             self.shared.wake(id);
         }
     }
@@ -233,12 +250,12 @@ impl Engine for QemuEngine {
 /// The display thread: keep the connection, wake the UI when something moves,
 /// and pick the machine up again if it is started again after it ended.
 fn reader_thread(m: &Arc<Machine>) {
-    let mut link = transport::UnixLink {
-        name: m.shm_name.clone(),
+    let mut link = transport::SocketLink {
+        socket: runtime::display_socket(&m.dir),
         dir: m.dir.clone(),
     };
     let wake = || {
-        if m.visible.load(Ordering::Acquire) {
+        if m.display.visible() {
             m.shared.wake(m.id);
         }
     };
@@ -246,6 +263,7 @@ fn reader_thread(m: &Arc<Machine>) {
         let exit = transport::run(
             &mut link,
             &m.display,
+            &m.uplink,
             &m.stop,
             transport::Timing::default(),
             &wake,
@@ -274,23 +292,14 @@ fn reader_thread(m: &Arc<Machine>) {
 }
 
 fn input_worker(mut sink: Box<dyn InputSink>, rx: Receiver<InputEvent>) {
-    // QEMU serves one QMP client at a time, so the sink drops its connection
-    // after a quiet spell, which leaves the machine's QMP port to `origami
-    // status`, `stop` and the rest.
-    loop {
-        let first = match rx.recv_timeout(INPUT_IDLE) {
-            Ok(e) => e,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                sink.idle();
-                continue;
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => return,
-        };
+    // Everything that arrived while the last batch was being written goes out
+    // together, so one host frame of input is one guest report.
+    while let Ok(first) = rx.recv() {
         let mut batch = vec![first];
         while let Ok(e) = rx.try_recv() {
             batch.push(e);
         }
-        if let Err(e) = sink.send(&qcode::coalesce(batch)) {
+        if let Err(e) = sink.send(&batch) {
             eprintln!("origami-gui: input: {e}");
         }
     }

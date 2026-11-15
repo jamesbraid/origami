@@ -108,11 +108,19 @@ pub enum InputEvent {
         key: Key,
         down: bool,
     },
-    /// Relative motion in guest pixels. The guests these engines run read a
-    /// mouse, not a tablet.
+    /// Relative motion in guest pointer counts, for a front end without a
+    /// cursor to place; the tab view uses [`InputEvent::PointerAt`].
+    #[allow(dead_code)]
     PointerMove {
         dx: i32,
         dy: i32,
+    },
+    /// The pointer at a position in a head's pixels. The engine moves the
+    /// guest's cursor there.
+    PointerAt {
+        head: u32,
+        x: i32,
+        y: i32,
     },
     Button {
         button: PointerButton,

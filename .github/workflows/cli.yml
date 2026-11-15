@@ -34,9 +34,9 @@ jobs:
         run: rustc -Vv
       - name: Check formatting
         run: cargo fmt --all --check
-      - name: Lint the workspace
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
-      - name: Test the workspace (replays the Instigator transcripts)
-        run: cargo test --locked --workspace
+      - name: Lint the CLI crates
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Test the CLI crates (replays the Instigator transcripts)
+        run: cargo test --locked
       - name: Test build helpers
         run: python3 -m unittest discover -s build/tests -p 'test_*.py' -v

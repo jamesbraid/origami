@@ -125,11 +125,21 @@ fn real_main() -> Result<(), String> {
                 .filter_map(|id| {
                     engine.stats(*id).map(|s| {
                         format!(
-                            "{{\"frames\":{},\"rows\":{},\"torn\":{},\"running\":{}}}",
+                            "{{\"frames\":{},\"rows\":{},\"running\":{},\"head\":{},\"cursor\":{}}}",
                             s.frames,
-                            s.rows,
-                            s.torn,
-                            engine.is_running(*id)
+                            s.lines,
+                            engine.is_running(*id),
+                            engine.heads(*id).ok().and_then(|h| h.first().copied()).map_or(
+                                "null".to_string(),
+                                |h| format!("{{\"width\":{},\"height\":{}}}", h.width, h.height)
+                            ),
+                            engine.cursor(*id, 0, u32::MAX).map_or(
+                                "null".to_string(),
+                                |c| format!(
+                                    "{{\"x\":{},\"y\":{},\"on\":{},\"hot_x\":{},\"hot_y\":{}}}",
+                                    c.x, c.y, c.on, c.hot_x, c.hot_y
+                                )
+                            )
                         )
                     })
                 })
@@ -198,6 +208,7 @@ fn real_main() -> Result<(), String> {
     });
 
     ui::run();
+    ui::shutdown();
     if let Some(path) = &args.stats_file {
         write_stats(path);
     }
