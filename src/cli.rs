@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use origami::runtime::Display;
+use origami::runtime::{Display, GpuUuid};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -388,6 +388,11 @@ pub struct DisplayArgs {
     /// VNC TCP port (default 5900)
     #[arg(long, requires = "display", value_parser = clap::value_parser!(u16).range(5900..))]
     pub vnc_port: Option<u16>,
+    /// With --display shm: the Vulkan deviceUUID (32 hex digits) of the
+    /// viewer's adapter, so QEMU exports scanout memory the viewer imports
+    /// without a copy
+    #[arg(long, value_name = "UUID", requires = "display")]
+    pub display_gpu: Option<GpuUuid>,
 }
 
 impl DisplayArgs {
@@ -400,10 +405,15 @@ impl DisplayArgs {
         if self.vnc_port.is_some() && mode != DisplayMode::Vnc {
             return Err("--vnc-port requires --display vnc".into());
         }
+        if self.display_gpu.is_some() && mode != DisplayMode::Shm {
+            return Err("--display-gpu requires --display shm".into());
+        }
         Ok(match mode {
             DisplayMode::Local => Display::Local,
             DisplayMode::None => Display::None,
-            DisplayMode::Shm => Display::Shm,
+            DisplayMode::Shm => Display::Shm {
+                gpu: self.display_gpu,
+            },
             DisplayMode::Vnc => Display::Vnc {
                 port: self.vnc_port.unwrap_or(5900),
             },

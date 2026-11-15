@@ -12,7 +12,14 @@
     keyboard and mouse sent to the guest over the display socket. It runs the
     machines it is given, `origami-gui DIR...`, and attaches to ones already
     running. It is not built with the command-line tool; select it with
-    `cargo build -p origami-gui`.
+    `cargo build -p origami-gui`. Where its GPU can import memory from another
+    process it draws the picture from QEMU's own scanout memory with no copy:
+    on Linux and Windows through Vulkan (the GUI starts the machine with
+    `run --display shm --display-gpu UUID`, naming its adapter, so QEMU
+    exports the memory there), and on macOS as a Metal buffer over the shared
+    memory. Otherwise it copies the lines that changed. `origami-gui
+    --gpu-info` says which applies, and `ORIGAMI_GUI_ZERO_COPY=0` forces the
+    copy.
   - `drive-attach` takes a MAME CHD hard disk image with `--type disk`. A
     compressed CHD takes guest writes in a `.diff.chd` beside it, which is
     folded back into the image when QEMU exits cleanly; `--overlay` keeps the

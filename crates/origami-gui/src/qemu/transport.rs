@@ -145,6 +145,16 @@ fn take_handle(value: u64, handles: &mut Vec<Handle>) -> io::Result<Handle> {
     }
 }
 
+/// Close a passed handle that nothing will map or import.
+#[cfg(windows)]
+fn close_handle(handle: Handle) {
+    #[allow(irrefutable_let_patterns)]
+    if let Handle::Value(v) = handle {
+        // SAFETY: a handle QEMU duplicated into this process for us to close.
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(v as usize as _) };
+    }
+}
+
 /// Handle messages until the stream ends or `stop` is set. `wake` is called
 /// when something the UI should look at changed.
 pub fn pump(
@@ -168,11 +178,26 @@ pub fn pump(
                     return Err(bad(format!("QEMU speaks version {}", w.version)));
                 }
                 let shm = |b: u32| b == BACKEND_SHM_FD || b == BACKEND_SHM_WIN32;
-                if !shm(w.control_backend) || !shm(w.backend) {
+                let gpu = |b: u32| b == BACKEND_VK_FD || b == BACKEND_VK_WIN32;
+                if !shm(w.control_backend) || !(shm(w.backend) || gpu(w.backend)) {
                     return Err(bad(format!(
-                        "QEMU exports backend {} (control {}), which this viewer cannot import",
+                        "QEMU says backend {} (control {}), which this viewer does not know",
                         w.backend, w.control_backend
                     )));
+                }
+                if gpu(w.backend) {
+                    // Memory exported on another adapter or driver cannot be
+                    // imported, and there is no shared-memory copy to fall
+                    // back to: say so, rather than show a picture that is not.
+                    let importer = display.importer().ok_or_else(|| {
+                        bad(format!(
+                            "QEMU exports GPU memory (backend {}) and this viewer cannot import it",
+                            w.backend
+                        ))
+                    })?;
+                    importer
+                        .accepts(&w.device_uuid, &w.driver_uuid)
+                        .map_err(|why| bad(format!("cannot import QEMU's GPU memory: {why}")))?;
                 }
                 let mem = take_handle(w.control_handle, &mut handles)?.map()?;
                 let control = Control::new(mem).map_err(|e| bad(e.to_string()))?;
@@ -185,20 +210,72 @@ pub fn pump(
             }
             MSG_REGION if welcomed => {
                 let r = parse_region(&msg);
-                if r.backend != BACKEND_SHM_FD && r.backend != BACKEND_SHM_WIN32 {
-                    return Err(bad(format!("region {} has backend {}", r.id, r.backend)));
-                }
-                let mem = take_handle(r.handle, &mut handles)?.map()?;
-                if (mem.len() as u64) < r.size || r.id == 0 || !r.size.is_multiple_of(REGION_ALIGN)
-                {
+                if r.id == 0 || !r.size.is_multiple_of(REGION_ALIGN) {
                     return Err(bad(format!(
-                        "region {} is {} bytes, said {}",
-                        r.id,
-                        mem.len(),
-                        r.size
+                        "region {} has {} bytes, not a multiple of {REGION_ALIGN}",
+                        r.id, r.size
                     )));
                 }
-                display.add_region(r.id, mem);
+                match r.backend {
+                    BACKEND_VK_FD | BACKEND_VK_WIN32 => {
+                        let importer = display.importer().ok_or_else(|| {
+                            bad(format!(
+                                "region {} is GPU memory and this viewer cannot import it",
+                                r.id
+                            ))
+                        })?;
+                        if r.alloc_size < r.size {
+                            // The handle that came with it is ours to close.
+                            #[cfg(windows)]
+                            drop(take_handle(r.handle, &mut handles).map(close_handle));
+                            return Err(bad(format!(
+                                "region {} allocates {} bytes for {}",
+                                r.id, r.alloc_size, r.size
+                            )));
+                        }
+                        let handle = take_handle(r.handle, &mut handles)?;
+                        let memory = importer
+                            .import(&r, handle)
+                            .map_err(|e| bad(format!("cannot import region {}: {e}", r.id)))?;
+                        display.add_gpu_region(r.id, r.size, None, memory);
+                        display.note_backend(importer.name().to_string());
+                    }
+                    BACKEND_SHM_FD | BACKEND_SHM_WIN32 => {
+                        let mem = take_handle(r.handle, &mut handles)?.map()?;
+                        if (mem.len() as u64) < r.size {
+                            return Err(bad(format!(
+                                "region {} is {} bytes, said {}",
+                                r.id,
+                                mem.len(),
+                                r.size
+                            )));
+                        }
+                        // Where the API can read the mapping in place (Metal),
+                        // do; else the reader copies the changed lines.
+                        let wrapped = display
+                            .importer()
+                            .filter(|_| r.kind != KIND_CURSOR_IMAGE)
+                            .and_then(|i| i.wrap(&r, &mem));
+                        match wrapped {
+                            Some(gpu) => {
+                                display.add_gpu_region(r.id, r.size, Some(mem), gpu);
+                                if let Some(i) = display.importer() {
+                                    display.note_backend(i.name().to_string());
+                                }
+                            }
+                            None => {
+                                display.add_region(r.id, mem);
+                                if r.kind != KIND_CURSOR_IMAGE {
+                                    display
+                                        .note_backend("shared memory, changed lines copied".into());
+                                }
+                            }
+                        }
+                    }
+                    other => {
+                        return Err(bad(format!("region {} has backend {other}", r.id)));
+                    }
+                }
                 wake();
             }
             MSG_REGION_GONE if welcomed => {
@@ -233,10 +310,14 @@ pub fn run<L: Link>(
     let started = Instant::now();
     let mut ever = false;
     let mut misses = 0u32;
+    let mut last_error: Option<String> = None;
     while !stop.load(Ordering::Acquire) {
         let connected = match link.connect() {
             Ok(mut conn) => {
-                let hello = hello(std::process::id());
+                let (caps, uuid) = display
+                    .importer()
+                    .map_or((0, [0; 16]), |i| (i.caps(), i.device_uuid()));
+                let hello = hello(std::process::id(), caps, uuid);
                 if conn
                     .sink
                     .write_all(&hello)
@@ -245,7 +326,16 @@ pub fn run<L: Link>(
                 {
                     ever = true;
                     *lock(uplink) = Some(conn.sink);
-                    let _ = pump(display, &mut *conn.source, stop, wake);
+                    if let Err(e) = pump(display, &mut *conn.source, stop, wake) {
+                        // The same failure at every reconnect is said once.
+                        let said = e.to_string();
+                        if e.kind() != io::ErrorKind::UnexpectedEof
+                            && last_error.as_deref() != Some(&said)
+                        {
+                            eprintln!("origami-gui: display: {said}");
+                        }
+                        last_error = Some(said);
+                    }
                     *lock(uplink) = None;
                     display.detach();
                     wake();
@@ -555,6 +645,223 @@ mod tests {
         ];
         let _ = run_pump(&d, steps);
         assert!(d.heads()[0].active);
+    }
+
+    /// An importer that imports nothing real: it records what it was asked.
+    struct FakeImporter {
+        accepts: Result<(), String>,
+        import: Result<(), String>,
+        wrap: bool,
+        imported: Mutex<Vec<(u32, u32, u64)>>,
+    }
+
+    struct Held;
+
+    impl crate::core::GpuMemory for Held {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    impl super::super::import::Importer for FakeImporter {
+        fn caps(&self) -> u32 {
+            CAP_VULKAN
+        }
+        fn device_uuid(&self) -> [u8; 16] {
+            [7; 16]
+        }
+        fn export_uuid(&self) -> Option<[u8; 16]> {
+            Some([7; 16])
+        }
+        fn accepts(&self, device: &[u8; 16], driver: &[u8; 16]) -> Result<(), String> {
+            assert_eq!((device, driver), (&[7; 16], &[8; 16]));
+            self.accepts.clone()
+        }
+        fn import(
+            &self,
+            r: &Region,
+            _handle: Handle,
+        ) -> io::Result<Arc<dyn crate::core::GpuMemory>> {
+            lock(&self.imported).push((r.id, r.memory_type, r.alloc_size));
+            self.import
+                .clone()
+                .map(|_| Arc::new(Held) as Arc<dyn crate::core::GpuMemory>)
+                .map_err(io::Error::other)
+        }
+        fn wrap(
+            &self,
+            _r: &Region,
+            _m: &Arc<dyn Memory>,
+        ) -> Option<Arc<dyn crate::core::GpuMemory>> {
+            self.wrap
+                .then(|| Arc::new(Held) as Arc<dyn crate::core::GpuMemory>)
+        }
+        fn name(&self) -> &'static str {
+            "fake import"
+        }
+    }
+
+    fn importer(
+        accepts: Result<(), String>,
+        import: Result<(), String>,
+        wrap: bool,
+    ) -> Arc<FakeImporter> {
+        Arc::new(FakeImporter {
+            accepts,
+            import,
+            wrap,
+            imported: Mutex::new(Vec::new()),
+        })
+    }
+
+    /// A WELCOME for the GPU backend, naming the adapter and driver the
+    /// fake importer expects.
+    fn gpu_welcome() -> Vec<u8> {
+        let mut b = welcome(BACKEND_VK_FD, 3);
+        b[24..40].copy_from_slice(&[7; 16]);
+        b[40..56].copy_from_slice(&[8; 16]);
+        b
+    }
+
+    /// A REGION of exported GPU memory: Vulkan's memory type and allocation
+    /// size ride in it.
+    fn gpu_region(id: u32, size: u64) -> Vec<u8> {
+        let mut b = region(id, BACKEND_VK_FD, size);
+        put32(&mut b, 20, 5);
+        b[32..40].copy_from_slice(&(size + 4096).to_le_bytes());
+        b
+    }
+
+    #[test]
+    fn exported_gpu_memory_is_imported_and_the_head_is_named_not_copied() {
+        let m = machine(16, 8);
+        let d = Display::default();
+        let fake = importer(Ok(()), Ok(()), false);
+        d.set_importer(fake.clone());
+        // The handle that comes with the region is whatever the OS passed; the
+        // plane heap stands in for it, and is not mapped.
+        let steps = vec![
+            Step::Data(gpu_welcome(), mem(&m.block.mem)),
+            Step::Data(gpu_region(1, 1 << 18), mem(&m.plane)),
+        ];
+        let _ = run_pump(&d, steps);
+        assert_eq!(*lock(&fake.imported), vec![(1, 5, (1 << 18) + 4096)]);
+        assert_eq!(d.backend().as_deref(), Some("fake import"));
+        assert!(d.heads()[0].active);
+        let mut px = Vec::new();
+        match d.take(0, &mut px).unwrap() {
+            Taken::Imported(f) => assert_eq!(f.update.runs, vec![(0, 8)]),
+            other => panic!("{other:?}"),
+        }
+        assert!(px.is_empty());
+    }
+
+    #[test]
+    fn gpu_memory_that_cannot_be_imported_is_an_error_and_never_a_picture() {
+        let m = machine(16, 8);
+        let session = |gpu_region: Vec<u8>| {
+            vec![
+                Step::Data(gpu_welcome(), mem(&m.block.mem)),
+                Step::Data(gpu_region, mem(&m.plane)),
+            ]
+        };
+        // No importer at all.
+        assert!(err_of(session(gpu_region(1, 1 << 18))).contains("cannot import"));
+        // Another adapter or driver.
+        let d = Display::default();
+        d.set_importer(importer(
+            Err("QEMU exported on adapter X".into()),
+            Ok(()),
+            false,
+        ));
+        let e = run_pump(&d, session(gpu_region(1, 1 << 18))).unwrap_err();
+        assert!(e.to_string().contains("adapter X"), "{e}");
+        assert!(!d.is_attached(), "nothing was shown");
+        // The driver refuses the import.
+        let d = Display::default();
+        d.set_importer(importer(
+            Ok(()),
+            Err("vkAllocateMemory failed".into()),
+            false,
+        ));
+        let e = run_pump(&d, session(gpu_region(1, 1 << 18))).unwrap_err();
+        assert!(e.to_string().contains("cannot import region 1"), "{e}");
+        assert!(
+            !d.heads()[0].active,
+            "a region that was not imported draws nothing"
+        );
+        // A region smaller than its allocation.
+        let d = Display::default();
+        d.set_importer(importer(Ok(()), Ok(()), false));
+        let mut r = gpu_region(1, 1 << 18);
+        r[32..40].copy_from_slice(&(1u64 << 10).to_le_bytes());
+        assert!(run_pump(&d, session(r))
+            .unwrap_err()
+            .to_string()
+            .contains("allocates"));
+    }
+
+    #[test]
+    fn shared_memory_the_gpu_can_wrap_is_wrapped_and_otherwise_copied() {
+        let m = machine(16, 8);
+        for (wrap, want_import) in [(true, true), (false, false)] {
+            let d = Display::default();
+            d.set_importer(importer(Ok(()), Ok(()), wrap));
+            let _ = run_pump(&d, session(&m));
+            let mut px = Vec::new();
+            match d.take(0, &mut px).unwrap() {
+                Taken::Imported(_) => assert!(want_import && px.is_empty()),
+                Taken::Frame(_) => assert!(!want_import && !px.is_empty()),
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_cursor_image_region_is_never_wrapped_for_the_gpu() {
+        let m = machine(16, 8);
+        let d = Display::default();
+        d.set_importer(importer(Ok(()), Ok(()), true));
+        let mut cursor = region(2, BACKEND_SHM_FD, 1 << 16);
+        put32(&mut cursor, 12, KIND_CURSOR_IMAGE);
+        let mut steps = session(&m);
+        steps.push(Step::Data(cursor, mem(&Heap::new(1 << 16))));
+        let _ = run_pump(&d, steps);
+        assert_eq!(
+            d.backend().as_deref(),
+            Some("fake import"),
+            "the plane's, not the cursor's"
+        );
+        let mut px = Vec::new();
+        assert!(matches!(d.take(0, &mut px).unwrap(), Taken::Imported(_)));
+    }
+
+    #[test]
+    fn the_hello_says_what_the_importer_can_do() {
+        let m = machine(16, 8);
+        let first = Capture::default();
+        let mut link = Scripted {
+            conns: VecDeque::from([(session(&m), first.clone())]),
+            lives_for: 1,
+            refuse: 0,
+            connects: 0,
+        };
+        let d = Display::default();
+        d.set_importer(importer(Ok(()), Ok(()), false));
+        run(
+            &mut link,
+            &d,
+            &new_uplink(),
+            &AtomicBool::new(false),
+            quick(),
+            &|| {},
+        );
+        let sent = lock(&first.0).clone();
+        assert_eq!(
+            u32::from_le_bytes(sent[12..16].try_into().unwrap()),
+            CAP_VULKAN | CAP_WAKE
+        );
+        assert_eq!(&sent[24..40], &[7; 16]);
     }
 
     #[test]

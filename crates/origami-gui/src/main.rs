@@ -6,6 +6,8 @@ mod gfx;
 mod keymap;
 mod qemu;
 mod ui;
+#[cfg(test)]
+mod zero_copy_tests;
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -27,13 +29,20 @@ options:
   --stats-file PATH     write counters as JSON to PATH twice a second
   --popout-cycles N     pop the first machine out and dock it N times, then quit
                         (a test hook)
-  -h, --help            this text";
+  --gpu-info            print the adapter, whether it can import QEMU's memory
+                        without a copy, and the `--display-gpu` value that
+                        asks QEMU to export on it, then quit
+  -h, --help            this text
+
+The environment variable ORIGAMI_GUI_ZERO_COPY=0 keeps the GPU from importing
+memory, so the changed lines are copied instead.";
 
 struct Args {
     dirs: Vec<PathBuf>,
     stop_on_exit: bool,
     stats_file: Option<PathBuf>,
     popout_cycles: u32,
+    gpu_info: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -42,6 +51,7 @@ fn parse_args() -> Result<Args, String> {
         stop_on_exit: false,
         stats_file: None,
         popout_cycles: 0,
+        gpu_info: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -51,6 +61,7 @@ fn parse_args() -> Result<Args, String> {
                 std::process::exit(0);
             }
             "--stop-on-exit" => a.stop_on_exit = true,
+            "--gpu-info" => a.gpu_info = true,
             "--stats-file" => {
                 a.stats_file = Some(it.next().ok_or("--stats-file needs a path")?.into())
             }
@@ -64,7 +75,7 @@ fn parse_args() -> Result<Args, String> {
             _ => a.dirs.push(arg.into()),
         }
     }
-    if a.dirs.is_empty() {
+    if a.dirs.is_empty() && !a.gpu_info {
         return Err(USAGE.into());
     }
     Ok(a)
@@ -81,10 +92,24 @@ fn real_main() -> Result<(), String> {
     let args = parse_args()?;
     let gpu = gfx::Gpu::new()?;
     eprintln!("origami-gui: GPU {}", gpu.describe());
+    if args.gpu_info {
+        println!("adapter: {}", gpu.describe());
+        println!("zero copy: {}", gpu.import.describe());
+        if let Some(uuid) = gpu.import.export_uuid() {
+            println!("display-gpu: {uuid}");
+        }
+        return Ok(());
+    }
 
     let runner = qemu::QemuEngine::locate_runner().map_err(|e| e.to_string())?;
     let engine = Arc::new(qemu::QemuEngine::new(runner));
     eprintln!("origami-gui: engine {}", engine.id());
+    // Before any machine starts: with an importer the machine is started to
+    // export its scanout memory on this adapter, and its regions are imported.
+    eprintln!("origami-gui: zero copy: {}", gpu.import.describe());
+    if let Some(importer) = gfx::GpuImporter::new(&gpu) {
+        engine.set_importer(importer);
+    }
     let mut machines = Vec::new();
     for dir in &args.dirs {
         let id = engine
@@ -125,9 +150,12 @@ fn real_main() -> Result<(), String> {
                 .filter_map(|id| {
                     engine.stats(*id).map(|s| {
                         format!(
-                            "{{\"frames\":{},\"rows\":{},\"running\":{},\"head\":{},\"cursor\":{}}}",
+                            "{{\"frames\":{},\"rows\":{},\"imported_rows\":{},\"copied_bytes\":{},\"backend\":{:?},\"running\":{},\"head\":{},\"cursor\":{}}}",
                             s.frames,
                             s.lines,
+                            s.imported_lines,
+                            s.copied_bytes,
+                            engine.display_backend(*id).unwrap_or_default(),
                             engine.is_running(*id),
                             engine.heads(*id).ok().and_then(|h| h.first().copied()).map_or(
                                 "null".to_string(),
@@ -145,8 +173,9 @@ fn real_main() -> Result<(), String> {
                 })
                 .collect();
             let text = format!(
-                "{{\"wakes\":{},\"frames_taken\":{},\"rows_uploaded\":{},\"bytes_uploaded\":{},\"before_renders\":{},\"passes\":{},\"popouts\":{},\"docks\":{},\"keys_sent\":{},\"moves_sent\":{},\"input_errors\":{},\"gpu_errors\":{},\"engine\":[{}]}}\n",
-                g(&c.wakes), g(&c.frames_taken), g(&c.rows_uploaded), g(&c.bytes_uploaded), g(&c.before_renders),
+                "{{\"wakes\":{},\"frames_taken\":{},\"rows_uploaded\":{},\"bytes_uploaded\":{},\"frames_imported\":{},\"rows_imported\":{},\"zero_copy\":{:?},\"before_renders\":{},\"passes\":{},\"popouts\":{},\"docks\":{},\"keys_sent\":{},\"moves_sent\":{},\"input_errors\":{},\"gpu_errors\":{},\"engine\":[{}]}}\n",
+                g(&c.wakes), g(&c.frames_taken), g(&c.rows_uploaded), g(&c.bytes_uploaded),
+                g(&c.frames_imported), g(&c.rows_imported), gpu.import.describe(), g(&c.before_renders),
                 g(&c.passes), g(&c.popouts), g(&c.docks), g(&c.keys_sent), g(&c.moves_sent), g(&c.input_errors),
                 gpu.errors.count(), per.join(",")
             );

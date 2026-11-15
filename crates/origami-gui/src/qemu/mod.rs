@@ -3,12 +3,16 @@
 //! version 3, the generic xrgb path), and input goes back as binary messages
 //! on the same socket.
 //!
-//! Both transports are v1 and sit behind boundaries meant to be replaced: the
-//! frame source ([`display::Display`], behind [`Engine::take_frame`]) and the
-//! input sink ([`crate::core::InputSink`]).
+//! Where the GUI's GPU can import memory ([`Importer`]), QEMU is asked to
+//! allocate scanout memory the GPU imports and the UI draws from it in place;
+//! otherwise regions are plain shared memory and the changed lines are copied.
+//! Both sit behind boundaries meant to be replaced: the frame source
+//! ([`display::Display`], behind [`Engine::take_frame`]) and the input sink
+//! ([`crate::core::InputSink`]).
 
 mod control;
 mod display;
+mod import;
 mod input;
 mod proto;
 mod region;
@@ -16,7 +20,7 @@ mod socket_input;
 mod transport;
 
 use crate::core::{
-    CursorInfo, Engine, FrameUpdate, HeadInfo, InputEvent, InputSink, MachineId, Result, Wake,
+    CursorInfo, Engine, Frame, HeadInfo, InputEvent, InputSink, MachineId, Result, Wake,
 };
 use display::{Display, Taken};
 use origami::{control as machine_control, runtime};
@@ -28,12 +32,22 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 pub use display::Stats;
+pub use import::Importer;
+pub use proto::Region;
+#[cfg(target_os = "macos")]
+pub use proto::CAP_METAL;
+#[cfg(any(target_os = "linux", windows))]
+pub use proto::CAP_VULKAN;
+#[cfg(any(target_os = "linux", windows))]
+pub use proto::REGION_DEDICATED;
+pub use region::{Handle, Memory};
 
 pub struct QemuEngine {
     /// The `origami` executable that runs machines in the background.
     runner: PathBuf,
     shared: Arc<Shared>,
     next: AtomicU32,
+    importer: Mutex<Option<Arc<dyn Importer>>>,
 }
 
 struct Shared {
@@ -77,7 +91,15 @@ impl QemuEngine {
                 wake: Mutex::new(None),
             }),
             next: AtomicU32::new(1),
+            importer: Mutex::new(None),
         }
+    }
+
+    /// Take regions into the GPU with `importer`, for machines started after
+    /// this. Where it imports exported memory, QEMU is told to export on its
+    /// adapter.
+    pub fn set_importer(&self, importer: Arc<dyn Importer>) {
+        *lock(&self.importer) = Some(importer);
     }
 
     /// The `origami` beside this executable, or the one `ORIGAMI_BIN` names.
@@ -127,18 +149,38 @@ impl Engine for QemuEngine {
         if let Some(m) = lock(&self.shared.machines).values().find(|m| m.dir == dir) {
             return Ok(m.id);
         }
+        let importer = lock(&self.importer).clone();
         if machine_control::running(&dir)
             .map_err(|e| e.to_string())?
             .is_none()
         {
-            runtime::start_background_as(&self.runner, &dir, runtime::Display::Shm, &[])
-                .map_err(|e| e.to_string())?;
+            let gpu = importer
+                .as_ref()
+                .and_then(|i| i.export_uuid())
+                .map(runtime::GpuUuid);
+            let start = |gpu| {
+                runtime::start_background_as(&self.runner, &dir, runtime::Display::Shm { gpu }, &[])
+                    .map_err(|e| e.to_string())
+            };
+            if let Err(e) = start(gpu) {
+                // A QEMU that predates the GPU export does not know the
+                // property and refuses to start; ask for plain shared memory.
+                if gpu.is_none() || !e.contains("display-shm-gpu") {
+                    return Err(e.into());
+                }
+                eprintln!("origami-gui: this QEMU cannot export GPU memory; copying instead");
+                start(None)?;
+            }
         }
         let id = MachineId(self.next.fetch_add(1, Ordering::Relaxed));
+        let display = Display::default();
+        if let Some(importer) = importer {
+            display.set_importer(importer);
+        }
         let machine = Arc::new(Machine {
             id,
             dir,
-            display: Display::default(),
+            display,
             uplink: Arc::new(Mutex::new(None)),
             stop: AtomicBool::new(false),
             gone: AtomicBool::new(false),
@@ -198,7 +240,7 @@ impl Engine for QemuEngine {
         id: MachineId,
         head: usize,
         pixels: &mut Vec<u8>,
-    ) -> Result<Option<FrameUpdate>> {
+    ) -> Result<Option<Frame>> {
         let m = self.machine(id)?;
         let taken = m.display.take(head, pixels)?;
         match taken {
@@ -217,9 +259,14 @@ impl Engine for QemuEngine {
             _ => {}
         }
         Ok(match taken {
-            Taken::Frame(update) => Some(update),
+            Taken::Frame(update) => Some(Frame::Rows(update)),
+            Taken::Imported(imported) => Some(Frame::Imported(imported)),
             _ => None,
         })
+    }
+
+    fn display_backend(&self, id: MachineId) -> Option<String> {
+        self.machine(id).ok()?.display.backend()
     }
 
     fn cursor(&self, id: MachineId, head: usize, known_gen: u32) -> Option<CursorInfo> {

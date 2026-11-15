@@ -1,5 +1,5 @@
-use super::Gpu;
-use crate::core::FrameUpdate;
+use super::{Compose, Gpu};
+use crate::core::{FrameUpdate, ImportedUpdate};
 
 /// A head's picture on the GPU. It belongs to the device, not to a window,
 /// so a machine can move between windows without copying anything.
@@ -11,8 +11,11 @@ pub struct HeadTexture {
     pub seq: u64,
     /// Moves when `texture` is replaced.
     pub generation: u64,
+    /// Rows copied from the CPU with `write_texture`, and their bytes.
     pub rows_uploaded: u64,
     pub bytes_uploaded: u64,
+    /// Rows the GPU drew from memory it imported, which no CPU copy touched.
+    pub rows_imported: u64,
 }
 
 fn create(gpu: &Gpu, width: u32, height: u32) -> wgpu::Texture {
@@ -27,13 +30,67 @@ fn create(gpu: &Gpu, width: u32, height: u32) -> wgpu::Texture {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         // QEMU's pixels are blue, green, red, unused: sampled as they are.
-        format: wgpu::TextureFormat::Bgra8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        format: HeadTexture::FORMAT,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
+            // The tests read the picture back.
+            | if cfg!(test) {
+                wgpu::TextureUsages::COPY_SRC
+            } else {
+                wgpu::TextureUsages::empty()
+            },
         view_formats: &[],
     })
 }
 
 impl HeadTexture {
+    pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8Unorm;
+
+    /// This head's texture, or a new one when `current` is not of the size
+    /// the update says.
+    fn fit(gpu: &Gpu, current: Option<HeadTexture>, width: u32, height: u32) -> HeadTexture {
+        match current {
+            Some(h) if (h.width, h.height) == (width, height) => h,
+            old => HeadTexture {
+                texture: create(gpu, width, height),
+                width,
+                height,
+                seq: 0,
+                generation: old.as_ref().map_or(1, |o| o.generation + 1),
+                rows_uploaded: old.as_ref().map_or(0, |o| o.rows_uploaded),
+                bytes_uploaded: old.as_ref().map_or(0, |o| o.bytes_uploaded),
+                rows_imported: old.as_ref().map_or(0, |o| o.rows_imported),
+            },
+        }
+    }
+
+    /// Apply an update whose rows are in memory the GPU has: draw them from
+    /// there into the texture. No pixel passes through the CPU. A frame that
+    /// names memory this device cannot read leaves the texture as it was.
+    pub fn apply_imported(
+        gpu: &Gpu,
+        compose: &Compose,
+        current: Option<HeadTexture>,
+        frame: &ImportedUpdate,
+    ) -> HeadTexture {
+        let u = &frame.update;
+        let mut h = Self::fit(gpu, current, u.width, u.height);
+        if let Some(rows) = compose.draw(gpu, &h.texture, frame) {
+            h.rows_imported += u64::from(rows);
+            h.seq = u.seq;
+        } else {
+            static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!(
+                    "origami-gui: cannot draw a {}x{} plane (stride {}, offset {}) from its imported memory",
+                    u.width, u.height, frame.stride, frame.offset
+                );
+            }
+        }
+        h
+    }
+
     /// Apply an update to `current` (or make the first texture). Only the
     /// rows `update` names are written, unless the size changed and the
     /// texture is replaced.
@@ -43,18 +100,7 @@ impl HeadTexture {
         update: &FrameUpdate,
         pixels: &[u8],
     ) -> HeadTexture {
-        let mut h = match current {
-            Some(h) if (h.width, h.height) == (update.width, update.height) => h,
-            old => HeadTexture {
-                texture: create(gpu, update.width, update.height),
-                width: update.width,
-                height: update.height,
-                seq: 0,
-                generation: old.as_ref().map_or(1, |o| o.generation + 1),
-                rows_uploaded: old.as_ref().map_or(0, |o| o.rows_uploaded),
-                bytes_uploaded: old.as_ref().map_or(0, |o| o.bytes_uploaded),
-            },
-        };
+        let mut h = Self::fit(gpu, current, update.width, update.height);
         let mut at = 0usize;
         for &(y0, y1) in &update.runs {
             let rows = y1 - y0;

@@ -1,3 +1,4 @@
+use super::import::ImportSupport;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -31,12 +32,30 @@ pub struct Gpu {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub errors: Arc<GpuErrors>,
+    /// What the device can import from another process, or why not.
+    pub import: Arc<ImportSupport>,
 }
 
+/// Set to `0` to keep the device from importing memory, so a machine's
+/// pictures take the copying path (for comparing the two).
+pub const ZERO_COPY_ENV: &str = "ORIGAMI_GUI_ZERO_COPY";
+
 impl Gpu {
+    /// A device on Vulkan where there is one (the same API on Linux and
+    /// Windows, so one import path serves both), else on whatever wgpu
+    /// finds. `WGPU_BACKEND` overrides the choice.
     pub fn new() -> Result<Gpu, String> {
+        if wgpu::Backends::from_env().is_none() && cfg!(any(target_os = "linux", windows)) {
+            if let Ok(gpu) = Gpu::open(wgpu::Backends::VULKAN) {
+                return Ok(gpu);
+            }
+        }
+        Gpu::open(wgpu::Backends::from_env().unwrap_or_default())
+    }
+
+    fn open(backends: wgpu::Backends) -> Result<Gpu, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::from_env().unwrap_or_default(),
+            backends,
             flags: wgpu::InstanceFlags::from_build_config().with_env(),
             backend_options: wgpu::BackendOptions::from_env_or_default(),
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
@@ -51,15 +70,16 @@ impl Gpu {
         .map_err(|e| format!("no GPU adapter: {e}"))?;
         // The device Slint's own setup would make: everything the adapter
         // offers, and limits big enough for a swapchain-sized image.
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        let descriptor = wgpu::DeviceDescriptor {
             label: Some("origami-gui"),
             required_features: adapter.features() - wgpu::Features::all_experimental_mask(),
             required_limits: wgpu::Limits::default().using_resolution(adapter.limits()),
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::MemoryUsage,
             trace: wgpu::Trace::default(),
-        }))
-        .map_err(|e| format!("cannot open the GPU: {e}"))?;
+        };
+        let wanted = std::env::var(ZERO_COPY_ENV).map_or(true, |v| v != "0");
+        let (device, queue, import) = ImportSupport::open_device(&adapter, &descriptor, wanted)?;
         let errors = Arc::new(GpuErrors::default());
         {
             let errors = errors.clone();
@@ -81,6 +101,7 @@ impl Gpu {
             device,
             queue,
             errors,
+            import: Arc::new(import),
         })
     }
 

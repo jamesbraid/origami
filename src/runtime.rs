@@ -22,8 +22,38 @@ pub enum Display {
     /// No window and no VNC: the machine publishes its graphic heads through
     /// shared memory and a local socket named by [`shm_name`], for a GUI that
     /// draws them.
-    Shm,
+    Shm {
+        /// The Vulkan `deviceUUID` of the viewer's adapter, so QEMU exports
+        /// scanout memory a viewer on it imports without a copy. None asks
+        /// for plain shared memory.
+        gpu: Option<GpuUuid>,
+    },
     None,
+}
+
+/// A Vulkan `deviceUUID`: 16 bytes, written as 32 hex digits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GpuUuid(pub [u8; 16]);
+
+impl GpuUuid {
+    pub fn hex(&self) -> String {
+        self.0.iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
+impl std::str::FromStr for GpuUuid {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, String> {
+        if s.len() != 32 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(format!("{s:?} is not 32 hex digits"));
+        }
+        let mut uuid = [0u8; 16];
+        for (i, byte) in uuid.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).map_err(|e| e.to_string())?;
+        }
+        Ok(GpuUuid(uuid))
+    }
 }
 
 /// The name a machine run with [`Display::Shm`] gives its display
@@ -447,12 +477,15 @@ pub fn arguments_with(
     if offering.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");
     }
-    if display == Display::Shm {
+    if let Display::Shm { gpu } = display {
         machine.push_str(&format!(
             ",display-shm={},display-shm-socket={}",
             shm_name(dir),
             qemu_path_option(&display_socket(dir))
         ));
+        if let Some(gpu) = gpu {
+            machine.push_str(&format!(",display-shm-gpu={}", gpu.hex()));
+        }
     }
     for property in crate::graphics::machine_properties(machines, &offering.topology, &file.pipe) {
         machine.push_str(&format!(",{}={}", property.name, property.value));
@@ -551,7 +584,7 @@ pub fn arguments_with(
                 args.extend(["-display".into(), format!("vnc=127.0.0.1:{}", port - 5900)])
             }
         }
-        Display::Shm | Display::None => args.extend(["-display".into(), "none".into()]),
+        Display::Shm { .. } | Display::None => args.extend(["-display".into(), "none".into()]),
     }
     args.extend(["-audio".into(), "none".into()]);
     for global in &inputs.globals {
@@ -748,7 +781,7 @@ pub fn start_background_as(
     let display_name = match display {
         Display::Local => "local",
         Display::Vnc { .. } => "vnc",
-        Display::Shm => "shm",
+        Display::Shm { .. } => "shm",
         Display::None => "none",
     };
     let mut child = Command::new(exe);
@@ -759,6 +792,9 @@ pub fn start_background_as(
         .arg(display_name);
     if let Display::Vnc { port } = display {
         child.arg("--vnc-port").arg(port.to_string());
+    }
+    if let Display::Shm { gpu: Some(gpu) } = display {
+        child.arg("--display-gpu").arg(gpu.hex());
     }
     for arg in once {
         child.arg(format!("--qemu-arg={arg}"));
@@ -1497,7 +1533,8 @@ mod tests {
         let machines = crate::test_machines();
         let offer = preset(&machines, "octane2-vpro").unwrap();
         let dir = Path::new("/machines/one");
-        let args = arguments(&machines, dir, &machine(offer), offer, Display::Shm).unwrap();
+        let shm = Display::Shm { gpu: None };
+        let args = arguments(&machines, dir, &machine(offer), offer, shm).unwrap();
         let option = args[args.iter().position(|a| a == "-M").unwrap() + 1].clone();
         let name = shm_name(dir);
         assert!(
@@ -1511,9 +1548,43 @@ mod tests {
         assert!(args.windows(2).any(|pair| pair == ["-display", "none"]));
         assert!(name.starts_with("origami-") && name.len() == "origami-".len() + 12);
         assert_ne!(name, shm_name(Path::new("/machines/two")));
+        assert!(!option.contains("display-shm-gpu"), "{option}");
         // Any other display leaves the property off.
         let args = arguments(&machines, dir, &machine(offer), offer, Display::None).unwrap();
         assert!(!args.iter().any(|a| a.contains("display-shm")));
+    }
+
+    #[test]
+    fn the_shm_display_names_the_viewers_gpu_when_it_has_one() {
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "octane2-vpro").unwrap();
+        let uuid: GpuUuid = "00112233445566778899aabbccddeeff".parse().unwrap();
+        assert_eq!(uuid.0[0], 0x00);
+        assert_eq!(uuid.0[15], 0xff);
+        assert_eq!(uuid.hex(), "00112233445566778899aabbccddeeff");
+        let shm = Display::Shm { gpu: Some(uuid) };
+        let args = arguments(
+            &machines,
+            Path::new("/machines/one"),
+            &machine(offer),
+            offer,
+            shm,
+        )
+        .unwrap();
+        let option = args[args.iter().position(|a| a == "-M").unwrap() + 1].clone();
+        assert!(
+            option.ends_with(",display-shm-gpu=00112233445566778899aabbccddeeff")
+                || option.contains(",display-shm-gpu=00112233445566778899aabbccddeeff,"),
+            "{option}"
+        );
+        for bad in [
+            "",
+            "00112233",
+            "zz112233445566778899aabbccddeeff0",
+            "00112233445566778899aabbccddeefg",
+        ] {
+            assert!(bad.parse::<GpuUuid>().is_err(), "{bad}");
+        }
     }
 
     #[test]

@@ -3478,9 +3478,12 @@ dependencies = [
 name = "origami-gui"
 version = "0.0.0"
 dependencies = [
+ "ash",
+ "block2 0.6.2",
  "bytemuck",
  "libc",
  "memmap2",
+ "objc2-metal 0.3.2",
  "origami",
  "pollster",
  "serde_json",

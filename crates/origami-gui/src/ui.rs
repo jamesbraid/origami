@@ -16,8 +16,10 @@ use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, Model, VecModel};
 
-use crate::core::{CursorInfo, Engine, InputEvent, MachineId, PointerButton};
-use crate::gfx::{cursor_texture, Blit, CursorDraw, Gpu, HeadTexture, Presenter, ScaleMode};
+use crate::core::{CursorInfo, Engine, Frame, InputEvent, MachineId, PointerButton};
+use crate::gfx::{
+    cursor_texture, Blit, Compose, CursorDraw, Gpu, HeadTexture, Presenter, ScaleMode,
+};
 use crate::keymap;
 use crate::{AboutWindow, Shell, TabInfo};
 
@@ -28,6 +30,9 @@ pub struct Counters {
     pub frames_taken: AtomicU64,
     pub rows_uploaded: AtomicU64,
     pub bytes_uploaded: AtomicU64,
+    /// Frames and rows drawn from memory the GPU imported: no CPU copy.
+    pub frames_imported: AtomicU64,
+    pub rows_imported: AtomicU64,
     pub before_renders: AtomicU64,
     pub passes: AtomicU64,
     pub popouts: AtomicU64,
@@ -61,6 +66,7 @@ pub struct Ui {
     engine: Arc<dyn Engine>,
     gpu: Gpu,
     blit: Blit,
+    compose: Compose,
     pub counters: Arc<Counters>,
     machines: Vec<Machine>,
     main: Shell,
@@ -135,6 +141,7 @@ pub fn install(
     let ui = Ui {
         engine,
         blit: Blit::new(&gpu),
+        compose: Compose::new(&gpu),
         gpu,
         counters: counters.clone(),
         machines: machines
@@ -494,16 +501,27 @@ impl Ui {
             }
             let mut pixels = std::mem::take(&mut m.pixels);
             match self.engine.take_frame(id, hi, &mut pixels) {
-                Ok(Some(update)) => {
+                Ok(Some(frame)) => {
                     let c = &self.counters;
-                    c.frames_taken.fetch_add(1, Ordering::Relaxed);
-                    c.rows_uploaded
-                        .fetch_add(u64::from(update.lines()), Ordering::Relaxed);
-                    c.bytes_uploaded
-                        .fetch_add(pixels.len() as u64, Ordering::Relaxed);
                     let old = m.heads[hi].take();
                     let before = old.as_ref().map(|h| h.generation);
-                    let new = HeadTexture::apply(&self.gpu, old, &update, &pixels);
+                    let new = match frame {
+                        Frame::Rows(update) => {
+                            c.frames_taken.fetch_add(1, Ordering::Relaxed);
+                            c.rows_uploaded
+                                .fetch_add(u64::from(update.lines()), Ordering::Relaxed);
+                            c.bytes_uploaded
+                                .fetch_add(pixels.len() as u64, Ordering::Relaxed);
+                            HeadTexture::apply(&self.gpu, old, &update, &pixels)
+                        }
+                        Frame::Imported(imported) => {
+                            c.frames_taken.fetch_add(1, Ordering::Relaxed);
+                            c.frames_imported.fetch_add(1, Ordering::Relaxed);
+                            c.rows_imported
+                                .fetch_add(u64::from(imported.update.lines()), Ordering::Relaxed);
+                            HeadTexture::apply_imported(&self.gpu, &self.compose, old, &imported)
+                        }
+                    };
                     changed_sel |= before != Some(new.generation);
                     m.heads[hi] = Some(new);
                 }

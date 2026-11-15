@@ -1,4 +1,5 @@
 use super::InputEvent;
+use std::any::Any;
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
@@ -43,6 +44,48 @@ impl FrameUpdate {
     pub fn lines(&self) -> u32 {
         self.runs.iter().map(|(a, b)| b - a).sum()
     }
+}
+
+/// Memory the GPU reads in place: an engine imported the machine's scanout
+/// memory into the device the UI draws with, and what it hands out names it.
+/// The UI downcasts it to the type its own GPU layer imports; dropping the
+/// last handle releases the GPU's hold on the memory.
+pub trait GpuMemory: Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+}
+
+/// The changed rows of a head, read where the machine wrote them. `update`
+/// names the rows and carries no pixels; the UI draws them from `memory`.
+#[derive(Clone)]
+pub struct ImportedUpdate {
+    pub update: FrameUpdate,
+    pub memory: Arc<dyn GpuMemory>,
+    /// Where row 0 of the plane starts in `memory`, in bytes.
+    pub offset: u64,
+    /// Bytes from one row of the plane to the next.
+    pub stride: u32,
+    /// Row 0 of the plane is the bottom line of the picture.
+    pub bottom_up: bool,
+}
+
+impl std::fmt::Debug for ImportedUpdate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImportedUpdate")
+            .field("update", &self.update)
+            .field("offset", &self.offset)
+            .field("stride", &self.stride)
+            .field("bottom_up", &self.bottom_up)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What [`Engine::take_frame`] hands out.
+#[derive(Clone)]
+pub enum Frame {
+    /// The rows were copied out into the caller's pixel buffer.
+    Rows(FrameUpdate),
+    /// The rows are in memory the GPU already has; nothing was copied.
+    Imported(ImportedUpdate),
 }
 
 /// The guest's cursor on one head, for a viewer that shows it as the host
@@ -94,15 +137,24 @@ pub trait Engine: Send + Sync {
     /// The machine's heads in order, with their sizes and sequence numbers.
     fn heads(&self, machine: MachineId) -> Result<Vec<HeadInfo>>;
 
-    /// The rows of `head` that changed since the last call, copied into
-    /// `pixels` (cleared first), or `None` when nothing did. One consumer
-    /// per head: a second caller would see only what the first left.
+    /// The rows of `head` that changed since the last call, or `None` when
+    /// nothing did. When the engine has the head's memory on the GPU the rows
+    /// are named and not copied ([`Frame::Imported`]); otherwise they are
+    /// copied into `pixels` (cleared first). One consumer per head: a second
+    /// caller would see only what the first left.
     fn take_frame(
         &self,
         machine: MachineId,
         head: usize,
         pixels: &mut Vec<u8>,
-    ) -> Result<Option<FrameUpdate>>;
+    ) -> Result<Option<Frame>>;
+
+    /// How the machine's pictures reach the GPU, in a few words for a debug
+    /// display ("vulkan import", "shared memory copy"), or None before it
+    /// has any.
+    fn display_backend(&self, _machine: MachineId) -> Option<String> {
+        None
+    }
 
     /// Tell the engine whether anyone is looking, so it can skip work for a
     /// machine nobody sees. Changes keep accumulating while invisible; the

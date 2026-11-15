@@ -15,6 +15,13 @@
 //!   `octane-games-be780408.chd` (SHA-256 below), which the test boots with an
 //!   overlay and so leaves a `.diff.chd` beside, removed at the start and end
 //!
+//! The machines are started to export their scanout memory on the GUI's own
+//! adapter (`origami-gui --gpu-info` names it), so the GUI imports it and draws
+//! it without copying: the tests check the counters for that. With
+//! `ORIGAMI_GUI_ZERO_COPY=0` they run the copying path instead, and a device
+//! that cannot import (no external-memory extension) falls back to it by
+//! itself.
+//!
 //! Run it with `cargo test -p origami-gui --test xvfb -- --ignored --nocapture`.
 
 use std::path::{Path, PathBuf};
@@ -166,6 +173,9 @@ struct Rig {
     out: PathBuf,
     work: PathBuf,
     display: String,
+    /// The adapter's `--display-gpu` value when the GUI can import QEMU's
+    /// memory, so every machine here is started to export on it.
+    gpu: Option<String>,
     _xvfb: Proc,
     _wm: Proc,
 }
@@ -218,9 +228,17 @@ impl Rig {
                 .expect("openbox"),
         );
         std::thread::sleep(Duration::from_secs(1));
+        let gui = PathBuf::from(env!("CARGO_BIN_EXE_origami-gui"));
+        let info = run_ok(Command::new(&gui).arg("--gpu-info"));
+        eprintln!("{info}");
+        let gpu = info
+            .lines()
+            .find_map(|l| l.strip_prefix("display-gpu: "))
+            .map(str::to_string);
         Rig {
             origami: var("ORIGAMI_BIN"),
-            gui: PathBuf::from(env!("CARGO_BIN_EXE_origami-gui")),
+            gui,
+            gpu,
             out,
             work,
             display,
@@ -240,12 +258,22 @@ impl Rig {
         machine
     }
 
+    /// `origami run` options that publish the display and, where the GUI can
+    /// import QEMU's memory, export it on the GUI's adapter.
+    fn display_args(&self) -> Vec<String> {
+        let mut args: Vec<String> = ["--display", "shm", "--background"]
+            .map(String::from)
+            .into();
+        if let Some(gpu) = &self.gpu {
+            args.extend(["--display-gpu".into(), gpu.clone()]);
+        }
+        args
+    }
+
     /// The machine runs apart from every view: start it here, attach below.
     fn run(&self, machine: &Path) -> StopMachine {
         let mut cmd = Command::new(&self.origami);
-        cmd.arg("run")
-            .arg(machine)
-            .args(["--display", "shm", "--background"]);
+        cmd.arg("run").arg(machine).args(self.display_args());
         // Extra QEMU arguments, for tracing, as in
         // ORIGAMI_GUI_TEST_QEMU_ARGS="-d trace:sgi_scanout_frame".
         for a in std::env::var("ORIGAMI_GUI_TEST_QEMU_ARGS")
@@ -274,6 +302,43 @@ impl Rig {
             .spawn()
             .expect("origami-gui");
         (Proc(child), stats, log)
+    }
+}
+
+/// What the counters say about how the picture reached the GPU: with an
+/// import, every line was drawn from QEMU's memory and no pixel was copied or
+/// uploaded by the CPU; without, every line was.
+fn check_copies(stats_file: &Path, imported: bool) {
+    let s = stats(stats_file).expect("stats");
+    let e = &s["engine"][0];
+    eprintln!(
+        "backend {:?}: frames {} imported, rows {} imported / {} uploaded, \
+         {} bytes uploaded, engine copied {} bytes",
+        e["backend"],
+        s["frames_imported"],
+        s["rows_imported"],
+        s["rows_uploaded"],
+        s["bytes_uploaded"],
+        e["copied_bytes"]
+    );
+    if imported {
+        assert!(
+            s["frames_imported"].as_u64() > Some(0),
+            "nothing was imported: {s}"
+        );
+        assert_eq!(s["rows_uploaded"], 0, "rows were uploaded by the CPU: {s}");
+        assert_eq!(
+            s["bytes_uploaded"], 0,
+            "pixels were uploaded by the CPU: {s}"
+        );
+        assert_eq!(e["copied_bytes"], 0, "the engine copied pixels: {s}");
+        assert!(
+            e["backend"].as_str().is_some_and(|b| b.contains("import")),
+            "{s}"
+        );
+    } else {
+        assert_eq!(s["frames_imported"], 0, "{s}");
+        assert!(s["bytes_uploaded"].as_u64() > Some(0), "{s}");
     }
 }
 
@@ -329,13 +394,14 @@ fn an_octane2_prom_in_a_window_a_key_and_a_hundred_pop_outs() {
     );
     assert!(is_grey(pixel(&prom, CONTINUE_BUTTON)));
     assert_eq!(counter(&s1, "gpu_errors"), 0);
+    check_copies(&s1, rig.gpu.is_some());
 
     // 2. Nothing is redrawn while nothing changes.
     let sample = || {
         (
             counter(&s1, "before_renders"),
             counter(&s1, "passes"),
-            counter(&s1, "rows_uploaded"),
+            counter(&s1, "rows_uploaded") + counter(&s1, "rows_imported"),
         )
     };
     let idle0 = sample();
@@ -407,6 +473,7 @@ fn an_octane2_prom_in_a_window_a_key_and_a_hundred_pop_outs() {
         "pointer moves were not sent ({moves0} -> {moves1})"
     );
     assert_eq!(counter(&s1, "input_errors"), 0);
+    check_copies(&s1, rig.gpu.is_some());
     assert_eq!(
         stats(&s1).map(|s| s["engine"][0]["cursor"]["on"] == false),
         Some(true),
@@ -495,11 +562,12 @@ fn an_octane2_prom_in_a_window_a_key_and_a_hundred_pop_outs() {
         },
     );
     let frames_before = counter(&s3, "frames_taken");
-    run_ok(Command::new(&origami).arg("run").arg(&machine).args([
-        "--display",
-        "shm",
-        "--background",
-    ]));
+    run_ok(
+        Command::new(&origami)
+            .arg("run")
+            .arg(&machine)
+            .args(rig.display_args()),
+    );
     wait_for(
         "the view to find the restarted machine",
         Duration::from_secs(120),
@@ -523,6 +591,7 @@ fn an_octane2_prom_in_a_window_a_key_and_a_hundred_pop_outs() {
         counter(&s3, "frames_taken")
     );
     assert_eq!(counter(&s3, "gpu_errors"), 0);
+    check_copies(&s3, rig.gpu.is_some());
     drop(gui3);
     assert!(!std::fs::read_to_string(&log3)
         .unwrap_or_default()
@@ -708,5 +777,6 @@ fn irix_cursor_follows_the_host_pointer() {
     assert!(differing(&before, &after, "1280x1024+320+128") > 20);
     assert_eq!(counter(&s, "input_errors"), 0);
     assert_eq!(counter(&s, "gpu_errors"), 0);
+    check_copies(&s, rig.gpu.is_some());
     assert_eq!(engine_running(&s), Some(true));
 }

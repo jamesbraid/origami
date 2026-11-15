@@ -4,18 +4,20 @@
 //! regions exercise all of it.
 //!
 //! This is the generic xrgb path of protocol version 3: the head's plane 0 is
-//! a x8r8g8b8 frame QEMU has already resolved, and the changed lines are
-//! copied out of the mapped region for the UI to upload. It sits behind
-//! [`Engine::take_frame`] and [`Engine::cursor`]; a path that imports the
-//! region into the GPU and a shader for each model's own family replace it.
+//! a x8r8g8b8 frame QEMU has already resolved. Where the region is memory the
+//! GPU imported, the changed lines are only named and the UI draws them from
+//! it; where it is plain shared memory, they are copied out of the mapping for
+//! the UI to upload. It sits behind [`Engine::take_frame`] and
+//! [`Engine::cursor`]; a shader for each model's own family replaces it.
 //!
 //! [`Engine::take_frame`]: crate::core::Engine::take_frame
 //! [`Engine::cursor`]: crate::core::Engine::cursor
 
 use super::control::{Control, ControlError, Layout, Plane};
+use super::import::Importer;
 use super::proto::*;
 use super::region::Memory;
-use crate::core::{CursorInfo, FrameUpdate, HeadInfo};
+use crate::core::{CursorInfo, FrameUpdate, GpuMemory, HeadInfo, ImportedUpdate};
 use std::collections::HashMap;
 use std::sync::atomic::{fence, AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -28,9 +30,12 @@ const MAX_DIM: u32 = 8192;
 const RUN_GAP: u32 = 8;
 
 /// What a take found.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum Taken {
+    /// The rows were copied out of a mapping.
     Frame(FrameUpdate),
+    /// The rows are in memory the GPU has imported; nothing was copied.
+    Imported(ImportedUpdate),
     /// Nothing the UI does not already have.
     Nothing,
     /// QEMU rewrote the layout under the copy; the head is repainted whole
@@ -38,10 +43,31 @@ pub enum Taken {
     Retry,
 }
 
+impl PartialEq for Taken {
+    fn eq(&self, other: &Taken) -> bool {
+        match (self, other) {
+            (Taken::Frame(a), Taken::Frame(b)) => a == b,
+            (Taken::Imported(a), Taken::Imported(b)) => {
+                a.update == b.update
+                    && Arc::ptr_eq(&a.memory, &b.memory)
+                    && (a.offset, a.stride, a.bottom_up) == (b.offset, b.stride, b.bottom_up)
+            }
+            (Taken::Nothing, Taken::Nothing) | (Taken::Retry, Taken::Retry) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Stats {
     pub frames: u64,
+    /// Lines handed out, copied or imported.
     pub lines: u64,
+    /// Lines named for the GPU to read in place, a part of `lines`.
+    pub imported_lines: u64,
+    /// Pixel bytes this reader copied out of a mapping: the only place it
+    /// moves pixels, so zero on a run that imports.
+    pub copied_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,7 +88,13 @@ struct HeadSlot {
 }
 
 struct Region {
-    mem: Arc<dyn Memory>,
+    /// Bytes of the region the planes may use.
+    len: u64,
+    /// The mapping, for a region that is shared memory. A region QEMU
+    /// exported as GPU memory has none: it cannot be mapped here.
+    mem: Option<Arc<dyn Memory>>,
+    /// The region as the GPU holds it, when it imported or wrapped it.
+    gpu: Option<Arc<dyn GpuMemory>>,
 }
 
 #[derive(Default)]
@@ -75,6 +107,10 @@ struct State {
     seq_base: u64,
     seq_seen: u64,
     stats: Stats,
+    /// How the last region reached the GPU, in words, for the debug output.
+    backend: Option<String>,
+    /// What imports regions into the GPU, if anything does.
+    importer: Option<Arc<dyn Importer>>,
 }
 
 pub struct Display {
@@ -133,7 +169,7 @@ impl State {
             .offset
             .checked_add(u64::from(p.stride) * u64::from(l.height - 1))
             .and_then(|v| v.checked_add(u64::from(l.width) * 4));
-        end.is_some_and(|e| e <= r.mem.len() as u64)
+        end.is_some_and(|e| e <= r.len)
     }
 }
 
@@ -162,7 +198,51 @@ impl Display {
     }
 
     pub fn add_region(&self, id: u32, mem: Arc<dyn Memory>) {
-        lock(&self.state).regions.insert(id, Region { mem });
+        lock(&self.state).regions.insert(
+            id,
+            Region {
+                len: mem.len() as u64,
+                mem: Some(mem),
+                gpu: None,
+            },
+        );
+    }
+
+    /// A region the GPU reads in place: exported GPU memory that only it can
+    /// reach (`mem` None), or a mapping it wraps without copying.
+    pub fn add_gpu_region(
+        &self,
+        id: u32,
+        len: u64,
+        mem: Option<Arc<dyn Memory>>,
+        gpu: Arc<dyn GpuMemory>,
+    ) {
+        lock(&self.state).regions.insert(
+            id,
+            Region {
+                len,
+                mem,
+                gpu: Some(gpu),
+            },
+        );
+    }
+
+    /// Let `importer` take regions into the GPU instead of mapping them.
+    pub fn set_importer(&self, importer: Arc<dyn Importer>) {
+        lock(&self.state).importer = Some(importer);
+    }
+
+    pub fn importer(&self) -> Option<Arc<dyn Importer>> {
+        lock(&self.state).importer.clone()
+    }
+
+    /// Say how regions reach the GPU (see [`Display::backend`]).
+    pub fn note_backend(&self, what: String) {
+        lock(&self.state).backend = Some(what);
+    }
+
+    pub fn backend(&self) -> Option<String> {
+        lock(&self.state).backend.clone()
     }
 
     pub fn remove_region(&self, id: u32) {
@@ -290,34 +370,41 @@ impl Display {
             slot.last_content = cg;
             return Ok(Taken::Nothing);
         }
-        let mem = s.regions[&plane.region].mem.clone();
+        let region = &s.regions[&plane.region];
+        let gpu = region.gpu.clone();
+        let mem = region.mem.clone();
         let width_bytes = layout.width as usize * 4;
-        pixels.clear();
-        pixels.reserve(runs.iter().map(|(a, b)| (b - a) as usize).sum::<usize>() * width_bytes);
-        for &(y0, y1) in &runs {
-            for y in y0..y1 {
-                let row = if plane.flags & PLANE_BOTTOM_UP != 0 {
-                    layout.height - 1 - y
-                } else {
-                    y
-                };
-                let at = plane.offset as usize + row as usize * plane.stride as usize;
-                let start = pixels.len();
-                pixels.resize(start + width_bytes, 0);
-                // SAFETY: `layout_usable` bounded the plane inside the
-                // region; QEMU may be writing it, which a copy tolerates.
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        mem.base().add(at),
-                        pixels.as_mut_ptr().add(start),
-                        width_bytes,
-                    );
+        if gpu.is_none() {
+            let mem = mem.expect("a region with no GPU memory is mapped");
+            pixels.clear();
+            pixels.reserve(runs.iter().map(|(a, b)| (b - a) as usize).sum::<usize>() * width_bytes);
+            for &(y0, y1) in &runs {
+                for y in y0..y1 {
+                    let row = if plane.flags & PLANE_BOTTOM_UP != 0 {
+                        layout.height - 1 - y
+                    } else {
+                        y
+                    };
+                    let at = plane.offset as usize + row as usize * plane.stride as usize;
+                    let start = pixels.len();
+                    pixels.resize(start + width_bytes, 0);
+                    // SAFETY: `layout_usable` bounded the plane inside the
+                    // region; QEMU may be writing it, which a copy tolerates.
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            mem.base().add(at),
+                            pixels.as_mut_ptr().add(start),
+                            width_bytes,
+                        );
+                    }
                 }
             }
+        } else {
+            pixels.clear();
         }
         fence(Ordering::Acquire);
         if c.layout_gen(head) != layout.layout_gen {
-            // The mode changed under the copy.
+            // The mode changed under the copy (or the read).
             slot.full = true;
             return Ok(Taken::Retry);
         }
@@ -328,13 +415,29 @@ impl Display {
         s.stats.frames += 1;
         s.stats.lines += u64::from(lines);
         s.seq_seen = s.seq_seen.max(s.seq_base + cg);
-        Ok(Taken::Frame(FrameUpdate {
+        let update = FrameUpdate {
             seq: s.seq_base + cg,
             width: layout.width,
             height: layout.height,
             runs,
             resized,
-        }))
+        };
+        Ok(match gpu {
+            Some(memory) => {
+                s.stats.imported_lines += u64::from(lines);
+                Taken::Imported(ImportedUpdate {
+                    update,
+                    memory,
+                    offset: plane.offset,
+                    stride: plane.stride,
+                    bottom_up: plane.flags & PLANE_BOTTOM_UP != 0,
+                })
+            }
+            None => {
+                s.stats.copied_bytes += pixels.len() as u64;
+                Taken::Frame(update)
+            }
+        })
     }
 
     /// The guest's cursor for `head`. The image comes only when `cursor_gen`
@@ -361,7 +464,7 @@ impl Display {
             return Some(info);
         }
         let layout = c.layout(head).ok()?;
-        let mem = &s.regions.get(&layout.cursor_region)?.mem;
+        let mem = s.regions.get(&layout.cursor_region)?.mem.as_ref()?;
         let (w, h) = (st.width as usize, st.height as usize);
         let end = layout
             .cursor_offset
@@ -628,6 +731,68 @@ mod tests {
         r.block.mark(0, 0, 8);
         let f = frame(&r.d, &mut px);
         assert_eq!(f.runs, vec![(0, 8)]);
+    }
+
+    /// Memory the GPU holds, as far as the engine can tell.
+    struct FakeGpu;
+
+    impl GpuMemory for FakeGpu {
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    #[test]
+    fn a_region_the_gpu_holds_is_named_and_not_copied() {
+        // QEMU's exported memory: no mapping here at all.
+        let block = Block::new(1);
+        let d = Display::default();
+        d.attach(Control::new(block.mem.clone()).unwrap());
+        let gpu: Arc<dyn GpuMemory> = Arc::new(FakeGpu);
+        d.add_gpu_region(1, 1 << 16, None, gpu.clone());
+        block.set_layout(0, W, 40, 1, OFF, STRIDE, HEAD_DIRTY_EXACT);
+        assert!(d.heads()[0].active, "the plane fits the region's size");
+        let mut px = vec![1, 2, 3];
+        let Taken::Imported(f) = d.take(0, &mut px).unwrap() else {
+            panic!("expected the rows to be named");
+        };
+        assert!(px.is_empty(), "no pixel buffer is filled");
+        assert_eq!(f.update.runs, vec![(0, 40)]);
+        assert_eq!((f.offset, f.stride, f.bottom_up), (OFF, STRIDE, false));
+        assert!(Arc::ptr_eq(&f.memory, &gpu));
+        assert_eq!(d.take(0, &mut px).unwrap(), Taken::Nothing, "taken once");
+
+        // Two lines change: only they are named, still nothing copied.
+        block.mark(0, 5, 7);
+        block.bump(0);
+        let Taken::Imported(f) = d.take(0, &mut px).unwrap() else {
+            panic!("expected the rows to be named");
+        };
+        assert_eq!(
+            (f.update.runs.clone(), f.update.resized),
+            (vec![(5, 7)], false)
+        );
+        let st = d.stats();
+        assert_eq!((st.lines, st.imported_lines, st.copied_bytes), (42, 42, 0));
+
+        // A plane that does not fit the region is not a picture.
+        block.set_layout(0, W, 4096, 1, OFF, STRIDE, HEAD_DIRTY_EXACT);
+        assert!(!d.heads()[0].active);
+    }
+
+    #[test]
+    fn a_mapping_the_gpu_wraps_is_named_too_and_its_bottom_up_flag_travels() {
+        let r = rig(W, 4);
+        let gpu: Arc<dyn GpuMemory> = Arc::new(FakeGpu);
+        r.d.add_gpu_region(1, 1 << 20, Some(r.plane.clone()), gpu);
+        r.block.put(0, R_PLANE + P_FLAGS, PLANE_BOTTOM_UP);
+        r.block.mark(0, 0, 4);
+        let mut px = Vec::new();
+        let Taken::Imported(f) = r.d.take(0, &mut px).unwrap() else {
+            panic!("expected the rows to be named");
+        };
+        assert!(f.bottom_up && px.is_empty());
+        assert_eq!(r.d.stats().copied_bytes, 0);
     }
 
     #[test]

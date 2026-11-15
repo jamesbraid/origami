@@ -12,6 +12,8 @@ pub const REGION_ALIGN: u64 = 65536;
 pub const CURSOR_MAX: u32 = 64;
 
 // Region backends.
+pub const BACKEND_VK_FD: u32 = 1;
+pub const BACKEND_VK_WIN32: u32 = 2;
 pub const BACKEND_SHM_FD: u32 = 3;
 pub const BACKEND_SHM_WIN32: u32 = 4;
 
@@ -34,7 +36,20 @@ pub const MSG_REGION_GONE: u16 = 0x0083;
 pub const MSG_WAKE: u16 = 0x0084;
 pub const MSG_INPUT_ACK: u16 = 0x0085;
 
+// HELLO capabilities.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub const CAP_VULKAN: u32 = 1;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const CAP_METAL: u32 = 2;
 pub const CAP_WAKE: u32 = 4;
+
+// Region kinds: 1 to 3 are scanout memory, which a GPU may import; the
+// cursor image is copied into a texture, so it is always plain shared memory.
+pub const KIND_CURSOR_IMAGE: u32 = 4;
+
+// REGION flags.
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub const REGION_DEDICATED: u32 = 1;
 
 pub const HEADER_SIZE: usize = 8;
 
@@ -65,14 +80,17 @@ pub fn message_type(header: &[u8]) -> u16 {
     u16_at(header, 0)
 }
 
-/// `HELLO`: the first message, 48 bytes. No Vulkan or Metal import: the
-/// reader asks for plain shared memory, and for wake-ups.
-pub fn hello(pid: u32) -> [u8; 48] {
+/// `HELLO`: the first message, 48 bytes. `caps` says how the reader can use a
+/// region without copying it (`CAP_VULKAN`, `CAP_METAL`; `CAP_WAKE` is always
+/// set) and `device_uuid` is its Vulkan adapter's, zero for Metal and when it
+/// imports nothing.
+pub fn hello(pid: u32, caps: u32, device_uuid: [u8; 16]) -> [u8; 48] {
     let mut b = [0u8; 48];
     b[0..2].copy_from_slice(&MSG_HELLO.to_le_bytes());
     b[8..12].copy_from_slice(&VERSION.to_le_bytes());
-    b[12..16].copy_from_slice(&CAP_WAKE.to_le_bytes());
+    b[12..16].copy_from_slice(&(caps | CAP_WAKE).to_le_bytes());
     b[16..20].copy_from_slice(&pid.to_le_bytes());
+    b[24..40].copy_from_slice(&device_uuid);
     b
 }
 
@@ -117,6 +135,9 @@ pub struct Welcome {
     pub backend: u32,
     pub nheads: u32,
     pub control_backend: u32,
+    /// The Vulkan adapter QEMU exported on, zero when it exports nothing.
+    pub device_uuid: [u8; 16],
+    pub driver_uuid: [u8; 16],
     /// The Windows handle value for the control block, 0 on POSIX.
     pub control_handle: u64,
 }
@@ -127,6 +148,8 @@ pub fn parse_welcome(b: &[u8]) -> Welcome {
         backend: u32_at(b, 12),
         nheads: u32_at(b, 16),
         control_backend: u32_at(b, 20),
+        device_uuid: b[24..40].try_into().unwrap(),
+        driver_uuid: b[40..56].try_into().unwrap(),
         control_handle: u64_at(b, 56),
     }
 }
@@ -136,8 +159,12 @@ pub struct Region {
     pub id: u32,
     pub kind: u32,
     pub backend: u32,
+    /// The Vulkan memory type QEMU allocated from (backends 1 and 2).
+    pub memory_type: u32,
     pub size: u64,
     pub alloc_size: u64,
+    /// `REGION_DEDICATED`.
+    pub flags: u32,
     pub handle: u64,
 }
 
@@ -146,8 +173,10 @@ pub fn parse_region(b: &[u8]) -> Region {
         id: u32_at(b, 8),
         kind: u32_at(b, 12),
         backend: u32_at(b, 16),
+        memory_type: u32_at(b, 20),
         size: u64_at(b, 24),
         alloc_size: u64_at(b, 32),
+        flags: u32_at(b, 40),
         handle: u64_at(b, 48),
     }
 }
@@ -210,7 +239,7 @@ mod tests {
 
     #[test]
     fn hello_has_the_fields_at_their_offsets() {
-        let h = hello(4242);
+        let h = hello(4242, 0, [0; 16]);
         assert_eq!(h.len(), 48);
         assert_eq!(message_type(&h), MSG_HELLO);
         assert_eq!(u32_at(&h, 8), 3);
@@ -220,6 +249,11 @@ mod tests {
             h[20..].iter().all(|&b| b == 0),
             "uuid and reserved are zero"
         );
+        let uuid: [u8; 16] = std::array::from_fn(|i| i as u8 + 1);
+        let h = hello(7, CAP_VULKAN, uuid);
+        assert_eq!(u32_at(&h, 12), CAP_VULKAN | CAP_WAKE);
+        assert_eq!(&h[24..40], &uuid);
+        assert!(h[20..24].iter().all(|&b| b == 0) && h[40..].iter().all(|&b| b == 0));
     }
 
     #[test]
@@ -251,6 +285,8 @@ mod tests {
         w[16..20].copy_from_slice(&2u32.to_le_bytes());
         w[20..24].copy_from_slice(&4u32.to_le_bytes());
         w[56..64].copy_from_slice(&0x1234_5678_9abc_u64.to_le_bytes());
+        w[24..40].copy_from_slice(&[0xaa; 16]);
+        w[40..56].copy_from_slice(&[0xbb; 16]);
         assert_eq!(
             parse_welcome(&w),
             Welcome {
@@ -258,6 +294,8 @@ mod tests {
                 backend: 3,
                 nheads: 2,
                 control_backend: 4,
+                device_uuid: [0xaa; 16],
+                driver_uuid: [0xbb; 16],
                 control_handle: 0x1234_5678_9abc
             }
         );
@@ -268,14 +306,18 @@ mod tests {
         r[24..32].copy_from_slice(&(1u64 << 21).to_le_bytes());
         r[32..40].copy_from_slice(&(1u64 << 21).to_le_bytes());
         r[48..56].copy_from_slice(&77u64.to_le_bytes());
+        r[20..24].copy_from_slice(&6u32.to_le_bytes());
+        r[40..44].copy_from_slice(&REGION_DEDICATED.to_le_bytes());
         assert_eq!(
             parse_region(&r),
             Region {
                 id: 5,
                 kind: 1,
                 backend: 3,
+                memory_type: 6,
                 size: 1 << 21,
                 alloc_size: 1 << 21,
+                flags: REGION_DEDICATED,
                 handle: 77
             }
         );
