@@ -1,0 +1,174 @@
+import { AboutSlint } from "std-widgets.slint";
+
+export struct TabInfo { name: string, popped: bool }
+
+// The area a machine is drawn in. `img` is a texture our own wgpu pass has
+// already scaled to exactly this area, so Slint draws it 1:1. Nothing is
+// drawn over it: status and controls live in the toolbar.
+component MachineView inherits Rectangle {
+    in property <image> img;
+    callback key-event(string, bool);
+    callback moved(float, float);
+    callback button-event(int, bool);
+    callback wheel(int);
+    callback pointer-left();
+    callback view-size(int, int);
+    background: #101010;
+    border-width: 2px;
+    border-color: fs.has-focus ? #4aa3ff : #303030;
+    changed width => { root.view-size(self.width / 1phx, self.height / 1phx); }
+    changed height => { root.view-size(self.width / 1phx, self.height / 1phx); }
+    init => { root.view-size(self.width / 1phx, self.height / 1phx); }
+    Image {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        source: root.img;
+        image-fit: fill;
+        image-rendering: pixelated;
+    }
+    fs := FocusScope {
+        key-pressed(e) => { root.key-event(e.text, true); accept }
+        key-released(e) => { root.key-event(e.text, false); accept }
+    }
+    // `moved` fires only while a button is down, and a guest wants hover
+    // motion, so follow the pointer position itself.
+    ta := TouchArea {
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down {
+                fs.focus();
+                root.button-event(e.button == PointerEventButton.left ? 0 : e.button == PointerEventButton.middle ? 1 : 2, true);
+            } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                root.button-event(e.button == PointerEventButton.left ? 0 : e.button == PointerEventButton.middle ? 1 : 2, false);
+            }
+        }
+        scroll-event(e) => {
+            root.wheel(e.delta-y > 0px ? 1 : e.delta-y < 0px ? -1 : 0);
+            accept
+        }
+        changed mouse-x => { root.moved(self.mouse-x / 1phx, self.mouse-y / 1phx); }
+        changed mouse-y => { root.moved(self.mouse-x / 1phx, self.mouse-y / 1phx); }
+        changed has-hover => { if !self.has-hover { root.pointer-left(); } }
+    }
+}
+
+component Btn inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback tap();
+    min-width: 64px;
+    height: 26px;
+    border-radius: 3px;
+    background: ta.pressed ? #3a5a80 : on ? #2f6db0 : #3a3a3a;
+    Text { text: root.text; color: white; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+    ta := TouchArea { clicked => { root.tap(); } }
+}
+
+// The About window. Slint's royalty-free licence asks for the AboutSlint
+// widget in an About screen reachable from the application's top-level
+// controls, which here is the toolbar's About button.
+export component AboutWindow inherits Window {
+    title: "About origami";
+    preferred-width: 420px;
+    preferred-height: 340px;
+    background: #202020;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 12px;
+        Text {
+            text: "origami";
+            color: white;
+            font-size: 20px;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "A viewer for emulated SGI machines.";
+            color: #a0a0a0;
+            font-size: 12px;
+            horizontal-alignment: center;
+        }
+        AboutSlint { }
+    }
+}
+
+export component Shell inherits Window {
+    in property <bool> is-main;
+    in property <string> win-title;
+    in property <[TabInfo]> tabs;
+    in property <int> current-tab;
+    in property <bool> popped;      // the machine shown here lives in its own window
+    in property <string> label;
+    in property <image> img;
+    in property <int> scale-mode;   // 0 fit, 1 integer
+    in property <int> head-count;
+    in property <int> head-sel;
+    in property <string> status;
+    callback tab-selected(int);
+    callback pop-out();
+    callback about();
+    callback dock();
+    callback set-scale(int);
+    callback next-head();
+    callback key-event(string, bool);
+    callback moved(float, float);
+    callback button-event(int, bool);
+    callback wheel(int);
+    callback pointer-left();
+    callback view-size(int, int);
+
+    title: root.win-title;
+    preferred-width: 1320px;
+    preferred-height: root.is-main ? 1120px : 1090px;
+    background: #202020;
+    VerticalLayout {
+        padding: 4px;
+        spacing: 4px;
+        if root.is-main: HorizontalLayout {
+            spacing: 2px;
+            height: 30px;
+            for t[i] in root.tabs: Rectangle {
+                min-width: 200px;
+                background: i == root.current-tab ? #3b3b3b : #2a2a2a;
+                border-width: 1px;
+                border-color: i == root.current-tab ? #4aa3ff : #444444;
+                Text {
+                    text: (t.popped ? "[window] " : "") + t.name;
+                    color: t.popped ? #909090 : white;
+                    font-size: 13px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { clicked => { root.tab-selected(i); } }
+            }
+            Rectangle { }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            height: 28px;
+            Btn { text: root.is-main ? "Pop out" : "Dock"; tap => { root.is-main ? root.pop-out() : root.dock(); } }
+            Btn { text: "About"; tap => { root.about(); } }
+            Rectangle { width: 10px; }
+            Btn { text: "Integer"; on: root.scale-mode == 1; tap => { root.set-scale(1); } }
+            Btn { text: "Fit"; on: root.scale-mode == 0; tap => { root.set-scale(0); } }
+            if root.head-count > 1: Btn { text: "Head " + (root.head-sel + 1) + "/" + root.head-count; tap => { root.next-head(); } }
+            Text { text: root.status; color: #a0a0a0; font-size: 12px; vertical-alignment: center; }
+            Rectangle { }
+        }
+        if root.popped && root.is-main: Rectangle {
+            vertical-stretch: 1;
+            background: #181818;
+            Text { text: root.label + " is in its own window"; color: #909090; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        if !(root.popped && root.is-main): MachineView {
+            vertical-stretch: 1;
+            img: root.img;
+            key-event(t, d) => { root.key-event(t, d); }
+            moved(x, y) => { root.moved(x, y); }
+            button-event(b, d) => { root.button-event(b, d); }
+            wheel(n) => { root.wheel(n); }
+            pointer-left => { root.pointer-left(); }
+            view-size(w, h) => { root.view-size(w, h); }
+        }
+    }
+}

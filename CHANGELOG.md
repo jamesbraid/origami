@@ -3,6 +3,9 @@
 ## Unreleased
 
 - New:
+  - `run --display shm` starts QEMU with no window and publishes each graphic
+    head through shared memory (the machine property `display-shm`), named
+    after the machine directory, for a viewer that draws it.
   - `drive-attach` takes a MAME CHD hard disk image with `--type disk`. A
     compressed CHD takes guest writes in a `.diff.chd` beside it, which is
     folded back into the image when QEMU exits cleanly; `--overlay` keeps the

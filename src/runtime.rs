@@ -2,6 +2,7 @@ use crate::{
     addressing::Addresses, control, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile,
     Machines, Offering, Result, StorageItem,
 };
+use sha2::{Digest, Sha256};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 #[cfg(unix)]
@@ -15,8 +16,45 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Display {
     Local,
-    Vnc { port: u16 },
+    Vnc {
+        port: u16,
+    },
+    /// No window and no VNC: the machine publishes its graphic heads through
+    /// shared memory and a local socket named by [`shm_name`], for a GUI that
+    /// draws them.
+    Shm,
     None,
+}
+
+/// The name a machine run with [`Display::Shm`] gives its display
+/// (`display-shm=NAME`). It comes from the machine directory, so two
+/// directories never share a name.
+pub fn shm_name(dir: &Path) -> String {
+    let digest = Sha256::digest(dir.as_os_str().as_encoded_bytes());
+    let hex: String = digest.iter().take(6).map(|b| format!("{b:02x}")).collect();
+    format!("origami-{hex}")
+}
+
+/// The longest socket path the hosts take: a `sockaddr_un` holds 104 bytes on
+/// macOS and 108 on Linux and Windows, one of them the terminator.
+const SOCKET_PATH_MAX: usize = 100;
+
+/// Where a machine run with [`Display::Shm`] listens for its viewer, passed to
+/// QEMU as `display-shm-socket`, so a viewer finds it from the machine
+/// directory alone and not from anyone's environment. It is
+/// `state/display.sock` in the machine directory when that path is short
+/// enough for a socket, else a short name in the system's temporary directory.
+pub fn display_socket(dir: &Path) -> PathBuf {
+    let own = dir.join("state").join("display.sock");
+    if own.as_os_str().len() <= SOCKET_PATH_MAX {
+        return own;
+    }
+    let base = if cfg!(windows) {
+        std::env::temp_dir()
+    } else {
+        PathBuf::from("/tmp")
+    };
+    base.join(format!("{}.sock", shm_name(dir)))
 }
 
 /// How long QEMU has to answer on QMP after it starts. QEMU opens the control
@@ -409,6 +447,13 @@ pub fn arguments_with(
     if offering.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");
     }
+    if display == Display::Shm {
+        machine.push_str(&format!(
+            ",display-shm={},display-shm-socket={}",
+            shm_name(dir),
+            qemu_path_option(&display_socket(dir))
+        ));
+    }
     for property in crate::graphics::machine_properties(machines, &offering.topology, &file.pipe) {
         machine.push_str(&format!(",{}={}", property.name, property.value));
     }
@@ -506,7 +551,7 @@ pub fn arguments_with(
                 args.extend(["-display".into(), format!("vnc=127.0.0.1:{}", port - 5900)])
             }
         }
-        Display::None => args.extend(["-display".into(), "none".into()]),
+        Display::Shm | Display::None => args.extend(["-display".into(), "none".into()]),
     }
     args.extend(["-audio".into(), "none".into()]);
     for global in &inputs.globals {
@@ -678,6 +723,18 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, offering: &Offering, drive: &Dr
 
 /// Start the machine in a background runner and return the runner's pid.
 pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result<u32> {
+    start_background_as(&std::env::current_exe()?, dir, display, once)
+}
+
+/// [`start_background`] with the runner `exe`, for a caller that is not the
+/// `origami` executable itself, such as a GUI that starts machines in the
+/// `origami` beside it.
+pub fn start_background_as(
+    exe: &Path,
+    dir: &Path,
+    display: Display,
+    once: &[String],
+) -> Result<u32> {
     if control::is_locked(dir)? {
         return Err("machine is already running".into());
     }
@@ -691,9 +748,10 @@ pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result
     let display_name = match display {
         Display::Local => "local",
         Display::Vnc { .. } => "vnc",
+        Display::Shm => "shm",
         Display::None => "none",
     };
-    let mut child = Command::new(std::env::current_exe()?);
+    let mut child = Command::new(exe);
     child
         .arg("_serve")
         .arg(dir)
@@ -1432,6 +1490,57 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-display", "vnc=127.0.0.1:91"]));
+    }
+
+    #[test]
+    fn the_shm_display_names_the_segment_after_the_machine_directory() {
+        let machines = crate::test_machines();
+        let offer = preset(&machines, "octane2-vpro").unwrap();
+        let dir = Path::new("/machines/one");
+        let args = arguments(&machines, dir, &machine(offer), offer, Display::Shm).unwrap();
+        let option = args[args.iter().position(|a| a == "-M").unwrap() + 1].clone();
+        let name = shm_name(dir);
+        assert!(
+            option.contains(&format!(",display-shm={name},")),
+            "{option}"
+        );
+        assert!(
+            option.contains(",display-shm-socket=/machines/one/state/display.sock"),
+            "{option}"
+        );
+        assert!(args.windows(2).any(|pair| pair == ["-display", "none"]));
+        assert!(name.starts_with("origami-") && name.len() == "origami-".len() + 12);
+        assert_ne!(name, shm_name(Path::new("/machines/two")));
+        // Any other display leaves the property off.
+        let args = arguments(&machines, dir, &machine(offer), offer, Display::None).unwrap();
+        assert!(!args.iter().any(|a| a.contains("display-shm")));
+    }
+
+    #[test]
+    fn the_display_socket_is_in_the_machine_directory_unless_that_is_too_long() {
+        let short = Path::new("/machines/one");
+        assert_eq!(
+            display_socket(short),
+            Path::new("/machines/one/state/display.sock")
+        );
+        let long = PathBuf::from(format!("/machines/{}", "x".repeat(120)));
+        let fallback = display_socket(&long);
+        assert!(
+            fallback.as_os_str().len() <= SOCKET_PATH_MAX,
+            "{fallback:?}"
+        );
+        assert!(fallback.to_string_lossy().contains(&shm_name(&long)));
+        assert_ne!(
+            fallback,
+            display_socket(&PathBuf::from(format!("/machines/{}", "y".repeat(120))))
+        );
+        // A path of exactly the limit still stays in the directory.
+        let edge = PathBuf::from(format!(
+            "/{}",
+            "e".repeat(SOCKET_PATH_MAX - "/state/display.sock".len() - 1)
+        ));
+        assert_eq!(display_socket(&edge).as_os_str().len(), SOCKET_PATH_MAX);
+        assert!(display_socket(&edge).starts_with(&edge));
     }
 
     #[test]

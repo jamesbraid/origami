@@ -382,7 +382,7 @@ pub struct RunArgs {
 
 #[derive(Debug, Default, Args)]
 pub struct DisplayArgs {
-    /// Local window, VNC server or no graphics
+    /// Local window, VNC server, shared-memory display or no graphics
     #[arg(long, value_enum)]
     pub display: Option<DisplayMode>,
     /// VNC TCP port (default 5900)
@@ -403,6 +403,7 @@ impl DisplayArgs {
         Ok(match mode {
             DisplayMode::Local => Display::Local,
             DisplayMode::None => Display::None,
+            DisplayMode::Shm => Display::Shm,
             DisplayMode::Vnc => Display::Vnc {
                 port: self.vnc_port.unwrap_or(5900),
             },
@@ -414,6 +415,8 @@ impl DisplayArgs {
 pub enum DisplayMode {
     Local,
     Vnc,
+    /// Publish the display through shared memory for origami-gui
+    Shm,
     None,
 }
 

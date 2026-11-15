@@ -1,0 +1,76 @@
+name: GUI
+
+# origami-gui is outside the workspace's default members, so the CLI checks do
+# not build Slint and wgpu. This builds and tests it, and checks that it
+# compiles for Windows. The boot test (crates/origami-gui/tests/xvfb.rs) needs
+# QEMU and a virtual display and is run by hand.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gui-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    steps:
+      - name: Use canonical QEMU repository
+        run: |
+          git config --global \
+            "url.${{ github.server_url }}/jamesb/qemu.git.insteadOf" \
+            "https://github.com/jamesbraid/qemu-sgi-origami.git"
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: true
+      - name: Install Rust
+        run: |
+          curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
+            https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --component clippy,rustfmt --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Lint
+        run: cargo clippy --locked -p origami-gui --all-targets -- -D warnings
+      - name: Test (the boot test stays ignored)
+        run: cargo test --locked -p origami-gui
+
+  windows-check:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 45
+    steps:
+      - name: Use canonical QEMU repository
+        run: |
+          git config --global \
+            "url.${{ github.server_url }}/jamesb/qemu.git.insteadOf" \
+            "https://github.com/jamesbraid/qemu-sgi-origami.git"
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN || github.token }}
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: true
+      - name: Install the cross compiler and Rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
+            https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
+            --target x86_64-pc-windows-gnu
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Check for Windows
+        run: cargo check --locked -p origami-gui --target x86_64-pc-windows-gnu
