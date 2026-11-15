@@ -26,7 +26,11 @@ impl Product {
             "origami"
         };
         let home = work.join("home");
-        fs::create_dir_all(&home).unwrap();
+        // Windows finds the cache directory through the profile, as
+        // %USERPROFILE%\AppData\Local, and fails when that does not exist.
+        for dir in ["AppData/Local", "AppData/Roaming"] {
+            fs::create_dir_all(home.join(dir)).unwrap();
+        }
         Self {
             // Not canonicalize: on Windows that gives a \\?\ path QEMU's data lookup may not follow.
             cli: std::path::absolute(root)
@@ -37,8 +41,8 @@ impl Product {
                 ("HOME", home.clone()),
                 ("USERPROFILE", home.clone()),
                 ("XDG_CACHE_HOME", work.join("xdg")),
-                ("LOCALAPPDATA", home.join("local")),
-                ("APPDATA", home.join("roaming")),
+                ("LOCALAPPDATA", home.join("AppData/Local")),
+                ("APPDATA", home.join("AppData/Roaming")),
             ],
             work: work.into(),
         }
