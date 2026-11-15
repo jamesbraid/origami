@@ -547,7 +547,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
     }
     document["server_ip"] = json!(subnet.host().to_string());
     document["netmask"] = json!(subnet.cidr());
-    document["cache_dir"] = json!(dir.join("install/cache"));
+    document["cache_dir"] = json!(dir.join("install").join("cache"));
     document["clients"] = json!([client]);
     Ok(InstallConfig {
         document,
@@ -562,7 +562,7 @@ pub fn check(rt: &runtime::Runtime, dir: &Path, file: &MachineFile, full: bool) 
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
     config.write_addon_files()?;
-    fs::create_dir_all(dir.join("install/cache"))?;
+    fs::create_dir_all(dir.join("install").join("cache"))?;
     let mut args = vec!["check"];
     if full {
         args.push("--full");
@@ -2075,6 +2075,12 @@ mod tests {
                     effective_install(&golden_config(&media)),
                 );
             }
+        }
+        // The cache directory is a host path, so it takes the host's separator.
+        let cache = Path::new("/machine").join("install").join("cache");
+        for config in all.values_mut() {
+            assert_eq!(config["cache_dir"], json!(cache));
+            config["cache_dir"] = json!("/machine/install/cache");
         }
         let text = serde_json::to_string_pretty(&Value::Object(all)).unwrap() + "\n";
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))

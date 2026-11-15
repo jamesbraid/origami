@@ -3,3 +3,6 @@
 # release archive and replayed against the NFS and frame code.
 resources/instigator/** text eol=lf
 crates/*/tests/data/** text eol=lf
+
+# Compared byte for byte with generated output, so no CRLF checkout.
+tests/fixtures/*.json text eol=lf

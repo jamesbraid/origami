@@ -92,11 +92,16 @@ impl Runtime {
                 (dir, instigator)
             }
             None => (
-                beside.join("../libexec/origami"),
+                beside.join("..").join("libexec").join("origami"),
                 beside.join(binary_name("instigator")),
             ),
         };
-        let data = dir.join("../../share/origami/qemu");
+        let data = dir
+            .join("..")
+            .join("..")
+            .join("share")
+            .join("origami")
+            .join("qemu");
         Ok(Self {
             dir,
             data,
@@ -988,7 +993,12 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let exe = root.path().join("bin").join(binary_name("origami"));
         let runtime = Runtime::resolve(None, &exe).unwrap();
-        let libexec = root.path().join("bin/../libexec/origami");
+        let libexec = root
+            .path()
+            .join("bin")
+            .join("..")
+            .join("libexec")
+            .join("origami");
         assert_eq!(
             runtime.qemu(),
             libexec.join(binary_name("qemu-system-mips64"))
@@ -1002,8 +1012,12 @@ mod tests {
             runtime.data_arguments(),
             [
                 "-L".to_string(),
-                root.path()
-                    .join("bin/../libexec/origami/../../share/origami/qemu")
+                libexec
+                    .join("..")
+                    .join("..")
+                    .join("share")
+                    .join("origami")
+                    .join("qemu")
                     .display()
                     .to_string()
             ]
@@ -1106,11 +1120,12 @@ mod tests {
         assert!(has(["-icount", "shift=3,align=off,sleep=off"]));
         assert!(has(["-rtc", "clock=vm"]));
         // The flash store stands for the image, with the 512 KiB geometry.
+        let flash = Path::new("/machine").join("state").join("node0-flash.raw");
         assert!(
-            option.contains(
-                ",rom-image=/machine/state/node0-flash.raw,rom-size=524288,rom-offset=0,\
-                 rom-pad-byte=255"
-            ),
+            option.contains(&format!(
+                ",rom-image={},rom-size=524288,rom-offset=0,rom-pad-byte=255",
+                flash.display()
+            )),
             "{option}"
         );
         // The preset's board inputs reach QEMU; the O2 has no population.
@@ -1297,8 +1312,11 @@ mod tests {
     fn shell_quote_survives_spaces_and_quotes() {
         assert_eq!(shell_quote("-nodefaults"), "-nodefaults");
         assert_eq!(shell_quote("a=b,c/d"), "a=b,c/d");
-        assert_eq!(shell_quote(""), "''");
-        if !cfg!(windows) {
+        if cfg!(windows) {
+            assert_eq!(shell_quote(""), "\"\"");
+            assert_eq!(shell_quote("my dir\"x"), "\"my dir\\\"x\"");
+        } else {
+            assert_eq!(shell_quote(""), "''");
             assert_eq!(shell_quote("/my dir/it's"), "'/my dir/it'\\''s'");
         }
     }
