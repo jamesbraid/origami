@@ -102,6 +102,19 @@ fn check_configs(instigator: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Where a QEMU archive keeps its keymaps. QEMU moved them under `share/qemu`
+/// in sgi-origami 11.1.90 (upstream e27ef99da0a); the pinned 11.1.50-1 still
+/// has them at `share/keymaps`. Drop the old path once the pin moves past it.
+fn keymaps_dir(qemu_dir: &Path) -> Result<PathBuf> {
+    for rel in ["share/qemu/keymaps", "share/keymaps"] {
+        let path = qemu_dir.join(rel);
+        if path.is_dir() {
+            return Ok(path);
+        }
+    }
+    Err("the QEMU archive has no share/qemu/keymaps or share/keymaps".into())
+}
+
 /// Downloads the pinned releases and lays them out as the product expects
 /// them under `target/runtime/<platform>/`, returning that directory:
 ///
@@ -149,17 +162,12 @@ fn runtime(platform: &str, qemu_archive: Option<&Path>) -> Result<PathBuf> {
             return Err(format!("the QEMU archive has no bin/{}", exe(required, platform)).into());
         }
     }
-    if !qemu_dir.join("share/keymaps").is_dir() {
-        return Err("the QEMU archive has no share/keymaps".into());
-    }
+    let keymaps = keymaps_dir(&qemu_dir)?;
     if tree.exists() {
         fs::remove_dir_all(&tree)?;
     }
     archive::copy_tree(&qemu_dir.join("bin"), &tree.join("libexec/origami"))?;
-    archive::copy_tree(
-        &qemu_dir.join("share/keymaps"),
-        &tree.join("share/origami/qemu/keymaps"),
-    )?;
+    archive::copy_tree(&keymaps, &tree.join("share/origami/qemu/keymaps"))?;
     let licenses = tree.join("share/origami/licenses");
     if qemu_dir.join("licenses").is_dir() {
         archive::copy_tree(&qemu_dir.join("licenses"), &licenses)?;
@@ -446,5 +454,58 @@ fn main() {
     if let Err(error) = result {
         eprintln!("xtask: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Packs a synthetic QEMU archive holding a keymap directory at each path
+    /// in `keymap_dirs` (paths inside the archive) and unpacks it, so detection
+    /// sees what `runtime` sees.
+    fn unpacked_archive(name: &str, keymap_dirs: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("xtask-keymaps-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let tree = dir.join("tree");
+        fs::create_dir_all(tree.join("bin")).unwrap();
+        fs::write(tree.join("bin/qemu-img"), b"").unwrap();
+        for rel in keymap_dirs {
+            fs::create_dir_all(tree.join(rel)).unwrap();
+            fs::write(tree.join(rel).join("en-us"), b"").unwrap();
+        }
+        let archive = dir.join("qemu.tar.gz");
+        archive::pack(&tree, "qemu-1", &archive).unwrap();
+        let unpacked = dir.join("unpacked");
+        archive::unpack(&archive, &unpacked).unwrap();
+        unpacked.join("qemu-1")
+    }
+
+    #[test]
+    fn finds_keymaps_under_share_qemu() {
+        let qemu = unpacked_archive("new", &["share/qemu/keymaps"]);
+        assert_eq!(keymaps_dir(&qemu).unwrap(), qemu.join("share/qemu/keymaps"));
+    }
+
+    #[test]
+    fn finds_keymaps_at_the_pinned_old_path() {
+        let qemu = unpacked_archive("old", &["share/keymaps"]);
+        assert_eq!(keymaps_dir(&qemu).unwrap(), qemu.join("share/keymaps"));
+    }
+
+    #[test]
+    fn prefers_the_new_path_when_both_exist() {
+        let qemu = unpacked_archive("both", &["share/keymaps", "share/qemu/keymaps"]);
+        assert_eq!(keymaps_dir(&qemu).unwrap(), qemu.join("share/qemu/keymaps"));
+    }
+
+    #[test]
+    fn rejects_an_archive_without_keymaps() {
+        let qemu = unpacked_archive("none", &[]);
+        let error = keymaps_dir(&qemu).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "the QEMU archive has no share/qemu/keymaps or share/keymaps"
+        );
     }
 }

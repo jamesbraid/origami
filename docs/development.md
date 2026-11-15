@@ -53,10 +53,11 @@ for the platform it runs on: `linux-x86_64`, `macos-arm64` or
   and from this repository.
 
 A QEMU release archive has a fixed layout: `bin/{qemu-system-mips64,
-qemu-img,qemu-sgi-machine-init}` (plus DLLs on Windows), `share/keymaps/` and
-`licenses/`. `xtask` moves them to the paths above. It ships no firmware and
-no shared libraries: the host provides its display, audio and system
-libraries, as the QEMU repository's packaging notes describe.
+qemu-img,qemu-sgi-machine-init}` (plus DLLs on Windows), `share/qemu/keymaps/`
+(`share/keymaps/` in releases before 11.1.90) and `licenses/`. `xtask` moves
+them to the paths above. It ships no firmware and no shared libraries: the
+host provides its display, audio and system libraries, as the QEMU
+repository's packaging notes describe.
 
 ### Before a QEMU release exists, or for a QEMU change
 
