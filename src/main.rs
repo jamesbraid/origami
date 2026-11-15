@@ -300,8 +300,7 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Status(args) => {
             let dir = directory(&args.dir)?;
-            if control::is_running(&dir)? {
-                let record = control::read(&dir)?;
+            if let Some(record) = control::running(&dir)? {
                 println!("running: pid {}", record.pid);
             } else if control::is_locked(&dir)? {
                 println!("running: foreground or starting");

@@ -99,15 +99,18 @@ pub fn is_locked(dir: &Path) -> Result<bool> {
     Ok(false)
 }
 
-pub fn is_running(dir: &Path) -> Result<bool> {
+/// The run record of the machine in `dir`, if its QEMU answers QMP. Use the
+/// record this returns rather than reading it again: the runner removes it
+/// the moment QEMU exits, so a second read can find nothing.
+pub fn running(dir: &Path) -> Result<Option<Record>> {
     match read(dir) {
-        Ok(record) => Ok(verified_qmp(&record).is_ok()),
+        Ok(record) => Ok(verified_qmp(&record).is_ok().then_some(record)),
         Err(error)
             if error
                 .downcast_ref::<io::Error>()
                 .is_some_and(|e| e.kind() == io::ErrorKind::NotFound) =>
         {
-            Ok(false)
+            Ok(None)
         }
         Err(error) => Err(error),
     }

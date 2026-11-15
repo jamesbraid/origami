@@ -209,6 +209,52 @@ fn a_machine_whose_qemu_crashes_is_stopped_and_can_start_again() {
     start(root, &machine);
 }
 
+/// The runner removes `state/run.json` as soon as QEMU exits, which can fall
+/// between `status` checking the machine and reporting it. Here QEMU goes in
+/// the middle of its last QMP answer, which makes that every time.
+#[test]
+fn status_reports_a_machine_whose_qemu_exits_while_it_looks() {
+    use std::io::{BufRead, BufReader, Write};
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("machine");
+    fs::create_dir_all(dir.join("state")).unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let record = origami::control::Record {
+        pid: 4242,
+        qmp_port: listener.local_addr().unwrap().port(),
+        console_port: 0,
+        name: "sgi-exits-while-asked".into(),
+    };
+    origami::control::write(&dir, &record).unwrap();
+    let qemu = {
+        let dir = dir.clone();
+        let name = record.name.clone();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            writeln!(
+                stream,
+                r#"{{"QMP": {{"version": {{"qemu": {{"major": 0, "minor": 0, "micro": 0}}, "package": ""}}, "capabilities": []}}}}"#
+            )
+            .unwrap();
+            for line in BufReader::new(stream.try_clone().unwrap()).lines() {
+                if line.unwrap().contains("query-name") {
+                    origami::control::clear_if_current(&dir, &record);
+                    writeln!(stream, r#"{{"return": {{"name": "{name}"}}}}"#).unwrap();
+                    return;
+                }
+                writeln!(stream, r#"{{"return": {{}}}}"#).unwrap();
+            }
+        })
+    };
+    let status = ok(root.path(), &["status", dir.to_str().unwrap()]);
+    qemu.join().unwrap();
+    assert_eq!(status.trim(), "running: pid 4242");
+    assert_eq!(
+        ok(root.path(), &["status", dir.to_str().unwrap()]).trim(),
+        "stopped"
+    );
+}
+
 #[test]
 fn a_run_record_left_by_a_dead_machine_is_not_a_running_machine() {
     let root = tempfile::tempdir().unwrap();
