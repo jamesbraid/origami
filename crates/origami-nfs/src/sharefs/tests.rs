@@ -546,6 +546,9 @@ fn a_recreated_name_gets_a_new_handle_without_birth_time() {
     let opts = Options {
         no_birth_time: true,
         table_fallback: Some(base.path().join("handles")),
+        // Windows has no inode handles, so the table is the share's handles
+        // from the start; the fallback is what Unix reaches for here.
+        path_table: (!INODES_USABLE).then(|| base.path().join("handles")),
         ..Options::default()
     };
     let f = Share::open("s", &dir, opts).unwrap();
@@ -581,6 +584,7 @@ fn a_removed_handle_stays_dead_across_restarts() {
         let opts = Options {
             no_birth_time: true,
             table_fallback: Some(base.path().join("handles")),
+            path_table: (!INODES_USABLE).then(|| base.path().join("handles")),
             ..Options::default()
         };
         Share::open("s", &dir, opts).unwrap()

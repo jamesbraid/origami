@@ -523,8 +523,8 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
         // Instigator installs an add-on in a second pass after IRIX, so its
         // files go through the symbolic links IRIX's own products make, such
         // as /var/sysgen/boot, instead of replacing them with directories.
-        let path =
-            std::path::absolute(dir.join("install/addons"))?.join(format!("{}.yaml", addon.name));
+        let path = std::path::absolute(dir.join("install").join("addons"))?
+            .join(format!("{}.yaml", addon.name));
         addon_paths.push(path.display().to_string());
         addon_files.push((path, text));
     }

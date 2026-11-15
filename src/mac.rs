@@ -90,12 +90,11 @@ fn claim_of(machines: &Machines, dir: &Path) -> Option<Claim> {
 /// the working directory, except `dir` itself. Unreadable entries are
 /// skipped. Machine MACs and emu-ids are both checked against these.
 pub(crate) fn siblings(dir: &Path) -> Vec<PathBuf> {
-    let own = dir
-        .canonicalize()
+    let own = dunce::canonicalize(dir)
         .ok()
         .or_else(|| {
             let parent = dir.parent().filter(|p| !p.as_os_str().is_empty());
-            let parent = parent.unwrap_or(Path::new(".")).canonicalize().ok()?;
+            let parent = dunce::canonicalize(parent.unwrap_or(Path::new("."))).ok()?;
             Some(parent.join(dir.file_name()?))
         })
         .unwrap_or_else(|| dir.to_path_buf());
@@ -106,7 +105,7 @@ pub(crate) fn siblings(dir: &Path) -> Vec<PathBuf> {
     }
     if let Some(cwd) = std::env::current_dir()
         .ok()
-        .and_then(|cwd| cwd.canonicalize().ok())
+        .and_then(|cwd| dunce::canonicalize(cwd).ok())
     {
         roots.push(cwd);
     }
@@ -117,7 +116,7 @@ pub(crate) fn siblings(dir: &Path) -> Vec<PathBuf> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            let Ok(path) = path.canonicalize() else {
+            let Ok(path) = dunce::canonicalize(path) else {
                 continue;
             };
             if path == own || scanned.contains(&path) || !path.is_dir() {
@@ -416,7 +415,7 @@ mod tests {
         let error = assign(&machines, &new, offer, Some("08:00:69:01:02:10"), None)
             .unwrap_err()
             .to_string();
-        let canonical = other.canonicalize().unwrap();
+        let canonical = dunce::canonicalize(&other).unwrap();
         assert!(error.contains(canonical.to_str().unwrap()), "{error}");
         assert!(error.contains("08:00:69:01:02:10"), "{error}");
         assert_eq!(

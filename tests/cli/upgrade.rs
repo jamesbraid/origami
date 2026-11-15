@@ -23,7 +23,16 @@ fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
             if path.is_dir() {
                 pending.push(path);
             } else {
-                files.insert(path.clone(), fs::read(&path).unwrap());
+                // Windows refuses reads of a file another process has locked,
+                // and a machine holds its lock file for its whole life. The
+                // file is always empty, so its presence is what matters.
+                let locked = cfg!(windows) && path.file_name().is_some_and(|n| n == "machine.lock");
+                let bytes = if locked {
+                    Vec::new()
+                } else {
+                    fs::read(&path).unwrap()
+                };
+                files.insert(path.clone(), bytes);
             }
         }
     }
@@ -168,7 +177,7 @@ fn origin200_upgrades_once_and_keeps_its_nvram_drives_and_forwards() {
         // macOS reports temporary directories through the /private symlink.
         stderr(&output).contains(&format!(
             "origami upgrade {}",
-            fs::canonicalize(&machine).unwrap().display()
+            dunce::canonicalize(&machine).unwrap().display()
         )),
         "{}",
         stderr(&output)
@@ -476,7 +485,7 @@ fn format2_origin200_gains_module_nvram_and_keeps_everything_else() {
     assert!(
         stderr(&output).contains(&format!(
             "is from Origami 0.2; upgrade it once with origami upgrade {}",
-            fs::canonicalize(&machine).unwrap().display()
+            dunce::canonicalize(&machine).unwrap().display()
         )),
         "{}",
         stderr(&output)
@@ -728,7 +737,7 @@ fn format3_graphics_become_pipes_or_the_upgrade_is_refused() {
             "origami: cannot upgrade the format 3 machine {}: topology 'origin2000-rack' does \
              not take an InfiniteReality pipe in io3: an Origin 2000 with an InfiniteReality \
              pipe is an Onyx2, so use onyx2-rack; its machine.toml is unchanged",
-            fs::canonicalize(&machine).unwrap().display()
+            dunce::canonicalize(&machine).unwrap().display()
         )
     );
     assert_eq!(snapshot(&machine), before);

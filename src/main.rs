@@ -37,7 +37,7 @@ fn main() -> ExitCode {
 }
 
 fn directory(path: &Path) -> Result<PathBuf> {
-    path.canonicalize().map_err(|error| {
+    dunce::canonicalize(path).map_err(|error| {
         format!("cannot open machine directory '{}': {error}. Use the directory you created with origami create", path.display()).into()
     })
 }
@@ -331,7 +331,7 @@ fn command(action: Action) -> Result<()> {
         } => {
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing drives")?;
-            let path = file.canonicalize()?;
+            let path = dunce::canonicalize(&file)?;
             let mut file = read_machine(&dir)?;
             file.drive.push(Drive {
                 name: format!("{}{target}", kind.as_str()),

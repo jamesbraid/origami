@@ -446,7 +446,7 @@ pub fn resolve(
             if !is_file || value.is_empty() {
                 return Ok((key, value));
             }
-            let path = Path::new(&value).canonicalize()?;
+            let path = dunce::canonicalize(&value)?;
             Ok((key, path.display().to_string()))
         })
         .collect()

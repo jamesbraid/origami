@@ -33,6 +33,7 @@ tempfile = "3"
 toml = "1"
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 url = "2"
+dunce = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

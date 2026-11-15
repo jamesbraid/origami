@@ -3,6 +3,7 @@
 
 use crate::support::{self, create, fail, fake_argv, fake_log, ok, run, wait_until, Running};
 use std::fs;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 const START: &[&str] = &["--background", "--display", "none"];
@@ -283,5 +284,6 @@ fn show_command_points_qemu_at_its_data_directory() {
     let machine = create(root, "machine", "origin200-1", &[]);
     let shown = ok(root, &["show-command", machine.to_str().unwrap()]);
     assert!(shown.contains(" -L "), "{shown}");
-    assert!(shown.contains("share/origami/qemu"), "{shown}");
+    let data = Path::new("share").join("origami").join("qemu");
+    assert!(shown.contains(&data.display().to_string()), "{shown}");
 }

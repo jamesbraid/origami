@@ -21,7 +21,7 @@ pub const ORIGAMI: &str = env!("CARGO_BIN_EXE_origami");
 /// them out.
 pub fn fake_runtime(root: &Path) -> PathBuf {
     let prefix = root.join("prefix");
-    let runtime = prefix.join("libexec/origami");
+    let runtime = prefix.join("libexec").join("origami");
     let keymaps = prefix.join("share/origami/qemu/keymaps");
     let keymap = keymaps.join("en-us");
     // The keymap is made last. A test that takes a program away to see

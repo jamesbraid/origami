@@ -63,7 +63,11 @@ fn an_explicit_emu_id_is_checked_and_a_taken_one_is_skipped() {
 
     let error = create(root, "b", "origin200-1", &["--emu-id", "42"]).unwrap_err();
     assert!(error.contains("emu-id 42 is already"), "{error}");
-    assert!(error.contains("/a"), "{error}");
+    assert!(!error.contains(r"\\?\"), "{error}");
+    assert!(
+        error.contains(&format!("{}a", std::path::MAIN_SEPARATOR)),
+        "{error}"
+    );
     assert!(!root.join("b").exists());
     for reserved in ["3000", "4095"] {
         let error = create(root, "b", "origin200-1", &["--emu-id", reserved]).unwrap_err();

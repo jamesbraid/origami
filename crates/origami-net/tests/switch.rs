@@ -202,6 +202,7 @@ struct Rig {
     b: TcpStream,
     b_rx: Receiver<Vec<u8>>,
     _dir: tempfile::TempDir,
+    _table: tempfile::TempDir,
 }
 
 fn rig() -> Rig {
@@ -212,7 +213,13 @@ fn rig_with(aliases: Vec<Ipv4Addr>) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("hello.txt"), b"hi\n").unwrap();
     std::fs::write(dir.path().join("big"), vec![b'x'; 8192]).unwrap();
-    let share = Share::open("src", dir.path(), Options::default()).unwrap();
+    // Windows keeps filehandles in a path table, which lives beside the share.
+    let table = tempfile::tempdir().unwrap();
+    let options = Options {
+        path_table: cfg!(windows).then(|| table.path().join("handles")),
+        ..Options::default()
+    };
+    let share = Share::open("src", dir.path(), options).unwrap();
     let server = Arc::new(Server::new(Arc::new(share)));
     let cfg = SwitchConfig::new(StackConfig {
         mac: STACK_MAC,
@@ -273,6 +280,7 @@ fn rig_with(aliases: Vec<Ipv4Addr>) -> Rig {
         b,
         b_rx,
         _dir: dir,
+        _table: table,
     }
 }
 
