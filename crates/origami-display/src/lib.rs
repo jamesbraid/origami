@@ -16,6 +16,8 @@ pub mod proto;
 mod region;
 mod socket_input;
 mod transport;
+#[cfg(unix)]
+pub mod v4;
 
 pub use display::{Display, Stats, Taken};
 pub use import::Importer;
