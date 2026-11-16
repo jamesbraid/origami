@@ -15,6 +15,7 @@
 //! place, and version 4 imports the slots QEMU lends; otherwise the changed
 //! lines are copied.
 
+use crate::engine::screendump_target;
 use crate::{control as qemu_control, runtime, QemuEngine, Runtime, ENGINE};
 #[cfg(unix)]
 use origami_display::v4::session::SessionError;
@@ -68,6 +69,8 @@ enum Backend {
 struct Shown {
     id: MachineId,
     dir: PathBuf,
+    /// Each graphic head's display device id and head number there.
+    heads: Vec<(String, u32)>,
     backend: Backend,
     wake: Wake,
     stop: AtomicBool,
@@ -374,17 +377,23 @@ impl Engine for RunnerEngine {
         self.inner.create_disk(stem, size_mib)
     }
 
-    /// The runner plans its own launch, so the plan names only the directory.
-    fn plan(&self, _m: &Machine, dir: &MachineDir, _w: &Wiring) -> Result<LaunchPlan> {
+    /// The runner plans its own launch, so the plan names the directory and
+    /// the display device of each head, which screendump needs.
+    fn plan(&self, m: &Machine, dir: &MachineDir, _w: &Wiring) -> Result<LaunchPlan> {
+        let catalogue = self.inner.catalogue()?;
+        let file = m.to_file();
+        let offering = origami_machine::offering(&catalogue, &file.machine)?;
+        let heads = runtime::head_devices(&catalogue, offering, &file);
         Ok(LaunchPlan::new(
             ENGINE,
             dir.path().to_path_buf(),
-            serde_json::Value::Null,
+            serde_json::json!({ "heads": heads }),
         ))
     }
 
     fn launch(&self, plan: LaunchPlan, wake: Wake) -> Result<Arc<dyn Session>> {
         let dir = plan.dir().canonicalize()?;
+        let heads = serde_json::from_value(plan.payload()["heads"].clone()).unwrap_or_default();
         if qemu_control::running(&dir)
             .map_err(|e| e.to_string())?
             .is_none()
@@ -426,6 +435,7 @@ impl Engine for RunnerEngine {
         let shown = Arc::new(Shown {
             id,
             dir: dir.clone(),
+            heads,
             backend,
             wake,
             stop: AtomicBool::new(false),
@@ -542,10 +552,11 @@ impl Session for RunnerSession {
     }
 
     fn screendump(&self, head: usize, path: &Path) -> Result<()> {
+        let (device, head) = screendump_target(&self.shown.heads, head)?;
         self.qmp()?.execute(&qmp::screendump {
             filename: path.display().to_string(),
-            device: None,
-            head: Some(head as i64),
+            device,
+            head,
             format: None,
         })?;
         Ok(())

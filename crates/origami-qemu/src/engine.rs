@@ -428,7 +428,7 @@ fn monitor(
 
 /// QMP takes `head` only with `device`; a machine with no named display
 /// device has just its primary console.
-fn screendump_target(
+pub(crate) fn screendump_target(
     heads: &[(String, u32)],
     head: usize,
 ) -> Result<(Option<String>, Option<i64>)> {
