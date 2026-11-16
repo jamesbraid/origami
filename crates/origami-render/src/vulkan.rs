@@ -7,8 +7,9 @@
 //! extension), the buffer is made with raw calls, and wgpu is handed the
 //! result.
 
-use crate::qemu::{Handle, Region};
 use ash::vk;
+use origami_display::proto::Region;
+use origami_display::Handle;
 use std::io;
 use wgpu::hal::api::Vulkan;
 
@@ -302,7 +303,7 @@ unsafe fn allocate(
         .allocation_size(region.alloc_size)
         .memory_type_index(region.memory_type)
         .push_next(&mut import);
-    if region.flags & crate::qemu::REGION_DEDICATED != 0 {
+    if region.flags & origami_display::proto::REGION_DEDICATED != 0 {
         info = info.push_next(dedicated);
     }
     match raw.allocate_memory(&info, None) {
@@ -339,7 +340,7 @@ unsafe fn allocate(
         .allocation_size(region.alloc_size)
         .memory_type_index(region.memory_type)
         .push_next(&mut import);
-    if region.flags & crate::qemu::REGION_DEDICATED != 0 {
+    if region.flags & origami_display::proto::REGION_DEDICATED != 0 {
         info = info.push_next(dedicated);
     }
     let result = raw.allocate_memory(&info, None);
@@ -349,9 +350,9 @@ unsafe fn allocate(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use crate::core::{FrameUpdate, GpuMemory, ImportedUpdate};
-    use crate::gfx::{Compose, Gpu, HeadTexture, ImportedBuffer};
-    use crate::qemu::REGION_DEDICATED;
+    use crate::{Compose, Gpu, HeadTexture, ImportedBuffer};
+    use origami_display::proto::REGION_DEDICATED;
+    use origami_engine::{FrameUpdate, GpuMemory, ImportedUpdate};
     use std::os::fd::{FromRawFd, OwnedFd};
     use std::sync::Arc;
 
@@ -489,7 +490,7 @@ mod tests {
     #[test]
     fn exported_memory_is_imported_and_drawn_with_no_copy() {
         let gpu = match Gpu::new() {
-            Ok(g) if matches!(g.import.kind, Some(crate::gfx::import::Kind::Vulkan(_))) => g,
+            Ok(g) if matches!(g.import.kind, Some(crate::import::Kind::Vulkan(_))) => g,
             other => {
                 eprintln!(
                     "skipping: {}",
@@ -498,7 +499,7 @@ mod tests {
                 return;
             }
         };
-        let Some(crate::gfx::import::Kind::Vulkan(caps)) = gpu.import.kind.as_ref() else {
+        let Some(crate::import::Kind::Vulkan(caps)) = gpu.import.kind.as_ref() else {
             unreachable!()
         };
         let (w, h, stride, offset) = (40u32, 24u32, 192usize, 256usize);
@@ -616,7 +617,7 @@ mod tests {
     #[test]
     fn a_bad_import_is_an_error_not_a_crash() {
         let Ok(gpu) = Gpu::new() else { return };
-        let Some(crate::gfx::import::Kind::Vulkan(caps)) = gpu.import.kind.as_ref() else {
+        let Some(crate::import::Kind::Vulkan(caps)) = gpu.import.kind.as_ref() else {
             return;
         };
         let Some(mut exported) = export(&gpu.device, 1 << 16) else {

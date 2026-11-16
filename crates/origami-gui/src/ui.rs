@@ -17,13 +17,13 @@ use std::sync::{Arc, Mutex};
 use slint::{ComponentHandle, Model, VecModel};
 
 use crate::core::{ConsoleKind, CursorInfo, Engine, Frame, InputEvent, MachineId, Power};
-use crate::gfx::{
-    cursor_texture, Blit, Compose, CursorDraw, Gpu, HeadTexture, Presenter, ScaleMode,
-};
 use crate::pointer::PointerMode;
 use crate::termkeys::Mods;
 use crate::textgrid::Painter;
 use crate::{AboutWindow, Shell, TabInfo};
+use origami_render::{
+    cursor_texture, Blit, Compose, CursorDraw, Gpu, HeadTexture, Presenter, ScaleMode,
+};
 
 mod input;
 mod views;

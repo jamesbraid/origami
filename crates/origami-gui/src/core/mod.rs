@@ -20,6 +20,6 @@ pub mod terminal;
 pub use engine::Engine;
 pub use origami_engine::status;
 pub use origami_engine::{
-    ConsoleKind, ConsoleLink, CursorInfo, Frame, FrameUpdate, GpuMemory, HeadInfo, ImportedUpdate,
-    InputEvent, InputSink, Key, MachineId, PointerButton, Power, Result, Wake,
+    ConsoleKind, ConsoleLink, CursorInfo, Frame, HeadInfo, InputEvent, InputSink, Key, MachineId,
+    PointerButton, Power, Result, Wake,
 };

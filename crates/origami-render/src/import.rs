@@ -11,12 +11,13 @@
 //! driver QEMU's export matches. Anything missing leaves the device as it
 //! would be without this (and the GUI asks QEMU for plain shared memory).
 
-use crate::core::GpuMemory;
+use origami_display::proto::Region;
 #[cfg(target_os = "macos")]
-use crate::qemu::CAP_METAL;
+use origami_display::proto::CAP_METAL;
 #[cfg(any(target_os = "linux", windows))]
-use crate::qemu::CAP_VULKAN;
-use crate::qemu::{Handle, Importer, Memory, Region};
+use origami_display::proto::CAP_VULKAN;
+use origami_display::{Handle, Importer, Memory};
+use origami_engine::GpuMemory;
 use std::any::Any;
 use std::io;
 use std::sync::Arc;

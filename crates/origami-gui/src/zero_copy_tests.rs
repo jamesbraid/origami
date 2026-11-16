@@ -14,8 +14,8 @@
 //! `cargo test -p origami-gui zero_copy -- --ignored --nocapture`.
 
 use crate::core::{Engine, Frame, InputEvent, Key, MachineId};
-use crate::gfx::{Compose, Gpu, GpuImporter, HeadTexture};
 use crate::qemu::QemuEngine;
+use origami_render::{Compose, Gpu, GpuImporter, HeadTexture};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};

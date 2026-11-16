@@ -25,14 +25,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-pub use origami_display::proto::Region;
-#[cfg(target_os = "macos")]
-pub use origami_display::proto::CAP_METAL;
-#[cfg(any(target_os = "linux", windows))]
-pub use origami_display::proto::CAP_VULKAN;
-#[cfg(any(target_os = "linux", windows))]
-pub use origami_display::proto::REGION_DEDICATED;
-pub use origami_display::{Handle, Importer, Memory, Stats};
+pub use origami_display::{Importer, Memory, Stats};
 
 pub struct QemuEngine {
     /// The `origami` executable that runs machines in the background.

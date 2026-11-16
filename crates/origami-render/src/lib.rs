@@ -1,6 +1,7 @@
 //! The GPU side: one device for every window, a texture for each display
 //! head that rows are uploaded into, and our own pass that scales a head into
-//! the area of the view that shows it.
+//! the area of the view that shows it. Toolkit-free: it speaks wgpu, and a
+//! window toolkit or a native host supplies the surfaces.
 
 mod blit;
 mod compose;

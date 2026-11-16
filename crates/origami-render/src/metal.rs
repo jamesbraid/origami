@@ -9,9 +9,9 @@
 //! as long as the GPU may read the buffer, which outlives `REGION_GONE`
 //! until the last frame using it is done.
 
-use crate::qemu::Memory;
 use block2::RcBlock;
 use objc2_metal::{MTLDevice, MTLResourceOptions};
+use origami_display::Memory;
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
@@ -85,9 +85,9 @@ pub fn wrap(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{FrameUpdate, ImportedUpdate};
-    use crate::gfx::{Compose, Gpu, HeadTexture, ImportedBuffer};
-    use crate::qemu::Handle;
+    use crate::{Compose, Gpu, HeadTexture, ImportedBuffer};
+    use origami_display::Handle;
+    use origami_engine::{FrameUpdate, ImportedUpdate};
     use std::os::fd::{FromRawFd, OwnedFd};
 
     /// A POSIX shared-memory object as QEMU makes one on macOS: created,
@@ -190,7 +190,7 @@ mod tests {
         let mem = shared_memory(len).map().expect("map");
         assert_eq!(mem.len(), len);
         let buffer = wrap(&gpu.device, &mem, len as u64).expect("wrap");
-        let region: Arc<dyn crate::core::GpuMemory> = Arc::new(ImportedBuffer { buffer });
+        let region: Arc<dyn origami_engine::GpuMemory> = Arc::new(ImportedBuffer { buffer });
         let compose = Compose::new(&gpu);
         let frame = |runs: Vec<(u32, u32)>, seq: u64| ImportedUpdate {
             update: FrameUpdate {

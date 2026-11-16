@@ -15,18 +15,12 @@ origami-display = { path = "../origami-display" }
 origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }
 origami-qemu = { path = "../origami-qemu" }
-bytemuck = "1"
+origami-render = { path = "../origami-render" }
 # A pinned master commit until Slint 1.19 ships (its femtovg 0.28 carries the
 # pipeline-cache fix 1.18's femtovg 0.27 lacks).
 slint = { git = "https://github.com/slint-ui/slint", rev = "3b68276e2fb5cfd965bdbfc7e78be0a91ebf1e26", default-features = false, features = ["std", "backend-winit", "renderer-femtovg-wgpu", "unstable-wgpu-30", "unstable-winit-030", "compat-1-2"] }
-# Stock wgpu 30.0.2. Its Surface::configure can fail and lose the device when
-# another thread submits to the same device while a window is created or
-# resized. This viewer submits from one thread, so it is not affected; gfx-rs/wgpu
-# pull request 10675 (hold command_indices around surface (un)configure) is
-# needed before iris runs in this process, and its head does not yet build with
-# Slint master (it is on wgpu's trunk API).
+# The same wgpu 30 as origami-render, which owns the notes on its pinning.
 wgpu = "30"
-pollster = "0.4"
 serde_json = "1"
 # The serial console: a VT terminal emulator, a glyph rasteriser to draw its
 # cells, and the system clipboard for copy and paste.
@@ -36,15 +30,6 @@ arboard = { version = "3", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-# Importing QEMU's memory needs the same ash (Vulkan: Linux and Windows) and
-# Metal bindings wgpu-hal 30 builds against, to name their types.
-[target.'cfg(any(target_os = "linux", windows))'.dependencies]
-ash = "0.38"
-
-[target.'cfg(target_os = "macos")'.dependencies]
-block2 = "0.6"
-objc2-metal = { version = "0.3", default-features = false, features = ["std", "block2", "MTLBuffer", "MTLDevice", "MTLResource"] }
 
 # QEMU's display socket is AF_UNIX on Windows too, and its segment a named
 # file mapping.

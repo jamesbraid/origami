@@ -1,0 +1,35 @@
+[package]
+name = "origami-render"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+
+[dependencies]
+origami-engine = { path = "../origami-engine" }
+origami-display = { path = "../origami-display" }
+bytemuck = "1"
+# Stock wgpu 30.0.2. Its Surface::configure can fail and lose the device when
+# another thread submits to the same device while a window is created or
+# resized. This viewer submits from one thread, so it is not affected; gfx-rs/wgpu
+# pull request 10675 (hold command_indices around surface (un)configure) is
+# needed before iris runs in this process, and its head does not yet build with
+# Slint master (it is on wgpu's trunk API).
+wgpu = "30"
+pollster = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Importing QEMU's memory needs the same ash (Vulkan: Linux and Windows) and
+# Metal bindings wgpu-hal 30 builds against, to name their types.
+[target.'cfg(any(target_os = "linux", windows))'.dependencies]
+ash = "0.38"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "block2", "MTLBuffer", "MTLDevice", "MTLResource"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation"] }

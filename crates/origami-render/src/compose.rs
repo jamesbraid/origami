@@ -8,7 +8,7 @@
 //! it marks it, so a line drawn here is a coherent one or is marked again.
 
 use super::{Gpu, HeadTexture};
-use crate::core::ImportedUpdate;
+use origami_engine::ImportedUpdate;
 use wgpu::util::DeviceExt;
 
 pub struct Compose {

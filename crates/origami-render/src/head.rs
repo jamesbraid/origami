@@ -1,5 +1,5 @@
 use super::{Compose, Gpu};
-use crate::core::{FrameUpdate, ImportedUpdate};
+use origami_engine::{FrameUpdate, ImportedUpdate};
 
 /// A head's picture on the GPU. It belongs to the device, not to a window,
 /// so a machine can move between windows without copying anything.
@@ -139,7 +139,7 @@ impl HeadTexture {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gfx::{cursor_texture, Blit, CursorDraw, Presenter, ScaleMode};
+    use crate::{cursor_texture, Blit, CursorDraw, Presenter, ScaleMode};
 
     /// A GPU for the tests, or None where the machine has no adapter at all
     /// (a software one is enough).

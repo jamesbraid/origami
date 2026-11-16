@@ -2,7 +2,6 @@
 //! window and docked back, over the product's own runner.
 
 mod core;
-mod gfx;
 mod keymap;
 mod pointer;
 mod qemu;
@@ -125,7 +124,7 @@ fn main() {
 
 fn real_main() -> Result<(), String> {
     let args = parse_args()?;
-    let gpu = gfx::Gpu::new()?;
+    let gpu = origami_render::Gpu::new()?;
     eprintln!("origami-gui: GPU {}", gpu.describe());
     if args.gpu_info {
         println!("adapter: {}", gpu.describe());
@@ -142,7 +141,7 @@ fn real_main() -> Result<(), String> {
     // Before any machine starts: with an importer the machine is started to
     // export its scanout memory on this adapter, and its regions are imported.
     eprintln!("origami-gui: zero copy: {}", gpu.import.describe());
-    if let Some(importer) = gfx::GpuImporter::new(&gpu) {
+    if let Some(importer) = origami_render::GpuImporter::new(&gpu) {
         engine.set_importer(importer);
     }
     let mut machines = Vec::new();
