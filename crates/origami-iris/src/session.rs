@@ -44,7 +44,16 @@ pub struct IrisSession {
     display: Option<PathBuf>,
     console_taken: AtomicBool,
     client: Mutex<Option<Client>>,
+    /// The display drawn in this process, when the engine was asked to.
+    #[cfg(target_os = "linux")]
+    attached: Option<Arc<origami_display::v4::attach::Attached>>,
 }
+
+/// What an engine drawing displays in its own process hands a launch: the GPU import, if any.
+#[cfg(target_os = "linux")]
+pub(crate) type Attach = Option<Option<Arc<dyn origami_display::Importer>>>;
+#[cfg(not(target_os = "linux"))]
+pub(crate) type Attach = Option<std::convert::Infallible>;
 
 /// Start `_serve` for the machine in `dir` and return once it answers.
 pub(crate) fn launch(
@@ -52,6 +61,7 @@ pub(crate) fn launch(
     dir: &Path,
     plan: &IrisPlan,
     wake: Wake,
+    attach: Attach,
 ) -> Result<Arc<IrisSession>> {
     if !plan.runner.is_file() {
         return Err(format!("the runner is missing: {}", plan.runner.display()).into());
@@ -113,6 +123,22 @@ pub(crate) fn launch(
         }
         std::thread::sleep(Duration::from_millis(100));
     };
+    #[cfg(target_os = "linux")]
+    let attached = match (plan.display, attach) {
+        (true, Some(importer)) => {
+            let alive = inner.clone();
+            Some(origami_display::v4::attach::Attached::connect(
+                crate::display_socket(dir),
+                importer,
+                id,
+                wake.clone(),
+                move || alive.exit.lock().unwrap().is_none(),
+            )?)
+        }
+        _ => None,
+    };
+    #[cfg(not(target_os = "linux"))]
+    let _ = attach;
     let session = Arc::new(IrisSession {
         id,
         inner: inner.clone(),
@@ -121,6 +147,8 @@ pub(crate) fn launch(
         display: plan.display.then(|| crate::display_socket(dir)),
         console_taken: AtomicBool::new(false),
         client: Mutex::new(Some(client)),
+        #[cfg(target_os = "linux")]
+        attached,
     });
     std::thread::spawn(move || monitor(&inner, &log_path, log_start, &wake, id));
     Ok(session)
@@ -243,6 +271,10 @@ impl Session for IrisSession {
     }
 
     fn display(&self) -> DisplayEndpoint {
+        #[cfg(target_os = "linux")]
+        if let Some(attached) = &self.attached {
+            return DisplayEndpoint::Frames(attached.clone());
+        }
         match &self.display {
             Some(socket) => DisplayEndpoint::Socket(socket.clone()),
             None => DisplayEndpoint::None,
@@ -273,6 +305,15 @@ impl Session for IrisSession {
                 Err(error.into())
             }
         }
+    }
+
+    fn send_input(&self, events: &[origami_engine::InputEvent]) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        if let Some(attached) = &self.attached {
+            return attached.send_input(events);
+        }
+        let _ = events;
+        Err("this session's display takes its own input".into())
     }
 
     fn control(&self, c: Control) -> Result<()> {

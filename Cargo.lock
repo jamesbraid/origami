@@ -4756,6 +4756,7 @@ dependencies = [
  "origami-core",
  "origami-display",
  "origami-engine",
+ "origami-iris",
  "origami-machine",
  "origami-qemu",
  "origami-render",

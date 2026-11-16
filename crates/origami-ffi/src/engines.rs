@@ -28,9 +28,20 @@ pub(crate) fn build() -> Result<Engines, CoreError> {
     let engine = origami_qemu::RunnerEngine::new(runtime, runner);
     #[cfg(feature = "render")]
     engine.set_importer(Arc::new(lazy::LazyImporter::default()));
-    Ok(Engines {
-        list: vec![Arc::new(engine)],
-    })
+    #[allow(unused_mut)]
+    let mut list: Vec<Arc<dyn Engine>> = vec![Arc::new(engine)];
+    #[cfg(all(feature = "iris", target_os = "linux"))]
+    {
+        let iris = origami_iris::IrisEngine::new(
+            origami_qemu::RunnerEngine::locate_runner().map_err(CoreError::machine)?,
+        );
+        #[cfg(feature = "render")]
+        iris.attach_display(Some(Arc::new(lazy::LazyImporter::default())));
+        #[cfg(not(feature = "render"))]
+        iris.attach_display(None);
+        list.push(Arc::new(iris));
+    }
+    Ok(Engines { list })
 }
 
 /// The one GPU device of the process: views draw with it and the display

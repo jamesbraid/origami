@@ -67,6 +67,7 @@ pub fn serve(
     // A guest power-off ends the machine, not this process: the host reports it.
     iris::workstation::set_process_exit_enabled(false);
     let display = display.then(|| crate::display_socket(dir));
+    let display_protocol = if display.is_some() { 4 } else { 0 };
     let name = format!("iris-{}", std::process::id());
     origami_host::host(dir, started_by, foreground, |wake| {
         let machine = build(&text)?;
@@ -84,7 +85,7 @@ pub fn serve(
             qmp_port: 0,
             name,
             engine_pid: 0,
-            display_protocol: 0,
+            display_protocol,
             removable: removable.into_iter().map(|(name, _)| name).collect(),
             connect_console: true,
             keep: Box::new(lock),

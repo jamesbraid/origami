@@ -22,12 +22,15 @@ fake = ["origami-engine/fake", "origami-core/fake"]
 qemu = ["dep:origami-qemu"]
 # The C frame plane's view functions (attach, resize, present).
 render = ["dep:origami-render", "dep:origami-display", "dep:wgpu"]
+# iris machines too, hosted by the runner (`origami` built with its `iris` feature).
+iris = ["qemu", "dep:origami-iris"]
 
 [dependencies]
 origami-core = { path = "../origami-core" }
 origami-display = { path = "../origami-display", optional = true }
 origami-engine = { path = "../origami-engine" }
 origami-qemu = { path = "../origami-qemu", optional = true }
+origami-iris = { path = "../origami-iris", optional = true }
 origami-render = { path = "../origami-render", optional = true }
 thiserror = "2"
 # The version origami-render pins, for the cursor texture upload.
