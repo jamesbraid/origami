@@ -15,6 +15,8 @@ use crate::core::{ConsoleKind, ConsoleLink, Key, Power};
 use crate::pointer::{AbsThrottle, PointerMode, RelAccum};
 use crate::termkeys::{self, KeyAction, Mods};
 use crate::textgrid::{self, Cell, Painter};
+use origami_core::facade::{CoreError, OperationState, StopKind};
+use origami_engine::Control;
 
 /// Which of a machine's views a window shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,8 +123,8 @@ pub struct Extra {
     /// no property: a property set can cost a redraw, and an idle machine
     /// draws nothing.
     pub pushed: String,
-    /// Console bytes taken from the engine, reused between polls.
-    pub console_buf: Vec<u8>,
+    /// Where the next console read starts in the facade's offset ring.
+    pub console_from: u64,
 }
 
 impl Extra {
@@ -162,7 +164,7 @@ impl Extra {
             debug_text: String::new(),
             was_running: false,
             pushed: String::new(),
-            console_buf: Vec::new(),
+            console_from: 0,
         }
     }
 }
@@ -172,6 +174,23 @@ fn paint_colour(c: vt100::Color, default: textgrid::Rgb) -> textgrid::Rgb {
         vt100::Color::Default => default,
         vt100::Color::Idx(i) => textgrid::indexed(i),
         vt100::Color::Rgb(r, g, b) => [r, g, b],
+    }
+}
+
+/// The most console output one poll takes from the facade's ring.
+const CONSOLE_READ: usize = 1 << 20;
+
+/// Carry out a power button on a machine, waiting for it to finish.
+fn run_power(m: &origami_core::facade::Machine, action: Power) -> Result<(), CoreError> {
+    let wait = |op: origami_core::facade::Operation| match op.wait(None) {
+        OperationState::Failed(e) => Err(e),
+        _ => Ok(()),
+    };
+    match action {
+        Power::Start => wait(m.start()?),
+        Power::Stop => wait(m.stop(StopKind::Clean)?),
+        Power::ForceStop => wait(m.stop(StopKind::Force)?),
+        Power::Reset => m.control(Control::Reset),
     }
 }
 
@@ -579,30 +598,37 @@ impl Ui {
 
     /// Take what the serial console has sent into the terminal.
     pub fn feed_console(&mut self, mi: usize) {
-        let id = self.machines[mi].id;
-        let mut buf = std::mem::take(&mut self.machines[mi].x.console_buf);
-        buf.clear();
-        let link = self.engine.console_take(id, &mut buf);
-        let x = &mut self.machines[mi].x;
-        let mut changed = false;
-        if !buf.is_empty() {
-            x.term.feed(&buf);
-            x.text_dirty = true;
-            changed = true;
+        let m = &mut self.machines[mi];
+        let mut chunk = m.fm.console_read(m.x.console_from, CONSOLE_READ);
+        if chunk.next < m.x.console_from {
+            // The machine started again and its offsets began from zero.
+            chunk = m.fm.console_read(0, CONSOLE_READ);
         }
-        if x.console != link {
-            x.console = link;
-            changed = true;
-        }
-        x.console_buf = buf;
-        if changed {
+        m.x.console_from = chunk.next;
+        if !chunk.bytes.is_empty() {
+            m.x.term.feed(&chunk.bytes);
+            m.x.text_dirty = true;
             self.render_text(mi);
         }
     }
 
+    /// The serial console's connection, as the facade last saw it.
+    fn console_link(&mut self, mi: usize) {
+        let console = self.machines[mi].fm.view().console;
+        let link = if console.connected {
+            ConsoleLink::Connected
+        } else {
+            ConsoleLink::Down(console.down_reason.unwrap_or_default())
+        };
+        let x = &mut self.machines[mi].x;
+        if x.console != link {
+            x.console = link;
+            x.text_dirty = true;
+        }
+    }
+
     pub fn send_console(&mut self, mi: usize, bytes: &[u8]) {
-        let id = self.machines[mi].id;
-        match self.engine.console_send(id, bytes) {
+        match self.machines[mi].fm.console_send(bytes) {
             Ok(()) => {
                 self.counters
                     .console_bytes_sent
@@ -820,8 +846,8 @@ impl Ui {
     /// afresh. Called about twice a second for every machine.
     pub fn tick_machine(&mut self, mi: usize) {
         self.poll_logs(mi, false);
-        let id = self.machines[mi].id;
-        let mut facts = self.engine.facts(id);
+        self.console_link(mi);
+        let mut facts = self.engine.facts(self.machines[mi].dir());
         let x = &mut self.machines[mi].x;
         facts.runner_error = x
             .runner
@@ -841,7 +867,17 @@ impl Ui {
         }
         self.machines[mi].x.status = self.status_text(mi);
         if self.debug {
-            let mut lines = self.engine.debug(id);
+            let mut lines = self.engine.debug(self.machines[mi].dir());
+            let console = self.machines[mi].fm.view().console;
+            lines.push(format!(
+                "serial: {} | {} bytes received",
+                if console.connected {
+                    "connected".to_string()
+                } else {
+                    format!("down ({})", console.down_reason.unwrap_or_default())
+                },
+                console.total
+            ));
             let c = &self.counters;
             let g = |a: &std::sync::atomic::AtomicU64| a.load(Ordering::Relaxed);
             lines.push(format!(
@@ -884,7 +920,7 @@ impl Ui {
     }
 
     pub fn zero_copy_text(&self, mi: usize) -> String {
-        match self.engine.display_backend(self.machines[mi].id) {
+        match self.engine.display_backend(self.machines[mi].dir()) {
             Some(b) if b.contains("import") => format!("zero copy: yes, {b}"),
             Some(b) => format!("zero copy: no, {b}"),
             None => format!(
@@ -936,9 +972,7 @@ impl Ui {
             }
             View::Logs => format!(
                 "logs under {} | display: {picture}",
-                self.engine
-                    .dir(m.id)
-                    .map_or_else(String::new, |d| d.join("logs").display().to_string())
+                m.dir().join("logs").display()
             ),
         };
         text
@@ -957,10 +991,10 @@ impl Ui {
         x.busy = label.to_string();
         x.busy_actions += 1;
         x.notice.clear();
-        let (engine, id) = (self.engine.clone(), self.machines[mi].id);
+        let fm = self.machines[mi].fm.clone();
         self.push(mi);
         std::thread::spawn(move || {
-            let result = engine.power(id, action).map_err(|e| e.to_string());
+            let result = run_power(&fm, action).map_err(|e| e.to_string());
             let _ = slint::invoke_from_event_loop(move || {
                 super::with_ui(move |u| u.power_done(mi, action, result))
             });
@@ -985,15 +1019,15 @@ impl Ui {
         self.tick_machine(mi);
         // Wake the display reader's view of the world.
         self.engine
-            .set_visible(self.machines[mi].id, self.machines[mi].visible);
+            .set_visible(self.machines[mi].dir(), self.machines[mi].visible);
     }
 
     /// Read the PROM's console setting off the UI thread: it runs the
     /// product's `nvram` command, which works only on a stopped machine.
     pub fn read_console_kind(&mut self, mi: usize) {
-        let (engine, id) = (self.engine.clone(), self.machines[mi].id);
+        let (engine, dir) = (self.engine.clone(), self.machines[mi].dir().to_path_buf());
         std::thread::spawn(move || {
-            let result = engine.console_kind(id).map_err(|e| e.to_string());
+            let result = engine.console_kind(&dir).map_err(|e| e.to_string());
             let _ = slint::invoke_from_event_loop(move || {
                 super::with_ui(move |u| {
                     if mi < u.machines.len() {
@@ -1006,7 +1040,7 @@ impl Ui {
     }
 
     pub fn set_console(&mut self, mi: usize, kind: ConsoleKind) {
-        let (engine, id) = (self.engine.clone(), self.machines[mi].id);
+        let (engine, dir) = (self.engine.clone(), self.machines[mi].dir().to_path_buf());
         let x = &mut self.machines[mi].x;
         x.busy = "setting the PROM console...".into();
         x.busy_actions += 1;
@@ -1014,8 +1048,8 @@ impl Ui {
         self.push(mi);
         std::thread::spawn(move || {
             let result = engine
-                .set_console_kind(id, kind)
-                .and_then(|()| engine.console_kind(id))
+                .set_console_kind(&dir, kind)
+                .and_then(|()| engine.console_kind(&dir))
                 .map_err(|e| e.to_string());
             let _ = slint::invoke_from_event_loop(move || {
                 super::with_ui(move |u| {

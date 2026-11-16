@@ -3686,6 +3686,7 @@ dependencies = [
  "arboard",
  "fontdue",
  "libc",
+ "origami-core",
  "origami-display",
  "origami-engine",
  "origami-machine",

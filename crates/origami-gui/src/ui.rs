@@ -10,17 +10,20 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, Model, VecModel};
 
-use crate::core::{ConsoleKind, CursorInfo, Engine, Frame, InputEvent, MachineId, Power};
+use crate::core::{ConsoleKind, CursorInfo, Frame, InputEvent, Power};
 use crate::pointer::PointerMode;
+use crate::qemu::RunnerEngine;
 use crate::termkeys::Mods;
 use crate::textgrid::Painter;
 use crate::{AboutWindow, Shell, TabInfo};
+use origami_core::facade as core;
 use origami_render::{
     cursor_texture, Blit, Compose, CursorDraw, Gpu, HeadTexture, Presenter, ScaleMode,
 };
@@ -53,7 +56,8 @@ pub struct Counters {
 }
 
 struct Machine {
-    id: MachineId,
+    /// The machine in the facade: its state, frames, input and console.
+    fm: core::Machine,
     name: String,
     heads: Vec<Option<HeadTexture>>,
     head_sel: usize,
@@ -74,8 +78,15 @@ struct Machine {
     x: Extra,
 }
 
+impl Machine {
+    fn dir(&self) -> &Path {
+        Path::new(self.fm.key())
+    }
+}
+
 pub struct Ui {
-    engine: Arc<dyn Engine>,
+    /// What the facade has no name for: visibility, counters, the PROM console.
+    engine: Arc<RunnerEngine>,
     gpu: Gpu,
     blit: Blit,
     compose: Compose,
@@ -89,7 +100,7 @@ pub struct Ui {
     /// window, so switching tabs does not change its size and so does not
     /// report again; the new tab takes the window's size from here.
     view_px: HashMap<usize, (u32, u32)>,
-    pending: Arc<Mutex<HashSet<MachineId>>>,
+    pending: Arc<Mutex<HashSet<usize>>>,
     about: Option<AboutWindow>,
     /// Draws the text views, at the scale of the window that shows them.
     painter: Painter,
@@ -144,12 +155,12 @@ fn win_of(mi: usize) -> usize {
     mi + 1
 }
 
-/// Build the windows for the machines `ids` (named `names`) and register the
-/// state. The engine has already started them.
+/// Build the windows for `machines` and register the state. The core has
+/// already started them.
 pub fn install(
-    engine: Arc<dyn Engine>,
+    engine: Arc<RunnerEngine>,
     gpu: Gpu,
-    machines: Vec<(MachineId, String)>,
+    machines: Vec<core::Machine>,
     debug: bool,
     first_view: View,
     pointer: PointerMode,
@@ -160,8 +171,8 @@ pub fn install(
     let tabs = Rc::new(VecModel::from(
         machines
             .iter()
-            .map(|(_, n)| TabInfo {
-                name: n.clone().into(),
+            .map(|m| TabInfo {
+                name: m.name().into(),
                 popped: false,
             })
             .collect::<Vec<_>>(),
@@ -169,7 +180,6 @@ pub fn install(
     main.set_tabs(slint::ModelRc::from(tabs.clone()));
     wire(&main, 0);
     let counters = Arc::new(Counters::default());
-    let dirs: Vec<_> = machines.iter().map(|(id, _)| engine.dir(*id)).collect();
     let ui = Ui {
         engine,
         blit: Blit::new(&gpu),
@@ -179,9 +189,10 @@ pub fn install(
         machines: machines
             .into_iter()
             .enumerate()
-            .map(|(i, (id, name))| Machine {
-                id,
-                name,
+            .map(|(i, fm)| Machine {
+                name: fm.name().to_string(),
+                x: Extra::new(Some(PathBuf::from(fm.key()))),
+                fm,
                 heads: Vec::new(),
                 head_sel: 0,
                 mode: ScaleMode::default(),
@@ -194,7 +205,6 @@ pub fn install(
                 pixels: Vec::new(),
                 visible: i == 0,
                 renders: 0,
-                x: Extra::new(dirs[i].clone()),
             })
             .collect(),
         main,
@@ -216,29 +226,28 @@ pub fn install(
             .map(|f| (f, std::time::Instant::now())),
     };
     let pending = ui.pending.clone();
-    let ids: Vec<(MachineId, bool)> = ui.machines.iter().map(|m| (m.id, m.visible)).collect();
     UI.with(|u| *u.borrow_mut() = Some(ui));
-    // Engines call this from their own threads, so it only queues: one
-    // callback on the UI thread however many wakes arrive meanwhile.
+    // The hook runs on engine threads, so it only queues: one callback on the
+    // UI thread however many wakes arrive meanwhile.
     UI.with(|u| {
         let g = u.borrow();
         let ui = g.as_ref().unwrap();
-        let counters = ui.counters.clone();
-        ui.engine.set_wake(Arc::new(move |id| {
-            counters.wakes.fetch_add(1, Ordering::Relaxed);
-            if pending.lock().unwrap_or_else(|e| e.into_inner()).insert(id) {
-                let _ = slint::invoke_from_event_loop(move || with_ui(move |u| u.poll(id)));
-            }
-        }));
-        for (id, visible) in ids {
-            ui.engine.set_visible(id, visible);
+        for (mi, m) in ui.machines.iter().enumerate() {
+            let (counters, pending) = (ui.counters.clone(), pending.clone());
+            m.fm.add_frame_hook(Arc::new(move || {
+                counters.wakes.fetch_add(1, Ordering::Relaxed);
+                if pending.lock().unwrap_or_else(|e| e.into_inner()).insert(mi) {
+                    let _ = slint::invoke_from_event_loop(move || with_ui(move |u| u.poll(mi)));
+                }
+            }));
+            ui.engine.set_visible(m.dir(), m.visible);
         }
     });
     with_ui_now(|u| {
         for mi in 0..u.machines.len() {
             u.machines[mi].x.view = first_view;
             u.machines[mi].x.mode = pointer;
-            u.machines[mi].x.was_running = u.engine.facts(u.machines[mi].id).running;
+            u.machines[mi].x.was_running = u.engine.facts(u.machines[mi].dir()).running;
             if !u.machines[mi].x.was_running {
                 u.read_console_kind(mi);
             }
@@ -303,8 +312,8 @@ pub fn run() {
         u.push(0);
         u.push_tabs();
         // Pictures that arrived before the window did.
-        for id in u.machines.iter().map(|m| m.id).collect::<Vec<_>>() {
-            u.poll(id);
+        for mi in 0..u.machines.len() {
+            u.poll(mi);
         }
     });
     let _ticks = start_ticks();
@@ -515,7 +524,7 @@ impl Ui {
     }
 
     fn send(&mut self, mi: usize, event: InputEvent) {
-        if let Err(e) = self.engine.send_input(self.machines[mi].id, event) {
+        if let Err(e) = self.machines[mi].fm.send_input(&[event]) {
             if self.counters.input_errors.fetch_add(1, Ordering::Relaxed) == 0 {
                 eprintln!("origami-gui: input to {}: {e}", self.machines[mi].name);
             }
@@ -630,15 +639,15 @@ impl Ui {
         self.redraw(mi);
     }
 
-    /// Take what machine `id` has new and put it on the GPU.
-    pub fn poll(&mut self, id: MachineId) {
+    /// Take what machine `mi` has new and put it on the GPU.
+    pub fn poll(&mut self, mi: usize) {
         self.pending
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .remove(&id);
-        let Some(mi) = self.machines.iter().position(|m| m.id == id) else {
+            .remove(&mi);
+        if mi >= self.machines.len() {
             return;
-        };
+        }
         // The console is read whether or not anyone looks at the machine, so
         // its screen is right when they do.
         self.feed_console(mi);
@@ -646,9 +655,7 @@ impl Ui {
             // The engine keeps what changed until someone looks again.
             return;
         }
-        let Ok(infos) = self.engine.heads(id) else {
-            return;
-        };
+        let infos = self.machines[mi].fm.heads();
         let mut changed_sel = false;
         let m = &mut self.machines[mi];
         if m.heads.len() != infos.len() {
@@ -664,7 +671,7 @@ impl Ui {
                 continue;
             }
             let mut pixels = std::mem::take(&mut m.pixels);
-            match self.engine.take_frame(id, hi, &mut pixels) {
+            match m.fm.take_frame(hi, &mut pixels) {
                 Ok(Some(frame)) => {
                     let c = &self.counters;
                     let old = m.heads[hi].take();
@@ -704,10 +711,9 @@ impl Ui {
     /// Ask the engine for the guest's cursor on the shown head and keep the
     /// image on the GPU. True when something about it changed.
     fn refresh_cursor(&mut self, mi: usize) -> bool {
-        let id = self.machines[mi].id;
         let head = self.machines[mi].head_sel;
         let known = self.machines[mi].cursor_tex.as_ref().map_or(0, |t| t.1);
-        let Some(mut info) = self.engine.cursor(id, head, known) else {
+        let Some(mut info) = self.machines[mi].fm.cursor(head, known).ok().flatten() else {
             return false;
         };
         let m = &mut self.machines[mi];
@@ -769,7 +775,7 @@ impl Ui {
     fn set_visible(&mut self, mi: usize, visible: bool) {
         if self.machines[mi].visible != visible {
             self.machines[mi].visible = visible;
-            self.engine.set_visible(self.machines[mi].id, visible);
+            self.engine.set_visible(self.machines[mi].dir(), visible);
         }
     }
 
@@ -791,8 +797,7 @@ impl Ui {
         self.adopt_area(i);
         self.adopt_text_area(i);
         self.push(i);
-        let id = self.machines[i].id;
-        self.poll(id);
+        self.poll(i);
         self.redraw(i);
     }
 
@@ -819,8 +824,6 @@ impl Ui {
         if let Some(t) = m.pres.resize(&self.gpu, w, h) {
             m.out_img = slint::Image::try_from(t).ok();
         }
-        let id = m.id;
-        self.engine.set_size(id, m.head_sel, w, h);
         self.push(mi);
         self.redraw(mi);
     }

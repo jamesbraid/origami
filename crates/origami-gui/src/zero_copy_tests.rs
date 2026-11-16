@@ -13,8 +13,9 @@
 //! compare the counters. Run it with
 //! `cargo test -p origami-gui zero_copy -- --ignored --nocapture`.
 
-use crate::core::{Engine, Frame, InputEvent, Key, MachineId};
-use crate::qemu::QemuEngine;
+use crate::core::{Frame, InputEvent, Key};
+use crate::qemu::RunnerEngine;
+use origami_core::facade::{Config, Core, Machine, StopKind};
 use origami_render::{Compose, Gpu, GpuImporter, HeadTexture};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -121,9 +122,9 @@ fn screendump(qmp_port: u16, to: &Path) -> (u32, u32, Vec<u8>) {
 
 struct Run {
     gpu: Gpu,
-    engine: Arc<QemuEngine>,
+    engine: Arc<RunnerEngine>,
     compose: Compose,
-    id: MachineId,
+    machine: Machine,
     head: Option<HeadTexture>,
     pixels: Vec<u8>,
     imported_frames: u64,
@@ -136,18 +137,14 @@ struct Run {
 impl Run {
     /// Take what the engine has and draw it.
     fn pump(&mut self) {
-        let hs = self.engine.heads(self.id).unwrap();
+        let hs = self.machine.heads();
         let Some(info) = hs.first().filter(|h| h.active) else {
             return;
         };
         if self.head.as_ref().is_some_and(|h| h.seq >= info.seq) {
             return;
         }
-        match self
-            .engine
-            .take_frame(self.id, 0, &mut self.pixels)
-            .unwrap()
-        {
+        match self.machine.take_frame(0, &mut self.pixels).unwrap() {
             Some(Frame::Imported(f)) => {
                 self.imported_frames += 1;
                 self.head = Some(HeadTexture::apply_imported(
@@ -238,18 +235,24 @@ fn zero_copy_regions_draw_what_qemu_says_the_screen_shows() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let engine = Arc::new(QemuEngine::new(origami));
+    let runtime = origami_qemu::Runtime::locate().expect("a runtime");
+    let engine = Arc::new(RunnerEngine::new(runtime, origami));
     if let Some(importer) = GpuImporter::new(&gpu) {
         engine.set_importer(importer);
     }
-    let id = engine.start(&machine).expect("the machine starts");
-    struct Stop(Arc<QemuEngine>, MachineId);
+    let core = Core::new(Config::new(&work), vec![engine.clone()], None).unwrap();
+    let id = core
+        .start_machine(&machine.to_string_lossy())
+        .expect("the machine starts");
+    struct Stop(Machine);
     impl Drop for Stop {
         fn drop(&mut self) {
-            let _ = self.0.stop(self.1);
+            if let Ok(op) = self.0.stop(StopKind::Clean) {
+                op.wait(None);
+            }
         }
     }
-    let _stop = Stop(engine.clone(), id);
+    let _stop = Stop(id.clone());
     let qmp_port = origami_machine::control::read(&machine.canonicalize().unwrap())
         .expect("a running machine")
         .qmp_port;
@@ -257,7 +260,7 @@ fn zero_copy_regions_draw_what_qemu_says_the_screen_shows() {
         compose: Compose::new(&gpu),
         gpu,
         engine,
-        id,
+        machine: id,
         head: None,
         pixels: Vec::new(),
         imported_frames: 0,
@@ -289,19 +292,19 @@ fn zero_copy_regions_draw_what_qemu_says_the_screen_shows() {
         );
     }
     let first = read_back(&run.gpu, &run.head.as_ref().unwrap().texture);
-    let backend = run.engine.display_backend(id).unwrap_or_default();
+    let backend = run
+        .engine
+        .display_backend(&machine.canonicalize().unwrap())
+        .unwrap_or_default();
     eprintln!("backend: {backend}");
 
     // A change: a key dismisses the dialog and the PROM draws its menu.
     for down in [true, false] {
-        run.engine
-            .send_input(
-                id,
-                InputEvent::Key {
-                    key: Key::Space,
-                    down,
-                },
-            )
+        run.machine
+            .send_input(&[InputEvent::Key {
+                key: Key::Space,
+                down,
+            }])
             .unwrap();
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -333,7 +336,7 @@ fn zero_copy_regions_draw_what_qemu_says_the_screen_shows() {
         "the picture hardly changed ({changed} pixels)"
     );
 
-    let stats = run.engine.stats(id).unwrap();
+    let stats = run.engine.stats(&machine.canonicalize().unwrap()).unwrap();
     let head = run.head.as_ref().unwrap();
     eprintln!(
         "frames: {} imported, {} copied; engine copied {} bytes, imported {} lines; \

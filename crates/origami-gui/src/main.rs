@@ -16,7 +16,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::core::Engine;
+use origami_core::facade::{Config, Core, OperationState, StopKind};
 
 slint::include_modules!();
 
@@ -135,26 +135,23 @@ fn real_main() -> Result<(), String> {
         return Ok(());
     }
 
-    let runner = qemu::QemuEngine::locate_runner().map_err(|e| e.to_string())?;
-    let engine = Arc::new(qemu::QemuEngine::new(runner));
-    eprintln!("origami-gui: engine {}", engine.id());
+    let runner = qemu::RunnerEngine::locate_runner().map_err(|e| e.to_string())?;
+    let runtime = origami_qemu::Runtime::locate().map_err(|e| e.to_string())?;
+    let engine = Arc::new(qemu::RunnerEngine::new(runtime, runner));
     // Before any machine starts: with an importer the machine is started to
     // export its scanout memory on this adapter, and its regions are imported.
     eprintln!("origami-gui: zero copy: {}", gpu.import.describe());
     if let Some(importer) = origami_render::GpuImporter::new(&gpu) {
         engine.set_importer(importer);
     }
+    let core =
+        Core::new(Config::new("."), vec![engine.clone()], None).map_err(|e| e.to_string())?;
     let mut machines = Vec::new();
     for dir in &args.dirs {
-        let id = engine
-            .start(dir)
+        let machine = core
+            .start_machine(&dir.to_string_lossy())
             .map_err(|e| format!("{}: {e}", dir.display()))?;
-        let name = dir
-            .canonicalize()
-            .ok()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .unwrap_or_else(|| dir.display().to_string());
-        machines.push((id, name));
+        machines.push(machine);
     }
 
     slint::BackendSelector::new()
@@ -183,27 +180,28 @@ fn real_main() -> Result<(), String> {
         let counters = counters.clone();
         let gpu = gpu.clone();
         let engine = engine.clone();
-        let ids: Vec<_> = machines.iter().map(|(id, _)| *id).collect();
+        let shown = machines.clone();
         move |path: &std::path::Path| {
             let c = &counters;
             let g = |a: &std::sync::atomic::AtomicU64| a.load(Ordering::Relaxed);
-            let per: Vec<String> = ids
+            let per: Vec<String> = shown
                 .iter()
-                .filter_map(|id| {
-                    engine.stats(*id).map(|s| {
+                .filter_map(|m| {
+                    let dir = std::path::Path::new(m.key());
+                    engine.stats(dir).map(|s| {
                         format!(
                             "{{\"frames\":{},\"rows\":{},\"imported_rows\":{},\"copied_bytes\":{},\"backend\":{:?},\"running\":{},\"head\":{},\"cursor\":{}}}",
                             s.frames,
                             s.lines,
                             s.imported_lines,
                             s.copied_bytes,
-                            engine.display_backend(*id).unwrap_or_default(),
-                            engine.is_running(*id),
-                            engine.heads(*id).ok().and_then(|h| h.first().copied()).map_or(
+                            engine.display_backend(dir).unwrap_or_default(),
+                            engine.is_running(dir),
+                            m.heads().first().map_or(
                                 "null".to_string(),
                                 |h| format!("{{\"width\":{},\"height\":{}}}", h.width, h.height)
                             ),
-                            engine.cursor(*id, 0, u32::MAX).map_or(
+                            m.cursor(0, u32::MAX).ok().flatten().map_or(
                                 "null".to_string(),
                                 |c| format!(
                                     "{{\"x\":{},\"y\":{},\"on\":{},\"hot_x\":{},\"hot_y\":{}}}",
@@ -284,13 +282,18 @@ fn real_main() -> Result<(), String> {
         write_stats(path);
     }
     if args.stop_on_exit {
-        for (id, name) in &machines {
-            eprintln!("origami-gui: stopping {name}");
-            if let Err(e) = engine.stop(*id) {
-                eprintln!("origami-gui: stopping {name}: {e}");
+        for m in &machines {
+            eprintln!("origami-gui: stopping {}", m.name());
+            let result = m.stop(StopKind::Clean).map(|op| op.wait(None));
+            match result {
+                Ok(OperationState::Failed(e)) | Err(e) => {
+                    eprintln!("origami-gui: stopping {}: {e}", m.name());
+                }
+                Ok(_) => {}
             }
         }
     }
+    core.shutdown();
     Ok(())
 }
 
