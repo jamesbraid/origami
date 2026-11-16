@@ -29,6 +29,7 @@ struct Inner {
     cancellable: bool,
     cancelled: AtomicBool,
     state: Mutex<(OperationState, Option<String>)>,
+    progress: Mutex<String>,
     changed: Condvar,
     slot: Arc<Slot>,
 }
@@ -45,6 +46,19 @@ pub(crate) struct Control(Arc<Inner>);
 impl Control {
     pub(crate) fn is_cancelled(&self) -> bool {
         self.0.cancelled.load(Ordering::Acquire)
+    }
+
+    /// Say what the operation is doing now; observers hear an `Operation`
+    /// event and read it with [`Operation::progress`].
+    pub(crate) fn progress(&self, text: impl Into<String>) {
+        *self.0.progress.lock().unwrap() = text.into();
+        self.0.slot.raise(&[EventKind::Operation]);
+    }
+
+    /// The cancel flag as a function, for a helper that outlives the borrow.
+    pub(crate) fn canceller(&self) -> Arc<dyn Fn() -> bool + Send + Sync> {
+        let inner = self.0.clone();
+        Arc::new(move || inner.cancelled.load(Ordering::Acquire))
     }
 }
 
@@ -64,6 +78,11 @@ impl Operation {
 
     pub fn state(&self) -> OperationState {
         self.inner.state.lock().unwrap().0.clone()
+    }
+
+    /// The latest line of progress the work reported; empty before any.
+    pub fn progress(&self) -> String {
+        self.inner.progress.lock().unwrap().clone()
     }
 
     /// The machine a finished create or start operation produced.
@@ -117,6 +136,7 @@ where
         cancellable,
         cancelled: AtomicBool::new(false),
         state: Mutex::new((OperationState::Running, None)),
+        progress: Mutex::new(String::new()),
         changed: Condvar::new(),
         slot,
     });

@@ -2,12 +2,14 @@ mod cli;
 
 use clap::Parser;
 use cli::{Action, NvramAction};
+use origami_core::facade::{connect_install_console, InstallStart};
 use origami_core::{Change, DriveRequest, InstallAddon, InstallInit, Report, Status, Stream};
 use origami_machine::{control, graphics, install, shares, Result};
 use origami_qemu::{runtime, QemuEngine};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, ExitCode};
+use std::sync::Arc;
 
 fn main() -> ExitCode {
     // Rust ignores SIGPIPE, so printing to a closed pipe such as
@@ -425,10 +427,14 @@ fn command(action: Action) -> Result<()> {
         Action::InstallApply { dir } => {
             let dir = origami_core::directory(&dir)?;
             let loaded = origami_core::open(&engine, &dir)?;
+            // The lease turns other viewers read-only until this ends.
             install::apply(
                 &dir,
                 &loaded.file,
-                &origami_qemu::connect_console,
+                &|dir| {
+                    let attached = InstallStart::Attached;
+                    connect_install_console(dir, attached, Arc::new(|| false))
+                },
                 &mut std::io::stdout(),
             )?;
         }

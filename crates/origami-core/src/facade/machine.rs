@@ -187,6 +187,14 @@ impl Machine {
         &self.inner.name
     }
 
+    pub(crate) fn slot(&self) -> Arc<Slot> {
+        self.inner.shared.slot.clone()
+    }
+
+    pub(crate) fn engine(&self) -> Arc<dyn Engine> {
+        self.inner.engine.clone()
+    }
+
     pub fn view(&self) -> MachineView {
         self.inner.view()
     }

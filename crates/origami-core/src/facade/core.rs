@@ -87,6 +87,20 @@ pub(crate) struct CoreInner {
     slot: Arc<Slot>,
     machines: Mutex<HashMap<PathBuf, Machine>>,
     next_operation: Arc<AtomicU64>,
+    /// Install operations, which own child processes and the console lease.
+    installs: Mutex<Vec<Operation>>,
+}
+
+impl Drop for CoreInner {
+    fn drop(&mut self) {
+        let installs = std::mem::take(&mut *self.installs.lock().unwrap());
+        for install in &installs {
+            install.cancel();
+        }
+        for install in &installs {
+            install.wait(Some(std::time::Duration::from_secs(10)));
+        }
+    }
 }
 
 /// Clones share one core.
@@ -120,6 +134,7 @@ impl Core {
                 slot,
                 machines: Mutex::default(),
                 next_operation: Arc::new(AtomicU64::new(1)),
+                installs: Mutex::default(),
             }),
         })
     }
@@ -338,6 +353,25 @@ impl Core {
             )),
             _ => Ok(machine),
         }
+    }
+
+    /// Start an install operation on `machine`, and remember it so
+    /// dropping the core cancels it.
+    pub(crate) fn install_operation<F>(&self, machine: &Machine, title: &str, work: F) -> Operation
+    where
+        F: FnOnce(&operation::Control) -> CoreResult<Option<String>> + Send + 'static,
+    {
+        let operation = self.inner.operation(
+            title,
+            Some(machine.key().to_owned()),
+            true,
+            machine.slot(),
+            work,
+        );
+        let mut installs = self.inner.installs.lock().unwrap();
+        installs.retain(|install| !install.state().is_finished());
+        installs.push(operation.clone());
+        operation
     }
 
     /// The menu and toolbar commands.

@@ -3635,12 +3635,15 @@ name = "origami-core"
 version = "0.0.0"
 dependencies = [
  "dunce",
+ "libc",
  "origami-engine",
  "origami-machine",
+ "origami-protocol",
  "serde",
  "serde_json",
  "tempfile",
  "toml",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

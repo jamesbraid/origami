@@ -555,51 +555,76 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
     })
 }
 
-/// Runs Instigator's check on the generated configuration. Remote media are
-/// only probed for reachability unless `full` asks Instigator to read and
-/// assemble them as install-serve does.
+/// The Instigator check for the generated configuration, and the document
+/// it reads on standard input. Remote media are only probed for
+/// reachability unless `full` asks Instigator to read and assemble them as
+/// install-serve does.
+pub fn check_command(
+    instigator: impl FnOnce() -> Result<PathBuf>,
+    dir: &Path,
+    file: &MachineFile,
+    full: bool,
+) -> Result<(Command, Vec<u8>)> {
+    let media = read_media(dir)?;
+    let config = config(dir, file, &media)?;
+    config.write_addon_files()?;
+    fs::create_dir_all(dir.join("install").join("cache"))?;
+    let mut command = Command::new(instigator()?);
+    command.arg("check");
+    if full {
+        command.arg("--full");
+    }
+    command
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    Ok((command, serde_json::to_vec(&config.document)?))
+}
+
+/// The error for a check Instigator failed, from its standard error.
+pub fn check_rejected(stderr: &[u8]) -> String {
+    format!(
+        "Instigator rejected install media: {}",
+        String::from_utf8_lossy(stderr).trim()
+    )
+}
+
+/// Runs Instigator's check on the generated configuration.
 pub fn check(
     instigator: impl FnOnce() -> Result<PathBuf>,
     dir: &Path,
     file: &MachineFile,
     full: bool,
 ) -> Result<()> {
-    let media = read_media(dir)?;
-    let config = config(dir, file, &media)?;
-    config.write_addon_files()?;
-    fs::create_dir_all(dir.join("install").join("cache"))?;
-    let mut args = vec!["check"];
-    if full {
-        args.push("--full");
-    }
-    args.push("-");
-    let mut child = Command::new(instigator()?)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    let (mut command, document) = check_command(instigator, dir, file, full)?;
+    let mut child = command.spawn()?;
     child
         .stdin
         .take()
         .ok_or("Instigator check has no stdin")?
-        .write_all(&serde_json::to_vec(&config.document)?)?;
+        .write_all(&document)?;
     let output = child.wait_with_output()?;
     if !output.status.success() {
-        return Err(format!(
-            "Instigator rejected install media: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        )
-        .into());
+        return Err(check_rejected(&output.stderr).into());
     }
     Ok(())
 }
 
-pub fn serve(
+/// Instigator's media server for a machine, ready to run, and where it logs.
+pub struct ServeSetup {
+    pub command: Command,
+    pub log_path: PathBuf,
+    pub capture_dir: PathBuf,
+}
+
+/// Write the configuration and make the server's capture directory and log
+/// for the machine in `dir`.
+pub fn serve_setup(
     instigator: impl FnOnce() -> Result<PathBuf>,
     dir: &Path,
     file: &MachineFile,
-) -> Result<ExitStatus> {
+) -> Result<ServeSetup> {
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
     let install_dir = dir.join("install");
@@ -634,8 +659,6 @@ pub fn serve(
         options.mode(0o600);
     }
     let log = options.open(&log_path)?;
-    eprintln!("Instigator log: {}", log_path.display());
-    eprintln!("Instigator timing capture: {}", capture_dir.display());
     command
         .arg("--capture-dir")
         .arg(&capture_dir)
@@ -643,6 +666,27 @@ pub fn serve(
         .current_dir(dir)
         .stdout(Stdio::from(log.try_clone()?))
         .stderr(Stdio::from(log));
+    Ok(ServeSetup {
+        command,
+        log_path,
+        capture_dir,
+    })
+}
+
+/// Run the media server in place of this process on Unix, where the
+/// command line hands it the terminal's signals; elsewhere wait for it.
+pub fn serve(
+    instigator: impl FnOnce() -> Result<PathBuf>,
+    dir: &Path,
+    file: &MachineFile,
+) -> Result<ExitStatus> {
+    let ServeSetup {
+        mut command,
+        log_path,
+        capture_dir,
+    } = serve_setup(instigator, dir, file)?;
+    eprintln!("Instigator log: {}", log_path.display());
+    eprintln!("Instigator timing capture: {}", capture_dir.display());
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

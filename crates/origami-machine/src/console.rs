@@ -13,8 +13,26 @@ use std::time::{Duration, Instant};
 /// How much output `wait_for` keeps to look for the prompt in.
 const KEEP: usize = 65536;
 
+/// The byte path under a [`Console`]. A read that times out returns
+/// `WouldBlock` or `TimedOut`, which a wait takes as a chance to check its
+/// deadline.
+pub trait Transport: Send {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize>;
+    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
+}
+
+impl Transport for TcpStream {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        Read::read(self, buffer)
+    }
+
+    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        Write::write_all(self, bytes)
+    }
+}
+
 pub struct Console {
-    stream: TcpStream,
+    transport: Box<dyn Transport>,
 }
 
 impl Console {
@@ -24,25 +42,23 @@ impl Console {
         let stream = TcpStream::connect_timeout(&address.into(), Duration::from_secs(5))?;
         stream.set_read_timeout(Some(Duration::from_secs(1)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        Ok(Self { stream })
+        Ok(Self::from_stream(stream))
     }
 
     /// A console over a stream the caller has connected. A read timeout on
     /// the stream sets how often a wait looks at its deadline.
     pub fn from_stream(stream: TcpStream) -> Self {
-        Self { stream }
+        Self::from_transport(Box::new(stream))
     }
 
-    /// A second handle on the connection, so one thread can write while
-    /// another reads.
-    pub fn try_clone_stream(&self) -> Result<TcpStream> {
-        Ok(self.stream.try_clone()?)
+    pub fn from_transport(transport: Box<dyn Transport>) -> Self {
+        Self { transport }
     }
 
     /// Read what the guest has written. Returns None when the read timed out
     /// or was interrupted, and Some(0) when the guest closed the console.
     pub fn read_some(&mut self, buffer: &mut [u8]) -> Result<Option<usize>> {
-        match self.stream.read(buffer) {
+        match self.transport.read(buffer) {
             Ok(count) => Ok(Some(count)),
             Err(error)
                 if matches!(
@@ -60,7 +76,7 @@ impl Console {
 
     /// Send `text` to the guest as typed.
     pub fn send(&mut self, text: impl AsRef<[u8]>) -> Result<()> {
-        self.stream.write_all(text.as_ref())?;
+        self.transport.write_all(text.as_ref())?;
         Ok(())
     }
 

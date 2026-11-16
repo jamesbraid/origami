@@ -13,11 +13,18 @@ fake = ["origami-engine/fake"]
 [dependencies]
 origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }
+origami-protocol = { path = "../origami-protocol" }
 dunce = "1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects"] }
 
 [dev-dependencies]
 origami-engine = { path = "../origami-engine", features = ["fake"] }
-serde_json = "1"
 tempfile = "3"
