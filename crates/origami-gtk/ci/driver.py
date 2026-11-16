@@ -203,8 +203,66 @@ def prom_menu(a, name, timeout=600):
     return r
 
 
-def first_light():
+VPTR = None
+
+
+def start_vptr():
+    """A virtual pointer that outlives single commands (see vptr.rs), so the
+    seat has a pointer when the app starts."""
+    global VPTR
+    path = os.environ.get("VPTR")
+    if mode == "x11" or not path or not os.path.exists(path):
+        return
+    VPTR = subprocess.Popen([path], stdin=subprocess.PIPE, text=True, stdout=open(os.path.join(out, "vptr.log"), "w"), stderr=subprocess.STDOUT)
+    time.sleep(1)
+
+
+def vp(line):
+    VPTR.stdin.write(line + "\n")
+    VPTR.stdin.flush()
+    time.sleep(0.05)
+
+
+def wayland_pointer(a):
+    """Follow and capture under a compositor with pointer constraints, the
+    pointer injected through vptr. The output is 1280x720 and the window fills
+    it."""
+    if VPTR is None:
+        skip("pointer checks", "no virtual pointer helper")
+        return
+    vp("abs 700 350 1280 720")
+    time.sleep(0.3)
+    n0 = a.machine("octane2")["inputs"]
+    for i in range(6):
+        vp("abs %d %d 1280 720" % (700 + 20 * i, 350 + 10 * i))
+    check("follow: motion reached the guest", a.machine("octane2")["inputs"] > n0)
+    a.req("invoke machine.pointer-capture octane2")
+    vp("abs 700 350 1280 720")
+    vp("click")
+    check("a click captures", a.wait("capture", lambda: a.machine("octane2")["captured"], 5, 0.2) is not None, a.machine("octane2"))
+    time.sleep(0.5)
+    check("the window system's pointer lock is held", a.machine("octane2")["pointer_locked"], a.machine("octane2"))
+    t0 = a.machine("octane2")["motion_total"]
+    vp("move 30 10")
+    vp("move -10 -5")
+    time.sleep(0.3)
+    t1 = a.machine("octane2")["motion_total"]
+    got = (t1[0] - t0[0], t1[1] - t0[1])
+    check("capture: the guest got the distance the pointer moved", abs(got[0] - 20) <= 2 and abs(got[1] - 5) <= 2, got)
+    # A locked pointer has no edge: push far past the output's.
+    for _ in range(8):
+        vp("move 400 300")
+    time.sleep(0.3)
+    t2 = a.machine("octane2")["motion_total"]
+    far = (t2[0] - t1[0], t2[1] - t1[1])
+    check("capture: motion continues past the window edge", far[0] >= 3000 and far[1] >= 2200, far)
+    a.req("invoke machine.capture octane2")
+    check("the capture command releases the pointer", a.wait("release", lambda: not a.machine("octane2")["captured"], 5, 0.2) is not None)
+
+
+def first_light(quick=False):
     create_machine("octane2")
+    start_vptr()
     a = App()
     try:
         s = a.wait("library", lambda: a.state()["library"] and a.state(), 30)
@@ -242,7 +300,9 @@ def first_light():
             pointer_to(*pos)
             click()
             time.sleep(0.5)
-        if mode != "x11":
+        if quick:
+            pass
+        elif mode != "x11":
             # wtype sends its own keymap's codes, not evdev ones, so the app's
             # hardware-keycode mapping cannot be tested with it.
             skip("keyboard checks", "wtype's virtual keyboard does not use evdev keycodes")
@@ -273,7 +333,7 @@ def first_light():
         shot("05-after-keys")
         # follow mouse
         if mode != "x11":
-            skip("pointer checks", "no pointer injection under this Wayland compositor")
+            wayland_pointer(a)
         if mode == "x11" and pos:
             n0 = a.machine("octane2")["inputs"]
             check("default pointer mode is follow", a.machine("octane2")["pointer"] == "follow")
@@ -289,11 +349,24 @@ def first_light():
             time.sleep(0.5)
             check("a click captures", a.machine("octane2")["captured"])
             n0 = a.machine("octane2")["inputs"]
+            check("the window system's pointer lock is held", a.machine("octane2")["pointer_locked"])
+            t0 = a.machine("octane2")["motion_total"]
             sh("xdotool", "mousemove_relative", "--", "30", "10")
             time.sleep(0.3)
             sh("xdotool", "mousemove_relative", "--", "-10", "-5")
             time.sleep(0.3)
             check("capture: relative motion reached the guest", a.machine("octane2")["inputs"] > n0)
+            t1 = a.machine("octane2")["motion_total"]
+            got = (t1[0] - t0[0], t1[1] - t0[1])
+            check("capture: the guest got the distance the pointer moved", abs(got[0] - 20) <= 2 and abs(got[1] - 5) <= 2, got)
+            # The pointer may not reach a window edge: push far past it.
+            for _ in range(8):
+                sh("xdotool", "mousemove_relative", "--", "400", "300")
+                time.sleep(0.1)
+            mx, my = [int(v.split("=")[1]) for v in sh("xdotool", "getmouselocation", "--shell").stdout.split()[:2]]
+            g = dict(l.split("=") for l in sh("xdotool", "getwindowgeometry", "--shell", app_window()).stdout.split() if "=" in l)
+            wx, wy, ww, wh = int(g["X"]), int(g["Y"]), int(g["WIDTH"]), int(g["HEIGHT"])
+            check("capture: the pointer stays inside the window", wx <= mx < wx + ww and wy <= my < wy + wh, [mx, my, wx, wy, ww, wh])
             shot("06-captured")
             sh("xdotool", "keydown", "ctrl", "keydown", "alt")
             time.sleep(0.3)
@@ -320,6 +393,8 @@ def first_light():
             sh("xdotool", "keyup", "a")
             check("a key held while focus leaves is released", left == 0, left)
             key("Escape")
+        if quick:
+            return
         # Idle: the PROM's command monitor is static, so the app should cost
         # next to nothing and present nothing.
         time.sleep(3)
@@ -340,7 +415,7 @@ def first_light():
         a.stop()
 
 
-SCENARIOS = {"first-light": first_light}
+SCENARIOS = {"first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

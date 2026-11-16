@@ -14,6 +14,7 @@ mkdir -p "$S/ctx" "$S/cargo" "$S/target" "$S/cache" "$S/work" "$S/out"
 cp "$HERE/Containerfile" "$HERE/packages.txt" "$S/ctx/"
 podman build --memory 16g -t localhost/app-linux-build:1 -t localhost/app-linux-run:1 -f "$S/ctx/Containerfile" "$S/ctx"
 sh "$HERE/build.sh" "$S" build --release -p origami-gtk -p origami
+sh "$HERE/build.sh" "$S" build --release -p origami-gtk --features test-tools --bin vptr
 sh "$HERE/build.sh" "$S" test -p origami-gtk
 # The runtime tree (QEMU, keymaps) from the pinned release; xtask lays it out.
 sh "$HERE/build.sh" "$S" xtask runtime --platform linux-x86_64

@@ -16,6 +16,7 @@ mod input;
 mod keys;
 mod library;
 mod machine;
+mod pointer_lock;
 mod prefs;
 mod settings;
 mod style;

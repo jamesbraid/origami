@@ -118,7 +118,7 @@ fn describe(m: &MachineUi) -> Value {
         "size": [m.size.get().0, m.size.get().1],
         "idle_ms": m.last_frame.get().elapsed().as_millis() as u64,
         "imported": m.stats.borrow().imported, "inputs": m.inputs.get(),
-        "visible": m.root.is_mapped(), "captured": m.captured.get(),
+        "visible": m.root.is_mapped(), "captured": m.captured.get(), "motion_total": [m.motion_total.get().0, m.motion_total.get().1], "pointer_locked": m.lock.borrow().is_some(),
         "pointer": format!("{:?}", m.pointer.get()).to_lowercase(),
         "presents_while_hidden": m.stats.borrow().presents_while_hidden,
         "screen_bounds": m.screen.root().and_then(|r| m.screen.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),

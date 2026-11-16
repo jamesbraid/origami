@@ -120,6 +120,12 @@ pub struct MachineUi {
     pub pointer: Cell<PointerMode>,
     pub captured: Cell<bool>,
     pub last_pos: Cell<Option<(f64, f64)>>,
+    /// The window system's lock on the pointer while captured.
+    pub lock: RefCell<Option<crate::pointer_lock::PointerLock>>,
+    /// Motion smaller than a count, carried to the next event.
+    pub frac: Cell<(f64, f64)>,
+    /// Relative counts sent since the app started, for tests.
+    pub motion_total: Cell<(i64, i64)>,
     pub ctrl_alt: Cell<(bool, bool)>,
     pub inputs: Cell<u64>,
     pub hud_timer: RefCell<Option<glib::SourceId>>,
@@ -250,6 +256,9 @@ impl MachineUi {
             pointer: Cell::new(pointer),
             captured: Cell::new(false),
             last_pos: Cell::new(None),
+            lock: RefCell::new(None),
+            frac: Cell::new((0.0, 0.0)),
+            motion_total: Cell::new((0, 0)),
             ctrl_alt: Cell::new((false, false)),
             inputs: Cell::new(0),
             hud_timer: RefCell::new(None),

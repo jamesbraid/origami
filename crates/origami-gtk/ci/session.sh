@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs inside the container. usage: session.sh OUTDIR x11|weston|cage [app args]
+# Runs inside the container. usage: session.sh OUTDIR x11|weston|cage|sway [app args]
 # Needs: APP, WORK, ORIGAMI_BIN, ORIGAMI_RUNTIME_DIR, ORIGAMI_CACHE_DIR in the environment.
 set -eu
 OUT=$1; MODE=$2; shift 2
@@ -25,6 +25,16 @@ x11)
 weston)
   weston --backend=headless --renderer=gl --width=1600 --height=1300 --socket=wl-test >"$OUT/weston.log" 2>&1 &
   sleep 3; export WAYLAND_DISPLAY=wl-test GDK_BACKEND=wayland
+  python3 "$(dirname "$0")/driver.py" "$OUT" wayland "$@"
+  ;;
+sway)
+  # The one test compositor with pointer constraints, relative pointer and a
+  # virtual pointer, so capture mode can be checked end to end.
+  printf 'output * resolution 1280x720\nfor_window [app_id="fans.irix.Origami"] fullscreen enable\n' > "$OUT/sway.conf"
+  export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=${WLR_RENDERER:-$([ -n "${NVIDIA_RUN:-}" ] && echo gles2 || echo pixman)}
+  sway --unsupported-gpu -c "$OUT/sway.conf" >"$OUT/sway.log" 2>&1 &
+  sleep 4
+  export WAYLAND_DISPLAY=$(cd "$XDG_RUNTIME_DIR" && ls wayland-* | grep -v lock | head -1) GDK_BACKEND=wayland
   python3 "$(dirname "$0")/driver.py" "$OUT" wayland "$@"
   ;;
 cage)

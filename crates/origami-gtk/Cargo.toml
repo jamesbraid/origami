@@ -11,7 +11,18 @@ license = "BSD-3-Clause"
 name = "origami-gtk"
 path = "src/main.rs"
 
+# A virtual pointer for the Wayland checks, which no compositor in the test
+# images offers on its own. Not part of the app.
+[[bin]]
+name = "vptr"
+path = "ci/vptr.rs"
+required-features = ["test-tools"]
+
+[features]
+test-tools = ["dep:wayland-protocols-wlr"]
+
 [dependencies]
+wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
 origami-core = { path = "../origami-core" }
 origami-display = { path = "../origami-display" }
 origami-engine = { path = "../origami-engine" }
@@ -28,6 +39,11 @@ libc = "0.2"
 vt100 = "0.18"
 pangocairo = "0.22"
 dirs = "7"
+gdk4-wayland = { version = "0.11.5", features = ["wayland_crate"] }
+gdk4-x11 = "0.11.5"
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+x11rb = { version = "0.14", features = ["xinput"] }
 
 [dev-dependencies]
 tempfile = "3"

@@ -9,6 +9,7 @@
 use crate::app::App;
 use crate::keys;
 use crate::machine::MachineUi;
+use crate::pointer_lock::PointerLock;
 use crate::prefs::PointerMode;
 use adw::prelude::*;
 use gtk::{gdk, glib};
@@ -43,8 +44,28 @@ pub fn set_captured(app: &Rc<App>, m: &Rc<MachineUi>, on: bool) {
         return;
     }
     m.last_pos.set(None);
+    m.frac.set((0.0, 0.0));
     m.screen
         .set_cursor_from_name(if on { Some("none") } else { None });
+    if on {
+        let weak = Rc::downgrade(m);
+        let lock = PointerLock::acquire(
+            &m.screen,
+            Rc::new(move |dx, dy| {
+                if let Some(m) = weak.upgrade() {
+                    send_motion(&m, dx, dy);
+                }
+            }),
+        );
+        if let Some(l) = &lock {
+            l.centre(&m.screen);
+        }
+        *m.lock.borrow_mut() = lock;
+    } else {
+        m.lock.borrow_mut().take();
+        // Whatever ended capture, nothing the guest holds stays held.
+        let _ = m.machine.release_all_keys();
+    }
     if on {
         flash_hud(m, "Input captured. Press Ctrl+Alt to release.");
     } else {
@@ -131,13 +152,14 @@ pub fn wire(app: &Rc<App>, m: &Rc<MachineUi>) {
                     });
                 }
             } else if m.captured.get() {
-                if let Some((lx, ly)) = m.last_pos.get() {
-                    let (dx, dy) = ((x - lx).round() as i32, (y - ly).round() as i32);
-                    if dx != 0 || dy != 0 {
-                        m.send(InputEvent::PointerMove { dx, dy });
+                // With a lock, motion comes from the lock itself. Without one,
+                // difference absolute positions.
+                if m.lock.borrow().is_none() {
+                    if let Some((lx, ly)) = m.last_pos.get() {
+                        send_motion(&m, x - lx, y - ly);
                     }
+                    m.last_pos.set(Some((x, y)));
                 }
-                m.last_pos.set(Some((x, y)));
             }
         });
     }
@@ -199,6 +221,22 @@ pub fn wire(app: &Rc<App>, m: &Rc<MachineUi>) {
         });
     }
     m.screen.add_controller(scroll);
+}
+
+/// Send relative motion, carrying what is less than one count to the next event.
+fn send_motion(m: &MachineUi, dx: f64, dy: f64) {
+    let (fx, fy) = m.frac.get();
+    let (tx, ty) = (dx + fx, dy + fy);
+    let (ix, iy) = (tx.trunc(), ty.trunc());
+    m.frac.set((tx - ix, ty - iy));
+    if ix != 0.0 || iy != 0.0 {
+        let (tx, ty) = m.motion_total.get();
+        m.motion_total.set((tx + ix as i64, ty + iy as i64));
+        m.send(InputEvent::PointerMove {
+            dx: ix as i32,
+            dy: iy as i32,
+        });
+    }
 }
 
 fn button_of(n: u32) -> Option<PointerButton> {

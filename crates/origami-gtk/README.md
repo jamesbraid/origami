@@ -41,5 +41,4 @@ zero-copy counters, typing at the PROM (`hinv`, read back by OCR of the
 emulator's screendump), follow and capture pointer modes, key release on focus
 loss, and idle cost.
 
-Not covered yet: pointer injection under Wayland (no tool in the images),
-weston screenshots, IRIX, CD swap and the Console and Diagnostics windows.
+Not covered yet: weston screenshots, IRIX, CD swap and the Diagnostics window.
