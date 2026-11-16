@@ -72,6 +72,8 @@ struct State {
     link: LinkFacts,
     /// The extensions the producer accepted, with their message indexes.
     accepted: Vec<(String, u8)>,
+    /// The id the producer gave this viewer.
+    viewer_id: u32,
 }
 
 pub struct Viewer {
@@ -244,6 +246,7 @@ impl Viewer {
             st.link.welcomed = true;
             st.link.connects += 1;
             st.link.protocol_error = None;
+            st.viewer_id = session.welcome.viewer_id;
             st.accepted = session
                 .welcome
                 .accepts
@@ -547,6 +550,11 @@ impl Viewer {
     pub fn extension(&self, name: &str) -> Option<u8> {
         let st = lock(&self.state);
         st.accepted.iter().find(|a| a.0 == name).map(|a| a.1)
+    }
+
+    /// The id the producer gave this viewer, for a test that addresses it.
+    pub fn viewer_id(&self) -> u32 {
+        lock(&self.state).viewer_id
     }
 
     /// Send an encoded message (an extension's) on the session.

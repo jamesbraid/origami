@@ -21,6 +21,7 @@ struct Rig {
     thread: Option<std::thread::JoinHandle<()>>,
     producer: Option<origami_display_producer::Producer>,
     dir: std::path::PathBuf,
+    socket: std::path::PathBuf,
 }
 
 impl Rig {
@@ -66,6 +67,7 @@ impl Rig {
             thread: Some(thread),
             producer: Some(producer),
             dir,
+            socket: path,
         }
     }
 
@@ -236,6 +238,90 @@ fn a_hidden_viewer_asks_for_nothing_new_and_showing_it_brings_the_change() {
             }
         }
     });
+}
+
+#[test]
+fn the_last_cursor_image_stays_up_until_the_new_one_arrives() {
+    use origami_display::v4::session::{HelloParams, Session};
+    use origami_display::v4::testext::{op, Control};
+    let rig = Rig::start(false);
+    let mut picture = vec![0u32; (W * H) as usize];
+    rig.first(&mut picture);
+    let stimulate = |kind, seed, arg| Stimulus {
+        head: 0,
+        kind,
+        seed,
+        step: 0,
+        arg,
+    };
+    let send = |s: Stimulus| rig.viewer.send_raw(&s.encode(rig.ix)).unwrap();
+    let cursor_with = |known| {
+        let t = Instant::now();
+        loop {
+            if let Some(c) = rig.viewer.cursor(0, known) {
+                if c.on && c.width > 0 {
+                    return c;
+                }
+            }
+            assert!(t.elapsed() < Duration::from_secs(5), "no cursor");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    send(stimulate(kind::CURSOR_MOVE, 10 | 20 << 16, 1));
+    send(stimulate(kind::CURSOR_IMAGE, 0xFF11_2233, 4));
+    let first = cursor_with(u32::MAX);
+    let old = first.image.clone().expect("the first image");
+    // A second viewer holds this one's writes, so the next image's serial is
+    // in the state region before the image itself arrives.
+    let stream = UnixStream::connect(&rig.socket).unwrap();
+    let other = Session::connect(
+        stream,
+        &HelloParams {
+            features: wire::feat::TEST,
+            offers: vec![wire::Offer {
+                name: testext::NAME.into(),
+                version_min: testext::VERSION,
+                version_max: testext::VERSION,
+                payload: vec![],
+            }],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let ix = other
+        .welcome
+        .accepts
+        .iter()
+        .find(|a| a.name == testext::NAME)
+        .unwrap()
+        .index;
+    let control = |op| {
+        Control {
+            op,
+            head: 0,
+            target_viewer: rig.viewer.viewer_id(),
+            arg: 0,
+        }
+        .encode(ix)
+    };
+    other.send(&control(op::HOLD_WRITES)).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    other
+        .send(&stimulate(kind::CURSOR_IMAGE, 0xFF44_5566, 6).encode(ix))
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let held = rig.viewer.cursor(0, u32::MAX).expect("a cursor");
+    assert!(held.on, "the cursor went dark");
+    assert_eq!(
+        (held.gen, held.width, held.image),
+        (first.gen, 4, Some(old))
+    );
+    let wakes = rig.wakes.load(Ordering::SeqCst);
+    other.send(&control(op::RESUME_WRITES)).unwrap();
+    assert!(rig.wait_wake(wakes), "the arriving image woke nobody");
+    let next = rig.viewer.cursor(0, first.gen).expect("a cursor");
+    assert!(next.gen != first.gen && next.width == 6 && next.image.is_some());
+    drop(other);
 }
 
 #[test]
