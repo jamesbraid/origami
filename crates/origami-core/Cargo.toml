@@ -6,6 +6,10 @@ edition = "2021"
 rust-version = "1.95"
 license = "BSD-3-Clause"
 
+[features]
+# Makes `cargo test -p origami-core --features fake` valid beside origami-ffi.
+fake = ["origami-engine/fake"]
+
 [dependencies]
 origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }

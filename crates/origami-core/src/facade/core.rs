@@ -1,0 +1,408 @@
+//! The entry point: a [`Core`] owns the engines it was given, the event
+//! dispatcher and the machines opened through it.
+
+use super::commands::{self, Command};
+use super::error::{CoreError, CoreResult, ErrorKind};
+use super::event::{Dispatcher, EventKind, Observer, Slot};
+use super::machine::{Machine, MachineState, Shared};
+use super::operation::{self, Operation};
+use origami_engine::{Capabilities, Catalogue, Engine, EngineStores};
+use origami_machine::dir::MachineDir;
+use origami_machine::model;
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex};
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    /// Where the machine library lives: every child directory holding a
+    /// `machine.toml` is a machine.
+    pub root: PathBuf,
+    /// How much console output a machine keeps for late readers.
+    pub console_ring_bytes: usize,
+}
+
+impl Config {
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: root.into(),
+            console_ring_bytes: 1 << 20,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EngineSummary {
+    pub id: String,
+    pub version: Option<String>,
+    pub capabilities: Capabilities,
+}
+
+/// A machine an engine offers to create, with nothing engine-specific.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OfferingSummary {
+    pub id: String,
+    pub engine: String,
+    pub product: String,
+    pub topology: String,
+    pub nodes: u32,
+    pub cpus: u32,
+    pub memory_default_mib: u32,
+    pub memory_accepted_mib: Vec<u32>,
+}
+
+/// One entry of the machine library.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MachineSummary {
+    /// Pass to [`Core::open_machine`].
+    pub key: String,
+    pub name: String,
+    pub product: String,
+    pub topology: Option<String>,
+    pub nodes: u32,
+    pub memory_per_node_mib: u32,
+    /// Known only for a machine opened through this core.
+    pub state: MachineState,
+    /// Why the machine file cannot be used, when it cannot.
+    pub problem: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CreateRequest {
+    /// The directory name under the library root.
+    pub name: String,
+    /// An [`OfferingSummary::id`].
+    pub offering: String,
+    pub memory_per_node_mib: Option<u32>,
+    pub boot_prom: Option<PathBuf>,
+    pub io_prom: Option<PathBuf>,
+}
+
+pub(crate) struct CoreInner {
+    config: Config,
+    engines: Vec<Arc<dyn Engine>>,
+    catalogues: Mutex<Vec<Option<Arc<Catalogue>>>>,
+    dispatcher: Dispatcher,
+    slot: Arc<Slot>,
+    machines: Mutex<HashMap<PathBuf, Machine>>,
+    next_operation: Arc<AtomicU64>,
+}
+
+/// Clones share one core.
+#[derive(Clone)]
+pub struct Core {
+    inner: Arc<CoreInner>,
+}
+
+impl Core {
+    /// A core over `engines`, in order of preference. `observer` hears events
+    /// on a thread the core owns.
+    pub fn new(
+        config: Config,
+        engines: Vec<Arc<dyn Engine>>,
+        observer: Option<Arc<dyn Observer>>,
+    ) -> CoreResult<Core> {
+        if engines.is_empty() {
+            return Err(CoreError::new(
+                ErrorKind::Invalid,
+                "a core needs at least one engine",
+            ));
+        }
+        let dispatcher = Dispatcher::new(observer);
+        let slot = dispatcher.slot(None);
+        Ok(Core {
+            inner: Arc::new(CoreInner {
+                config,
+                catalogues: Mutex::new(vec![None; engines.len()]),
+                engines,
+                dispatcher,
+                slot,
+                machines: Mutex::default(),
+                next_operation: Arc::new(AtomicU64::new(1)),
+            }),
+        })
+    }
+
+    /// Stop delivering events and wait for a callback in flight to return, so
+    /// do not call it while holding a lock the observer takes. Machines keep
+    /// running; calls still work.
+    pub fn shutdown(&self) {
+        self.inner.dispatcher.shutdown();
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.inner.config.root
+    }
+
+    pub fn engines(&self) -> Vec<EngineSummary> {
+        self.inner
+            .engines
+            .iter()
+            .map(|engine| {
+                let info = engine.info();
+                EngineSummary {
+                    id: info.id,
+                    version: info.version,
+                    capabilities: info.capabilities,
+                }
+            })
+            .collect()
+    }
+
+    /// What can be created: the engines' offerings, neutral fields only.
+    /// The first call may start an engine's program.
+    pub fn catalogue(&self) -> CoreResult<Vec<OfferingSummary>> {
+        let mut out = Vec::new();
+        for index in 0..self.inner.engines.len() {
+            let id = self.inner.engines[index].info().id;
+            for o in &self.inner.catalogue(index)?.offerings {
+                out.push(OfferingSummary {
+                    id: o.id.clone(),
+                    engine: id.clone(),
+                    product: o.product.clone(),
+                    topology: o.topology.clone(),
+                    nodes: o.nodes,
+                    cpus: o.cpus,
+                    memory_default_mib: origami_machine::profiles::default_memory(o),
+                    memory_accepted_mib: o.memory.accepted.clone(),
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// The machines under the library root, by name. A machine whose file
+    /// cannot be read is listed with a `problem`.
+    pub fn list_machines(&self) -> CoreResult<Vec<MachineSummary>> {
+        let root = &self.inner.config.root;
+        let entries = match std::fs::read_dir(root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+            Err(error) => return Err(error.into()),
+        };
+        let mut out = Vec::new();
+        for entry in entries {
+            let path = entry?.path();
+            if !path.join("machine.toml").is_file() {
+                continue;
+            }
+            let name = entry_name(&path);
+            let key = path.canonicalize().unwrap_or_else(|_| path.clone());
+            let state = self
+                .inner
+                .machines
+                .lock()
+                .unwrap()
+                .get(&key)
+                .map_or(MachineState::NotRunning, |m| m.view().state);
+            let key = key.to_string_lossy().into_owned();
+            out.push(match origami_machine::read_machine(&path) {
+                Ok(file) => MachineSummary {
+                    key,
+                    name,
+                    product: file.machine.model,
+                    topology: file.machine.topology,
+                    nodes: file.machine.nodes,
+                    memory_per_node_mib: file
+                        .machine
+                        .memory_per_node
+                        .trim_end_matches("MiB")
+                        .parse()
+                        .unwrap_or(0),
+                    state,
+                    problem: None,
+                },
+                Err(error) => MachineSummary {
+                    key,
+                    name,
+                    product: String::new(),
+                    topology: None,
+                    nodes: 0,
+                    memory_per_node_mib: 0,
+                    state,
+                    problem: Some(error.to_string()),
+                },
+            });
+        }
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(out)
+    }
+
+    /// Make a machine in the library. Returns at once; the finished
+    /// operation's `result_machine` is the new machine's key.
+    pub fn create_machine(&self, request: CreateRequest) -> CoreResult<Operation> {
+        let inner = self.inner.clone();
+        let name = request.name.clone();
+        if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+            return Err(CoreError::new(
+                ErrorKind::Invalid,
+                "a machine name is one plain directory name",
+            )
+            .with_detail("name"));
+        }
+        let slot = self.inner.slot.clone();
+        Ok(self
+            .inner
+            .operation("Create machine", None, true, slot, move |control| {
+                let dir = inner.config.root.join(&request.name);
+                let (index, offering) = inner.find_offering(&request.offering)?;
+                let engine = inner.engines[index].clone();
+                origami_machine::validate_create_inputs(
+                    &dir,
+                    &offering,
+                    request.memory_per_node_mib,
+                    None,
+                )
+                .map_err(CoreError::machine)?;
+                let proms = engine
+                    .firmware(
+                        &offering,
+                        request.boot_prom.as_deref(),
+                        request.io_prom.as_deref(),
+                    )
+                    .map_err(CoreError::engine)?;
+                if control.is_cancelled() {
+                    return Err(CoreError::new(
+                        ErrorKind::Cancelled,
+                        "creation was cancelled",
+                    ));
+                }
+                let stores = EngineStores(engine.as_ref());
+                origami_machine::create_configured(
+                    &dir,
+                    &offering,
+                    &origami_machine::MachineInit {
+                        stores: &stores,
+                        boot_prom: &proms.boot_prom,
+                        io_prom: proms.io_prom.as_deref(),
+                    },
+                    request.memory_per_node_mib,
+                    None,
+                    vec![],
+                    BTreeMap::new(),
+                )
+                .map_err(CoreError::machine)?;
+                inner.slot.raise(&[EventKind::Library]);
+                let key = dir.canonicalize().unwrap_or(dir);
+                Ok(Some(key.to_string_lossy().into_owned()))
+            }))
+    }
+
+    /// The machine at `key`: a key from [`Core::list_machines`], a directory
+    /// path, or a name under the library root. The same machine opened twice
+    /// is the same machine.
+    pub fn open_machine(&self, key: &str) -> CoreResult<Machine> {
+        let given = Path::new(key);
+        let path = if given.is_absolute() || given.exists() {
+            given.to_path_buf()
+        } else {
+            self.inner.config.root.join(given)
+        };
+        let path = path.canonicalize().map_err(|_| {
+            CoreError::new(ErrorKind::NotFound, format!("there is no machine {key}"))
+        })?;
+        if let Some(machine) = self.inner.machines.lock().unwrap().get(&path) {
+            return Ok(machine.clone());
+        }
+        let file = origami_machine::read_machine(&path).map_err(CoreError::machine)?;
+        let (index, mut machine_model) = self.inner.model_of(&file)?;
+        let engine = self.inner.engines[index].clone();
+        machine_model.engine.id = engine.info().id;
+        let key = path.to_string_lossy().into_owned();
+        let machine = Machine::new(
+            key.clone(),
+            MachineDir::new(&path),
+            machine_model,
+            engine,
+            Shared {
+                slot: self.inner.dispatcher.slot(Some(key)),
+                next_operation: self.inner.next_operation.clone(),
+                ring_bytes: self.inner.config.console_ring_bytes,
+            },
+        );
+        // Two threads may open at once; the first one in wins.
+        let mut machines = self.inner.machines.lock().unwrap();
+        Ok(machines.entry(path).or_insert(machine).clone())
+    }
+
+    /// Open `key` and start it, waiting until it runs. Blocks: not for a UI
+    /// thread; [`Machine::start`] is the non-blocking form.
+    pub fn start_machine(&self, key: &str) -> CoreResult<Machine> {
+        let machine = self.open_machine(key)?;
+        match machine.start()?.wait(None) {
+            super::operation::OperationState::Failed(error) => Err(error),
+            super::operation::OperationState::Cancelled => Err(CoreError::new(
+                ErrorKind::Cancelled,
+                "the start was cancelled",
+            )),
+            _ => Ok(machine),
+        }
+    }
+
+    /// The menu and toolbar commands.
+    pub fn commands(&self) -> Vec<Command> {
+        commands::table()
+    }
+}
+
+fn entry_name(path: &Path) -> String {
+    path.file_name()
+        .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+}
+
+impl CoreInner {
+    fn catalogue(&self, index: usize) -> CoreResult<Arc<Catalogue>> {
+        let mut cache = self.catalogues.lock().unwrap();
+        if let Some(found) = &cache[index] {
+            return Ok(found.clone());
+        }
+        // The first call may start a program, so do not hold the lock for it.
+        drop(cache);
+        let loaded = self.engines[index].catalogue().map_err(CoreError::engine)?;
+        cache = self.catalogues.lock().unwrap();
+        Ok(cache[index].get_or_insert(loaded).clone())
+    }
+
+    fn find_offering(&self, id: &str) -> CoreResult<(usize, origami_machine::Offering)> {
+        for index in 0..self.engines.len() {
+            if let Some(o) = self.catalogue(index)?.offerings.iter().find(|o| o.id == id) {
+                return Ok((index, o.clone()));
+            }
+        }
+        Err(
+            CoreError::new(ErrorKind::NotFound, format!("no engine offers {id}"))
+                .with_detail("offering"),
+        )
+    }
+
+    /// The model of `file` and the index of the first engine that offers it.
+    fn model_of(&self, file: &origami_machine::MachineFile) -> CoreResult<(usize, model::Machine)> {
+        let mut last = None;
+        for index in 0..self.engines.len() {
+            let catalogue = self.catalogue(index)?;
+            match model::Machine::from_file(&catalogue, file) {
+                Ok(machine) => return Ok((index, machine)),
+                Err(error) => last = Some(CoreError::machine(error)),
+            }
+        }
+        Err(last.expect("a core has an engine"))
+    }
+
+    fn operation<F>(
+        &self,
+        title: &str,
+        machine: Option<String>,
+        cancellable: bool,
+        slot: Arc<Slot>,
+        work: F,
+    ) -> Operation
+    where
+        F: FnOnce(&operation::Control) -> CoreResult<Option<String>> + Send + 'static,
+    {
+        let id = self
+            .next_operation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        operation::spawn(id, title, machine, cancellable, slot, work)
+    }
+}

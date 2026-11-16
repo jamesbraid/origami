@@ -1,0 +1,629 @@
+//! One machine of the library: its state, display, input and console, and
+//! the long calls that start and stop it.
+//!
+//! Every method may be called from any thread. Fast calls (`view`, `heads`,
+//! `take_frame`, `send_*`, `console_*`) are safe on a UI thread; `start` and
+//! `stop` return an [`Operation`].
+
+use super::console::Console;
+use super::error::{CoreError, CoreResult, ErrorKind};
+use super::event::{EventKind, Slot};
+use super::operation::{self, Control as OpControl, Operation};
+use origami_engine::{
+    ConsoleIo, Control, CursorInfo, DisplayEndpoint, DisplayRequest, Engine, Frame, FrameSource,
+    InputEvent, Key, PointerButton, RunState, Session, Stop, Wiring,
+};
+use origami_machine::dir::MachineDir;
+use origami_machine::model;
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+
+/// Called from an engine thread when a head has a new picture. It must be
+/// cheap and must not block.
+pub type FrameHook = Arc<dyn Fn() + Send + Sync>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HookId(pub u64);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MachineState {
+    NotRunning,
+    Starting,
+    Running,
+    Paused,
+    Stopping,
+    /// The engine's program is gone; the view says how.
+    Exited,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopKind {
+    /// Ask the guest to quit and wait. Can take minutes; never gives up.
+    Clean,
+    /// End the machine at once.
+    Force,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeadView {
+    pub index: u32,
+    pub width: u32,
+    pub height: u32,
+    pub seq: u64,
+    pub active: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsoleView {
+    pub connected: bool,
+    /// Why the console is not connected, when it is not.
+    pub down_reason: Option<String>,
+    /// Bytes the guest has printed since the machine started.
+    pub total: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MachineView {
+    pub key: String,
+    pub name: String,
+    pub product: String,
+    pub engine: String,
+    pub state: MachineState,
+    pub exit_code: Option<i32>,
+    pub last_error: Option<String>,
+    /// One sentence for a status line.
+    pub reason: String,
+    pub heads: Vec<HeadView>,
+    pub console: ConsoleView,
+    /// The long call in flight on this machine.
+    pub operation: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsoleChunk {
+    pub bytes: Vec<u8>,
+    /// Pass as `from` to continue.
+    pub next: u64,
+    /// Bytes between `from` and the oldest kept that were lost.
+    pub dropped: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Idle,
+    Starting,
+    Stopping,
+}
+
+struct Run {
+    phase: Phase,
+    session: Option<Arc<dyn Session>>,
+    frames: Option<Arc<dyn FrameSource>>,
+    /// The session has a display that is not in this process.
+    remote_display: bool,
+    operation: Option<u64>,
+}
+
+#[derive(Default)]
+struct Held {
+    keys: Vec<Key>,
+    buttons: Vec<PointerButton>,
+}
+
+struct Hook {
+    id: u64,
+    run: FrameHook,
+}
+
+pub(crate) struct Shared {
+    pub(crate) slot: Arc<Slot>,
+    pub(crate) next_operation: Arc<AtomicU64>,
+    pub(crate) ring_bytes: usize,
+}
+
+pub(crate) struct MachineInner {
+    key: String,
+    name: String,
+    dir: MachineDir,
+    model: model::Machine,
+    engine: Arc<dyn Engine>,
+    shared: Shared,
+    run: Mutex<Run>,
+    console: Arc<Console>,
+    held: Mutex<Held>,
+    hooks: Mutex<Arc<Vec<Hook>>>,
+    next_hook: AtomicU64,
+}
+
+/// A handle on a machine of the library. Clones share it. Dropping every
+/// handle leaves a running guest running.
+#[derive(Clone)]
+pub struct Machine {
+    pub(crate) inner: Arc<MachineInner>,
+}
+
+impl Machine {
+    pub(crate) fn new(
+        key: String,
+        dir: MachineDir,
+        model: model::Machine,
+        engine: Arc<dyn Engine>,
+        shared: Shared,
+    ) -> Machine {
+        let name = dir
+            .path()
+            .file_name()
+            .map_or_else(|| key.clone(), |n| n.to_string_lossy().into_owned());
+        Machine {
+            inner: Arc::new(MachineInner {
+                console: Console::new(shared.ring_bytes),
+                key,
+                name,
+                dir,
+                model,
+                engine,
+                shared,
+                run: Mutex::new(Run {
+                    phase: Phase::Idle,
+                    session: None,
+                    frames: None,
+                    remote_display: false,
+                    operation: None,
+                }),
+                held: Mutex::default(),
+                hooks: Mutex::new(Arc::new(Vec::new())),
+                next_hook: AtomicU64::new(1),
+            }),
+        }
+    }
+
+    /// The machine's canonical directory: its identity in the library.
+    pub fn key(&self) -> &str {
+        &self.inner.key
+    }
+
+    pub fn name(&self) -> &str {
+        &self.inner.name
+    }
+
+    pub fn view(&self) -> MachineView {
+        self.inner.view()
+    }
+
+    /// Start the guest. Returns at once; the state moves to `Starting`, then
+    /// `Running`, and an `Operation` event reports the end. Cancel before the
+    /// engine launches to abandon it.
+    pub fn start(&self) -> CoreResult<Operation> {
+        let inner = &self.inner;
+        {
+            let mut run = inner.run.lock().unwrap();
+            if run.phase != Phase::Idle || inner.live(&run) {
+                return Err(CoreError::new(
+                    ErrorKind::Busy,
+                    "the machine is already running",
+                ));
+            }
+            run.phase = Phase::Starting;
+        }
+        inner.shared.slot.raise(&[EventKind::State]);
+        let machine = self.inner.clone();
+        Ok(self.spawn("Start", true, move |control| {
+            let result = machine.launch(control);
+            machine.run.lock().unwrap().phase = Phase::Idle;
+            machine.finish_operation();
+            result.map(|()| Some(machine.key.clone()))
+        }))
+    }
+
+    /// Stop the guest. A clean stop cannot be cancelled and cannot be
+    /// repeated while it runs; a forced one may follow it.
+    pub fn stop(&self, how: StopKind) -> CoreResult<Operation> {
+        let inner = &self.inner;
+        let session = {
+            let mut run = inner.run.lock().unwrap();
+            let session = inner.live_session(&run)?;
+            if run.phase == Phase::Stopping && how == StopKind::Clean {
+                return Err(CoreError::new(
+                    ErrorKind::Busy,
+                    "the machine is already stopping",
+                ));
+            }
+            if how == StopKind::Clean {
+                run.phase = Phase::Stopping;
+            }
+            session
+        };
+        inner.shared.slot.raise(&[EventKind::State]);
+        let machine = self.inner.clone();
+        Ok(self.spawn(
+            if how == StopKind::Clean {
+                "Stop"
+            } else {
+                "Force stop"
+            },
+            false,
+            move |_| {
+                let result = session.stop(match how {
+                    StopKind::Clean => Stop::Clean { timeout: None },
+                    StopKind::Force => Stop::Force,
+                });
+                {
+                    let mut run = machine.run.lock().unwrap();
+                    if how == StopKind::Clean {
+                        run.phase = Phase::Idle;
+                    }
+                }
+                machine.finish_operation();
+                result.map_err(CoreError::engine)?;
+                Ok(None)
+            },
+        ))
+    }
+
+    pub fn control(&self, control: Control) -> CoreResult<()> {
+        self.inner
+            .session()?
+            .control(control)
+            .map_err(CoreError::engine)?;
+        self.inner.shared.slot.raise(&[EventKind::State]);
+        Ok(())
+    }
+
+    /// Put `image` in the removable drive `drive`, or eject with None.
+    pub fn change_media(&self, drive: &str, image: Option<&Path>) -> CoreResult<()> {
+        self.inner
+            .session()?
+            .media(drive, image)
+            .map_err(CoreError::engine)
+    }
+
+    pub fn screendump(&self, head: usize, path: &Path) -> CoreResult<()> {
+        self.inner
+            .session()?
+            .screendump(head, path)
+            .map_err(CoreError::engine)
+    }
+
+    pub fn send_input(&self, events: &[InputEvent]) -> CoreResult<()> {
+        let session = self.inner.session()?;
+        session.send_input(events).map_err(CoreError::engine)?;
+        self.inner.track(events);
+        Ok(())
+    }
+
+    pub fn send_key(&self, key: Key, down: bool) -> CoreResult<()> {
+        self.send_input(&[InputEvent::Key { key, down }])
+    }
+
+    /// Lift every key and button the guest believes is down, for a window
+    /// that lost focus mid-press. Returns how many it released.
+    pub fn release_all_keys(&self) -> CoreResult<u32> {
+        let session = self.inner.session()?;
+        let held = std::mem::take(&mut *self.inner.held.lock().unwrap());
+        let events: Vec<InputEvent> = held
+            .keys
+            .iter()
+            .map(|&key| InputEvent::Key { key, down: false })
+            .chain(held.buttons.iter().map(|&button| InputEvent::Button {
+                button,
+                down: false,
+            }))
+            .collect();
+        if events.is_empty() {
+            return Ok(0);
+        }
+        session.send_input(&events).map_err(CoreError::engine)?;
+        Ok(events.len() as u32)
+    }
+
+    pub fn heads(&self) -> Vec<HeadView> {
+        self.inner.heads()
+    }
+
+    /// The rows of `head` that changed since the last call, copied into
+    /// `pixels` (cleared first), or None. One consumer per head.
+    pub fn take_frame(&self, head: usize, pixels: &mut Vec<u8>) -> CoreResult<Option<Frame>> {
+        Ok(self.inner.frames()?.take_frame(head, pixels))
+    }
+
+    pub fn cursor(&self, head: usize, known_gen: u32) -> CoreResult<Option<CursorInfo>> {
+        Ok(self.inner.frames()?.cursor(head, known_gen))
+    }
+
+    /// Call `hook` from an engine thread whenever a head has news, with no
+    /// allocation per call.
+    pub fn add_frame_hook(&self, hook: FrameHook) -> HookId {
+        let id = self.inner.next_hook.fetch_add(1, Ordering::Relaxed);
+        let mut hooks = self.inner.hooks.lock().unwrap();
+        let mut next: Vec<Hook> = hooks
+            .iter()
+            .map(|h| Hook {
+                id: h.id,
+                run: h.run.clone(),
+            })
+            .collect();
+        next.push(Hook { id, run: hook });
+        *hooks = Arc::new(next);
+        HookId(id)
+    }
+
+    pub fn remove_frame_hook(&self, id: HookId) {
+        let mut hooks = self.inner.hooks.lock().unwrap();
+        let next: Vec<Hook> = hooks
+            .iter()
+            .filter(|h| h.id != id.0)
+            .map(|h| Hook {
+                id: h.id,
+                run: h.run.clone(),
+            })
+            .collect();
+        *hooks = Arc::new(next);
+    }
+
+    /// What the guest printed from byte `from` on, at most `max` bytes.
+    pub fn console_read(&self, from: u64, max: usize) -> ConsoleChunk {
+        self.inner.console.read(from, max)
+    }
+
+    pub fn console_send(&self, bytes: &[u8]) -> CoreResult<()> {
+        self.inner.console.send(bytes)
+    }
+
+    fn spawn<F>(&self, title: &str, cancellable: bool, work: F) -> Operation
+    where
+        F: FnOnce(&OpControl) -> CoreResult<Option<String>> + Send + 'static,
+    {
+        let inner = &self.inner;
+        let id = inner.shared.next_operation.fetch_add(1, Ordering::Relaxed);
+        inner.run.lock().unwrap().operation = Some(id);
+        operation::spawn(
+            id,
+            title,
+            Some(inner.key.clone()),
+            cancellable,
+            inner.shared.slot.clone(),
+            work,
+        )
+    }
+}
+
+impl MachineInner {
+    fn live(&self, run: &Run) -> bool {
+        run.session
+            .as_ref()
+            .is_some_and(|s| !matches!(s.status().state, RunState::Exited { .. }))
+    }
+
+    fn live_session(&self, run: &Run) -> CoreResult<Arc<dyn Session>> {
+        match &run.session {
+            Some(s) if self.live(run) => Ok(s.clone()),
+            _ => Err(CoreError::new(
+                ErrorKind::NotRunning,
+                "the machine is not running",
+            )),
+        }
+    }
+
+    fn session(&self) -> CoreResult<Arc<dyn Session>> {
+        let run = self.run.lock().unwrap();
+        self.live_session(&run)
+    }
+
+    fn frames(&self) -> CoreResult<Arc<dyn FrameSource>> {
+        let run = self.run.lock().unwrap();
+        match (&run.frames, run.remote_display) {
+            (Some(frames), _) => Ok(frames.clone()),
+            (None, true) => Err(CoreError::new(
+                ErrorKind::Unsupported,
+                "this machine's display is a socket, which needs the display client",
+            )),
+            (None, false) => Err(CoreError::new(
+                ErrorKind::NotRunning,
+                "the machine has no display",
+            )),
+        }
+    }
+
+    fn heads(&self) -> Vec<HeadView> {
+        let frames = self.run.lock().unwrap().frames.clone();
+        frames.map_or_else(Vec::new, |frames| {
+            frames
+                .heads()
+                .iter()
+                .enumerate()
+                .map(|(index, head)| HeadView {
+                    index: index as u32,
+                    width: head.width,
+                    height: head.height,
+                    seq: head.seq,
+                    active: head.active,
+                })
+                .collect()
+        })
+    }
+
+    fn track(&self, events: &[InputEvent]) {
+        let mut held = self.held.lock().unwrap();
+        for event in events {
+            match *event {
+                InputEvent::Key { key, down: true } if !held.keys.contains(&key) => {
+                    held.keys.push(key);
+                }
+                InputEvent::Key { key, down: false } => held.keys.retain(|&k| k != key),
+                InputEvent::Button { button, down: true } if !held.buttons.contains(&button) => {
+                    held.buttons.push(button);
+                }
+                InputEvent::Button {
+                    button,
+                    down: false,
+                } => {
+                    held.buttons.retain(|&b| b != button);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn view(&self) -> MachineView {
+        let (phase, session, operation) = {
+            let run = self.run.lock().unwrap();
+            (run.phase, run.session.clone(), run.operation)
+        };
+        let facts = session.map(|s| s.status().state);
+        let (exit_code, last_error) = match &facts {
+            Some(RunState::Exited { code, last_error }) => (*code, last_error.clone()),
+            _ => (None, None),
+        };
+        let (state, reason) = match (phase, &facts) {
+            (Phase::Starting, _) => (
+                MachineState::Starting,
+                "The machine is starting.".to_string(),
+            ),
+            (Phase::Stopping, _) => (
+                MachineState::Stopping,
+                "The machine is stopping.".to_string(),
+            ),
+            (_, None) => (
+                MachineState::NotRunning,
+                "The machine is not running.".to_string(),
+            ),
+            (_, Some(RunState::Running)) => {
+                (MachineState::Running, "The machine is running.".to_string())
+            }
+            (_, Some(RunState::Prelaunch | RunState::Paused)) => {
+                (MachineState::Paused, "The machine is paused.".to_string())
+            }
+            (_, Some(RunState::Exited { code, last_error })) => {
+                let how = match (code, last_error) {
+                    (_, Some(error)) => format!("The machine exited: {error}"),
+                    (Some(0), None) => "The machine has shut down.".to_string(),
+                    (Some(code), None) => format!("The machine exited with code {code}."),
+                    (None, None) => "The machine was ended.".to_string(),
+                };
+                (MachineState::Exited, how)
+            }
+        };
+        let (connected, down_reason, total) = self.console.status();
+        MachineView {
+            key: self.key.clone(),
+            name: self.name.clone(),
+            product: self.model.product.clone(),
+            engine: self.engine.info().id,
+            state,
+            exit_code,
+            last_error,
+            reason,
+            heads: self.heads(),
+            console: ConsoleView {
+                connected,
+                down_reason,
+                total,
+            },
+            operation: operation
+                .filter(|_| matches!(state, MachineState::Starting | MachineState::Stopping)),
+        }
+    }
+
+    /// The engine has news: a new picture, or the exit.
+    fn engine_woke(&self) {
+        self.shared
+            .slot
+            .raise(&[EventKind::State, EventKind::Display]);
+        let hooks = self.hooks.lock().unwrap().clone();
+        for hook in hooks.iter() {
+            (hook.run)();
+        }
+    }
+
+    fn finish_operation(&self) {
+        self.run.lock().unwrap().operation = None;
+        self.shared.slot.raise(&[EventKind::State]);
+    }
+
+    fn launch(self: &Arc<Self>, control: &OpControl) -> CoreResult<()> {
+        let report = self.engine.validate(&self.model, &self.dir);
+        if let Some(problem) = report.errors().next() {
+            return Err(CoreError::new(ErrorKind::Invalid, problem.message.clone()));
+        }
+        let wiring = Wiring {
+            display: DisplayRequest::Shared { gpu: None },
+            console_port: origami_machine::control::free_port().map_err(CoreError::machine)?,
+            control_port: origami_machine::control::free_port().map_err(CoreError::machine)?,
+            name: format!("origami-{}", self.name),
+            paused: false,
+            shares: None,
+            once: vec![],
+        };
+        let plan = self
+            .engine
+            .plan(&self.model, &self.dir, &wiring)
+            .map_err(CoreError::engine)?;
+        if control.is_cancelled() {
+            return Err(CoreError::new(
+                ErrorKind::Cancelled,
+                "the start was cancelled",
+            ));
+        }
+        let weak: Weak<MachineInner> = Arc::downgrade(self);
+        let session = self
+            .engine
+            .launch(
+                plan,
+                Arc::new(move |_| {
+                    if let Some(machine) = weak.upgrade() {
+                        machine.engine_woke();
+                    }
+                }),
+            )
+            .map_err(CoreError::engine)?;
+        let (frames, remote_display) = match session.display() {
+            DisplayEndpoint::Frames(frames) => (Some(frames), false),
+            DisplayEndpoint::Socket(_) => (None, true),
+            DisplayEndpoint::None => (None, false),
+        };
+        self.console.reset();
+        let opened = session
+            .consoles()
+            .into_iter()
+            .find(|console| console.primary)
+            .map(|console| session.open_console(&console.name));
+        {
+            let mut run = self.run.lock().unwrap();
+            run.session = Some(session);
+            run.frames = frames;
+            run.remote_display = remote_display;
+        }
+        *self.held.lock().unwrap() = Held::default();
+        match opened {
+            Some(Ok(io)) => self.attach_console(io),
+            Some(Err(error)) => self.console.down(error.to_string()),
+            None => self.console.down("the machine has no console".into()),
+        }
+        Ok(())
+    }
+
+    fn attach_console(self: &Arc<Self>, io: Box<dyn ConsoleIo>) {
+        let (reader, writer) = match io.split() {
+            Ok(halves) => halves,
+            Err(error) => return self.console.down(error.to_string()),
+        };
+        self.console.connect(writer);
+        let machine = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("origami-console".into())
+            .spawn(move || {
+                let console = machine.console.clone();
+                console.pump(reader, || {
+                    machine.shared.slot.raise(&[EventKind::Console]);
+                });
+                machine
+                    .shared
+                    .slot
+                    .raise(&[EventKind::Console, EventKind::State]);
+            });
+        if let Err(error) = spawned {
+            self.console.down(error.to_string());
+        }
+    }
+}

@@ -5,8 +5,8 @@
 //! Engines own their threads; every method may be called from any thread.
 
 use crate::{
-    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, Control, DisplayEndpoint, Facts, LaunchPlan,
-    MachineId, Report, Result, Stop, Wake, Wiring,
+    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, Control, DisplayEndpoint, Facts, InputEvent,
+    LaunchPlan, MachineId, Report, Result, Stop, Wake, Wiring,
 };
 use origami_machine::dir::MachineDir;
 use origami_machine::model::Machine;
@@ -89,6 +89,12 @@ pub trait Session: Send + Sync {
     fn open_console(&self, name: &str) -> Result<Box<dyn ConsoleIo>>;
 
     fn control(&self, c: Control) -> Result<()>;
+
+    /// Deliver `events` to the guest's keyboard and pointer, in order. An
+    /// engine whose input goes another way (a display socket) refuses.
+    fn send_input(&self, _events: &[InputEvent]) -> Result<()> {
+        Err("this engine takes input another way".into())
+    }
 
     /// Put `image` in the removable drive `drive`, or take the medium out.
     /// Refuses a drive that is not removable.

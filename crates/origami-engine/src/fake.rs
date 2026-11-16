@@ -11,8 +11,8 @@
 use crate::{
     Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, DiskFormat,
     DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats, DriveKind, Engine, EngineInfo,
-    Facts, Frame, FrameSource, FrameUpdate, HeadInfo, IdentityKind, LaunchPlan, MachineId, Report,
-    Result, RunState, Session, Stop, Wake, Wiring,
+    Facts, Frame, FrameSource, FrameUpdate, HeadInfo, IdentityKind, InputEvent, LaunchPlan,
+    MachineId, Report, Result, RunState, Session, Stop, Wake, Wiring,
 };
 use origami_machine::dir::MachineDir;
 use origami_machine::model::Machine;
@@ -314,6 +314,7 @@ impl Engine for FakeEngine {
                 controls: vec![],
                 media: vec![],
                 screendumps: vec![],
+                input: vec![],
             }),
         });
         self.sessions.lock().unwrap().push(session.clone());
@@ -327,6 +328,7 @@ struct Record {
     controls: Vec<Control>,
     media: Vec<(String, Option<PathBuf>)>,
     screendumps: Vec<(usize, PathBuf)>,
+    input: Vec<InputEvent>,
 }
 
 pub struct FakeSession {
@@ -373,6 +375,11 @@ impl FakeSession {
     /// an eject.
     pub fn media_changes(&self) -> Vec<(String, Option<PathBuf>)> {
         self.record.lock().unwrap().media.clone()
+    }
+
+    /// The input events sent, in order.
+    pub fn input(&self) -> Vec<InputEvent> {
+        self.record.lock().unwrap().input.clone()
     }
 
     pub fn screendumps(&self) -> Vec<(usize, PathBuf)> {
@@ -443,6 +450,12 @@ impl Session for FakeSession {
         if c == Control::PowerButton {
             self.exit(Some(0), None);
         }
+        Ok(())
+    }
+
+    fn send_input(&self, events: &[InputEvent]) -> Result<()> {
+        self.running()?;
+        self.record.lock().unwrap().input.extend_from_slice(events);
         Ok(())
     }
 
@@ -599,6 +612,12 @@ impl ConsoleCore {
 /// The host's end of the fake console: reads block until the guest has
 /// output, and end when the guest is gone; writes are echoed.
 struct FakeConsole(Arc<ConsoleCore>);
+
+impl ConsoleIo for FakeConsole {
+    fn split(self: Box<Self>) -> io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
+        Ok((Box::new(FakeConsole(self.0.clone())), self))
+    }
+}
 
 impl Read for FakeConsole {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {

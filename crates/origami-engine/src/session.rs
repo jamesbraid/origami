@@ -2,7 +2,7 @@
 
 use crate::Frame;
 use crate::HeadInfo;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,6 +38,12 @@ pub trait FrameSource: Send + Sync {
     /// nothing did. Copied rows go into `pixels` (cleared first). One
     /// consumer per head.
     fn take_frame(&self, head: usize, pixels: &mut Vec<u8>) -> Option<Frame>;
+
+    /// The guest's cursor on `head`; the image only when `known_gen` differs.
+    /// None for an engine that draws the cursor into the picture.
+    fn cursor(&self, _head: usize, _known_gen: u32) -> Option<crate::CursorInfo> {
+        None
+    }
 }
 
 /// A serial line of the machine.
@@ -49,9 +55,18 @@ pub struct ConsoleInfo {
 }
 
 /// A console's bytes, both ways.
-pub trait ConsoleIo: Read + Write + Send {}
+pub trait ConsoleIo: Read + Write + Send {
+    /// Separate the two directions, so one thread can block reading while
+    /// another writes.
+    fn split(self: Box<Self>) -> io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)>;
+}
 
-impl<T: Read + Write + Send> ConsoleIo for T {}
+impl ConsoleIo for std::net::TcpStream {
+    fn split(self: Box<Self>) -> io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
+        let reader = self.try_clone()?;
+        Ok((Box::new(reader), self))
+    }
+}
 
 /// What the host asks of a running guest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
