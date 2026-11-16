@@ -133,11 +133,11 @@ pub fn show(engine: &dyn Engine, dir: &Path) -> std::result::Result<Report, Inco
                 addressing::Addresses::of(&file)?.cidr()
             ));
         }
-        if !file.qemu.extra_args.is_empty() {
+        let extra_args = file.engine.extra_args();
+        if !extra_args.is_empty() {
             report.detail(format!(
                 "qemu extra-args (unsupported): {}",
-                file.qemu
-                    .extra_args
+                extra_args
                     .iter()
                     .map(|arg| origami_machine::shell_quote(arg))
                     .collect::<Vec<_>>()

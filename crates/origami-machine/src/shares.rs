@@ -364,7 +364,8 @@ mod tests {
                 name: "src".into(),
                 path: std::env::temp_dir(),
             }],
-            qemu: Default::default(),
+            firmware: None,
+            engine: crate::model::EngineChoice::qemu(&[]),
         }
     }
 

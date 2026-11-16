@@ -193,7 +193,7 @@ fn origin200_upgrades_once_and_keeps_its_nvram_drives_and_forwards() {
     assert_eq!(state("module0-nvram.raw").len(), 2048);
     assert_eq!(state("nvram0.raw.clock"), [0x3c; 16]);
     let text = fs::read_to_string(machine.join("machine.toml")).unwrap();
-    assert!(text.starts_with("format = 4"), "{text}");
+    assert!(text.starts_with("format = 5"), "{text}");
     assert!(!text.contains("firmware"), "{text}");
     assert!(
         text.contains("[[pipe]]\nslot = \"pci-5\"\nfamily = \"psitech\"\nproduct = \"rad4\""),
@@ -509,19 +509,26 @@ fn format2_origin200_gains_module_nvram_and_keeps_everything_else() {
         }
     }
     let added: Vec<_> = after.keys().filter(|f| !before.contains_key(*f)).collect();
-    assert_eq!(added, [&machine.join("state/module0-nvram.raw")]);
+    assert_eq!(
+        added,
+        [
+            &machine.join("machine.toml.format2"),
+            &machine.join("state/module0-nvram.raw")
+        ]
+    );
     assert_eq!(after[&machine.join("state/module0-nvram.raw")].len(), 2048);
     let text = fs::read_to_string(machine.join("machine.toml")).unwrap();
     assert_eq!(
         text.parse::<toml::Table>().unwrap(),
         (ORIGIN200_FORMAT2
-            .replace("format = 2", "format = 4")
+            .replace("format = 2", "format = 5")
             .replace("graphics = \"rad4\"\n", "")
             .replace(
                 "mac = \"08:00:69:12:34:56\"\n",
                 "mac = \"08:00:69:12:34:56\"\nemu-id = 1\n"
             )
-            + "\n[[pipe]]\nslot = \"pci-5\"\nfamily = \"psitech\"\nproduct = \"rad4\"\n")
+            + "\n[[pipe]]\nslot = \"pci-5\"\nfamily = \"psitech\"\nproduct = \"rad4\"\n\n\
+                [engine]\nid = \"qemu\"\n")
             .parse::<toml::Table>()
             .unwrap()
     );
@@ -689,9 +696,11 @@ fn format2_origin2000_reads_both_proms_and_a_fuel_needs_none() {
         String::from_utf8_lossy(&output.stdout)
     );
     let after = snapshot(&fuel);
-    assert_eq!(after.len(), before.len());
+    // The format 2 file is kept beside the new one.
+    assert_eq!(after.len(), before.len() + 1);
+    assert!(after.contains_key(&fuel.join("machine.toml.format2")));
     let text = fs::read_to_string(fuel.join("machine.toml")).unwrap();
-    assert!(text.starts_with("format = 4"), "{text}");
+    assert!(text.starts_with("format = 5"), "{text}");
     assert!(text.contains("slot = \"widget-13\""), "{text}");
 }
 
@@ -720,7 +729,7 @@ fn format3_graphics_become_pipes_or_the_upgrade_is_refused() {
     let output = origami(root.path(), &["upgrade", machine.to_str().unwrap()]);
     assert!(output.status.success(), "{}", stderr(&output));
     let text = fs::read_to_string(machine.join("machine.toml")).unwrap();
-    assert!(text.starts_with("format = 4"), "{text}");
+    assert!(text.starts_with("format = 5"), "{text}");
     assert!(
         text.contains("[[pipe]]\nslot = \"io3\"\nfamily = \"mgras\"\nproduct = \"esi\""),
         "{text}"
@@ -837,9 +846,14 @@ fn a_current_machine_gains_the_pipe_flash_and_keeps_its_state() {
         let flash = &after[&dir.join(format!("state/{slot}-kona-flash.raw"))];
         assert_eq!(flash.len(), 524288);
     }
-    // Everything else is exactly as the guest left it.
+    // Everything else is exactly as the guest left it; the old machine.toml
+    // is kept beside the new one.
     for (path, bytes) in &before {
-        assert_eq!(&after[path], bytes, "{}", path.display());
+        if path.ends_with("machine.toml") {
+            assert_eq!(&after[&dir.join("machine.toml.format4")], bytes);
+        } else {
+            assert_eq!(&after[path], bytes, "{}", path.display());
+        }
     }
     // Beside the two stores, only the lock the upgrade takes is new.
     let added: Vec<_> = after
@@ -849,7 +863,12 @@ fn a_current_machine_gains_the_pipe_flash_and_keeps_its_state() {
         .collect();
     assert_eq!(
         added,
-        ["io3-kona-flash.raw", "io7-kona-flash.raw", "machine.lock"]
+        [
+            "machine.toml.format4",
+            "io3-kona-flash.raw",
+            "io7-kona-flash.raw",
+            "machine.lock"
+        ]
     );
     assert!(!dir.join("state.pipe-flash").exists());
     let output = origami(root.path(), &["validate", path]);
@@ -917,7 +936,7 @@ fn a_format3_machine_gains_the_pipe_flash_with_its_upgrade() {
         assert_eq!(fs::metadata(flash).unwrap().len(), 524288);
     }
     let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
-    assert!(text.starts_with("format = 4"), "{text}");
+    assert!(text.starts_with("format = 5"), "{text}");
 }
 
 /// The machine list's record of `id`, as QEMU reports it.
@@ -1180,7 +1199,17 @@ fn every_earlier_topology_name_upgrades_to_the_one_the_catalogue_now_has() {
         let output = origami(root.path(), &["upgrade", path]);
         let stdout = String::from_utf8_lossy(&output.stdout);
         if !renamed && case.board.is_none() {
-            assert!(stdout.contains("is current"), "{name}: {stdout}");
+            // Nothing is renamed, but the file is still format 4.
+            assert!(output.status.success(), "{name}: {}", stderr(&output));
+            assert!(
+                stdout.contains("machine.toml is now format 5"),
+                "{name}: {stdout}"
+            );
+            let output = origami(root.path(), &["upgrade", path]);
+            assert!(
+                String::from_utf8_lossy(&output.stdout).contains("is current"),
+                "{name}"
+            );
             continue;
         }
         assert!(output.status.success(), "{name}: {}", stderr(&output));
@@ -1312,9 +1341,7 @@ fn an_unreleased_builds_identity_serial_becomes_the_emu_id() {
     fs::create_dir_all(dir.join("logs")).unwrap();
     fs::write(
         dir.join("machine.toml"),
-        "format = 4\n\n[machine]\ntopology = \"origin200\"\npopulation = [1]\nmodel = \"origin200\"\n\
-         nodes = 1\ncpus_per_node = 1\nmemory_per_node = \"64MiB\"\n\n[identity]\n\
-         mac = \"08:00:69:e1:02:a0\"\nserial = 42\n",
+        include_str!("../fixtures/machines/format4-quirk-identity-serial.toml"),
     )
     .unwrap();
     catalogue_state(&dir, "origin200.1.r10000-180mhz-1mb");
@@ -1342,4 +1369,104 @@ fn an_unreleased_builds_identity_serial_becomes_the_emu_id() {
     let output = origami(root.path(), &["show", path]);
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(String::from_utf8_lossy(&output.stdout).contains("emu-id: 42\n"));
+}
+
+/// The files under `dir` except the lock an upgrade takes.
+fn without_lock(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    let mut files = snapshot(dir);
+    files.retain(|path, _| !path.ends_with("machine.lock"));
+    files
+}
+
+const ORIGIN200_ID: &str = "origin200.1.r10000-180mhz-1mb";
+
+/// A format 4 machine reads as it is, upgrades to format 5 with the old file
+/// kept beside it, and a second upgrade finds nothing to do.
+#[test]
+fn a_format4_machine_upgrades_to_format5_and_keeps_the_old_file() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("m");
+    fs::create_dir_all(dir.join("logs")).unwrap();
+    let old = stored_machine(ORIGIN200_ID, "origin200", None, None, "");
+    assert!(old.starts_with("format = 4"), "{old}");
+    fs::write(dir.join("machine.toml"), &old).unwrap();
+    catalogue_state(&dir, ORIGIN200_ID);
+    let path = dir.to_str().unwrap();
+
+    let shown = origami(root.path(), &["show", path]);
+    assert!(shown.status.success(), "{}", stderr(&shown));
+    let output = origami(root.path(), &["upgrade", path]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("machine.toml is now format 5"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join("machine.toml.format4")).unwrap(),
+        old
+    );
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(text.starts_with("format = 5"), "{text}");
+    assert!(text.contains("[engine]\nid = \"qemu\"\n"), "{text}");
+    for gone in ["[qemu]", "[stores]", "[firmware]"] {
+        assert!(!text.contains(gone), "{text}");
+    }
+    // The machine is the same one to the commands that read it.
+    let again = origami(root.path(), &["show", path]);
+    assert_eq!(again.stdout, shown.stdout);
+    let before = snapshot(&dir);
+    let output = origami(root.path(), &["upgrade", path]);
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("is current"),
+        "{}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert_eq!(snapshot(&dir), before);
+}
+
+/// A machine file from a later Origami is refused by every command, and
+/// left alone.
+#[test]
+fn a_machine_of_a_newer_format_is_refused_and_left_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("m");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("machine.toml"),
+        "format = 6\n\n[machine]\nfuture = 1\n",
+    )
+    .unwrap();
+    let before = snapshot(&dir);
+    for command in ["show", "validate", "upgrade"] {
+        let output = origami(root.path(), &[command, dir.to_str().unwrap()]);
+        assert!(!output.status.success(), "{command}");
+        assert!(
+            stderr(&output).contains("machine format 6")
+                && stderr(&output).contains("newer Origami"),
+            "{command}: {}",
+            stderr(&output)
+        );
+    }
+    assert_eq!(without_lock(&dir), before);
+}
+
+/// An upgrade that fails leaves machine.toml as it was and no backup.
+#[test]
+fn a_failed_format4_upgrade_changes_nothing() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("m");
+    fs::create_dir_all(dir.join("logs")).unwrap();
+    let old = stored_machine(ORIGIN200_ID, "origin300-v12-direct", None, None, "");
+    fs::write(dir.join("machine.toml"), old).unwrap();
+    catalogue_state(&dir, ORIGIN200_ID);
+    let before = snapshot(&dir);
+    let output = origami(root.path(), &["upgrade", dir.to_str().unwrap()]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("its machine.toml is unchanged"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(without_lock(&dir), before);
 }

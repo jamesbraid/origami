@@ -337,7 +337,7 @@ fn init_sources(
     };
     fs::create_dir_all(&install_dir)?;
     fs::write(&manifest_path, toml::to_string_pretty(&manifest)?)?;
-    fs::write(dir.join("machine.toml"), toml::to_string_pretty(file)?)?;
+    crate::write_machine(dir, file)?;
     Ok(Initialised {
         manifest: manifest_path,
         assigned_mac: assigned,
@@ -1395,7 +1395,8 @@ mod tests {
             }],
             drive: vec![],
             share: vec![],
-            qemu: Default::default(),
+            firmware: None,
+            engine: crate::model::EngineChoice::qemu(&[]),
         };
         let config_one = config(&dir, &file, &media).unwrap();
         let document = with_addons_loaded(&config_one);
@@ -1543,7 +1544,8 @@ mod tests {
             }],
             drive: vec![],
             share: vec![],
-            qemu: Default::default(),
+            firmware: None,
+            engine: crate::model::EngineChoice::qemu(&[]),
         };
         let document = with_addons_loaded(&config(&dir, &file, &configured).unwrap());
         let addon_index = set_names(&recipe(DEFAULT_RELEASE, "standard").unwrap()).len();
@@ -2008,7 +2010,8 @@ mod tests {
             pipe: vec![],
             drive: vec![],
             share: vec![],
-            qemu: Default::default(),
+            firmware: None,
+            engine: crate::model::EngineChoice::qemu(&[]),
         };
         config(Path::new("/machine"), &file, media).unwrap()
     }

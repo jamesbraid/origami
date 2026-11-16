@@ -230,9 +230,7 @@ pub fn add_to_machine(dir: &Path, machines: &Machines) -> Result<Option<Vec<Stri
             path.display()
         ));
     }
-    let temporary = dir.join("machine.toml.upgrade");
-    fs::write(&temporary, toml::to_string_pretty(&file)?)?;
-    fs::rename(temporary, path)?;
+    crate::write_machine(dir, &file)?;
     Ok(Some(notes))
 }
 
@@ -252,8 +250,8 @@ mod tests {
     }
 
     fn bare_file() -> MachineFile {
-        toml::from_str(
-            "format = 4\n[machine]\nmodel = \"origin200\"\nnodes = 1\ncpus_per_node = 1\n\
+        MachineFile::parse(
+            "format = 5\n[engine]\nid = \"qemu\"\n[machine]\nmodel = \"origin200\"\nnodes = 1\ncpus_per_node = 1\n\
              memory_per_node = \"64MiB\"\n",
         )
         .unwrap()

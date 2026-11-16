@@ -423,6 +423,7 @@ impl Staged<'_> {
             nvram::save(self.dir, store)?;
         }
         if let Some(path) = staged {
+            origami_machine::keep_older_format(self.dir)?;
             fs::rename(path, self.dir.join("machine.toml"))?;
         }
         Ok(())

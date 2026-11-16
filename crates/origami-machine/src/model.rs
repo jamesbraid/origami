@@ -1,19 +1,20 @@
 //! The engine-neutral machine: what a machine is, with nothing in it that
 //! only one engine reads except [`EngineChoice::private`].
 //!
-//! Format 4 machine files describe QEMU machines, so [`Machine::from_file`]
-//! and [`Machine::to_file`] are the bridge until the file format itself is
-//! neutral. The pair is lossless for any file `validate` accepts.
+//! [`Machine::from_file`] and [`Machine::to_file`] are the bridge between
+//! this and the format 5 machine file, whose sections follow the same
+//! split. The pair is lossless for any file `validate` accepts.
 
 use crate::graphics::Pipe;
 use crate::{
     profiles, Drive, Identity, MachineFile, Machines, Network, Offering, Result, Share,
     MACHINE_FORMAT,
 };
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// The engine id format 4 machine files run under.
+/// The engine id machine files made before engines were named run under.
 pub const QEMU_ENGINE: &str = "qemu";
 
 /// A machine as the product describes it.
@@ -41,7 +42,58 @@ pub struct Machine {
     pub identity: Option<Identity>,
     /// Neutral setting names to values.
     pub settings: BTreeMap<String, String>,
+    /// The catalogue's firmware images that seeded the stores, where known.
+    pub firmware: Option<FirmwareRecord>,
     pub engine: EngineChoice,
+}
+
+/// The firmware images that seeded a machine's stores, by the catalogue's
+/// kind name and digest. Never derived from a store's bytes: a used flash
+/// holds the guest's own PROM updates.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirmwareRecord {
+    #[serde(default, rename = "boot-prom", skip_serializing_if = "Option::is_none")]
+    pub boot_prom: Option<FirmwareImage>,
+    #[serde(default, rename = "io-prom", skip_serializing_if = "Option::is_none")]
+    pub io_prom: Option<FirmwareImage>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirmwareImage {
+    /// The catalogue's name for the kind of image, such as `ip30-prom`.
+    pub kind: String,
+    pub sha256: String,
+}
+
+impl FirmwareRecord {
+    /// The catalogue rows the images match, by digest; None when neither
+    /// does, as when the user supplied their own PROM.
+    pub fn of(boot_prom: &std::path::Path, io_prom: Option<&std::path::Path>) -> Option<Self> {
+        let manifest = crate::assets::manifest().ok()?;
+        Self::from_manifest(&manifest, boot_prom, io_prom)
+    }
+
+    fn from_manifest(
+        manifest: &crate::assets::Manifest,
+        boot_prom: &std::path::Path,
+        io_prom: Option<&std::path::Path>,
+    ) -> Option<Self> {
+        let row = |path: &std::path::Path| {
+            let sha256 = crate::sha256_file(path).ok()?;
+            let prom = manifest.proms.iter().find(|prom| prom.sha256 == sha256)?;
+            Some(FirmwareImage {
+                kind: prom.kind.clone(),
+                sha256,
+            })
+        };
+        let record = Self {
+            boot_prom: row(boot_prom),
+            io_prom: io_prom.and_then(row),
+        };
+        (record != Self::default()).then_some(record)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -87,11 +139,13 @@ impl StoreSet {
 }
 
 /// Which engine runs the machine, and the settings only that engine reads.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct EngineChoice {
     pub id: String,
     /// Opaque to everything but the engine's adapter. QEMU's holds
     /// `extra-args`, the unsupported options appended to its command line.
+    #[serde(default, skip_serializing_if = "toml::Table::is_empty")]
     pub private: toml::Table,
 }
 
@@ -108,7 +162,9 @@ impl EngineChoice {
         }
     }
 
-    fn extra_args(&self) -> Vec<String> {
+    /// QEMU's unsupported options, appended after every option the product
+    /// generates. Empty for another engine.
+    pub fn extra_args(&self) -> Vec<String> {
         self.private
             .get("extra-args")
             .and_then(toml::Value::as_array)
@@ -151,7 +207,8 @@ impl Machine {
             console: file.machine.console.clone(),
             identity: file.identity.clone(),
             settings: file.machine.inputs.clone(),
-            engine: EngineChoice::qemu(&file.qemu.extra_args),
+            firmware: file.firmware.clone(),
+            engine: file.engine.clone(),
         })
     }
 
@@ -184,11 +241,12 @@ impl Machine {
             console: None,
             identity,
             settings,
+            firmware: None,
             engine: EngineChoice::qemu(&[]),
         }
     }
 
-    /// The format 4 file for this machine.
+    /// The machine file for this machine.
     pub fn to_file(&self) -> MachineFile {
         MachineFile {
             format: MACHINE_FORMAT,
@@ -208,9 +266,8 @@ impl Machine {
             pipe: self.graphics.clone(),
             drive: self.drives.clone(),
             share: self.shares.clone(),
-            qemu: crate::Qemu {
-                extra_args: self.engine.extra_args(),
-            },
+            firmware: self.firmware.clone(),
+            engine: self.engine.clone(),
         }
     }
 
@@ -247,9 +304,8 @@ mod tests {
             pipe: vec![],
             drive: vec![],
             share: vec![],
-            qemu: crate::Qemu {
-                extra_args: vec!["-global".into(), "x.y=z".into()],
-            },
+            firmware: None,
+            engine: EngineChoice::qemu(&["-global".into(), "x.y=z".into()]),
         };
         let machine = Machine::from_file(&machines, &file).unwrap();
         assert_eq!(machine.engine.id, QEMU_ENGINE);
@@ -259,9 +315,9 @@ mod tests {
             toml::to_string(&machine.to_file()).unwrap(),
             toml::to_string(&file).unwrap()
         );
-        file.format = 3;
+        file.format = 4;
         let error = Machine::from_file(&machines, &file).unwrap_err();
-        assert_eq!(error.to_string(), "unsupported machine format 3");
+        assert_eq!(error.to_string(), "unsupported machine format 4");
         file.format = MACHINE_FORMAT;
         file.machine.memory_per_node = "256".into();
         let error = Machine::from_file(&machines, &file).unwrap_err();
@@ -278,5 +334,37 @@ mod tests {
             let path = machine.store_path(&dir, &item.name).unwrap();
             assert_eq!(path, stores::state_path(dir.path(), item));
         }
+    }
+
+    #[test]
+    fn the_firmware_record_names_the_catalogue_rows_by_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let (boot, io, own) = (
+            dir.path().join("boot"),
+            dir.path().join("io"),
+            dir.path().join("own"),
+        );
+        std::fs::write(&boot, b"boot image").unwrap();
+        std::fs::write(&io, b"io image").unwrap();
+        std::fs::write(&own, b"my own prom").unwrap();
+        let prom = |kind: &str, file: &std::path::Path| crate::assets::Prom {
+            kind: kind.into(),
+            path: format!("prom/{kind}"),
+            size: 0,
+            sha256: crate::sha256_file(file).unwrap(),
+            version: String::new(),
+        };
+        let manifest = crate::assets::Manifest {
+            base_url: String::new(),
+            proms: vec![prom("ip27-prom", &boot), prom("ip27-io6", &io)],
+        };
+        let record = FirmwareRecord::from_manifest(&manifest, &boot, Some(&io)).unwrap();
+        assert_eq!(record.boot_prom.unwrap().kind, "ip27-prom");
+        assert_eq!(record.io_prom.unwrap().kind, "ip27-io6");
+        // A PROM the user supplied that matches no row is not recorded, and
+        // neither is a record of nothing.
+        let record = FirmwareRecord::from_manifest(&manifest, &boot, Some(&own)).unwrap();
+        assert!(record.io_prom.is_none());
+        assert_eq!(FirmwareRecord::from_manifest(&manifest, &own, None), None);
     }
 }

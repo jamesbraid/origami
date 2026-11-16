@@ -342,7 +342,8 @@ mod tests {
             pipe: vec![],
             drive: vec![],
             share: vec![],
-            qemu: Default::default(),
+            firmware: None,
+            engine: crate::model::EngineChoice::qemu(&[]),
         }
     }
 

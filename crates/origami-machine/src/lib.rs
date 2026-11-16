@@ -34,8 +34,36 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// The machine.toml format. Format 2 machines keep QEMU-created storage;
 /// format 3 adds the module controller NVRAM; format 4 stores each graphics
-/// pipe in place of one graphics name.
-pub const MACHINE_FORMAT: u32 = 4;
+/// pipe in place of one graphics name; format 5 names the engine in
+/// `[engine]` and records the firmware that seeded the stores.
+pub const MACHINE_FORMAT: u32 = 5;
+
+/// The last format that kept QEMU's options in `[qemu]`. It is read, and
+/// upgraded to the current format on `origami upgrade`.
+pub const FORMAT_WITH_QEMU_TABLE: u32 = 4;
+
+/// A machine.toml written by a later Origami than this one reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TooNew {
+    pub found: i64,
+    pub path: Option<PathBuf>,
+}
+
+impl std::fmt::Display for TooNew {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(path) = &self.path {
+            write!(f, "{} is ", path.display())?;
+        }
+        write!(
+            f,
+            "machine format {}, which this Origami does not read (it reads up to format \
+             {MACHINE_FORMAT}); use a newer Origami",
+            self.found
+        )
+    }
+}
+
+impl std::error::Error for TooNew {}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Machines {
@@ -342,23 +370,71 @@ pub struct MachineFile {
     /// Host folders the guest mounts over NFS.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub share: Vec<Share>,
-    /// Escape hatch for QEMU options the CLI does not generate correctly.
-    #[serde(default, skip_serializing_if = "Qemu::is_empty")]
-    pub qemu: Qemu,
+    /// The firmware images that seeded the stores, where known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firmware: Option<model::FirmwareRecord>,
+    /// Which engine runs the machine, and the options only it reads.
+    pub engine: model::EngineChoice,
 }
 
-/// Raw QEMU options, unsupported: they are neither validated nor migrated.
-#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
+impl MachineFile {
+    /// Read `text` as a machine.toml of the current format, or of format 4,
+    /// whose `[qemu]` table becomes `[engine]`. Older formats need an
+    /// upgrade, which this refuses with the same words `read_machine` uses.
+    pub fn parse(text: &str) -> Result<Self> {
+        match migrate::format(text) {
+            Some(found) if found > i64::from(MACHINE_FORMAT) => {
+                Err(Box::new(TooNew { found, path: None }))
+            }
+            Some(found) if found == i64::from(FORMAT_WITH_QEMU_TABLE) => {
+                let legacy: LegacyFile = toml::from_str(text)?;
+                Ok(legacy.into())
+            }
+            _ => Ok(toml::from_str(text)?),
+        }
+    }
+}
+
+/// A format 4 machine.toml, which kept QEMU's options in `[qemu]`.
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Qemu {
-    /// Appended verbatim after every option the CLI generates.
-    #[serde(default, rename = "extra-args", skip_serializing_if = "Vec::is_empty")]
-    pub extra_args: Vec<String>,
+pub(crate) struct LegacyFile {
+    format: u32,
+    machine: Machine,
+    identity: Option<Identity>,
+    #[serde(default)]
+    network: Network,
+    #[serde(default)]
+    pipe: Vec<graphics::Pipe>,
+    #[serde(default)]
+    drive: Vec<Drive>,
+    #[serde(default)]
+    share: Vec<Share>,
+    #[serde(default)]
+    qemu: LegacyQemu,
 }
 
-impl Qemu {
-    fn is_empty(&self) -> bool {
-        self.extra_args.is_empty()
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyQemu {
+    #[serde(default, rename = "extra-args")]
+    extra_args: Vec<String>,
+}
+
+impl From<LegacyFile> for MachineFile {
+    fn from(old: LegacyFile) -> Self {
+        debug_assert_eq!(old.format, FORMAT_WITH_QEMU_TABLE);
+        Self {
+            format: MACHINE_FORMAT,
+            machine: old.machine,
+            identity: old.identity,
+            network: old.network,
+            pipe: old.pipe,
+            drive: old.drive,
+            share: old.share,
+            firmware: None,
+            engine: model::EngineChoice::qemu(&old.qemu.extra_args),
+        }
     }
 }
 
@@ -562,6 +638,45 @@ pub fn preset<'a>(machines: &'a Machines, name: &str) -> Result<&'a Offering> {
         .ok_or_else(|| format!("unknown or unimplemented preset: {name}").into())
 }
 
+/// Keep an earlier format's machine.toml as `machine.toml.format<N>` before
+/// a newer one replaces it, so a release that reads only N still has it.
+/// Returns the copy's path, or None when the file is current or absent.
+pub fn keep_older_format(dir: &Path) -> Result<Option<PathBuf>> {
+    let path = dir.join("machine.toml");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Ok(None);
+    };
+    let Some(old) = migrate::format(&text).filter(|f| (1..i64::from(MACHINE_FORMAT)).contains(f))
+    else {
+        return Ok(None);
+    };
+    let copy = dir.join(format!("machine.toml.format{old}"));
+    fs::write(&copy, text)?;
+    Ok(Some(copy))
+}
+
+/// Replace the machine.toml in `dir` with `file`. The new text is written
+/// beside it first and moved into place last, and an earlier format's file
+/// is kept (see [`keep_older_format`]). On failure the old file stays and
+/// nothing else is left.
+pub fn write_machine(dir: &Path, file: &MachineFile) -> Result<()> {
+    let temporary = dir.join("machine.toml.upgrade");
+    let mut kept = None;
+    let result = (|| -> Result<()> {
+        fs::write(&temporary, toml::to_string_pretty(file)?)?;
+        kept = keep_older_format(dir)?;
+        fs::rename(&temporary, dir.join("machine.toml"))?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+        if let Some(copy) = kept {
+            let _ = fs::remove_file(copy);
+        }
+    }
+    result
+}
+
 pub fn read_machine(dir: &Path) -> Result<MachineFile> {
     let path = dir.join("machine.toml");
     let text = fs::read_to_string(&path).map_err(|error| {
@@ -570,6 +685,12 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
             path.display()
         )
     })?;
+    if let Some(found) = migrate::format(&text).filter(|f| *f > i64::from(MACHINE_FORMAT)) {
+        return Err(Box::new(TooNew {
+            found,
+            path: Some(path),
+        }));
+    }
     // Format 1 has sections the current format refuses, so check it first.
     let release = match migrate::format(&text) {
         Some(1) => Some("0.1"),
@@ -613,7 +734,7 @@ pub fn read_machine(dir: &Path) -> Result<MachineFile> {
         )
         .into());
     }
-    toml::from_str(&text).map_err(|error| {
+    MachineFile::parse(&text).map_err(|error| {
         format!("invalid machine configuration {}: {error}", path.display()).into()
     })
 }
@@ -979,9 +1100,10 @@ pub fn create_configured(
         }
         init.stores
             .create_stores(offering, boot_prom, init.io_prom, &dir.join("state"))?;
-        let file =
-            model::Machine::from_offering(offering, Some(memory_per_node), identity, pipes, inputs)
-                .to_file();
+        let mut machine =
+            model::Machine::from_offering(offering, Some(memory_per_node), identity, pipes, inputs);
+        machine.firmware = model::FirmwareRecord::of(init.boot_prom, init.io_prom);
+        let file = machine.to_file();
         fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
         Ok(())
     })();
@@ -1034,23 +1156,70 @@ mod tests {
     use super::*;
 
     #[test]
-    fn qemu_section_round_trips_and_is_omitted_when_empty() {
-        let base = "format = 4\n[machine]\nmodel = \"origin200\"\nnodes = 1\ncpus_per_node = 1\nmemory_per_node = \"256MiB\"\n";
-        let plain: MachineFile = toml::from_str(base).unwrap();
-        assert!(plain.qemu.extra_args.is_empty());
+    fn engine_section_round_trips_and_private_is_omitted_when_empty() {
+        let base = "format = 5\n[machine]\nmodel = \"origin200\"\nnodes = 1\ncpus_per_node = 1\nmemory_per_node = \"256MiB\"\n[engine]\nid = \"qemu\"\n";
+        let plain = MachineFile::parse(base).unwrap();
+        assert!(plain.engine.extra_args().is_empty());
         let text = toml::to_string_pretty(&plain).unwrap();
-        assert!(!text.contains("qemu"), "{text}");
+        assert!(text.contains("[engine]\nid = \"qemu\"\n"), "{text}");
+        assert!(!text.contains("private"), "{text}");
 
         let with = format!(
-            "{base}[qemu]\nextra-args = [\"-global\", \"bcm570x.mac=08:00:69:12:34:56\"]\n"
+            "{base}[engine.private]\nextra-args = [\"-global\", \"bcm570x.mac=08:00:69:12:34:56\"]\n"
         );
-        let file: MachineFile = toml::from_str(&with).unwrap();
+        let file = MachineFile::parse(&with).unwrap();
         assert_eq!(
-            file.qemu.extra_args,
+            file.engine.extra_args(),
             ["-global", "bcm570x.mac=08:00:69:12:34:56"]
         );
-        let again: MachineFile = toml::from_str(&toml::to_string_pretty(&file).unwrap()).unwrap();
-        assert_eq!(again.qemu.extra_args, file.qemu.extra_args);
+        let again = MachineFile::parse(&toml::to_string_pretty(&file).unwrap()).unwrap();
+        assert_eq!(again.engine, file.engine);
+    }
+
+    #[test]
+    fn a_format_4_file_reads_with_its_qemu_table_as_the_engine() {
+        let old = "format = 4\n[machine]\nmodel = \"origin200\"\nnodes = 1\ncpus_per_node = 1\nmemory_per_node = \"256MiB\"\n[qemu]\nextra-args = [\"-d\", \"guest_errors\"]\n";
+        let file = MachineFile::parse(old).unwrap();
+        assert_eq!(file.format, MACHINE_FORMAT);
+        assert_eq!(file.engine.id, "qemu");
+        assert_eq!(file.engine.extra_args(), ["-d", "guest_errors"]);
+        let text = toml::to_string_pretty(&file).unwrap();
+        assert!(text.starts_with("format = 5\n"), "{text}");
+        assert!(!text.contains("[qemu]"), "{text}");
+    }
+
+    /// Each format 4 fixture reads as the format 5 fixture beside it, and a
+    /// format 5 file writes back byte for byte.
+    #[test]
+    fn machine_fixtures_convert_and_round_trip() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/machines");
+        let update = std::env::var_os("ORIGAMI_UPDATE_SNAPSHOT").is_some();
+        for name in ["origin200", "octane2-everything"] {
+            let old = fs::read_to_string(dir.join(format!("format4-{name}.toml"))).unwrap();
+            let new = toml::to_string_pretty(&MachineFile::parse(&old).unwrap()).unwrap();
+            let expected = dir.join(format!("format5-{name}.toml"));
+            if update {
+                fs::write(&expected, &new).unwrap();
+            }
+            assert_eq!(new, fs::read_to_string(expected).unwrap(), "{name}");
+        }
+        for name in ["origin200", "octane2-everything", "firmware"] {
+            let text = fs::read_to_string(dir.join(format!("format5-{name}.toml"))).unwrap();
+            let file = MachineFile::parse(&text).unwrap();
+            assert_eq!(toml::to_string_pretty(&file).unwrap(), text, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_newer_format_is_too_new_to_read() {
+        let error = MachineFile::parse("format = 6\n[future]\nx = 1\n").unwrap_err();
+        let too_new = error.downcast_ref::<TooNew>().unwrap();
+        assert_eq!(too_new.found, 6);
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("machine.toml"), "format = 99\n").unwrap();
+        let error = read_machine(dir.path()).unwrap_err();
+        assert!(error.downcast_ref::<TooNew>().is_some(), "{error}");
+        assert!(error.to_string().contains("use a newer Origami"), "{error}");
     }
 
     #[test]
@@ -1226,7 +1395,8 @@ mod tests {
             pipe: vec![],
             drive: vec![],
             share: vec![],
-            qemu: Default::default(),
+            firmware: None,
+            engine: model::EngineChoice::qemu(&[]),
         };
         let error = set_machine_mac(
             &machines,

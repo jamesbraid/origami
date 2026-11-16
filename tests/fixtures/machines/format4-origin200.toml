@@ -1,0 +1,16 @@
+format = 4
+
+[machine]
+topology = "origin200"
+population = [1]
+model = "origin200"
+nodes = 1
+cpus_per_node = 1
+memory_per_node = "256MiB"
+
+[identity]
+mac = "08:00:69:12:34:56"
+emu-id = 7
+
+[network]
+mode = "user"

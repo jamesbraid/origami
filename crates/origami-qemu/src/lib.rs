@@ -55,7 +55,7 @@ pub fn validate<'a>(
     file: &MachineFile,
 ) -> Result<&'a Offering> {
     let offering = origami_machine::validate(machines, dir, file)?;
-    runtime::check_extra_args(&file.qemu.extra_args)?;
+    runtime::check_extra_args(&file.engine.extra_args())?;
     Ok(offering)
 }
 

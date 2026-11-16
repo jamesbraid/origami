@@ -75,7 +75,7 @@ fn claim_of(machines: &Machines, dir: &Path) -> Option<Claim> {
     let mac = value.get("identity")?.get("mac")?.as_str()?;
     let first = number(mac)?;
     // A file that does not fit this release still claims its own address.
-    let reach = toml::from_str::<MachineFile>(&text)
+    let reach = MachineFile::parse(&text)
         .ok()
         .and_then(|file| offering(machines, &file.machine).ok().map(span))
         .unwrap_or(0);

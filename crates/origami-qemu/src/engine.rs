@@ -166,7 +166,7 @@ impl Engine for QemuEngine {
     }
 
     fn check_options(&self, m: &Machine) -> Result<()> {
-        runtime::check_extra_args(&m.to_file().qemu.extra_args)
+        runtime::check_extra_args(&m.engine.extra_args())
     }
 
     fn prepare_stores(&self, o: &Offering, proms: &FirmwareSet, state: &Path) -> Result<()> {

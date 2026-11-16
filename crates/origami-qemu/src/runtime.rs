@@ -265,9 +265,10 @@ pub fn append_extra_args(
     file: &MachineFile,
     once: &[String],
 ) -> Result<()> {
-    check_extra_args(&file.qemu.extra_args)?;
+    let extra_args = file.engine.extra_args();
+    check_extra_args(&extra_args)?;
     check_extra_args(once)?;
-    args.extend(file.qemu.extra_args.iter().cloned());
+    args.extend(extra_args);
     args.extend(once.iter().cloned());
     Ok(())
 }
@@ -976,7 +977,8 @@ mod tests {
             pipe: vec![],
             drive: vec![],
             share: vec![],
-            qemu: Default::default(),
+            firmware: None,
+            engine: origami_machine::model::EngineChoice::qemu(&[]),
         }
     }
 
@@ -1191,7 +1193,10 @@ mod tests {
         let machines = test_machines();
         let offering = preset(&machines, "fuel-1").unwrap();
         let mut file = machine(offering);
-        file.qemu.extra_args = vec!["-global".into(), "bcm570x.mac=08:00:69:12:34:56".into()];
+        file.engine = origami_machine::model::EngineChoice::qemu(&[
+            "-global".into(),
+            "bcm570x.mac=08:00:69:12:34:56".into(),
+        ]);
         let mut args = arguments(
             &machines,
             Path::new("/machine"),

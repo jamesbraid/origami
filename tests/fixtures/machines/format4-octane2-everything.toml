@@ -1,0 +1,57 @@
+format = 4
+
+[machine]
+topology = "octane2"
+population = [1]
+model = "octane2"
+nodes = 1
+cpus_per_node = 1
+memory_per_node = "512MiB"
+console = "serial1"
+
+[machine.inputs]
+prid = "0xf14"
+
+[identity]
+mac = "08:00:69:ab:cd:ef"
+emu-id = 12
+
+[network]
+mode = "private"
+endpoint = "tcp:127.0.0.1:49173"
+share_address = "10.98.0.2"
+subnet = "10.98.0.0/24"
+
+[[network.forward]]
+name = "ssh"
+protocol = "tcp"
+host_port = 2222
+guest_port = 22
+
+[[pipe]]
+slot = "xio"
+family = "impact"
+product = "vpro"
+
+[[drive]]
+name = "system"
+type = "disk"
+bus = 0
+target = 1
+image = "drives/system.chd"
+overlay = true
+
+[[drive]]
+name = "cdrom4"
+type = "cdrom"
+bus = 0
+target = 4
+image = "/media/irix.iso"
+read_only = true
+
+[[share]]
+name = "src"
+path = "/home/me/src"
+
+[qemu]
+extra-args = ["-d", "guest_errors"]

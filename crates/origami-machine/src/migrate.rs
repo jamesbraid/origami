@@ -2,7 +2,9 @@
 //! PROM and let the launcher build flash and NVRAM files under its own
 //! names. Format 2 machines predate the module controller NVRAM store.
 //! Formats 1 to 3 name their graphics with one word, which becomes the
-//! pipes the catalogue describes. A current machine gains the flash store
+//! pipes the catalogue describes. Format 4 keeps QEMU's options in `[qemu]`,
+//! which format 5 moves to `[engine]`; each step before it ends at format 4
+//! and the last one writes format 5. A current machine gains the flash store
 //! each InfiniteReality pipe slot has had since QEMU gave it one.
 
 use crate::stores::StorePreparer;
@@ -37,10 +39,19 @@ pub fn upgrade(
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let format = format(&text);
     let result = match format {
+        Some(found) if found > i64::from(crate::MACHINE_FORMAT) => {
+            return Err(Box::new(crate::TooNew {
+                found,
+                path: Some(path),
+            }));
+        }
         Some(1) => from_format1(stores, dir, machines, &text, prom, io_prom),
         Some(2) => from_format2(stores, dir, machines, &text, prom, io_prom),
         Some(3) => from_format3(stores, dir, machines, &text, prom, io_prom),
-        Some(current) if current == i64::from(crate::MACHINE_FORMAT) => {
+        Some(current)
+            if current == i64::from(crate::MACHINE_FORMAT)
+                || current == i64::from(crate::FORMAT_WITH_QEMU_TABLE) =>
+        {
             return from_current(stores, dir, machines, &text, prom, io_prom).map_err(|error| {
                 format!(
                     "cannot upgrade {}: {error}; its machine.toml is unchanged",
@@ -99,7 +110,7 @@ fn from_format2(
 ) -> Result<Vec<String>> {
     let mut table: toml::Table = toml::from_str(text)?;
     let notes = upgrade_graphics(machines, &mut table)?;
-    let file: MachineFile = toml::Value::Table(table).try_into()?;
+    let file = file_from_table(table)?;
     let offering = crate::offering(machines, &file.machine)?;
     let state = dir.join("state");
     let raw = |root: &Path, item: &StorageItem| root.join(format!("{}.raw", item.name));
@@ -143,7 +154,9 @@ fn from_format2(
 /// Whether an upgrade note only says how the machine's files are named, as
 /// opposed to what its guest sees.
 pub fn is_bookkeeping(note: &str) -> bool {
-    note.starts_with("topology ") || note.starts_with("input ")
+    ["topology ", "input ", "machine.toml "]
+        .iter()
+        .any(|start| note.starts_with(start))
 }
 
 /// Bring a current machine up to date with the catalogue: a topology or
@@ -167,7 +180,8 @@ fn from_current(
             .ok_or("no [machine] table")?,
     )?;
     let converted = rename_identity_serial(&mut table);
-    let file: MachineFile = toml::Value::Table(table).try_into()?;
+    let older = format_of(&table) == Some(i64::from(crate::FORMAT_WITH_QEMU_TABLE));
+    let file = file_from_table(table)?;
     let mut notes = vec![];
     if let Some(note) = &converted {
         notes.push(note.clone());
@@ -192,10 +206,19 @@ fn from_current(
         notes.extend(renamed.iter().cloned());
     }
     notes.extend(add_pipe_flash(stores, dir, machines, &file, prom, io_prom)?.unwrap_or_default());
-    if renamed.is_empty() && converted.is_none() {
+    if renamed.is_empty() && converted.is_none() && !older {
         return Ok((!notes.is_empty()).then_some(notes));
     }
     replace_file(dir, &file)?;
+    if older {
+        notes.push(format!(
+            "machine.toml is now format {}; the format {} file is kept as \
+             machine.toml.format{}, which older Origami releases can read",
+            crate::MACHINE_FORMAT,
+            crate::FORMAT_WITH_QEMU_TABLE,
+            crate::FORMAT_WITH_QEMU_TABLE
+        ));
+    }
     Ok(Some(notes))
 }
 
@@ -355,7 +378,7 @@ fn from_format3(
 ) -> Result<Vec<String>> {
     let mut table: toml::Table = toml::from_str(text)?;
     let mut notes = upgrade_graphics(machines, &mut table)?;
-    let file: MachineFile = toml::Value::Table(table).try_into()?;
+    let file = file_from_table(table)?;
     let offering = crate::offering(machines, &file.machine)?;
     crate::graphics::validate(machines, &offering.topology, offering.nodes, &file.pipe)?;
     notes.extend(add_pipe_flash(stores, dir, machines, &file, prom, io_prom)?.unwrap_or_default());
@@ -363,11 +386,22 @@ fn from_format3(
     Ok(notes)
 }
 
+fn format_of(table: &toml::Table) -> Option<i64> {
+    table.get("format")?.as_integer()
+}
+
+/// The machine file `table` holds, which is in format 4's shape while an
+/// upgrade is still working through the earlier formats.
+fn file_from_table(table: toml::Table) -> Result<MachineFile> {
+    if format_of(&table) == Some(i64::from(crate::FORMAT_WITH_QEMU_TABLE)) {
+        let legacy: crate::LegacyFile = toml::Value::Table(table).try_into()?;
+        return Ok(legacy.into());
+    }
+    Ok(toml::Value::Table(table).try_into()?)
+}
+
 fn replace_file(dir: &Path, file: &MachineFile) -> Result<()> {
-    let temporary = dir.join("machine.toml.upgrade");
-    fs::write(&temporary, toml::to_string_pretty(file)?)?;
-    fs::rename(temporary, dir.join("machine.toml"))?;
-    Ok(())
+    crate::write_machine(dir, file)
 }
 
 /// A topology the catalogue renamed. `board` is the node board a version 2
@@ -651,7 +685,10 @@ fn upgrade_graphics(machines: &Machines, table: &mut toml::Table) -> Result<Vec<
     if !pipes.is_empty() {
         table.insert("pipe".into(), toml::Value::try_from(pipes)?);
     }
-    table.insert("format".into(), i64::from(crate::MACHINE_FORMAT).into());
+    table.insert(
+        "format".into(),
+        i64::from(crate::FORMAT_WITH_QEMU_TABLE).into(),
+    );
     notes.extend(note.map(String::from));
     Ok(notes)
 }
@@ -711,7 +748,7 @@ fn convert(
             .collect();
     }
     let notes = upgrade_graphics(machines, &mut table)?;
-    Ok((toml::Value::Table(table).try_into()?, prom, notes))
+    Ok((file_from_table(table)?, prom, notes))
 }
 
 /// Where format 1 kept the contents of storage item `name`.
@@ -783,10 +820,7 @@ fn install(
         for (fresh, target) in moves {
             fs::rename(fresh, target)?;
         }
-        let temporary = dir.join("machine.toml.format2");
-        fs::write(&temporary, toml::to_string_pretty(file)?)?;
-        fs::rename(temporary, dir.join("machine.toml"))?;
-        Ok(())
+        crate::write_machine(dir, file)
     })();
     let _ = fs::remove_dir_all(&staging);
     result
