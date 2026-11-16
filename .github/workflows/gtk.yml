@@ -1,0 +1,46 @@
+name: Linux app
+
+# The GTK 4 and libadwaita app (crates/origami-gtk). GTK 4.14 or newer needs
+# Debian trixie, but the runners' default job image is bookworm and they have
+# no podman, so the job runs in a trixie container and crates/origami-gtk/ci/
+# native.sh does the rest: lint, build, unit tests, then the scenarios against a
+# real QEMU under Xvfb and sway on lavapipe. Lavapipe checks correctness only;
+# the performance floors need a GPU host (ci/run.sh gpu=N), which this job
+# does not have.
+
+on:
+  push:
+    branches: [main]
+    paths: ['crates/origami-gtk/**', '.github/workflows/gtk.yml', 'runtime.lock']
+  pull_request:
+    branches: [main]
+    paths: ['crates/origami-gtk/**', '.github/workflows/gtk.yml', 'runtime.lock']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gtk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    container:
+      image: docker.io/library/node:22-trixie
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Lint, build, unit-test and run the scenarios
+        run: sh crates/origami-gtk/ci/native.sh "$RUNNER_TEMP/gtk"
+      - name: Keep the screenshots and results
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v3
+        with:
+          name: gtk-scenarios
+          path: ${{ runner.temp }}/gtk/out

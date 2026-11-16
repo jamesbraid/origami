@@ -1,0 +1,12 @@
+# Build and run environment for the Linux app, for local runs (the Forgejo job
+# runs the same steps directly in a Debian container, see native.sh). Debian
+# forky: GTK 4.2x and libadwaita 1.8 (dma-buf textures need GTK 4.14), current
+# Mesa, and the same glibc generation as the host so CDI-injected NVIDIA
+# libraries load. One image does both jobs.
+FROM docker.io/library/debian:forky-slim
+COPY packages.txt /tmp/packages.txt
+RUN apt-get update && apt-get install -y --no-install-recommends $(grep -v '^#' /tmp/packages.txt) \
+ && rm -rf /var/lib/apt/lists/*
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --component clippy --default-toolchain stable \
+ && chmod -R a+rX /opt/rustup /opt/cargo
