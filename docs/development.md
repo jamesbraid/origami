@@ -161,6 +161,25 @@ ORIGAMI_PRODUCT=/path/to/extracted/origami-<version> ORIGAMI_WORK=/scratch/it \
   cargo test --test integration -- --ignored --test-threads=1 lab_probe lan_tap
 ```
 
+## Display protocol version 4
+
+`origami-display` holds the version 4 viewer library (`v4`),
+`origami-display-producer` the producer library and a reference producer, and
+`display-conformance` the suite any producer must pass. `cargo test` runs the
+suite against the reference producer in both host styles (it pulls lines, or
+its host pushes pictures). To run it against another producer started with the
+test extension on, for QEMU `-device display-shm,path=SOCK,x-test=on,heads=16`:
+
+```sh
+cargo run --release -p display-conformance -- --socket SOCK
+cargo bench -p display-conformance --bench viewer_frame
+```
+
+Restart the producer for each run: head numbers are never reused, so a run
+leaves fewer heads for the next. The queue-overflow check needs the producer to
+read about 260,000 reports; `CONF_OVERFLOW_SECS` raises its 45 second budget,
+and a skipped check fails the run unless `--allow-skips` is given.
+
 ## Licenses and dependency sources
 
 The Origami CLI, Instigator and original Origami additions to QEMU use

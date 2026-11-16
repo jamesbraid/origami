@@ -1,0 +1,18 @@
+[package]
+name = "display-conformance"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+
+[dependencies]
+origami-display = { path = "../origami-display" }
+libc = "0.2"
+
+[dev-dependencies]
+origami-display-producer = { path = "../origami-display-producer" }
+
+[[bench]]
+name = "viewer_frame"
+harness = false

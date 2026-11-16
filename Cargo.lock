@@ -1209,6 +1209,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "display-conformance"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "origami-display",
+ "origami-display-producer",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
