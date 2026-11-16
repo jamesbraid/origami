@@ -10,6 +10,7 @@ mod head;
 mod import;
 #[cfg(target_os = "macos")]
 mod metal;
+mod view;
 #[cfg(any(target_os = "linux", windows))]
 mod vulkan;
 
@@ -18,3 +19,5 @@ pub use compose::Compose;
 pub use device::Gpu;
 pub use head::HeadTexture;
 pub use import::{GpuImporter, ImportedBuffer};
+pub use raw_window_handle;
+pub use view::{Drawn, HostSurface, View};
