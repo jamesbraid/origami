@@ -281,6 +281,17 @@ pub fn start(
         pull: !push,
         ..Default::default()
     };
+    start_with(listener, heads, spec, push)
+}
+
+/// [`start`] with the heads' whole description, for a pixel format or a pointer mode.
+pub fn start_with(
+    listener: std::os::unix::net::UnixListener,
+    heads: u32,
+    spec: HeadSpec,
+    push: bool,
+) -> std::io::Result<Producer> {
+    let (w, h) = (spec.width, spec.height);
     let cfg = Config {
         test: true,
         test_head: spec.clone(),

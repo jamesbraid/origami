@@ -44,6 +44,9 @@ struct Params {
     height: u32,
     stride_words: u32,
     bottom_up: u32,
+    swap_rb: u32,
+    // Pads the block to 32 bytes, the size a uniform struct of five words rounds to.
+    _pad: [u32; 3],
 }
 
 impl Compose {
@@ -166,6 +169,8 @@ impl Compose {
             height: u.height,
             stride_words: frame.stride / 4,
             bottom_up: u32::from(frame.bottom_up),
+            swap_rb: u32::from(frame.swap_rb),
+            _pad: [0; 3],
         };
         let mut cache = self.cached.lock().unwrap_or_else(|e| e.into_inner());
         if cache.params != Some(params) {

@@ -76,6 +76,8 @@ pub struct ImportedUpdate {
     pub stride: u32,
     /// Row 0 of the plane is the bottom line of the picture.
     pub bottom_up: bool,
+    /// The bytes of a pixel are red, green, blue (XB24), not blue, green, red.
+    pub swap_rb: bool,
     /// Keeps the rows valid: a lent slot the producer may not rewrite until
     /// this drops. The presenter holds it until the GPU has read the rows.
     pub hold: Option<Arc<dyn Any + Send + Sync>>,
@@ -88,6 +90,7 @@ impl std::fmt::Debug for ImportedUpdate {
             .field("offset", &self.offset)
             .field("stride", &self.stride)
             .field("bottom_up", &self.bottom_up)
+            .field("swap_rb", &self.swap_rb)
             .finish_non_exhaustive()
     }
 }

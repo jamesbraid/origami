@@ -26,12 +26,24 @@ struct Rig {
 
 impl Rig {
     fn start(push: bool) -> Rig {
+        Rig::start_as(push, wire::FOURCC_XR24)
+    }
+
+    fn start_as(push: bool, fourcc: u32) -> Rig {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::SeqCst);
         let dir = std::env::temp_dir().join(format!("viewer-{}-{n}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("d.sock");
-        let producer = reference::start(UnixListener::bind(&path).unwrap(), 1, W, H, push).unwrap();
+        let spec = origami_display_producer::HeadSpec {
+            width: W,
+            height: H,
+            pull: !push,
+            fourcc,
+            ..Default::default()
+        };
+        let producer =
+            reference::start_with(UnixListener::bind(&path).unwrap(), 1, spec, push).unwrap();
         let viewer = Arc::new(Viewer::new().offer(
             wire::feat::TEST,
             wire::Offer {
@@ -106,9 +118,13 @@ impl Rig {
 
     /// Take the waiting frame and lay its rows over `picture`.
     fn take_into(&self, picture: &mut [u32]) -> Vec<(u32, u32)> {
+        self.try_take_into(picture).expect("no frame to take")
+    }
+
+    fn try_take_into(&self, picture: &mut [u32]) -> Option<Vec<(u32, u32)>> {
         let mut px = Vec::new();
         let Taken::Frame(u) = self.viewer.take(0, &mut px) else {
-            panic!("no frame to take");
+            return None;
         };
         assert_eq!((u.width, u.height), (W, H));
         let mut at = 0;
@@ -123,7 +139,7 @@ impl Rig {
             }
         }
         assert_eq!(at, px.len());
-        u.runs
+        Some(u.runs)
     }
 }
 
@@ -235,6 +251,64 @@ fn a_hidden_viewer_asks_for_nothing_new_and_showing_it_brings_the_change() {
                     rig.wait_wake(seen),
                     "stuck: lines {bad:?} differ after runs {runs:?}"
                 );
+            }
+        }
+    });
+}
+
+#[test]
+fn an_xb24_head_arrives_as_blue_green_red_with_red_and_blue_swapped() {
+    for push in [false, true] {
+        let rig = Rig::start_as(push, wire::FOURCC_XB24);
+        let mut picture = vec![0u32; (W * H) as usize];
+        rig.first(&mut picture);
+        let wakes = rig.wakes.load(Ordering::SeqCst);
+        rig.stimulus(pattern::LINES, 20);
+        assert!(rig.wait_wake(wakes));
+        rig.take_into(&mut picture);
+        // The producer wrote 0x00RRGGBB words; read as XB24 they hold red and
+        // blue the other way round.
+        let swap = |v: u32| (v & 0xFF00) | (v >> 16 & 0xFF) | (v & 0xFF) << 16;
+        let want: Vec<u32> = expect(pattern::LINES, 20).into_iter().map(swap).collect();
+        assert_eq!(lines_differing(&picture, &want), Vec::<u32>::new());
+    }
+}
+
+#[test]
+fn a_head_with_no_mode_appears_when_the_mode_is_set() {
+    use origami_display::v4::testext::kind;
+    each_style(|rig| {
+        let mut picture = vec![0u32; (W * H) as usize];
+        rig.first(&mut picture);
+        let mode = |w: u32, h: u32| Stimulus {
+            head: 0,
+            kind: kind::MODE,
+            seed: u64::from(w) | u64::from(h) << 16,
+            step: 0,
+            arg: 0,
+        };
+        // The PROM has not set a mode yet: the head is there and shows nothing.
+        rig.viewer.send_raw(&mode(0, 0).encode(rig.ix)).unwrap();
+        let t = Instant::now();
+        while rig.viewer.heads()[0].active {
+            assert!(
+                t.elapsed() < Duration::from_secs(5),
+                "the head never went dark"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        // The mode arrives, then the picture.
+        rig.viewer.send_raw(&mode(W, H).encode(rig.ix)).unwrap();
+        rig.stimulus(pattern::BAR, 2);
+        let t = Instant::now();
+        while picture != expect(pattern::BAR, 2) {
+            assert!(
+                t.elapsed() < Duration::from_secs(5),
+                "the head never came back"
+            );
+            let seen = rig.wakes.load(Ordering::SeqCst);
+            if rig.try_take_into(&mut picture).is_none() {
+                rig.wait_wake(seen);
             }
         }
     });

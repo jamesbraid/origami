@@ -687,6 +687,7 @@ mod tests {
             offset: offset as u64,
             stride: stride as u32,
             bottom_up,
+            swap_rb: false,
             hold: None,
         };
 
@@ -842,6 +843,7 @@ mod tests {
             offset: 0,
             stride: w * 4,
             bottom_up: false,
+            swap_rb: false,
             hold: Some(Arc::new(Lent(released.clone()))),
         };
         let compose = Compose::new(&gpu);
@@ -856,6 +858,18 @@ mod tests {
             .collect();
         assert!(read_back(&gpu, &head.texture) == want, "the picture");
         assert_eq!(head.bytes_uploaded, 0, "no CPU upload");
+        // The same bytes as XB24 (red first) come out with red and blue swapped.
+        let swapped = ImportedUpdate {
+            swap_rb: true,
+            hold: None,
+            ..frame.clone()
+        };
+        let head = HeadTexture::apply_imported(&gpu, &compose, Some(head), &swapped);
+        let want_swapped: Vec<u8> = want.chunks(3).flat_map(|p| [p[2], p[1], p[0]]).collect();
+        assert!(
+            read_back(&gpu, &head.texture) == want_swapped,
+            "red and blue swapped"
+        );
         // The lent slot is let go once the GPU finished, and not before the
         // caller dropped its own reference.
         drop(frame);

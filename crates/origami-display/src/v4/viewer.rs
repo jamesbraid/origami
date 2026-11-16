@@ -377,7 +377,7 @@ impl Viewer {
         let Some(h) = st.heads.get_mut(head as usize) else {
             return;
         };
-        if lease.stale_mode || lease.fourcc != wire::FOURCC_XR24 {
+        if lease.stale_mode || !matches!(lease.fourcc, wire::FOURCC_XR24 | wire::FOURCC_XB24) {
             // Its damage is lost with it.
             h.need_full = true;
             dead.push(lease);
@@ -478,6 +478,7 @@ impl Viewer {
                     offset: 0,
                     stride,
                     bottom_up: false,
+                    swap_rb: lease.fourcc == wire::FOURCC_XB24,
                     hold: Some(Arc::new(lease)),
                 }),
                 None,
@@ -489,7 +490,16 @@ impl Viewer {
         let src = lease.pixels();
         for &(y0, y1) in &update.runs {
             for y in y0 as usize..y1 as usize {
+                let at = pixels.len();
                 pixels.extend_from_slice(&src[y * stride..y * stride + row]);
+                if lease.fourcc == wire::FOURCC_XB24 {
+                    // Rows go out as blue, green, red.
+                    pixels[at..]
+                        .as_chunks_mut::<4>()
+                        .0
+                        .iter_mut()
+                        .for_each(|p| p.swap(0, 2));
+                }
             }
         }
         st.stats.copied_bytes += pixels.len() as u64;

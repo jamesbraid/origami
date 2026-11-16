@@ -9,6 +9,8 @@ struct P {
     stride_words: u32,
     // 1 when row 0 of the plane is the bottom line of the picture.
     bottom_up: u32,
+    // 1 when the pixel's bytes are r, g, b, unused (XB24) and not b, g, r.
+    swap_rb: u32,
 };
 
 @group(0) @binding(0) var<storage, read> src: array<u32>;
@@ -30,5 +32,8 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     }
     // x8r8g8b8 as a little-endian word: bytes b, g, r, unused.
     let c = unpack4x8unorm(src[row * p.stride_words + x]);
+    if (p.swap_rb == 1u) {
+        return vec4<f32>(c.x, c.y, c.z, 1.0);
+    }
     return vec4<f32>(c.z, c.y, c.x, 1.0);
 }

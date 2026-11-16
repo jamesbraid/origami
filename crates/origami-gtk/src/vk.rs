@@ -575,6 +575,9 @@ impl Scanout {
     /// None when GTK holds every image.
     pub fn present(&mut self, frame: &ImportedUpdate) -> Result<Option<Pending>, String> {
         let u = &frame.update;
+        if frame.swap_rb {
+            return Err("red-first pixels (XB24) are not drawn here".into());
+        }
         if (u.width, u.height) != (self.width, self.height) {
             return Err("size changed".into());
         }
