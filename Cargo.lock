@@ -4417,6 +4417,7 @@ dependencies = [
  "origami-machine",
  "origami-qemu",
  "origami-render",
+ "origami-terminal",
  "serde_json",
  "slint",
  "slint-build",
@@ -4533,6 +4534,13 @@ dependencies = [
  "wgpu",
  "windows 0.62.2",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "origami-terminal"
+version = "0.0.0"
+dependencies = [
+ "vt100",
 ]
 
 [[package]]

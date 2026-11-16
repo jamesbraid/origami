@@ -6,7 +6,7 @@
 //! or wgpu, so another front end can sit on the same facade.
 
 pub mod logs;
-pub mod terminal;
+pub use origami_terminal as terminal;
 
 pub use origami_engine::status;
 pub use origami_engine::{

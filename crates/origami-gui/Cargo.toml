@@ -17,6 +17,7 @@ origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }
 origami-qemu = { path = "../origami-qemu" }
 origami-render = { path = "../origami-render" }
+origami-terminal = { path = "../origami-terminal" }
 # A pinned master commit until Slint 1.19 ships (its femtovg 0.28 carries the
 # pipeline-cache fix 1.18's femtovg 0.27 lacks).
 slint = { git = "https://github.com/slint-ui/slint", rev = "3b68276e2fb5cfd965bdbfc7e78be0a91ebf1e26", default-features = false, features = ["std", "backend-winit", "renderer-femtovg-wgpu", "unstable-wgpu-30", "unstable-winit-030", "compat-1-2"] }
