@@ -129,9 +129,10 @@ impl DisplayListener {
     fn bind(path: PathBuf) -> std::io::Result<DisplayListener> {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         // Bound in a directory only we can enter, then moved into place, so
-        // the socket never exists for others at the umask's mode.
+        // the socket never exists for others at the umask's mode. The
+        // temporary path is shorter than `display.sock`, so it fits too.
         let parent = path.parent().unwrap_or(Path::new("."));
-        let private = parent.join(format!(".display-{}", std::process::id()));
+        let private = parent.join(format!(".d{}", std::process::id()));
         let _ = fs::remove_dir_all(&private);
         fs::DirBuilder::new().mode(0o700).create(&private)?;
         let bound = (|| -> std::io::Result<_> {

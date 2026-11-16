@@ -179,11 +179,14 @@ fn without_sigpipe<T>(f: impl FnOnce() -> T) -> T {
         libc::sigaddset(&mut set, libc::SIGPIPE);
         let mut old: libc::sigset_t = std::mem::zeroed();
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, &mut old);
-        let out = f();
-        // Take a SIGPIPE raised meanwhile, or unblocking would deliver it.
         let mut pending: libc::sigset_t = std::mem::zeroed();
         libc::sigpending(&mut pending);
-        if libc::sigismember(&pending, libc::SIGPIPE) == 1 {
+        let theirs = libc::sigismember(&pending, libc::SIGPIPE) == 1;
+        let out = f();
+        // Take a SIGPIPE raised meanwhile, or unblocking would deliver it. One
+        // already pending on entry is the caller's own: leave it.
+        libc::sigpending(&mut pending);
+        if !theirs && libc::sigismember(&pending, libc::SIGPIPE) == 1 {
             let mut sig = 0;
             libc::sigwait(&set, &mut sig);
         }
@@ -344,5 +347,63 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("reads version 3"), "{error}");
+    }
+}
+
+#[cfg(all(test, unix))]
+mod sigpipe_tests {
+    use super::without_sigpipe;
+
+    /// Whether SIGPIPE is pending on this thread.
+    fn pending() -> bool {
+        // SAFETY: reads this thread's pending set.
+        unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigpending(&mut set);
+            libc::sigismember(&set, libc::SIGPIPE) == 1
+        }
+    }
+
+    fn block() {
+        // SAFETY: blocks SIGPIPE on this thread only.
+        unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::sigaddset(&mut set, libc::SIGPIPE);
+            libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+        }
+    }
+
+    fn raise() {
+        // SAFETY: a signal to this thread, blocked by the caller.
+        unsafe { libc::raise(libc::SIGPIPE) };
+    }
+
+    #[test]
+    fn a_sigpipe_from_inside_is_taken_and_one_the_caller_had_pending_is_left() {
+        // A thread of its own: the signal mask is per thread, and a SIGPIPE
+        // delivered here would end the test process.
+        std::thread::spawn(|| {
+            without_sigpipe(raise);
+            assert!(!pending(), "our own SIGPIPE was left to kill the host");
+            // The caller blocked it and one is already waiting.
+            block();
+            raise();
+            without_sigpipe(raise);
+            assert!(pending(), "the caller's SIGPIPE was taken");
+            // The caller blocked it with none waiting.
+            let mut sig = 0;
+            // SAFETY: consumes the pending signal blocked above.
+            unsafe {
+                let mut set: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut set);
+                libc::sigaddset(&mut set, libc::SIGPIPE);
+                libc::sigwait(&set, &mut sig);
+            }
+            without_sigpipe(raise);
+            assert!(!pending(), "our own SIGPIPE stayed pending for the caller");
+        })
+        .join()
+        .unwrap();
     }
 }
