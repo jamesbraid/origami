@@ -11,4 +11,4 @@ mod tty;
 
 pub use host::Host;
 pub use link::{Link, LinkSink};
-pub use runner::{serve, Exit, ServeArgs};
+pub use runner::{host, serve, Exit, Hosted, ServeArgs};

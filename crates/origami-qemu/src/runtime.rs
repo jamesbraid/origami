@@ -742,7 +742,10 @@ pub fn start_background_with(
     let deadline = Instant::now() + qmp_ready_timeout() + Duration::from_secs(10);
     while Instant::now() < deadline {
         if let Ok(record) = run_record::read(dir) {
-            if record.pid == child.id() && control::verified_qmp(&record).is_ok() {
+            // An engine with no QMP is up once its runner has written the record.
+            if record.pid == child.id()
+                && (record.qmp_port == 0 || control::verified_qmp(&record).is_ok())
+            {
                 return Ok(record.pid);
             }
         }

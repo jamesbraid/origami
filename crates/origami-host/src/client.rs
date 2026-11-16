@@ -25,6 +25,65 @@ fn connect(record: &Record) -> Option<Client> {
     Some(client)
 }
 
+/// The record of the machine in `dir` if it is running: QEMU answers QMP, or,
+/// for an engine with no QMP port in its record, the runner answers.
+pub fn running(dir: &Path) -> Result<Option<Record>> {
+    match read(dir) {
+        Ok(record) if record.qmp_port == 0 => Ok(connect(&record).map(|_| record)),
+        _ => qemu::running(dir),
+    }
+}
+
+/// Reset the guest: through the runner for an engine with no QMP, else QMP.
+pub fn reset(dir: &Path) -> Result<()> {
+    let record = read(dir)?;
+    if record.qmp_port != 0 {
+        return qemu::reset(dir);
+    }
+    let mut client = connect(&record).ok_or("the machine's runner does not answer")?;
+    client
+        .call_data(&Request::Reset {})
+        .map_err(|e| format!("reset: {e}"))?;
+    Ok(())
+}
+
+/// End the machine at once: QEMU's process, or the runner itself for an
+/// engine that runs inside it.
+pub fn force_stop(dir: &Path) -> Result<()> {
+    let record = read(dir)?;
+    if record.qmp_port != 0 {
+        return qemu::force_stop(dir);
+    }
+    if !is_locked(dir)? {
+        return Err("the machine is not running".into());
+    }
+    #[cfg(unix)]
+    {
+        // An edit command holds the lock too, and a dead runner's pid may be reused.
+        // SAFETY: signal 0 only checks that the process exists.
+        if unsafe { libc::kill(record.pid as libc::pid_t, 0) } != 0 {
+            return Err("the machine is not running".into());
+        }
+        // SAFETY: kill(2) takes no pointers; the lock says the runner lives.
+        if unsafe { libc::kill(record.pid as libc::pid_t, libc::SIGKILL) } != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ESRCH) {
+                return Err(error.into());
+            }
+        }
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        while is_locked(dir)? {
+            if std::time::Instant::now() >= deadline {
+                return Err("the runner was killed but has not exited after 30 seconds".into());
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    Err("forcing a stop of this engine is not supported here".into())
+}
+
 /// Whether QEMU is up and its runner is not: the record names QEMU's
 /// process and nothing holds the machine lock.
 pub fn runner_gone(dir: &Path, record: &Record) -> Result<bool> {
@@ -51,7 +110,9 @@ pub fn stop(dir: &Path) -> Result<()> {
 /// broker goes to standard error.
 pub fn console(dir: &Path) -> Result<()> {
     let record = read(dir)?;
-    qemu::verified_qmp(&record)?;
+    if record.qmp_port != 0 {
+        qemu::verified_qmp(&record)?;
+    }
     if record.control_port == 0 {
         // A record from an older origami: QEMU's own console is the one.
         return qemu::console_direct(&record);

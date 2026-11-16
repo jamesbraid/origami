@@ -1,15 +1,16 @@
 //! The runner: starts a machine and hosts it until it exits.
 //!
-//! It is the one client of QEMU's console chardev, serves the machine's
+//! It is the one client of the engine's console line, serves the machine's
 //! control socket and the legacy raw console port, and writes the run
 //! record that tells every other process where they are. QMP stays with
 //! QEMU: requests open a connection each, so a user's own QMP session is
-//! never locked out by the runner.
+//! never locked out by the runner. [`host`] runs any engine's session;
+//! [`serve`] is QEMU's.
 
 use crate::broker::{Broker, Config, RawPort};
 use crate::host::{state_text, Host};
 use crate::link::{Link, LinkSink};
-use origami_engine::{RunState, Stop, Wake};
+use origami_engine::{RunState, Session, Stop, Wake};
 use origami_machine::control as record;
 use origami_machine::{MachineFile, Machines, Offering, Result};
 use origami_protocol::Server;
@@ -62,16 +63,63 @@ impl std::fmt::Display for Exit {
     }
 }
 
+/// What an engine's launch gives the runner to host.
+pub struct Hosted {
+    pub session: Arc<dyn Session>,
+    /// The engine id the control socket reports.
+    pub engine: &'static str,
+    /// The loopback port of the engine's console line, which only the runner
+    /// connects to.
+    pub engine_console: u16,
+    /// QMP's port; zero for an engine without one.
+    pub qmp_port: u16,
+    pub name: String,
+    /// The engine process's id for the run record; zero when the engine runs
+    /// inside the runner.
+    pub engine_pid: u32,
+    /// Removable drives, by guest name.
+    pub removable: Vec<String>,
+    /// Connect the console line at once, for an engine that keeps no log of
+    /// the output a late client would miss.
+    pub connect_console: bool,
+    /// Held until the machine exits: the machine lock, the share switch.
+    pub keep: Box<dyn std::any::Any + Send>,
+}
+
 /// Run the machine in this process until it exits. The background runner
 /// and `origami run` in the foreground are this same function.
 pub fn serve(a: ServeArgs) -> Result<Exit> {
-    let (link, tail) = Link::new(a.dir);
+    host(a.dir, a.started_by, a.foreground, |wake| {
+        let mut launched = runtime::launch(
+            a.rt, a.machines, a.dir, a.file, a.offering, a.display, a.once, &a.options,
+        )?;
+        let session = QemuEngine::new(a.rt.clone()).adopt(&mut launched, wake);
+        Ok(Hosted {
+            session,
+            engine: "qemu",
+            engine_console: launched.engine_console,
+            qmp_port: launched.qmp_port,
+            name: launched.name.clone(),
+            engine_pid: launched.pid(),
+            removable: launched.removable.iter().map(|(n, _)| n.clone()).collect(),
+            connect_console: false,
+            keep: Box::new(launched),
+        })
+    })
+}
+
+/// Host the session `start` launches until it exits: the console broker,
+/// the control socket and the run record. `start` gets the wake to hand its
+/// engine.
+pub fn host(
+    dir: &Path,
+    started_by: &str,
+    foreground: bool,
+    start: impl FnOnce(Wake) -> Result<Hosted>,
+) -> Result<Exit> {
+    let (link, tail) = Link::new(dir);
     let (broker, writer) = Broker::new(Config::default(), &tail, LinkSink(link.clone()));
     link.set_writer(writer);
-    let mut launched = runtime::launch(
-        a.rt, a.machines, a.dir, a.file, a.offering, a.display, a.once, &a.options,
-    )?;
-    link.set_port(launched.engine_console);
     let woken = Arc::new((Mutex::new(false), Condvar::new()));
     let wake: Wake = {
         let woken = woken.clone();
@@ -80,15 +128,15 @@ pub fn serve(a: ServeArgs) -> Result<Exit> {
             woken.1.notify_all();
         })
     };
-    let engine = QemuEngine::new(a.rt.clone());
-    let session = engine.adopt(&mut launched, wake);
-    let cdroms = launched.removable.iter().map(|(n, _)| n.clone()).collect();
+    let hosted = start(wake)?;
+    let session = hosted.session.clone();
+    link.set_port(hosted.engine_console);
     let host = Host::new(
-        "qemu",
+        hosted.engine,
         session.clone(),
         broker.clone(),
         link.clone(),
-        cdroms,
+        hosted.removable,
     );
 
     let bound = (|| -> std::io::Result<_> {
@@ -110,20 +158,22 @@ pub fn serve(a: ServeArgs) -> Result<Exit> {
     };
     let rec = record::Record {
         pid: std::process::id(),
-        qmp_port: launched.qmp_port,
+        qmp_port: hosted.qmp_port,
         console_port: raw.local_addr().port(),
-        name: launched.name.clone(),
-        qemu_pid: launched.pid(),
+        name: hosted.name,
+        qemu_pid: hosted.engine_pid,
         control_port: server.local_addr().port(),
-        engine_console: launched.engine_console,
-        started_by: a.started_by.into(),
+        engine_console: hosted.engine_console,
+        started_by: started_by.into(),
     };
-    if let Err(e) = record::write(a.dir, &rec) {
+    if let Err(e) = record::write(dir, &rec) {
         let _ = session.stop(Stop::Force);
         return Err(e);
     }
-    let terminal = a
-        .foreground
+    if hosted.connect_console {
+        let _ = link.ensure();
+    }
+    let terminal = foreground
         .then(|| crate::tty::attach(&broker, &link))
         .transpose()?;
 
@@ -150,13 +200,13 @@ pub fn serve(a: ServeArgs) -> Result<Exit> {
     };
     // Remove the record before the lock goes: anyone who sees the machine
     // stopped must not find a record of it.
-    record::clear_if_current(a.dir, &rec);
+    record::clear_if_current(dir, &rec);
     host.state_changed("exited");
     server.shutdown();
     raw.shutdown();
     if let Some(t) = terminal {
         t.finish();
     }
-    drop(launched);
+    drop(hosted.keep);
     Ok(Exit { code })
 }
