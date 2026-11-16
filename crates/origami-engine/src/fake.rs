@@ -529,7 +529,7 @@ impl Frames {
         let mut pixels = Vec::new();
         Self::fill(seq, &mut pixels);
         let mut ppm = format!("P6\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
-        for bgrx in pixels.chunks_exact(4) {
+        for bgrx in pixels.as_chunks::<4>().0 {
             ppm.extend_from_slice(&[bgrx[2], bgrx[1], bgrx[0]]);
         }
         Some(ppm)

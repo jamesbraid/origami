@@ -315,11 +315,9 @@ impl Cycle {
                 return;
             }
             match waiting {
-                None => {
-                    if done < cycles && since.elapsed() > Duration::from_millis(1500) {
-                        u.popout(0);
-                        next = Some((Some((u.renders(0), true)), done));
-                    }
+                None if done < cycles && since.elapsed() > Duration::from_millis(1500) => {
+                    u.popout(0);
+                    next = Some((Some((u.renders(0), true)), done));
                 }
                 Some((beat, true))
                     if u.renders(0) > beat || since.elapsed() > Duration::from_secs(3) =>

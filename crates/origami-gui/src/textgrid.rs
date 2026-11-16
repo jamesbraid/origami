@@ -129,7 +129,7 @@ impl Painter {
     ) -> Vec<u8> {
         let (w, h) = (width as usize, height as usize);
         let mut px = vec![0u8; w * h * 4];
-        for p in px.chunks_exact_mut(4) {
+        for p in px.as_chunks_mut::<4>().0 {
             p.copy_from_slice(&[DEFAULT_BG[0], DEFAULT_BG[1], DEFAULT_BG[2], 255]);
         }
         let (cw, ch) = (self.cell_w as usize, self.cell_h as usize);
@@ -146,7 +146,7 @@ impl Painter {
                 if cell.bg != DEFAULT_BG {
                     for y in y0..y0 + ch {
                         let row = &mut px[(y * w + x0) * 4..(y * w + x0 + cw) * 4];
-                        for p in row.chunks_exact_mut(4) {
+                        for p in row.as_chunks_mut::<4>().0 {
                             p[..3].copy_from_slice(&cell.bg);
                         }
                     }

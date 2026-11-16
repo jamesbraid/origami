@@ -323,13 +323,9 @@ impl Engine for QemuEngine {
                 m.shared.wake(id);
                 return Ok(None);
             }
-            _ if m.display.visible() => {
-                // Armed again for the next change, then check it did not
-                // already happen.
-                if m.display.arm(head) {
-                    m.shared.wake(id);
-                }
-            }
+            // Armed again for the next change, then check it did not
+            // already happen.
+            _ if m.display.visible() && m.display.arm(head) => m.shared.wake(id),
             _ => {}
         }
         Ok(match taken {
