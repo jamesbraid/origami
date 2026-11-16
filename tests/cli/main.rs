@@ -13,6 +13,7 @@ mod config_errors;
 mod drive_attach_chd;
 mod drive_create;
 mod emu_id;
+mod first_boot;
 mod install_apply;
 mod install_logging;
 mod lifecycle;

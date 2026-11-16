@@ -542,6 +542,8 @@ impl MachineInner {
     }
 
     fn launch(self: &Arc<Self>, control: &OpControl) -> CoreResult<()> {
+        crate::apply_first_boot(self.engine.as_ref(), self.dir.path())
+            .map_err(CoreError::machine)?;
         let report = self.engine.validate(&self.model, &self.dir);
         if let Some(problem) = report.errors().next() {
             return Err(CoreError::new(ErrorKind::Invalid, problem.message.clone()));

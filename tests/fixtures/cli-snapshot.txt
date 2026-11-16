@@ -210,7 +210,7 @@ Options:
           With --display shm: the Vulkan deviceUUID (32 hex digits) of the viewer's adapter, so QEMU exports scanout memory the viewer imports without a copy
 
       --qemu-arg <ARG>
-          Extra QEMU argument, appended after the `[qemu] extra-args` of machine.toml (repeatable; unsupported and not validated)
+          Extra QEMU argument, appended after the `extra-args` in the `[engine.private]` table of machine.toml (repeatable; unsupported and not validated)
 
   -h, --help
           Print help (see a summary with '-h')
@@ -243,7 +243,7 @@ Options:
           With --display shm: the Vulkan deviceUUID (32 hex digits) of the viewer's adapter, so QEMU exports scanout memory the viewer imports without a copy
 
       --qemu-arg <ARG>
-          Extra QEMU argument, appended after the `[qemu] extra-args` of machine.toml (repeatable; unsupported and not validated)
+          Extra QEMU argument, appended after the `extra-args` in the `[engine.private]` table of machine.toml (repeatable; unsupported and not validated)
 
       --background
           Run with console and installer control connections

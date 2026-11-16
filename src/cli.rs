@@ -431,8 +431,9 @@ pub struct LaunchArgs {
     pub machine: MachineArgs,
     #[command(flatten)]
     pub display: DisplayArgs,
-    /// Extra QEMU argument, appended after the `[qemu] extra-args` of
-    /// machine.toml (repeatable; unsupported and not validated)
+    /// Extra QEMU argument, appended after the `extra-args` in the
+    /// `[engine.private]` table of machine.toml (repeatable; unsupported and
+    /// not validated)
     #[arg(long = "qemu-arg", value_name = "ARG", allow_hyphen_values = true)]
     pub qemu_args: Vec<String>,
 }

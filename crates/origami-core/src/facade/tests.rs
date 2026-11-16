@@ -453,3 +453,23 @@ fn the_command_table_names_each_command_and_when_it_applies() {
     assert!(commands.iter().all(|c| c.shortcuts.len() == 3));
     assert_eq!(by("app.quit").shortcuts[0].accelerator, "Cmd+Q");
 }
+
+#[test]
+fn a_start_applies_the_pending_first_boot_settings_first() {
+    let f = fixture();
+    let key = f.create("m", "fake.1");
+    let file = Path::new(&key).join("machine.toml");
+    let mut text = std::fs::read_to_string(&file)
+        .unwrap()
+        .replace("id = \"qemu\"", "id = \"fake\"");
+    text.push_str("\n[firstboot.nvram]\nconsole = \"d\"\n");
+    std::fs::write(&file, text).unwrap();
+    // The fake topology has no NVRAM layout, so the settings cannot apply
+    // and the start says why instead of launching.
+    let machine = f.core.open_machine(&key).unwrap();
+    let OperationState::Failed(error) = machine.start().unwrap().wait(Some(WAIT)) else {
+        panic!("the start ignored the first-boot settings");
+    };
+    assert!(error.message.contains("nvram"), "{error}");
+    assert_eq!(machine.view().state, MachineState::NotRunning);
+}

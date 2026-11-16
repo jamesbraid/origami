@@ -136,6 +136,7 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Run(args) => {
             let dir = origami_core::directory(&args.launch.machine.dir)?;
+            emit(&origami_core::apply_first_boot(&engine, &dir)?);
             let loaded = origami_core::open(&engine, &dir)?;
             let (machines, file) = (&loaded.catalogue, &loaded.file);
             let offer = loaded.offering()?;
@@ -202,6 +203,7 @@ fn command(action: Action) -> Result<()> {
         Action::Serve(args) => {
             let launch = &args.launch;
             let dir = origami_core::directory(&launch.machine.dir)?;
+            emit(&origami_core::apply_first_boot(&engine, &dir)?);
             let loaded = origami_core::open(&engine, &dir)?;
             let (machines, file) = (&loaded.catalogue, &loaded.file);
             let offer = loaded.offering()?;
