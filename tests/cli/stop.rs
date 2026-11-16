@@ -1,6 +1,6 @@
 //! `origami stop` returns when the machine has exited, not when it was asked to.
 
-use origami::control::{self, Record};
+use origami_machine::control::{self, Record};
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};

@@ -21,7 +21,9 @@ pub struct Prom {
 }
 
 pub fn manifest() -> Result<Manifest> {
-    Ok(toml::from_str(include_str!("../resources/proms.toml"))?)
+    Ok(toml::from_str(include_str!(
+        "../../../resources/proms.toml"
+    ))?)
 }
 
 impl Manifest {

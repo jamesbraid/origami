@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use origami::runtime::{Display, GpuUuid};
+use origami_machine::runtime::{Display, GpuUuid};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -409,7 +409,7 @@ pub struct DisplayArgs {
 }
 
 impl DisplayArgs {
-    pub fn resolve(&self, graphics: bool) -> origami::Result<Display> {
+    pub fn resolve(&self, graphics: bool) -> origami_machine::Result<Display> {
         let mode = self.display.unwrap_or(if graphics {
             DisplayMode::Local
         } else {

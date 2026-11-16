@@ -3,9 +3,9 @@ mod commands;
 
 use clap::Parser;
 use cli::{Action, DriveKind, NetworkMode, NvramAction};
-use origami::runtime;
-use origami::{addressing, control, graphics, install, listing, nvram, shares};
-use origami::{machines, read_machine, validate, Drive, Network, PortForward, Result};
+use origami_machine::runtime;
+use origami_machine::{addressing, control, graphics, install, listing, nvram, shares};
+use origami_machine::{machines, read_machine, validate, Drive, Network, PortForward, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -86,10 +86,10 @@ fn command(action: Action) -> Result<()> {
             let file = read_machine(&dir)?;
             let machines = machines(&rt)?;
             let offer = validate(&machines, &dir, &file)?;
-            let warnings = origami::mac::duplicate_warnings(&machines, &dir, &file)
+            let warnings = origami_machine::mac::duplicate_warnings(&machines, &dir, &file)
                 .into_iter()
-                .chain(origami::emu_id::duplicate_warnings(&dir, &file))
-                .chain(origami::emu_id::unconfigured_warnings(&file));
+                .chain(origami_machine::emu_id::duplicate_warnings(&dir, &file))
+                .chain(origami_machine::emu_id::unconfigured_warnings(&file));
             for warning in warnings {
                 eprintln!("warning: {warning}");
             }
@@ -104,7 +104,7 @@ fn command(action: Action) -> Result<()> {
         Action::Upgrade { dir, prom, io_prom } => {
             let dir = directory(&dir)?;
             let machines = machines(&rt)?;
-            let upgraded = origami::migrate::upgrade(
+            let upgraded = origami_machine::migrate::upgrade(
                 &rt,
                 &dir,
                 &machines,
@@ -112,7 +112,7 @@ fn command(action: Action) -> Result<()> {
                 io_prom.as_deref(),
             )?;
             // A machine made before emu-ids gets one, and keeps its MAC.
-            let emu_id = match origami::emu_id::add_to_machine(&dir, &machines) {
+            let emu_id = match origami_machine::emu_id::add_to_machine(&dir, &machines) {
                 Ok(emu_id) => emu_id,
                 Err(error) => {
                     // machine.toml is already rewritten; do not lose what it says.
@@ -128,7 +128,7 @@ fn command(action: Action) -> Result<()> {
                 println!("upgraded {}", dir.display());
             }
             for note in upgraded.into_iter().flatten() {
-                if origami::migrate::is_bookkeeping(&note) {
+                if origami_machine::migrate::is_bookkeeping(&note) {
                     println!("note: {note}");
                 } else {
                     println!("note: {note}; the guest sees this at its next boot");
@@ -266,7 +266,7 @@ fn command(action: Action) -> Result<()> {
             }
             if args.background {
                 // The runner process warns into its log; say it here too.
-                for warning in origami::emu_id::running_twin_warnings(&dir, &file) {
+                for warning in origami_machine::emu_id::running_twin_warnings(&dir, &file) {
                     eprintln!("warning: {warning}");
                 }
                 let pid = runtime::start_background(&dir, display, &args.launch.qemu_args)?;
@@ -456,12 +456,12 @@ fn command(action: Action) -> Result<()> {
             let machines = machines(&rt)?;
             // Held until machine.toml is written, so no other mint rescans
             // the siblings before this emu-id is on disk.
-            let _emu_ids = origami::emu_id::lock(&dir)?;
+            let _emu_ids = origami_machine::emu_id::lock(&dir)?;
             // User and none networking run without one; the rest need it.
             let assigned = if matches!(mode, Private | Tap | Vmnet) {
-                origami::ensure_machine_mac(&machines, &dir, &mut file, mac.as_deref())?
+                origami_machine::ensure_machine_mac(&machines, &dir, &mut file, mac.as_deref())?
             } else {
-                origami::set_machine_mac(&machines, &dir, &mut file, mac.as_deref())?;
+                origami_machine::set_machine_mac(&machines, &dir, &mut file, mac.as_deref())?;
                 None
             };
             validate(&machines, &dir, &file)?;
@@ -517,7 +517,7 @@ fn command(action: Action) -> Result<()> {
                     )
                     .into());
                 }
-                file.share.push(origami::Share {
+                file.share.push(origami_machine::Share {
                     name: name.clone(),
                     path,
                 });

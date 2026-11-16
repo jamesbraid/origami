@@ -250,7 +250,7 @@ fn zero_copy_regions_draw_what_qemu_says_the_screen_shows() {
         }
     }
     let _stop = Stop(engine.clone(), id);
-    let qmp_port = origami::control::read(&machine.canonicalize().unwrap())
+    let qmp_port = origami_machine::control::read(&machine.canonicalize().unwrap())
         .expect("a running machine")
         .qmp_port;
     let mut run = Run {

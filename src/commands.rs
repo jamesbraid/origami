@@ -1,6 +1,6 @@
 use crate::cli::{CreateArgs, GraphicsArgs};
-use origami::{control, graphics, runtime};
-use origami::{
+use origami_machine::{control, graphics, runtime};
+use origami_machine::{
     preset, read_machine, validate, validate_create_inputs, Drive, MachineInit, Machines, Result,
 };
 use std::fs;
@@ -11,10 +11,12 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
     let options = &args.options;
     let preset_offer = preset(machines, &args.preset)?;
     let offer = match &options.processor {
-        Some(processor) => origami::profiles::with_processor(machines, preset_offer, processor)?,
+        Some(processor) => {
+            origami_machine::profiles::with_processor(machines, preset_offer, processor)?
+        }
         None => preset_offer,
     };
-    let request = origami::profiles::graphics_request(
+    let request = origami_machine::profiles::graphics_request(
         &args.preset,
         options.graphics.graphics.as_deref(),
         options.graphics.graphics_slot.as_deref(),
@@ -28,17 +30,18 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
         .zip(options.graphics.graphics_pipes)
         .map(|(record, pipes)| graphics::nodes_for_pipes(record, pipes))
     {
-        Some(nodes) if nodes > offer.nodes => {
-            (origami::profiles::with_nodes(machines, offer, nodes)?, true)
-        }
+        Some(nodes) if nodes > offer.nodes => (
+            origami_machine::profiles::with_nodes(machines, offer, nodes)?,
+            true,
+        ),
         _ => (offer, false),
     };
     let pipes = graphics::select(machines, &offer.topology, offer.nodes, &request)?;
     let pipe_count = pipes.len();
-    let inputs = origami::settings::resolve(
+    let inputs = origami_machine::settings::resolve(
         machines,
         offer,
-        origami::profiles::preset_inputs(&args.preset, options.hardware.inputs()?),
+        origami_machine::profiles::preset_inputs(&args.preset, options.hardware.inputs()?),
     )?;
     validate_create_inputs(
         &args.dir,
@@ -47,7 +50,7 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
         options.mac.as_deref(),
     )?;
     if let Some(emu_id) = options.emu_id {
-        origami::emu_id::check_range(emu_id)?;
+        origami_machine::emu_id::check_range(emu_id)?;
     }
     let tool = rt.machine_init();
     // Check the tool before any download that it would consume.
@@ -55,25 +58,25 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
         return Err(format!("packaged machine init tool missing: {}", tool.display()).into());
     }
     let (prom, io_prom) =
-        origami::firmware(offer, options.prom.as_deref(), options.io_prom.as_deref())?;
+        origami_machine::firmware(offer, options.prom.as_deref(), options.io_prom.as_deref())?;
     // Held until machine.toml is written, so a second create rescans the
     // siblings only after this emu-id is on disk.
-    let _emu_ids = origami::emu_id::lock(&args.dir)?;
-    let emu_id = origami::emu_id::assign(
+    let _emu_ids = origami_machine::emu_id::lock(&args.dir)?;
+    let emu_id = origami_machine::emu_id::assign(
         machines,
         &args.dir,
         offer,
         options.emu_id,
         options.mac.is_none(),
     )?;
-    let mac = origami::mac::assign(
+    let mac = origami_machine::mac::assign(
         machines,
         &args.dir,
         offer,
         options.mac.as_deref(),
         Some(emu_id),
     )?;
-    origami::create_configured(
+    origami_machine::create_configured(
         &args.dir,
         offer,
         &MachineInit {
@@ -82,7 +85,7 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
             io_prom: io_prom.as_deref(),
         },
         options.memory_per_node,
-        mac.map(|mac| origami::Identity::new(&mac, Some(emu_id))),
+        mac.map(|mac| origami_machine::Identity::new(&mac, Some(emu_id))),
         pipes,
         inputs,
     )?;

@@ -11,7 +11,7 @@ name = "origami-gui"
 path = "src/main.rs"
 
 [dependencies]
-origami = { path = "../.." }
+origami-machine = { path = "../origami-machine" }
 bytemuck = "1"
 memmap2 = "0.9"
 # A pinned master commit until Slint 1.19 ships (its femtovg 0.28 carries the

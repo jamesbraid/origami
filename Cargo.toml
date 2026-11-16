@@ -16,35 +16,34 @@ test = false
 doctest = false
 
 [workspace]
-members = ["crates/origami-nfs", "crates/origami-net", "crates/origami-gui", "xtask"]
+members = ["crates/origami-machine", "crates/origami-nfs", "crates/origami-net", "crates/origami-gui", "xtask"]
 # origami-gui pulls in Slint and wgpu, which the command-line tool's cargo
 # commands and checks should not build. `-p origami-gui` selects it.
-default-members = [".", "crates/origami-nfs", "crates/origami-net", "xtask"]
+default-members = [".", "crates/origami-machine", "crates/origami-nfs", "crates/origami-net", "xtask"]
 
 [dependencies]
+origami-machine = { path = "crates/origami-machine" }
 origami-net = { path = "crates/origami-net" }
 origami-nfs = { path = "crates/origami-nfs" }
 clap = { version = "4.5", features = ["derive"] }
-dirs = "7"
-getrandom = "0.4"
-qapi = { version = "0.15", features = ["qmp"] }
-serde = { version = "1", features = ["derive"] }
-serde-saphyr = "2"
 serde_json = "1"
-sha2 = "0.11"
 tempfile = "3"
 toml = "1"
-ureq = { version = "3", default-features = false, features = ["rustls"] }
-url = "2"
 dunce = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation"] }
-
 [dev-dependencies]
+origami-machine = { path = "crates/origami-machine" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+qapi = { version = "0.15", features = ["qmp"] }
+sha2 = "0.11"
+getrandom = "0.4"
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+url = "2"
 # The integration and acceptance tests drive a guest's serial console and clean
 # up their network lab on SIGINT and SIGTERM.
 libtest-mimic = "0.8"

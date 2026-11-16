@@ -61,7 +61,7 @@ fn an_onyx_3400_takes_up_to_four_pipes() {
     assert!(error.contains("is not offered without graphics"), "{error}");
 
     create(&["--graphics-pipes", "4"]).unwrap();
-    let file = origami::read_machine(&machine).unwrap();
+    let file = origami_machine::read_machine(&machine).unwrap();
     let slots: Vec<_> = file.pipe.iter().map(|pipe| pipe.slot.as_str()).collect();
     assert_eq!(
         slots,
@@ -106,7 +106,7 @@ fn an_onyx2_rack_gets_the_second_node_its_second_pipe_needs() {
     assert!(error.contains("at most 2"), "{error}");
     let output = origami(root, &args("2")).unwrap();
     assert!(output.contains("2 graphics pipes need 2 nodes"), "{output}");
-    let file = origami::read_machine(&machine).unwrap();
+    let file = origami_machine::read_machine(&machine).unwrap();
     assert_eq!(file.machine.nodes, 2);
     assert_eq!(file.machine.population, [1, 1]);
     let slots: Vec<_> = file.pipe.iter().map(|pipe| pipe.slot.as_str()).collect();

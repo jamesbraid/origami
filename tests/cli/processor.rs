@@ -56,7 +56,7 @@ fn create_fixes_the_processor_module_in_machine_toml() {
     ])
     .unwrap();
     assert!(output.contains("each node has 2"), "{output}");
-    let file = origami::read_machine(&machine).unwrap();
+    let file = origami_machine::read_machine(&machine).unwrap();
     assert_eq!(file.machine.processor.as_deref(), Some("r12000-270mhz-4mb"));
     assert_eq!(file.machine.population, [2]);
     let args = support::init_args(root);

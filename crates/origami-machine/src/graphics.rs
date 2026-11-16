@@ -400,7 +400,7 @@ fn refused_everywhere(
     graphics: &Graphics,
     nodes: u32,
     product: &str,
-) -> Box<dyn std::error::Error> {
+) -> crate::Error {
     if let Some((family, named)) = catalogue_product(machines, product) {
         for slot in slots(graphics, nodes) {
             if let Some(refusal) = slot.refusal(&family.family, product, &BTreeMap::new()) {

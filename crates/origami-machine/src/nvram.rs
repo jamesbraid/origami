@@ -445,13 +445,14 @@ mod tests {
     // Stores the PROMs wrote on their first boot, cut down to the measured
     // variables, the revision byte and a recomputed checksum. Everything
     // else, which includes text the PROM copied from its own image, is zero.
-    const ORIGIN200: &[u8] = include_bytes!("../tests/fixtures/nvram/origin200-ip27prom-6.156.raw");
-    const OCTANE: &[u8] = include_bytes!("../tests/fixtures/nvram/octane-ip30prom-4.17.raw");
+    const ORIGIN200: &[u8] =
+        include_bytes!("../../../tests/fixtures/nvram/origin200-ip27prom-6.156.raw");
+    const OCTANE: &[u8] = include_bytes!("../../../tests/fixtures/nvram/octane-ip30prom-4.17.raw");
     // An Origin 3200 after an IRIX install, scrubbed the same way. The PROM
     // 6.210 store passed the BASEIO checksum unscrubbed, and so did an
     // Origin 3400, an Origin 3900 and an Onyx 3000 after one boot.
     const ORIGIN3200: &[u8] =
-        include_bytes!("../tests/fixtures/nvram/origin3200-ip35prom-6.210.raw");
+        include_bytes!("../../../tests/fixtures/nvram/origin3200-ip35prom-6.210.raw");
 
     fn store(layout: Layout, data: &[u8]) -> Store {
         Store::new(layout, data.to_vec()).unwrap()

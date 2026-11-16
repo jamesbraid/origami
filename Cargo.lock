@@ -3488,17 +3488,16 @@ name = "origami"
 version = "0.0.0"
 dependencies = [
  "clap",
- "dirs",
  "dunce",
  "getrandom 0.4.3",
  "libc",
  "libtest-mimic",
+ "origami-machine",
  "origami-net",
  "origami-nfs",
  "qapi",
  "regex",
  "serde",
- "serde-saphyr",
  "serde_json",
  "sha2",
  "signal-hook",
@@ -3507,7 +3506,6 @@ dependencies = [
  "ureq",
  "url",
  "vergen-gitcl",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3522,7 +3520,7 @@ dependencies = [
  "libc",
  "memmap2",
  "objc2-metal 0.3.2",
- "origami",
+ "origami-machine",
  "pollster",
  "serde_json",
  "slint",
@@ -3531,6 +3529,28 @@ dependencies = [
  "uds_windows",
  "vt100",
  "wgpu",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "origami-machine"
+version = "0.0.0"
+dependencies = [
+ "dirs",
+ "dunce",
+ "getrandom 0.4.3",
+ "libc",
+ "origami-net",
+ "origami-nfs",
+ "qapi",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "toml",
+ "ureq",
+ "url",
  "windows-sys 0.61.2",
 ]
 

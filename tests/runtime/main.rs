@@ -41,10 +41,10 @@ fn runtime() -> PathBuf {
 }
 
 /// The real machine list.
-fn machines() -> origami::Machines {
+fn machines() -> origami_machine::Machines {
     runtime();
-    let runtime = origami::runtime::Runtime::locate().expect("the origami test executable");
-    origami::machines(&runtime).unwrap()
+    let runtime = origami_machine::runtime::Runtime::locate().expect("the origami test executable");
+    origami_machine::machines(&runtime).unwrap()
 }
 
 fn origami(root: &Path, args: &[&OsStr]) -> Output {
@@ -83,8 +83,9 @@ fn start_and_stop(root: &Path, machine: &Path) -> Result<(), String> {
         format!("{error}\n{log}")
     })?;
     let _guard = support::Running::new(root, machine);
-    let record = origami::control::read(machine).map_err(|error| error.to_string())?;
-    let mut qmp = origami::control::verified_qmp(&record).map_err(|error| error.to_string())?;
+    let record = origami_machine::control::read(machine).map_err(|error| error.to_string())?;
+    let mut qmp =
+        origami_machine::control::verified_qmp(&record).map_err(|error| error.to_string())?;
     let status = qmp
         .execute(&qmp::query_status {})
         .map_err(|error| error.to_string())?;
@@ -126,7 +127,7 @@ fn create(
     root: &Path,
     name: &str,
     preset: &str,
-    offering: &origami::Offering,
+    offering: &origami_machine::Offering,
     extra: &[&str],
 ) -> Result<PathBuf, String> {
     let machine = root.join(name);
@@ -149,7 +150,7 @@ fn create(
 
 /// Create `name` from its preset, check its storage and arguments, and start
 /// it paused; what went wrong, if anything.
-fn check_preset(root: &Path, name: &str, offering: &origami::Offering) -> Vec<String> {
+fn check_preset(root: &Path, name: &str, offering: &origami_machine::Offering) -> Vec<String> {
     let mut failures = Vec::new();
     let machine = match create(root, &format!("{name}, with comma"), name, offering, &[]) {
         Ok(machine) => machine,
@@ -208,24 +209,24 @@ fn every_preset_creates_reopens_and_starts_paused() {
     let mut failures = Vec::new();
     // Each starter must name an offering of this QEMU, and the registry
     // must have every image kind a preset's offering reads.
-    for profile in origami::profiles::STARTERS {
-        if let Err(error) = origami::preset(&machines, profile.id) {
+    for profile in origami_machine::profiles::STARTERS {
+        if let Err(error) = origami_machine::preset(&machines, profile.id) {
             failures.push(format!("{}: {error}", profile.id));
         }
     }
     // Every topology the upgrade moves a machine to must exist, or the rename
     // would silently not apply.
-    for topology in origami::migrate::renamed_to() {
+    for topology in origami_machine::migrate::renamed_to() {
         if !machines.offerings.iter().any(|o| o.topology == topology) {
             failures.push(format!(
                 "the upgrade moves machines to {topology}, which QEMU lacks"
             ));
         }
     }
-    let manifest = origami::assets::manifest().unwrap();
+    let manifest = origami_machine::assets::manifest().unwrap();
     // Only presets create machines, so an offering with no preset, such as
     // the O2 whose PROM has no download, needs none.
-    for (_, offering) in origami::presets(&machines) {
+    for (_, offering) in origami_machine::presets(&machines) {
         for input in &offering.init_inputs {
             if manifest.get(&input.kind).is_err() {
                 failures.push(format!("{}: no {} download", offering.topology, input.kind));
@@ -237,7 +238,7 @@ fn every_preset_creates_reopens_and_starts_paused() {
     // the commit limit, so there one preset runs at a time: each machine is
     // stopped and reaped before the next preset starts.
     let workers = if cfg!(windows) { 1 } else { 4 };
-    let presets = origami::presets(&machines);
+    let presets = origami_machine::presets(&machines);
     let next = std::sync::atomic::AtomicUsize::new(0);
     let found = std::sync::Mutex::new(Vec::new());
     std::thread::scope(|scope| {
@@ -286,12 +287,12 @@ fn each_network_mode_starts_paused() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
     let machines = machines();
-    let offering = origami::preset(&machines, "origin200-1").unwrap();
+    let offering = origami_machine::preset(&machines, "origin200-1").unwrap();
     let code = root.join("code");
     fs::create_dir(&code).unwrap();
     let peer = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("tcp:{}", peer.local_addr().unwrap());
-    let forward_port = origami::control::free_port().unwrap().to_string();
+    let forward_port = origami_machine::control::free_port().unwrap().to_string();
     let cases: [(&str, Vec<&str>); 5] = [
         ("user", vec![]),
         ("none", vec!["--mode", "none"]),
@@ -350,7 +351,7 @@ fn qemu_refusing_an_argument_fails_the_start() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
     let machines = machines();
-    let offering = origami::preset(&machines, "origin200-1").unwrap();
+    let offering = origami_machine::preset(&machines, "origin200-1").unwrap();
     let machine = create(root, "machine", "origin200-1", offering, &[]).unwrap();
     let error = run(
         root,
@@ -498,8 +499,8 @@ fn machines_with_the_051_topology_names_upgrade_and_start() {
         ("tezro", "tezro-tower-multi"),
         ("onyx350", "onyx350-compat"),
     ] {
-        let new = &origami::preset(&machines, preset).unwrap().topology;
-        let offering = origami::preset(&machines, preset).unwrap();
+        let new = &origami_machine::preset(&machines, preset).unwrap().topology;
+        let offering = origami_machine::preset(&machines, preset).unwrap();
         let machine = root.join(preset);
         let mut args: Vec<OsString> = vec!["--preset".into(), preset.into()];
         for input in &offering.init_inputs {

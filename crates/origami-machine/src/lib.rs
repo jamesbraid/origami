@@ -21,7 +21,13 @@ pub mod runtime;
 pub mod settings;
 pub mod shares;
 
-pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+/// The error every fallible call here returns. It is `Send + Sync`, so it
+/// crosses threads and the facade's event queue; strings, I/O, TOML and JSON
+/// errors convert with `?` and `.into()`, and `downcast_ref` still finds the
+/// source.
+pub type Error = Box<dyn std::error::Error + Send + Sync>;
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// The machine.toml format. Format 2 machines keep QEMU-created storage;
 /// format 3 adds the module controller NVRAM; format 4 stores each graphics
@@ -1088,7 +1094,7 @@ pub fn create_configured(
 /// reads the real machine list.
 #[cfg(test)]
 pub(crate) fn test_machines() -> Machines {
-    serde_json::from_str(include_str!("../tests/fixtures/sgi-machines.json")).unwrap()
+    serde_json::from_str(include_str!("../../../tests/fixtures/sgi-machines.json")).unwrap()
 }
 
 /// The stand-in init tool the unit tests use.

@@ -17,7 +17,8 @@ pub fn fake_runtime(root: &Path) -> PathBuf {
         return runtime;
     }
     fs::create_dir_all(&runtime).unwrap();
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/sgi-machines.json");
+    let fixture =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/sgi-machines.json");
     script(
         &runtime.join("qemu-system-mips64"),
         &format!(

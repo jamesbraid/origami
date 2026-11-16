@@ -252,14 +252,14 @@ fn status_reports_a_machine_whose_qemu_exits_while_it_looks() {
     let dir = root.path().join("machine");
     fs::create_dir_all(dir.join("state")).unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let record = origami::control::Record {
+    let record = origami_machine::control::Record {
         pid: 4242,
         qmp_port: listener.local_addr().unwrap().port(),
         console_port: 0,
         name: "sgi-exits-while-asked".into(),
         qemu_pid: 0,
     };
-    origami::control::write(&dir, &record).unwrap();
+    origami_machine::control::write(&dir, &record).unwrap();
     let qemu = {
         let dir = dir.clone();
         let name = record.name.clone();
@@ -272,7 +272,7 @@ fn status_reports_a_machine_whose_qemu_exits_while_it_looks() {
             .unwrap();
             for line in BufReader::new(stream.try_clone().unwrap()).lines() {
                 if line.unwrap().contains("query-name") {
-                    origami::control::clear_if_current(&dir, &record);
+                    origami_machine::control::clear_if_current(&dir, &record);
                     writeln!(stream, r#"{{"return": {{"name": "{name}"}}}}"#).unwrap();
                     return;
                 }
@@ -325,7 +325,7 @@ fn the_console_reaches_the_guest() {
     let machine = create(root, "machine", "origin200-1", &[]);
     let _guard = Running::new(root, &machine);
     start(root, &machine);
-    let mut console = origami::console::Console::connect(&machine).unwrap();
+    let mut console = origami_machine::console::Console::connect(&machine).unwrap();
     let mut seen = Vec::new();
     let timeout = Duration::from_secs(10);
     console

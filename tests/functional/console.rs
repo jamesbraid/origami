@@ -1,7 +1,7 @@
 //! An expect-style layer over the product's console client.
 //!
 //! `origami run --background` serves the guest's serial console on a loopback
-//! port, which `origami::console::Console` connects to. This adds what a test
+//! port, which `origami_machine::console::Console` connects to. This adds what a test
 //! needs on top: a log of every byte, a buffer to match regular expressions
 //! against, and a shell command helper.
 
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use regex::Regex;
 
 pub struct Console {
-    inner: origami::console::Console,
+    inner: origami_machine::console::Console,
     buffer: String,
     log: File,
     markers: u32,
@@ -21,8 +21,8 @@ pub struct Console {
 
 impl Console {
     pub fn connect(machine: &Path, log: &Path) -> Result<Self, String> {
-        let inner =
-            origami::console::Console::connect(machine).map_err(|e| format!("console: {e}"))?;
+        let inner = origami_machine::console::Console::connect(machine)
+            .map_err(|e| format!("console: {e}"))?;
         let log = File::options()
             .create(true)
             .append(true)

@@ -110,13 +110,13 @@ fn default_release() -> String {
 fn release_config(release: &str, profile: &str) -> Result<&'static str> {
     match (release, profile) {
         ("6.5.30", "minimal") => Ok(include_str!(
-            "../resources/instigator/configs/irix-6.5.30-minimal.yaml"
+            "../../../resources/instigator/configs/irix-6.5.30-minimal.yaml"
         )),
         ("6.5.30", "standard") => Ok(include_str!(
-            "../resources/instigator/configs/irix-6.5.30-standard.yaml"
+            "../../../resources/instigator/configs/irix-6.5.30-standard.yaml"
         )),
         ("6.5.22", "standard") => Ok(include_str!(
-            "../resources/instigator/configs/irix-6.5.22-standard.yaml"
+            "../../../resources/instigator/configs/irix-6.5.22-standard.yaml"
         )),
         ("6.5.22", _) => Err(format!("IRIX {release} has no {profile} install profile").into()),
         _ => Err(format!("unknown IRIX release: {release}").into()),
@@ -127,10 +127,10 @@ fn release_config(release: &str, profile: &str) -> Result<&'static str> {
 fn addon_file(name: &str) -> Option<&'static str> {
     match name {
         "mipspro" => Some(include_str!(
-            "../resources/instigator/configs/addons/mipspro.yaml"
+            "../../../resources/instigator/configs/addons/mipspro.yaml"
         )),
         "rad4" => Some(include_str!(
-            "../resources/instigator/configs/addons/rad4.yaml"
+            "../../../resources/instigator/configs/addons/rad4.yaml"
         )),
         _ => None,
     }
@@ -2084,7 +2084,7 @@ mod tests {
         }
         let text = serde_json::to_string_pretty(&Value::Object(all)).unwrap() + "\n";
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/install-generated-commands.json");
+            .join("../../tests/fixtures/install-generated-commands.json");
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
     }
 

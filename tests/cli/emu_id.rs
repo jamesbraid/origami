@@ -37,7 +37,7 @@ fn create(root: &Path, name: &str, preset: &str, extra: &[&str]) -> Result<Strin
 }
 
 fn identity(root: &Path, name: &str) -> (String, Option<u32>) {
-    let file = origami::read_machine(&root.join(name)).unwrap();
+    let file = origami_machine::read_machine(&root.join(name)).unwrap();
     let identity = file.identity.unwrap();
     (identity.mac, identity.emu_id)
 }
@@ -202,7 +202,10 @@ fn network_set_gives_a_machine_without_an_identity_a_emu_id_and_its_mac() {
             .collect::<Vec<_>>();
         let head = text.split_once("[identity]").unwrap().0;
         fs::write(&path, format!("{head}{}\n", rest.join("\n"))).unwrap();
-        assert!(origami::read_machine(&dir).unwrap().identity.is_none());
+        assert!(origami_machine::read_machine(&dir)
+            .unwrap()
+            .identity
+            .is_none());
 
         let mut args = vec!["network-set", dir.to_str().unwrap(), "--mode", "private"];
         args.extend(extra);
@@ -261,7 +264,7 @@ fn run_warns_about_a_clone_while_its_twin_is_running_and_still_starts_it() {
         "no twin runs yet"
     );
     // A running machine holds its edit lock.
-    let _running = origami::control::lock_for_edit(&root.join("twin"), "test").unwrap();
+    let _running = origami_machine::control::lock_for_edit(&root.join("twin"), "test").unwrap();
     let foreground = run(&[]);
     assert!(foreground.contains(warning), "{foreground}");
     assert!(foreground.contains("twin") && foreground.contains("clash"));

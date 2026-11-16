@@ -415,7 +415,7 @@ impl Link for SocketLink {
     }
 
     fn alive(&mut self) -> bool {
-        origami::control::running(&self.dir).is_ok_and(|r| r.is_some())
+        origami_machine::control::running(&self.dir).is_ok_and(|r| r.is_some())
     }
 }
 

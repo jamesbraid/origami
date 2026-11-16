@@ -20,11 +20,15 @@ fn missing_machine_directory_names_the_path_and_create_command() {
 fn machine_configuration_errors_name_the_file() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("machine.toml");
-    let error = origami::read_machine(root.path()).unwrap_err().to_string();
+    let error = origami_machine::read_machine(root.path())
+        .unwrap_err()
+        .to_string();
     assert!(error.contains(path.to_str().unwrap()), "{error}");
     assert!(error.contains("origami create"), "{error}");
     fs::write(&path, "format = [").unwrap();
-    let error = origami::read_machine(root.path()).unwrap_err().to_string();
+    let error = origami_machine::read_machine(root.path())
+        .unwrap_err()
+        .to_string();
     assert!(error.contains(path.to_str().unwrap()), "{error}");
     assert!(error.contains("invalid machine configuration"), "{error}");
 }
@@ -33,14 +37,14 @@ fn machine_configuration_errors_name_the_file() {
 fn install_configuration_errors_name_the_file_and_initialization_command() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("install/media.toml");
-    let error = origami::install::read_media(root.path())
+    let error = origami_machine::install::read_media(root.path())
         .unwrap_err()
         .to_string();
     assert!(error.contains(path.to_str().unwrap()), "{error}");
     assert!(error.contains("origami install-init"), "{error}");
     fs::create_dir(root.path().join("install")).unwrap();
     fs::write(&path, "format = [").unwrap();
-    let error = origami::install::read_media(root.path())
+    let error = origami_machine::install::read_media(root.path())
         .unwrap_err()
         .to_string();
     assert!(error.contains(path.to_str().unwrap()), "{error}");
