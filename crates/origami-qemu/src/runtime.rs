@@ -30,7 +30,132 @@ pub enum Display {
         /// for plain shared memory.
         gpu: Option<GpuUuid>,
     },
+    /// [`Display::Shm`] on a QEMU with the version 4 `display-shm` device;
+    /// `fd` is the runner's listening socket, else QEMU binds [`display_socket`].
+    ShmV4 {
+        fd: Option<i32>,
+    },
     None,
+}
+
+/// Which display protocol a QEMU's shared-memory display speaks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShmProtocol {
+    /// The machine's `display-shm` property.
+    V3,
+    /// The `display-shm` device.
+    V4,
+}
+
+/// How long a QEMU gets to answer the probe.
+const PROBE_TIMEOUT: Duration = if cfg!(test) {
+    Duration::from_millis(500)
+} else {
+    Duration::from_secs(30)
+};
+
+/// Ask `qemu` whether it has the `display-shm` device type. Version 3 for
+/// one that predates it, is not on Unix, or cannot be asked (not remembered).
+pub fn shm_protocol(qemu: &Path) -> ShmProtocol {
+    static KNOWN: std::sync::Mutex<Vec<(PathBuf, ShmProtocol)>> = std::sync::Mutex::new(Vec::new());
+    // QEMU's version 4 producer and the session library are Unix only so far.
+    if !cfg!(unix) {
+        return ShmProtocol::V3;
+    }
+    let known = |qemu: &Path| {
+        let known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+        known.iter().find(|(path, _)| path == qemu).map(|k| k.1)
+    };
+    if let Some(found) = known(qemu) {
+        return found;
+    }
+    let Some(has) = has_display_device(qemu) else {
+        return ShmProtocol::V3;
+    };
+    let found = if has {
+        ShmProtocol::V4
+    } else {
+        ShmProtocol::V3
+    };
+    KNOWN
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((qemu.to_path_buf(), found));
+    found
+}
+
+#[derive(serde::Serialize)]
+struct QomListTypes {
+    implements: &'static str,
+    #[serde(rename = "abstract")]
+    abstract_: bool,
+}
+
+impl qapi::Command for QomListTypes {
+    type Ok = serde_json::Value;
+    const NAME: &'static str = "qom-list-types";
+    const ALLOW_OOB: bool = false;
+}
+
+/// Whether `qemu` lists the `display-shm` device, or None if it did not
+/// answer in time.
+fn has_display_device(qemu: &Path) -> Option<bool> {
+    let types = crate::catalogue::ask_machineless(qemu, Some(PROBE_TIMEOUT), |qmp| {
+        qmp.execute(&QomListTypes {
+            implements: "device",
+            abstract_: false,
+        })
+        .map_err(|e| e.to_string())
+    })
+    .ok()?;
+    Some(
+        types
+            .as_array()?
+            .iter()
+            .any(|ty| ty.get("name").and_then(|n| n.as_str()) == Some("display-shm")),
+    )
+}
+
+/// The socket the runner listens on for a version 4 display, removed when
+/// the machine ends.
+#[cfg(unix)]
+struct DisplayListener {
+    listener: std::os::unix::net::UnixListener,
+    path: PathBuf,
+}
+
+#[cfg(unix)]
+impl DisplayListener {
+    fn bind(path: PathBuf) -> std::io::Result<DisplayListener> {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        // Bound in a directory only we can enter, then moved into place, so
+        // the socket never exists for others at the umask's mode.
+        let parent = path.parent().unwrap_or(Path::new("."));
+        let private = parent.join(format!(".display-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&private);
+        fs::DirBuilder::new().mode(0o700).create(&private)?;
+        let bound = (|| -> std::io::Result<_> {
+            let temporary = private.join("s");
+            let listener = std::os::unix::net::UnixListener::bind(&temporary)?;
+            fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))?;
+            // The machine lock keeps a second runner out; a file here is left from a killed one.
+            let _ = fs::remove_file(&path);
+            fs::rename(&temporary, &path)?;
+            Ok(listener)
+        })();
+        let _ = fs::remove_dir_all(&private);
+        Ok(DisplayListener {
+            listener: bound?,
+            path,
+        })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for DisplayListener {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 /// A Vulkan `deviceUUID`: 16 bytes, written as 32 hex digits.
@@ -469,6 +594,16 @@ pub fn arguments_with(
             }
         }
         Display::Shm { .. } | Display::None => args.extend(["-display".into(), "none".into()]),
+        Display::ShmV4 { fd } => {
+            args.extend(["-display".into(), "none".into(), "-device".into()]);
+            args.push(match fd {
+                Some(fd) => format!("display-shm,fd={fd}"),
+                None => format!(
+                    "display-shm,path={}",
+                    qemu_path_option(&display_socket(dir))
+                ),
+            });
+        }
     }
     for global in &inputs.globals {
         args.extend(["-global".into(), global.clone()]);
@@ -703,7 +838,7 @@ pub fn start_background_with(
     let display_name = match display {
         Display::Local => "local",
         Display::Vnc { .. } => "vnc",
-        Display::Shm { .. } => "shm",
+        Display::Shm { .. } | Display::ShmV4 { .. } => "shm",
         Display::None => "none",
     };
     let mut child = Command::new(exe);
@@ -803,6 +938,10 @@ pub struct Launched {
     /// Removable drives: guest name and QEMU block device id.
     pub removable: Vec<(String, String)>,
     pub display: Option<PathBuf>,
+    /// The display protocol the machine speaks, 0 for none: 3 or 4.
+    pub display_protocol: u32,
+    #[cfg(unix)]
+    display_listener: Option<DisplayListener>,
     _lock: run_record::EditLock,
     _share_net: Option<origami_machine::shares::Running>,
 }
@@ -811,6 +950,18 @@ impl Launched {
     /// QEMU's process id.
     pub fn pid(&self) -> u32 {
         self.pid
+    }
+
+    /// The listening socket of a version 4 display, to drop when QEMU exits.
+    pub(crate) fn take_display_guard(&mut self) -> Option<Box<dyn std::any::Any + Send>> {
+        #[cfg(unix)]
+        {
+            self.display_listener
+                .take()
+                .map(|l| Box::new(l) as Box<dyn std::any::Any + Send>)
+        }
+        #[cfg(not(unix))]
+        None
     }
 
     /// Hand the process to whoever watches it; once.
@@ -841,6 +992,12 @@ pub fn launch(
     if !keymap.is_file() {
         return Err(format!("packaged QEMU keymap missing: {}", keymap.display()).into());
     }
+    // Asked before the machine lock and the share switch are taken: a QEMU
+    // that hangs must not hold them while the probe times out.
+    let protocol = match display {
+        Display::Shm { .. } => shm_protocol(&qemu),
+        _ => ShmProtocol::V3,
+    };
     // A machine without its storage is not started, and gains nothing.
     origami_machine::stores::check_state(dir, offering)?;
     let lock = run_record::lock_for_edit(dir, "starting it again")?;
@@ -869,6 +1026,20 @@ pub fn launch(
             &hosted_file
         }
         None => file,
+    };
+    #[cfg(unix)]
+    let (display, display_listener) = match display {
+        Display::Shm { .. } if protocol == ShmProtocol::V4 => {
+            let listener = DisplayListener::bind(display_socket(dir))?;
+            use std::os::fd::AsRawFd;
+            (
+                Display::ShmV4 {
+                    fd: Some(listener.listener.as_raw_fd()),
+                },
+                Some(listener),
+            )
+        }
+        other => (other, None),
     };
     let mut args = arguments_with(machines, dir, file, offering, display, ports.as_ref())?;
     args.splice(0..0, rt.data_arguments());
@@ -942,11 +1113,23 @@ pub fn launch(
         .filter(|(_, drive)| drive.kind == "cdrom")
         .map(|(index, drive)| (drive.name.clone(), format!("drive{index}")))
         .collect();
-    let mut child = Command::new(qemu)
-        .args(args)
-        .current_dir(dir)
-        .stdin(Stdio::null())
-        .spawn()?;
+    let mut command = Command::new(qemu);
+    command.args(args).current_dir(dir).stdin(Stdio::null());
+    // The listening socket is made close-on-exec; QEMU is told its number.
+    #[cfg(unix)]
+    if let Display::ShmV4 { fd: Some(fd) } = display {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: only async-signal-safe fcntl runs between fork and exec.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    let mut child = command.spawn()?;
     let probe = run_record::Record {
         pid: std::process::id(),
         qmp_port,
@@ -965,7 +1148,15 @@ pub fn launch(
                 engine_console,
                 name,
                 removable,
-                display: matches!(display, Display::Shm { .. }).then(|| display_socket(dir)),
+                display: matches!(display, Display::Shm { .. } | Display::ShmV4 { .. })
+                    .then(|| display_socket(dir)),
+                display_protocol: match display {
+                    Display::Shm { .. } => 3,
+                    Display::ShmV4 { .. } => 4,
+                    _ => 0,
+                },
+                #[cfg(unix)]
+                display_listener,
                 _lock: lock,
                 _share_net: share_net,
             });
@@ -1549,6 +1740,94 @@ mod tests {
         // Any other display leaves the property off.
         let args = arguments(&machines, dir, &machine(offer), offer, Display::None).unwrap();
         assert!(!args.iter().any(|a| a.contains("display-shm")));
+    }
+
+    #[test]
+    fn a_version_4_display_is_a_device_on_the_runners_socket() {
+        let machines = test_machines();
+        let offer = preset(&machines, "octane2-vpro").unwrap();
+        let dir = Path::new("/machines/one");
+        let build = |display| arguments(&machines, dir, &machine(offer), offer, display).unwrap();
+        let args = build(Display::ShmV4 { fd: Some(7) });
+        assert!(args
+            .windows(2)
+            .any(|p| p == ["-device", "display-shm,fd=7"]));
+        assert!(!args.iter().any(|a| a.contains("display-shm=")));
+        assert!(args.windows(2).any(|p| p == ["-display", "none"]));
+        let args = build(Display::ShmV4 { fd: None });
+        assert!(args.windows(2).any(|p| p
+            == [
+                "-device",
+                "display-shm,path=/machines/one/state/display.sock"
+            ]));
+    }
+
+    #[cfg(unix)]
+    fn fake_qemu(dir: &Path, types: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join("qemu");
+        // Greets, then answers the two commands the probe sends, in order.
+        fs::write(
+            &path,
+            format!(
+                "#!/bin/sh\n\
+                 echo '{{\"QMP\": {{\"version\": {{\"qemu\": {{\"micro\": 0, \"minor\": 0, \"major\": 0}}, \"package\": \"\"}}, \"capabilities\": []}}}}'\n\
+                 read line; echo '{{\"return\": {{}}}}'\n\
+                 read line; echo '{{\"return\": {types}}}'\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_display_device_type_selects_protocol_4() {
+        let dir = tempfile::tempdir().unwrap();
+        let v4 = fake_qemu(
+            dir.path(),
+            r#"[{"name": "e1000", "parent": "pci-device"}, {"name": "display-shm", "parent": "device"}]"#,
+        );
+        assert_eq!(shm_protocol(&v4), ShmProtocol::V4);
+        let other = tempfile::tempdir().unwrap();
+        let v3 = fake_qemu(
+            other.path(),
+            r#"[{"name": "e1000", "parent": "pci-device"}]"#,
+        );
+        assert_eq!(shm_protocol(&v3), ShmProtocol::V3);
+        // A QEMU that cannot be run, or does not answer, is version 3.
+        assert_eq!(shm_protocol(&dir.path().join("missing")), ShmProtocol::V3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_qemu_that_does_not_answer_is_version_3_for_now_and_asked_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qemu");
+        fs::write(&path, "#!/bin/sh\nexec sleep 30\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        let started = Instant::now();
+        assert_eq!(shm_protocol(&path), ShmProtocol::V3);
+        assert!(started.elapsed() < Duration::from_secs(10));
+        let answering = fake_qemu(dir.path(), r#"[{"name": "display-shm"}]"#);
+        assert_eq!(shm_protocol(&answering), ShmProtocol::V4);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_runners_display_socket_replaces_a_stale_one_and_goes_with_the_machine() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("display.sock");
+        fs::write(&path, b"left by a killed runner").unwrap();
+        let listener = DisplayListener::bind(path.clone()).unwrap();
+        assert!(fs::metadata(&path).unwrap().file_type().is_socket());
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o077, 0);
+        std::os::unix::net::UnixStream::connect(&path).unwrap();
+        drop(listener);
+        assert!(!path.exists());
     }
 
     #[test]

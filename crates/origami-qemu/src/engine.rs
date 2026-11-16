@@ -314,6 +314,7 @@ impl Engine for QemuEngine {
             spec.display,
             spec.removable,
             wake,
+            None,
         ))
     }
 }
@@ -338,6 +339,7 @@ impl QemuEngine {
             launched.display.clone(),
             launched.removable.clone(),
             wake,
+            launched.take_display_guard(),
         )
     }
 
@@ -351,6 +353,7 @@ impl QemuEngine {
         display: Option<PathBuf>,
         removable: Vec<(String, String)>,
         wake: Wake,
+        guard: Option<Box<dyn std::any::Any + Send>>,
     ) -> Arc<dyn Session> {
         let id = MachineId(self.next_id.fetch_add(1, Ordering::Relaxed));
         let inner = Arc::new(Inner {
@@ -366,7 +369,11 @@ impl QemuEngine {
             removable,
             console_taken: AtomicBool::new(false),
         });
-        std::thread::spawn(move || monitor(&inner, pump, &last_error, &wake, id));
+        std::thread::spawn(move || {
+            monitor(&inner, pump, &last_error, &wake, id);
+            // Nothing may connect to a machine that has exited.
+            drop(guard);
+        });
         session
     }
 }

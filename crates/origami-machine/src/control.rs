@@ -28,6 +28,10 @@ pub struct Record {
     /// `cli` or `app`; empty in a record an older origami wrote.
     #[serde(default)]
     pub started_by: String,
+    /// The shared-memory display protocol the machine speaks, 3 or 4; zero
+    /// when it has none or an older origami wrote the record.
+    #[serde(default)]
+    pub display_protocol: u32,
 }
 
 pub fn free_port() -> Result<u16> {

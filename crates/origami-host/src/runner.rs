@@ -77,6 +77,8 @@ pub struct Hosted {
     /// The engine process's id for the run record; zero when the engine runs
     /// inside the runner.
     pub engine_pid: u32,
+    /// The shared-memory display protocol, 3 or 4, or 0 for none.
+    pub display_protocol: u32,
     /// Removable drives, by guest name.
     pub removable: Vec<String>,
     /// Connect the console line at once, for an engine that keeps no log of
@@ -101,6 +103,7 @@ pub fn serve(a: ServeArgs) -> Result<Exit> {
             qmp_port: launched.qmp_port,
             name: launched.name.clone(),
             engine_pid: launched.pid(),
+            display_protocol: launched.display_protocol,
             removable: launched.removable.iter().map(|(n, _)| n.clone()).collect(),
             connect_console: false,
             keep: Box::new(launched),
@@ -165,6 +168,7 @@ pub fn host(
         control_port: server.local_addr().port(),
         engine_console: hosted.engine_console,
         started_by: started_by.into(),
+        display_protocol: hosted.display_protocol,
     };
     if let Err(e) = record::write(dir, &rec) {
         let _ = session.stop(Stop::Force);

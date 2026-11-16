@@ -248,7 +248,9 @@ fn command(action: Action) -> Result<()> {
                         println!("{} windows, one for each head", heads.len());
                     }
                 }
-                runtime::Display::Shm { .. } | runtime::Display::None => (),
+                runtime::Display::Shm { .. }
+                | runtime::Display::ShmV4 { .. }
+                | runtime::Display::None => (),
             }
             if args.background {
                 // The runner process warns into its log; say it here too.

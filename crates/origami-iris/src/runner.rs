@@ -84,6 +84,7 @@ pub fn serve(
             qmp_port: 0,
             name,
             engine_pid: 0,
+            display_protocol: 0,
             removable: removable.into_iter().map(|(name, _)| name).collect(),
             connect_console: true,
             keep: Box::new(lock),

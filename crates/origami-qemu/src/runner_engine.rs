@@ -6,14 +6,20 @@
 //! end, this engine delegates everything but `launch` to it and launches the
 //! way the viewer always has: it starts (or finds) the product's own runner
 //! with `display-shm`, then attaches to it. Pictures come from QEMU's
-//! shared-memory display (protocol version 3), and input goes back on the
-//! same socket.
+//! shared-memory display, and input goes back on the same socket. A QEMU
+//! that has the `display-shm` device speaks protocol version 4, and an older
+//! one version 3.
 //!
-//! Where the GPU can import memory ([`Importer`]), QEMU is asked to allocate
-//! scanout memory the GPU imports and the UI draws from it in place;
-//! otherwise regions are plain shared memory and the changed lines are copied.
+//! Where the GPU can import memory ([`Importer`]), version 3 asks QEMU to
+//! allocate scanout memory the GPU imports and the UI draws from it in
+//! place, and version 4 imports the slots QEMU lends; otherwise the changed
+//! lines are copied.
 
 use crate::{control as qemu_control, runtime, QemuEngine, Runtime, ENGINE};
+#[cfg(unix)]
+use origami_display::v4::session::SessionError;
+#[cfg(unix)]
+use origami_display::v4::viewer::{Viewer, ViewerInput};
 use origami_display::{Display, Taken};
 use origami_engine::status::Facts as DisplayFacts;
 use origami_engine::{
@@ -48,12 +54,21 @@ pub struct RunnerEngine {
     shown: Mutex<HashMap<PathBuf, Arc<Shown>>>,
 }
 
+/// Which protocol a session's pictures arrive by.
+enum Backend {
+    V3 {
+        display: Box<Display>,
+        uplink: origami_display::Uplink,
+    },
+    #[cfg(unix)]
+    V4(Arc<Viewer>),
+}
+
 /// One attached session's display, input and liveness.
 struct Shown {
     id: MachineId,
     dir: PathBuf,
-    display: Display,
-    uplink: origami_display::Uplink,
+    backend: Backend,
     wake: Wake,
     stop: AtomicBool,
     /// Set once the machine is gone.
@@ -66,10 +81,49 @@ struct Shown {
 
 impl Shown {
     fn set_visible(&self, visible: bool) {
-        let was = self.display.visible();
-        self.display.set_visible(visible);
-        if visible && !was && self.display.arm_all() {
+        let wake = match &self.backend {
+            Backend::V3 { display, .. } => {
+                let was = display.visible();
+                display.set_visible(visible);
+                visible && !was && display.arm_all()
+            }
+            #[cfg(unix)]
+            Backend::V4(viewer) => viewer.set_visible(visible),
+        };
+        if wake {
             (self.wake)(self.id);
+        }
+    }
+
+    fn heads(&self) -> Vec<HeadInfo> {
+        match &self.backend {
+            Backend::V3 { display, .. } => display.heads(),
+            #[cfg(unix)]
+            Backend::V4(viewer) => viewer.heads(),
+        }
+    }
+
+    fn stats(&self) -> Stats {
+        match &self.backend {
+            Backend::V3 { display, .. } => display.stats(),
+            #[cfg(unix)]
+            Backend::V4(viewer) => viewer.stats(),
+        }
+    }
+
+    fn backend_name(&self) -> Option<String> {
+        match &self.backend {
+            Backend::V3 { display, .. } => display.backend(),
+            #[cfg(unix)]
+            Backend::V4(viewer) => viewer.backend(),
+        }
+    }
+
+    fn link_facts(&self) -> origami_engine::status::LinkFacts {
+        match &self.backend {
+            Backend::V3 { display, .. } => display.link_facts(),
+            #[cfg(unix)]
+            Backend::V4(viewer) => viewer.link_facts(),
         }
     }
 }
@@ -202,7 +256,7 @@ impl RunnerEngine {
     }
 
     pub fn stats(&self, dir: &Path) -> Option<Stats> {
-        Some(self.shown(dir)?.display.stats())
+        Some(self.shown(dir)?.stats())
     }
 
     pub fn is_running(&self, dir: &Path) -> bool {
@@ -213,7 +267,7 @@ impl RunnerEngine {
     /// How the machine's pictures reach the GPU, in a few words, or None
     /// before it has any.
     pub fn display_backend(&self, dir: &Path) -> Option<String> {
-        self.shown(dir)?.display.backend()
+        self.shown(dir)?.backend_name()
     }
 
     /// Where the machine's display connection stands, for naming why there
@@ -225,7 +279,6 @@ impl RunnerEngine {
         };
         let socket = runtime::display_socket(dir);
         let picture = s
-            .display
             .heads()
             .into_iter()
             .find(|h| h.active)
@@ -234,7 +287,7 @@ impl RunnerEngine {
             running: runner_alive(dir),
             socket_exists: socket.exists(),
             socket,
-            link: s.display.link_facts(),
+            link: s.link_facts(),
             runner_error: None,
             picture,
         }
@@ -245,8 +298,8 @@ impl RunnerEngine {
         let Some(s) = self.shown(dir) else {
             return Vec::new();
         };
-        let l = s.display.link_facts();
-        let st = s.display.stats();
+        let l = s.link_facts();
+        let st = s.stats();
         let mut out = vec![
             format!(
                 "protocol: socket {} | connected {} | welcomed {} | regions {} | messages {}",
@@ -275,10 +328,10 @@ impl RunnerEngine {
                 st.lines,
                 st.imported_lines,
                 st.copied_bytes,
-                s.display.backend().unwrap_or_else(|| "none yet".into())
+                s.backend_name().unwrap_or_else(|| "none yet".into())
             ),
         ];
-        for (i, h) in s.display.heads().iter().enumerate() {
+        for (i, h) in s.heads().iter().enumerate() {
             out.push(format!(
                 "head {i}: {}x{} seq {} {}",
                 h.width,
@@ -339,17 +392,41 @@ impl Engine for RunnerEngine {
             self.start_runner(&dir)?;
         }
         let id = MachineId(self.next.fetch_add(1, Ordering::Relaxed));
-        let display = Display::default();
-        if let Some(importer) = lock(&self.importer).clone() {
-            display.set_importer(importer);
-        }
-        let uplink: origami_display::Uplink = Arc::new(Mutex::new(None));
+        let importer = lock(&self.importer).clone();
+        // The runner recorded what it started QEMU with; the viewer follows it.
+        let v4 = cfg!(unix) && machine_control::read(&dir).is_ok_and(|r| r.display_protocol == 4);
+        let (backend, sink): (Backend, Box<dyn InputSink>) = if v4 {
+            #[cfg(unix)]
+            {
+                let viewer = Arc::new(Viewer::new());
+                if let Some(importer) = importer {
+                    viewer.set_importer(importer);
+                }
+                let sink = Box::new(ViewerInput(viewer.clone()));
+                (Backend::V4(viewer), sink)
+            }
+            #[cfg(not(unix))]
+            unreachable!("version 4 is chosen on unix only")
+        } else {
+            let display = Display::default();
+            if let Some(importer) = importer {
+                display.set_importer(importer);
+            }
+            let uplink: origami_display::Uplink = Arc::new(Mutex::new(None));
+            let sink = Box::new(origami_display::SocketInput::new(uplink.clone()));
+            (
+                Backend::V3 {
+                    display: Box::new(display),
+                    uplink,
+                },
+                sink,
+            )
+        };
         let (tx, rx) = mpsc::channel();
         let shown = Arc::new(Shown {
             id,
             dir: dir.clone(),
-            display,
-            uplink: uplink.clone(),
+            backend,
             wake,
             stop: AtomicBool::new(false),
             gone: AtomicBool::new(false),
@@ -357,7 +434,6 @@ impl Engine for RunnerEngine {
             input: Mutex::new(Some(tx)),
             interrupt: Mutex::new(None),
         });
-        let sink = Box::new(origami_display::SocketInput::new(uplink));
         let input = std::thread::Builder::new()
             .name("display-input".into())
             .spawn(move || input_worker(sink, rx))?;
@@ -504,11 +580,23 @@ impl Session for RunnerSession {
 
 impl FrameSource for Shown {
     fn heads(&self) -> Vec<HeadInfo> {
-        self.display.heads()
+        Shown::heads(self)
     }
 
     fn take_frame(&self, head: usize, pixels: &mut Vec<u8>) -> Option<Frame> {
-        let taken = match self.display.take(head, pixels) {
+        let display = match &self.backend {
+            Backend::V3 { display, .. } => display,
+            // A version 4 frame needs no re-arming: the next one is already asked for.
+            #[cfg(unix)]
+            Backend::V4(viewer) => {
+                return match viewer.take(head, pixels) {
+                    Taken::Frame(update) => Some(Frame::Rows(update)),
+                    Taken::Imported(imported) => Some(Frame::Imported(imported)),
+                    _ => None,
+                };
+            }
+        };
+        let taken = match display.take(head, pixels) {
             Ok(taken) => taken,
             Err(e) => {
                 eprintln!("origami: {}: {e}", self.dir.display());
@@ -523,7 +611,7 @@ impl FrameSource for Shown {
             }
             // Armed again for the next change, then check it did not
             // already happen.
-            _ if self.display.visible() && self.display.arm(head) => (self.wake)(self.id),
+            _ if display.visible() && display.arm(head) => (self.wake)(self.id),
             _ => {}
         }
         match taken {
@@ -534,7 +622,11 @@ impl FrameSource for Shown {
     }
 
     fn cursor(&self, head: usize, known_gen: u32) -> Option<CursorInfo> {
-        self.display.cursor(head, known_gen)
+        match &self.backend {
+            Backend::V3 { display, .. } => display.cursor(head, known_gen),
+            #[cfg(unix)]
+            Backend::V4(viewer) => viewer.cursor(head, known_gen),
+        }
     }
 
     fn set_visible(&self, visible: bool) {
@@ -542,7 +634,7 @@ impl FrameSource for Shown {
     }
 
     fn stats(&self) -> Option<origami_engine::FrameStats> {
-        let s = self.display.stats();
+        let s = Shown::stats(self);
         Some(origami_engine::FrameStats {
             frames: s.frames,
             lines: s.lines,
@@ -660,21 +752,26 @@ impl origami_display::Link for SocketLink {
 /// The display thread: keep the connection, wake the UI when something moves,
 /// and mark the machine gone when it ends.
 fn reader_thread(m: &Arc<Shown>) {
+    let (display, uplink) = match &m.backend {
+        Backend::V3 { display, uplink } => (display, uplink),
+        #[cfg(unix)]
+        Backend::V4(viewer) => return reader_thread_v4(m, viewer),
+    };
     let mut link = SocketLink {
         socket: runtime::display_socket(&m.dir),
         dir: m.dir.clone(),
         shown: m.clone(),
     };
     let wake = || {
-        if m.display.visible() {
+        if display.visible() {
             (m.wake)(m.id);
         }
     };
     loop {
         let exit = origami_display::run(
             &mut link,
-            &m.display,
-            &m.uplink,
+            display,
+            uplink,
             &m.stop,
             origami_display::Timing::default(),
             &wake,
@@ -695,6 +792,71 @@ fn reader_thread(m: &Arc<Shown>) {
             return;
         }
         std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+/// The version 4 display thread: connect, serve the session until it ends,
+/// and mark the machine gone when it does. The runner holds the listening
+/// socket, so a connection waits for QEMU to accept it.
+#[cfg(unix)]
+fn reader_thread_v4(m: &Arc<Shown>, viewer: &Arc<Viewer>) {
+    let socket = runtime::display_socket(&m.dir);
+    let started = std::time::Instant::now();
+    let (mut ever, mut misses) = (false, 0u32);
+    let wake = || {
+        if viewer.visible() {
+            (m.wake)(m.id);
+        }
+    };
+    while !m.stop.load(Ordering::Acquire) {
+        match std::os::unix::net::UnixStream::connect(&socket) {
+            Ok(stream) => {
+                misses = 0;
+                ever = true;
+                if let Ok(end) = stream.try_clone() {
+                    let interrupt: origami_display::Interrupt =
+                        Box::new(move || drop(end.shutdown(std::net::Shutdown::Both)));
+                    *lock(&m.interrupt) = Some(interrupt);
+                }
+                // A drop that came before the interrupt was stored would wait forever.
+                if m.stop.load(Ordering::Acquire) {
+                    return;
+                }
+                if let Err(e) = viewer.run(stream, &wake) {
+                    if m.stop.load(Ordering::Acquire) {
+                        return;
+                    }
+                    eprintln!("origami: display: {e}");
+                    // A producer that breaks the protocol will do it again.
+                    if matches!(e, SessionError::Protocol(_) | SessionError::Producer(_)) {
+                        return;
+                    }
+                }
+            }
+            Err(e) => {
+                misses += 1;
+                viewer.connect_failed(e.to_string());
+            }
+        }
+        if m.stop.load(Ordering::Acquire) {
+            return;
+        }
+        // Asking takes the QMP port other clients want, so ask now and then.
+        if (misses == 0 || misses % 10 == 1)
+            && !qemu_control::running(&m.dir).is_ok_and(|r| r.is_some())
+        {
+            m.gone.store(true, Ordering::Release);
+            (m.wake)(m.id);
+            return;
+        }
+        if !ever && started.elapsed() > Duration::from_secs(300) {
+            eprintln!(
+                "origami: no shared-memory display from {} after 300 s",
+                m.dir.display()
+            );
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(if misses > 0 { 200 } else { 1000 }));
     }
 }
 

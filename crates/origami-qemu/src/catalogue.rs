@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::BufReader;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{ChildStdin, ChildStdout, Command, Stdio};
+use std::time::Duration;
 
 /// The machine list version this Origami reads. Version 3 names every
 /// topology uniquely and gives every offering an id and its settings.
@@ -84,8 +85,32 @@ pub fn offering_data(offering: &Offering) -> Result<OfferingData> {
     Ok(OfferingData::deserialize(value)?)
 }
 
+type Qmp = qapi::Qmp<qapi::Stream<BufReader<ChildStdout>, ChildStdin>>;
+
 /// Ask a short-lived QEMU with no machine for the machine list compiled into it.
 pub fn load(qemu: &Path) -> Result<Machines> {
+    let machines = ask_machineless(qemu, None, |qmp| {
+        let wire = qmp
+            .execute(&QuerySgiMachines {})
+            .map_err(|e| e.to_string())?;
+        translate(wire).map_err(|e| e.to_string())
+    })
+    .map_err(|error| {
+        format!(
+            "cannot read the machine list from {}: {error}",
+            qemu.display()
+        )
+    })?;
+    check_version(machines, qemu)
+}
+
+/// Run `ask` against a short-lived QEMU with no machine, then stop it. A QEMU
+/// still silent after `limit` is killed, so `ask` fails instead of hanging.
+pub(crate) fn ask_machineless<T>(
+    qemu: &Path,
+    limit: Option<Duration>,
+    ask: impl FnOnce(&mut Qmp) -> std::result::Result<T, String>,
+) -> std::result::Result<T, String> {
     let mut child = Command::new(qemu)
         .args([
             "-M",
@@ -104,27 +129,69 @@ pub fn load(qemu: &Path) -> Result<Machines> {
     let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
         return Err("QEMU's standard streams are not piped".into());
     };
-    let mut qmp = qapi::Qmp::new(qapi::Stream::new(BufReader::new(stdout), stdin));
-    let reply = qmp
-        .handshake()
-        .and_then(|_| qmp.execute(&QuerySgiMachines {}));
-    // Stop QEMU only after the reply is read: it can exit with the end of a
-    // long reply still unwritten. Kill it rather than send quit, because
-    // QEMU may exit before the rest of that command is written, and the
-    // write to its closed stdin then ends this process with SIGPIPE.
-    drop(qmp);
+    let watchdog = limit.map(|limit| kill_after(child.id(), limit));
+    let reply = without_sigpipe(|| {
+        let mut qmp = qapi::Qmp::new(qapi::Stream::new(BufReader::new(stdout), stdin));
+        let reply = qmp
+            .handshake()
+            .map_err(|e| e.to_string())
+            .and_then(|_| ask(&mut qmp));
+        // Stop QEMU only after the reply is read: it can exit with the end of
+        // a long reply still unwritten, so it is killed rather than told to quit.
+        drop(qmp);
+        reply
+    });
+    drop(watchdog);
     let _ = child.kill();
-    let output = child.wait_with_output()?;
-    let wire = reply.map_err(|error| error.to_string());
-    let machines = wire.and_then(|wire| translate(wire).map_err(|error| error.to_string()));
-    let machines = machines.map_err(|error| {
-        format!(
-            "cannot read the machine list from {}: {error} {}",
-            qemu.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        )
-    })?;
-    check_version(machines, qemu)
+    let stderr = child
+        .wait_with_output()
+        .map(|o| String::from_utf8_lossy(&o.stderr).trim().to_string())
+        .unwrap_or_default();
+    reply.map_err(|error| format!("{error} {stderr}"))
+}
+
+/// Kills process `pid` after `limit` unless the returned sender is dropped first.
+fn kill_after(pid: u32, limit: Duration) -> std::sync::mpsc::Sender<()> {
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        if rx.recv_timeout(limit) == Err(std::sync::mpsc::RecvTimeoutError::Timeout) {
+            #[cfg(unix)]
+            // SAFETY: SIGKILL to a child this process has not yet reaped.
+            unsafe {
+                libc::kill(pid as libc::pid_t, libc::SIGKILL);
+            }
+            #[cfg(not(unix))]
+            let _ = pid;
+        }
+    });
+    tx
+}
+
+/// Run `f` with `SIGPIPE` blocked on this thread. A write to a QEMU that has
+/// already exited would otherwise kill a host process that never ignored it,
+/// as a cdylib's host does not.
+fn without_sigpipe<T>(f: impl FnOnce() -> T) -> T {
+    #[cfg(unix)]
+    // SAFETY: signal-set calls on this thread's own mask.
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        libc::sigaddset(&mut set, libc::SIGPIPE);
+        let mut old: libc::sigset_t = std::mem::zeroed();
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, &mut old);
+        let out = f();
+        // Take a SIGPIPE raised meanwhile, or unblocking would deliver it.
+        let mut pending: libc::sigset_t = std::mem::zeroed();
+        libc::sigpending(&mut pending);
+        if libc::sigismember(&pending, libc::SIGPIPE) == 1 {
+            let mut sig = 0;
+            libc::sigwait(&set, &mut sig);
+        }
+        libc::pthread_sigmask(libc::SIG_SETMASK, &old, std::ptr::null_mut());
+        out
+    }
+    #[cfg(not(unix))]
+    f()
 }
 
 /// Refuse a machine list of another version: this Origami reads only the
