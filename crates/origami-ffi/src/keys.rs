@@ -98,6 +98,23 @@ pub enum origami_key {
     PrintScreen,
     ScrollLock,
     Pause,
+    NumLock,
+    Numpad0,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+    NumpadAdd,
+    NumpadSubtract,
+    NumpadMultiply,
+    NumpadDivide,
+    NumpadDecimal,
+    NumpadEnter,
 }
 
 macro_rules! keys {
@@ -204,7 +221,24 @@ keys! {
     Right,
     PrintScreen,
     ScrollLock,
-    Pause
+    Pause,
+    NumLock,
+    Numpad0,
+    Numpad1,
+    Numpad2,
+    Numpad3,
+    Numpad4,
+    Numpad5,
+    Numpad6,
+    Numpad7,
+    Numpad8,
+    Numpad9,
+    NumpadAdd,
+    NumpadSubtract,
+    NumpadMultiply,
+    NumpadDivide,
+    NumpadDecimal,
+    NumpadEnter
 }
 
 const _: () = {

@@ -95,6 +95,23 @@ pub fn evdev(key: Key) -> u32 {
         MetaLeft => 125,
         MetaRight => 126,
         Menu => 127,
+        NumLock => 69,
+        NumpadMultiply => 55,
+        Numpad7 => 71,
+        Numpad8 => 72,
+        Numpad9 => 73,
+        NumpadSubtract => 74,
+        Numpad4 => 75,
+        Numpad5 => 76,
+        Numpad6 => 77,
+        NumpadAdd => 78,
+        Numpad1 => 79,
+        Numpad2 => 80,
+        Numpad3 => 81,
+        Numpad0 => 82,
+        NumpadDecimal => 83,
+        NumpadEnter => 96,
+        NumpadDivide => 98,
     }
 }
 
@@ -192,6 +209,9 @@ mod tests {
         assert_eq!(evdev(Key::Space), 57);
         assert_eq!(evdev(Key::Down), 108);
         assert_eq!(evdev(Key::F12), 88);
+        assert_eq!(evdev(Key::Numpad0), 82);
+        assert_eq!(evdev(Key::NumpadEnter), 96);
+        assert_eq!(evdev(Key::NumLock), 69);
         let m = messages(&[InputEvent::Key {
             key: Key::Q,
             down: true,
@@ -300,6 +320,23 @@ mod tests {
             Key::PrintScreen,
             Key::ScrollLock,
             Key::Pause,
+            Key::NumLock,
+            Key::Numpad0,
+            Key::Numpad1,
+            Key::Numpad2,
+            Key::Numpad3,
+            Key::Numpad4,
+            Key::Numpad5,
+            Key::Numpad6,
+            Key::Numpad7,
+            Key::Numpad8,
+            Key::Numpad9,
+            Key::NumpadAdd,
+            Key::NumpadSubtract,
+            Key::NumpadMultiply,
+            Key::NumpadDivide,
+            Key::NumpadDecimal,
+            Key::NumpadEnter,
         ];
         let codes: HashSet<u32> = keys.iter().map(|&k| evdev(k)).collect();
         assert_eq!(codes.len(), keys.len());
