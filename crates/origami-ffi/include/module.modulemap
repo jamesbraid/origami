@@ -1,0 +1,4 @@
+module OrigamiFrame {
+    header "origami_frame.h"
+    export *
+}

@@ -1,0 +1,42 @@
+[package]
+name = "origami-ffi"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+description = "Bindings for origami-core: a UniFFI control plane and a C frame plane"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[features]
+default = ["qemu", "render"]
+# FakeEngine as the only engine, for the bindings tests and the app teams.
+fake = ["origami-engine/fake", "origami-core/fake"]
+# QemuEngine as the engine, unless `fake` is on.
+qemu = ["dep:origami-qemu"]
+# The C frame plane's view functions (attach, resize, present).
+render = ["dep:origami-render"]
+
+[dependencies]
+origami-core = { path = "../origami-core" }
+origami-engine = { path = "../origami-engine" }
+origami-qemu = { path = "../origami-qemu", optional = true }
+origami-render = { path = "../origami-render", optional = true }
+thiserror = "2"
+uniffi = { version = "0.32.2", features = ["cli"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+
+[dev-dependencies]
+origami-engine = { path = "../origami-engine", features = ["fake"] }
+tempfile = "3"

@@ -1,0 +1,224 @@
+//! The keys, once, for both planes: `OrigamiKey` for the UniFFI control
+//! plane and `origami_key` (a C enum, numbered from 0 in this order) for the
+//! frame plane. They are positions on a US keyboard, not characters.
+
+use origami_core::facade::Key;
+
+// Written out, not made by the macro below, because cbindgen reads the source
+// as it stands. The macro checks that it and `OrigamiKey` agree.
+/// A key position on a US keyboard, numbered from 0 in this order.
+#[allow(non_camel_case_types)]
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum origami_key {
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    Escape,
+    Tab,
+    CapsLock,
+    Space,
+    Enter,
+    Backspace,
+    Minus,
+    Equal,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    Semicolon,
+    Apostrophe,
+    Grave,
+    Comma,
+    Period,
+    Slash,
+    ShiftLeft,
+    ShiftRight,
+    ControlLeft,
+    ControlRight,
+    AltLeft,
+    AltRight,
+    MetaLeft,
+    MetaRight,
+    Menu,
+    Insert,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Up,
+    Down,
+    Left,
+    Right,
+    PrintScreen,
+    ScrollLock,
+    Pause,
+}
+
+macro_rules! keys {
+    ($($name:ident),* $(,)?) => {
+        /// A key position, for `OrigamiMachine::send_key`.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+        pub enum OrigamiKey { $($name),* }
+
+        impl From<OrigamiKey> for Key {
+            fn from(key: OrigamiKey) -> Key {
+                match key { $(OrigamiKey::$name => Key::$name),* }
+            }
+        }
+
+        const ALL: &[Key] = &[$(Key::$name),*];
+        const CODES: &[u32] = &[$(origami_key::$name as u32),*];
+    };
+}
+
+keys! {
+    A,
+    B,
+    C,
+    D,
+    E,
+    F,
+    G,
+    H,
+    I,
+    J,
+    K,
+    L,
+    M,
+    N,
+    O,
+    P,
+    Q,
+    R,
+    S,
+    T,
+    U,
+    V,
+    W,
+    X,
+    Y,
+    Z,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+    Escape,
+    Tab,
+    CapsLock,
+    Space,
+    Enter,
+    Backspace,
+    Minus,
+    Equal,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    Semicolon,
+    Apostrophe,
+    Grave,
+    Comma,
+    Period,
+    Slash,
+    ShiftLeft,
+    ShiftRight,
+    ControlLeft,
+    ControlRight,
+    AltLeft,
+    AltRight,
+    MetaLeft,
+    MetaRight,
+    Menu,
+    Insert,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Up,
+    Down,
+    Left,
+    Right,
+    PrintScreen,
+    ScrollLock,
+    Pause
+}
+
+const _: () = {
+    let mut i = 0;
+    while i < CODES.len() {
+        assert!(
+            CODES[i] == i as u32,
+            "origami_key is out of step with the key list"
+        );
+        i += 1;
+    }
+};
+
+/// The key a frame-plane code names.
+pub(crate) fn from_code(code: u32) -> Option<Key> {
+    ALL.get(code as usize).copied()
+}
