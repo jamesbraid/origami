@@ -1,7 +1,12 @@
 //! A real Octane2 in a real window under a virtual X server with a window
 //! manager (a bare X server delivers no key events to a window). One test
-//! shows the PROM, sends a key and pops the view out a hundred times; the other
-//! boots IRIX and watches the guest's cursor follow the host pointer.
+//! shows the PROM, sends a key and pops the view out a hundred times; another
+//! boots IRIX and watches the guest's cursor follow the host pointer; one
+//! boots IRIX with its console on serial and uses the serial view to log in,
+//! run commands, scroll back, copy and paste, then reads the logs view and
+//! stops and starts the machine from the toolbar; the last starts a machine
+//! with no display socket and checks the status says why, then recovers it
+//! with force stop, the PROM console buttons, start and reset.
 //!
 //! Ignored by default: it boots QEMU and needs Xvfb, openbox, xdotool and
 //! ImageMagick on PATH, a Vulkan driver (software is fine), and these:
@@ -11,7 +16,7 @@
 //! - ORIGAMI_BIN: the `origami` executable
 //! - ORIGAMI_GUI_TEST_DIR: an empty or new directory for machines and
 //!   evidence (screenshots are left in each test's `out` directory)
-//! - ORIGAMI_GUI_TEST_IRIX_DISK (the IRIX test only): the published
+//! - ORIGAMI_GUI_TEST_IRIX_DISK (the IRIX tests only): the published
 //!   `octane-games-be780408.chd` (SHA-256 below), which the test boots with an
 //!   overlay and so leaves a `.diff.chd` beside, removed at the start and end
 //!
@@ -128,7 +133,7 @@ fn differing(a: &Path, b: &Path, region: &str) -> u64 {
 /// The Continue button of the PROM's diagnostics dialog, in screen pixels,
 /// with the main window where a window manager puts it on a 1920x1200 screen
 /// (the picture shown at 1:1).
-const CONTINUE_BUTTON: (u32, u32) = (1262, 870);
+const CONTINUE_BUTTON: (u32, u32) = (1262, 895);
 
 fn pixel(png: &Path, (x, y): (u32, u32)) -> (u8, u8, u8) {
     let text = run_ok(Command::new("convert").arg(png).args([
@@ -433,7 +438,7 @@ fn an_octane2_prom_in_a_window_a_key_and_a_hundred_pop_outs() {
     let after = out.join("after-key.png");
     screenshot(&display, &after);
     let keys1 = counter(&s1, "keys_sent");
-    let changed = differing(&prom, &after, "1280x1024+320+128");
+    let changed = differing(&prom, &after, "1280x1024+320+153");
     eprintln!(
         "keys sent {keys0} -> {keys1}; frames {frames0} -> {}; {changed} pixels changed",
         counter(&s1, "frames_taken")
@@ -486,7 +491,7 @@ fn an_octane2_prom_in_a_window_a_key_and_a_hundred_pop_outs() {
     );
 
     // The About button opens the window with Slint's attribution widget.
-    key(&display, &["mousemove", "404", "98", "click", "1"]);
+    key(&display, &["mousemove", "404", "72", "click", "1"]);
     wait_for("the About window", Duration::from_secs(30), || {
         Command::new("xdotool")
             .env("DISPLAY", &display)
@@ -673,7 +678,7 @@ fn red_arrow(png: &Path) -> Option<(i64, i64)> {
     let text = run_ok(
         Command::new("convert")
             .arg(png)
-            .args(["-crop", "1280x1024+320+128", "+repage", "-fuzz", "12%"])
+            .args(["-crop", "1280x1024+320+153", "+repage", "-fuzz", "12%"])
             // Near red becomes pure green, then everything not exactly that is black.
             .args(["-fill", "#00ff00", "-opaque", "#ff0000", "-fuzz", "0"])
             .args(["-fill", "black", "+opaque", "#00ff00"])
@@ -753,11 +758,11 @@ fn irix_cursor_follows_the_host_pointer() {
     let before = rig.out.join("irix-before.png");
     screenshot(&display, &before);
 
-    // The picture starts at (320, 128) on this screen, shown at 1:1. QEMU
+    // The picture starts at (320, 153) on this screen, shown at 1:1. QEMU
     // learns where the guest's cursor is from what the head publishes, and
     // closes the loop on that, so the arrow must land on the pointer.
     for (x, y) in [(700i64, 500i64), (900, 640), (1000, 300), (400, 200)] {
-        let want = (x - 320, y - 128);
+        let want = (x - 320, y - 153);
         key(&display, &["mousemove", &x.to_string(), &y.to_string()]);
         std::thread::sleep(Duration::from_secs(4));
         park();
@@ -774,9 +779,552 @@ fn irix_cursor_follows_the_host_pointer() {
     }
     let after = rig.out.join("irix-after.png");
     screenshot(&display, &after);
-    assert!(differing(&before, &after, "1280x1024+320+128") > 20);
+    assert!(differing(&before, &after, "1280x1024+320+153") > 20);
     assert_eq!(counter(&s, "input_errors"), 0);
     assert_eq!(counter(&s, "gpu_errors"), 0);
     check_copies(&s, rig.gpu.is_some());
     assert_eq!(engine_running(&s), Some(true));
+}
+
+// ---- the serial console, the logs and the machine controls -----------------
+//
+// These read the viewer's own account of what it shows (`machines` in the
+// stats file: the terminal's screen, the log lines, the status line, where each
+// button is) and drive it with real X events, as a user would. Screenshots are
+// kept for a person to look at.
+
+fn machine_state(stats_file: &Path) -> Option<serde_json::Value> {
+    let m = stats(stats_file)?["machines"].get(0)?.clone();
+    (!m.is_null()).then_some(m)
+}
+
+fn text_of(m: &serde_json::Value, key: &str) -> String {
+    m[key].as_str().unwrap_or_default().to_string()
+}
+
+/// The lines of the terminal's screen, trailing blanks removed.
+fn screen_lines(m: &serde_json::Value) -> Vec<String> {
+    text_of(m, "serial_screen")
+        .lines()
+        .map(|l| l.trim_end().to_string())
+        .collect()
+}
+
+fn has_line(m: &serde_json::Value, line: &str) -> bool {
+    screen_lines(m).iter().any(|l| l == line)
+}
+
+fn main_window(display: &str) -> String {
+    run_ok(
+        Command::new("xdotool")
+            .env("DISPLAY", display)
+            .args(["search", "--name", "^origami$"]),
+    )
+    .lines()
+    .next()
+    .expect("the origami window")
+    .to_string()
+}
+
+fn mouse(display: &str, args: &[&str]) {
+    let win = main_window(display);
+    let mut cmd = Command::new("xdotool");
+    cmd.env("DISPLAY", display);
+    // Every `mousemove` in `args` is relative to the window.
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if *a == "mousemove" {
+            cmd.args([
+                "mousemove",
+                "--window",
+                &win,
+                it.next().unwrap(),
+                it.next().unwrap(),
+            ]);
+        } else {
+            cmd.arg(a);
+        }
+    }
+    run_ok(&mut cmd);
+}
+
+fn click_button(display: &str, stats_file: &Path, name: &str) {
+    let m = machine_state(stats_file).expect("the viewer's state");
+    let b = m["buttons"]
+        .as_array()
+        .and_then(|bs| bs.iter().find(|b| b["name"] == name))
+        .unwrap_or_else(|| panic!("no button {name}: {}", m["buttons"]));
+    let (x, y) = (
+        b["x"].as_f64().unwrap() as i64,
+        b["y"].as_f64().unwrap() as i64,
+    );
+    mouse(
+        display,
+        &["mousemove", &x.to_string(), &y.to_string(), "click", "1"],
+    );
+}
+
+/// The centre of terminal cell (`row`, `col`), in window pixels.
+fn cell_point(m: &serde_json::Value, row: usize, col: usize) -> (i64, i64) {
+    let (tv, c) = (&m["text_view"], &m["cell"]);
+    let scale = c["scale"].as_f64().unwrap_or(1.0);
+    let (cw, ch) = (c["w"].as_f64().unwrap(), c["h"].as_f64().unwrap());
+    (
+        (tv["x"].as_f64().unwrap() + (col as f64 + 0.5) * cw / scale) as i64,
+        (tv["y"].as_f64().unwrap() + (row as f64 + 0.5) * ch / scale) as i64,
+    )
+}
+
+fn focus_view(display: &str, stats_file: &Path) {
+    let m = machine_state(stats_file).expect("state");
+    let (x, y) = cell_point(&m, 2, 2);
+    mouse(
+        display,
+        &["mousemove", &x.to_string(), &y.to_string(), "click", "1"],
+    );
+}
+
+fn type_text(display: &str, text: &str) {
+    run_ok(Command::new("xdotool").env("DISPLAY", display).args([
+        "type",
+        "--delay",
+        "60",
+        "--clearmodifiers",
+        text,
+    ]));
+}
+
+fn press(display: &str, keys: &str) {
+    key(display, &["key", "--clearmodifiers", keys]);
+}
+
+/// Wait until `f` holds for the viewer's state of the first machine,
+/// failing early if the viewer died.
+fn wait_state(
+    what: &str,
+    timeout: Duration,
+    gui: &mut Proc,
+    log: &Path,
+    stats_file: &Path,
+    mut f: impl FnMut(&serde_json::Value) -> bool,
+) -> serde_json::Value {
+    let start = Instant::now();
+    loop {
+        alive(gui, log);
+        if let Some(m) = machine_state(stats_file) {
+            if f(&m) {
+                return m;
+            }
+        }
+        if start.elapsed() > timeout {
+            let last = machine_state(stats_file)
+                .map(|m| {
+                    format!(
+                        "status: {}\nnotice: {} | busy: {} | console: {}\nscreen:\n{}",
+                        text_of(&m, "status"),
+                        text_of(&m, "notice"),
+                        text_of(&m, "busy"),
+                        m["console_kind"],
+                        text_of(&m, "serial_screen")
+                    )
+                })
+                .unwrap_or_default();
+            let gui_log = std::fs::read_to_string(log).unwrap_or_default();
+            panic!(
+                "timed out after {timeout:?} waiting for {what}\n{last}\nviewer log:\n{gui_log}"
+            );
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
+
+/// What QEMU wrote 65,371 times to a machine's runner.log when a viewer could
+/// not be given its display.
+const SPAM: &str =
+    "qemu-system-mips64: sgi-display-shm: failed to pass the region to the viewer: Operation not permitted";
+
+fn append_to_runner_log(machine: &Path, line: &str, times: usize) {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(machine.join("logs/runner.log"))
+        .unwrap();
+    for _ in 0..times / 1000 {
+        f.write_all(format!("{line}\n").repeat(1000).as_bytes())
+            .unwrap();
+    }
+    f.write_all(format!("{line}\n").repeat(times % 1000).as_bytes())
+        .unwrap();
+}
+
+fn log_entry_count(m: &serde_json::Value, key: &str, text: &str) -> u64 {
+    m[key]
+        .as_array()
+        .and_then(|l| l.iter().find(|e| e["text"] == text))
+        .and_then(|e| e["count"].as_u64())
+        .unwrap_or(0)
+}
+
+#[test]
+#[ignore = "boots IRIX under Xvfb and needs the published disk; see the header"]
+fn irix_serial_login_command_scrollback_copy_paste_logs_and_restart() {
+    let disk = var("ORIGAMI_GUI_TEST_IRIX_DISK");
+    let sum = run_ok(Command::new("sha256sum").arg(&disk));
+    assert!(
+        sum.starts_with(IRIX_DISK_SHA256),
+        "not the published disk: {sum}"
+    );
+    let guard = DiffGuard(disk.clone());
+    guard.clear();
+
+    let rig = Rig::start("serial");
+    let display = rig.display.clone();
+    let machine = rig.create("octane2", "octane2-vpro");
+    run_ok(
+        Command::new(&rig.origami)
+            .arg("drive-attach")
+            .arg(&machine)
+            .arg(&disk)
+            .args(["--type", "disk", "--target", "1", "--overlay"]),
+    );
+    let _stop = rig.run(&machine);
+    // A fresh NVRAM puts IRIX's console on the serial line, and the viewer
+    // opens on the serial view.
+    let (mut gui, s, log) = rig.spawn_gui(&machine, "serial", &["--view", "serial"]);
+    let shot = |name: &str| screenshot(&display, &rig.out.join(name));
+    let wait =
+        |what: &str, secs: u64, gui: &mut Proc, f: &mut dyn FnMut(&serde_json::Value) -> bool| {
+            wait_state(what, Duration::from_secs(secs), gui, &log, &s, f)
+        };
+
+    let started = Instant::now();
+    let m = wait("IRIX's serial login prompt", 1200, &mut gui, &mut |m| {
+        text_of(m, "serial_screen").contains("login:")
+    });
+    eprintln!("serial login prompt after {:?}", started.elapsed());
+    assert_eq!(text_of(&m, "view"), "serial");
+    assert_eq!(m["serial_connected"], true);
+    shot("serial-1-login-prompt.png");
+
+    // Log in as the guest's user does: with the keyboard, in the view.
+    focus_view(&display, &s);
+    type_text(&display, "root");
+    press(&display, "Return");
+    wait("the TERM prompt", 60, &mut gui, &mut |m| {
+        text_of(m, "serial_screen").contains("TERM = (")
+    });
+    press(&display, "Return");
+    wait("a root shell prompt", 60, &mut gui, &mut |m| {
+        screen_lines(m).last().is_some_and(|l| l.ends_with('#'))
+    });
+    shot("serial-2-logged-in.png");
+
+    // A command and its output.
+    type_text(&display, "echo origami-marker-4242");
+    press(&display, "Return");
+    wait("the command's output", 60, &mut gui, &mut |m| {
+        has_line(m, "origami-marker-4242")
+    });
+    type_text(&display, "uname -s");
+    press(&display, "Return");
+    wait("uname's output", 60, &mut gui, &mut |m| {
+        has_line(m, "IRIX64")
+    });
+
+    // Ctrl-C reaches the guest: a shell blocked on sleep gets its prompt back.
+    type_text(&display, "sleep 600");
+    press(&display, "Return");
+    std::thread::sleep(Duration::from_secs(2));
+    press(&display, "ctrl+c");
+    type_text(&display, "echo after-ctrl-c-77");
+    press(&display, "Return");
+    wait("the prompt after Ctrl-C", 30, &mut gui, &mut |m| {
+        has_line(m, "after-ctrl-c-77")
+    });
+
+    // Esc reaches the guest: vi leaves insert mode only on it, so the colon
+    // command runs, vi quits, and the next command reaches the shell.
+    type_text(&display, "vi /tmp/origami-esc");
+    press(&display, "Return");
+    std::thread::sleep(Duration::from_secs(4));
+    type_text(&display, "iabc");
+    press(&display, "Escape");
+    type_text(&display, ":q!");
+    press(&display, "Return");
+    std::thread::sleep(Duration::from_secs(2));
+    type_text(&display, "echo after-esc-88");
+    press(&display, "Return");
+    wait("the shell after vi", 60, &mut gui, &mut |m| {
+        has_line(m, "after-esc-88")
+    });
+
+    // Scrollback: output longer than the screen, then the wheel.
+    type_text(&display, "ls -l /usr/bin");
+    press(&display, "Return");
+    let m = wait("scrollback to build", 60, &mut gui, &mut |m| {
+        m["serial_history"].as_u64().unwrap_or(0) > 60
+    });
+    let (px, py) = cell_point(&m, 10, 10);
+    mouse(&display, &["mousemove", &px.to_string(), &py.to_string()]);
+    for _ in 0..6 {
+        key(&display, &["click", "4"]);
+    }
+    let m = wait("the view to scroll back", 20, &mut gui, &mut |m| {
+        m["serial_scrolled"].as_u64().unwrap_or(0) > 5
+    });
+    eprintln!(
+        "scrolled back {} of {} lines",
+        m["serial_scrolled"], m["serial_history"]
+    );
+    shot("serial-3-scrolled-back.png");
+    // A key goes to the guest and brings the end back.
+    press(&display, "space");
+    wait("the view to return to the end", 20, &mut gui, &mut |m| {
+        m["serial_scrolled"] == 0
+    });
+    press(&display, "ctrl+u");
+
+    // Copy and paste: drag over a line the guest printed, copy it, paste it
+    // back to the guest and see it echoed again.
+    type_text(&display, "echo copyme-31337");
+    press(&display, "Return");
+    let m = wait("the line to copy", 30, &mut gui, &mut |m| {
+        has_line(m, "copyme-31337")
+    });
+    let row = screen_lines(&m)
+        .iter()
+        .rposition(|l| l == "copyme-31337")
+        .unwrap();
+    let (x0, y0) = cell_point(&m, row, 0);
+    let (x1, _) = cell_point(&m, row, 11);
+    mouse(
+        &display,
+        &[
+            "mousemove",
+            &x0.to_string(),
+            &y0.to_string(),
+            "mousedown",
+            "1",
+        ],
+    );
+    for step in 1..=6 {
+        let x = x0 + (x1 - x0) * step / 6;
+        mouse(&display, &["mousemove", &x.to_string(), &y0.to_string()]);
+    }
+    mouse(&display, &["mouseup", "1"]);
+    let m = wait("the selection", 20, &mut gui, &mut |m| {
+        m["selection"] == "copyme-31337"
+    });
+    shot("serial-4-selection.png");
+    click_button(&display, &s, "copy");
+    wait("the copy", 20, &mut gui, &mut |m| {
+        m["copied"] == "copyme-31337"
+    });
+    let before = screen_lines(&m)
+        .iter()
+        .filter(|l| *l == "copyme-31337")
+        .count();
+    focus_view(&display, &s);
+    type_text(&display, "echo ");
+    click_button(&display, &s, "paste");
+    press(&display, "Return");
+    wait("the pasted text echoed", 30, &mut gui, &mut |m| {
+        screen_lines(m)
+            .iter()
+            .filter(|l| *l == "copyme-31337")
+            .count()
+            > before
+    });
+    // The Ctrl+Shift chord pastes too, without the button.
+    let after_button = screen_lines(&machine_state(&s).unwrap())
+        .iter()
+        .filter(|l| *l == "copyme-31337")
+        .count();
+    type_text(&display, "echo ");
+    press(&display, "ctrl+shift+v");
+    press(&display, "Return");
+    wait("the chord's paste echoed", 30, &mut gui, &mut |m| {
+        screen_lines(m)
+            .iter()
+            .filter(|l| *l == "copyme-31337")
+            .count()
+            > after_button
+    });
+    shot("serial-5-after-paste.png");
+
+    // The logs: QEMU's runner log with a spamming error, merged to one line.
+    click_button(&display, &s, "view-logs");
+    append_to_runner_log(&machine, SPAM, 65_371);
+    let m = wait(
+        "the repeated error merged into one line",
+        60,
+        &mut gui,
+        &mut |m| text_of(m, "view") == "logs" && log_entry_count(m, "runner_log", SPAM) == 65_371,
+    );
+    assert!(
+        m["serial_log"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["text"].as_str().unwrap().contains("copyme-31337")),
+        "serial.log in the view: {}",
+        m["serial_log"]
+    );
+    std::thread::sleep(Duration::from_secs(1));
+    shot("logs-1-merged-spam.png");
+
+    // Stop from the UI: the status names the last error runner.log holds.
+    click_button(&display, &s, "stop");
+    let m = wait("the machine to stop", 600, &mut gui, &mut |m| {
+        m["running"] == false
+    });
+    let status = text_of(&m, "status");
+    assert!(status.contains("QEMU is not running"), "{status}");
+    assert!(
+        status.contains(SPAM) && status.contains("65371"),
+        "{status}"
+    );
+    wait_for("the runner to exit", Duration::from_secs(20), || {
+        run_ok(Command::new(&rig.origami).arg("status").arg(&machine)).trim() == "stopped"
+    });
+    shot("controls-1-stopped.png");
+
+    // Start from the UI: QEMU runs again and the serial console reconnects.
+    click_button(&display, &s, "start");
+    wait("the machine to run again", 300, &mut gui, &mut |m| {
+        m["running"] == true && m["serial_connected"] == true
+    });
+    click_button(&display, &s, "view-serial");
+    let m = wait(
+        "the new boot on the serial console",
+        300,
+        &mut gui,
+        &mut |m| {
+            text_of(m, "serial_screen").contains("NVRAM")
+                || text_of(m, "serial_screen").contains("login:")
+        },
+    );
+    assert!(run_ok(Command::new(&rig.origami).arg("status").arg(&machine)).contains("running"));
+    eprintln!("after restart: {}", text_of(&m, "status"));
+    shot("controls-2-restarted.png");
+    assert_eq!(counter(&s, "input_errors"), 0);
+    assert_eq!(counter(&s, "gpu_errors"), 0);
+}
+
+#[test]
+#[ignore = "boots QEMU under Xvfb; see the header"]
+fn the_status_says_why_there_is_no_picture_and_the_controls_recover_it() {
+    let rig = Rig::start("status");
+    let display = rig.display.clone();
+    let machine = rig.create("octane2", "octane2-vpro");
+    // Started the way a failed display looks to the viewer: QEMU runs and
+    // there is no display socket to connect to.
+    run_ok(Command::new(&rig.origami).arg("run").arg(&machine).args([
+        "--display",
+        "none",
+        "--background",
+    ]));
+    let _stop = StopMachine(rig.origami.clone(), machine.clone());
+    let (mut gui, s, log) = rig.spawn_gui(&machine, "status", &["--debug"]);
+    let shot = |name: &str| screenshot(&display, &rig.out.join(name));
+    let wait =
+        |what: &str, secs: u64, gui: &mut Proc, f: &mut dyn FnMut(&serde_json::Value) -> bool| {
+            wait_state(what, Duration::from_secs(secs), gui, &log, &s, f)
+        };
+
+    let m = wait(
+        "the status to name the missing socket",
+        60,
+        &mut gui,
+        &mut |m| text_of(m, "status").contains("display socket does not exist"),
+    );
+    assert_eq!(m["debug"], true, "--debug turns the debug panel on");
+    assert!(text_of(&m, "debug_text").contains("protocol: socket absent"));
+    shot("status-1-no-socket.png");
+
+    // QEMU's error, written tens of thousands of times: said once, with its count.
+    append_to_runner_log(&machine, SPAM, 65_371);
+    let m = wait("the status to carry QEMU's error", 60, &mut gui, &mut |m| {
+        let status = text_of(m, "status");
+        status.contains("QEMU reported") && status.contains("65371")
+    });
+    let status = text_of(&m, "status");
+    assert!(
+        status.contains(SPAM) && status.contains("65371"),
+        "{status}"
+    );
+    shot("status-2-reported-error.png");
+
+    // The debug button toggles the panel.
+    click_button(&display, &s, "debug");
+    wait("the debug panel off", 20, &mut gui, &mut |m| {
+        m["debug"] == false
+    });
+    click_button(&display, &s, "debug");
+    wait("the debug panel on", 20, &mut gui, &mut |m| {
+        m["debug"] == true
+    });
+
+    // Force stop ends QEMU at once.
+    click_button(&display, &s, "force-stop");
+    wait("the machine to be force stopped", 60, &mut gui, &mut |m| {
+        m["running"] == false
+    });
+    // The runner drops its run record, which the viewer goes by, a moment
+    // before it lets go of the machine lock.
+    wait_for("the runner to exit", Duration::from_secs(20), || {
+        run_ok(Command::new(&rig.origami).arg("status").arg(&machine)).trim() == "stopped"
+    });
+    shot("status-3-force-stopped.png");
+
+    // The PROM's console, set on the stopped machine.
+    let console = |want: &str| {
+        let out = run_ok(
+            Command::new(&rig.origami)
+                .arg("nvram")
+                .arg(&machine)
+                .args(["get", "console"]),
+        );
+        assert_eq!(out.trim(), format!("console={want}"));
+    };
+    click_button(&display, &s, "console-serial");
+    wait("the serial console setting", 60, &mut gui, &mut |m| {
+        text_of(m, "notice").contains("console is now serial") && m["busy"] == ""
+    });
+    console("d");
+    click_button(&display, &s, "console-graphics");
+    wait("the graphics console setting", 60, &mut gui, &mut |m| {
+        text_of(m, "notice").contains("console is now graphics") && m["busy"] == ""
+    });
+    console("g");
+    shot("status-4-console-graphics.png");
+
+    // Start from the UI: this time QEMU gets the shared-memory display, and
+    // the picture comes, drawn without a copy where the GPU allows.
+    click_button(&display, &s, "start");
+    let m = wait("the picture", 600, &mut gui, &mut |m| {
+        text_of(m, "status").starts_with("1280x1024")
+    });
+    let status = text_of(&m, "status");
+    eprintln!("status with a picture: {status}");
+    let want = if rig.gpu.is_some() {
+        "zero copy: yes"
+    } else {
+        "zero copy: no"
+    };
+    assert!(status.contains(want), "{status}");
+    wait_for("the PROM to draw", Duration::from_secs(300), || {
+        alive(&mut gui, &log);
+        counter(&s, "frames_taken") > 20
+    });
+    shot("status-5-picture.png");
+
+    // Reset from the UI: the guest restarts, QEMU keeps running.
+    click_button(&display, &s, "reset");
+    wait("the reset", 60, &mut gui, &mut |m| {
+        text_of(m, "notice") == "reset sent"
+    });
+    assert!(run_ok(Command::new(&rig.origami).arg("status").arg(&machine)).contains("running"));
+    assert_eq!(counter(&s, "gpu_errors"), 0);
 }

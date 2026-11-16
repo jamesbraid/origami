@@ -5,6 +5,8 @@ mod core;
 mod gfx;
 mod keymap;
 mod qemu;
+mod termkeys;
+mod textgrid;
 mod ui;
 #[cfg(test)]
 mod zero_copy_tests;
@@ -26,7 +28,12 @@ stop them with `origami stop DIR`, or pass --stop-on-exit.
 
 options:
   --stop-on-exit        stop the machines this run started when the window closes
-  --stats-file PATH     write counters as JSON to PATH twice a second
+  --debug               show the display protocol's state and the counters
+                        under each machine (the Debug button toggles it)
+  --view NAME           the view each tab starts in: display (the default),
+                        serial or logs
+  --stats-file PATH     write counters and each machine's views as JSON to
+                        PATH twice a second
   --popout-cycles N     pop the first machine out and dock it N times, then quit
                         (a test hook)
   --gpu-info            print the adapter, whether it can import QEMU's memory
@@ -43,6 +50,8 @@ struct Args {
     stats_file: Option<PathBuf>,
     popout_cycles: u32,
     gpu_info: bool,
+    debug: bool,
+    view: ui::View,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -52,6 +61,8 @@ fn parse_args() -> Result<Args, String> {
         stats_file: None,
         popout_cycles: 0,
         gpu_info: false,
+        debug: false,
+        view: ui::View::Display,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -62,6 +73,15 @@ fn parse_args() -> Result<Args, String> {
             }
             "--stop-on-exit" => a.stop_on_exit = true,
             "--gpu-info" => a.gpu_info = true,
+            "--debug" => a.debug = true,
+            "--view" => {
+                a.view = match it.next().as_deref() {
+                    Some("display") => ui::View::Display,
+                    Some("serial") => ui::View::Serial,
+                    Some("logs") => ui::View::Logs,
+                    _ => return Err("--view needs display, serial or logs".into()),
+                }
+            }
             "--stats-file" => {
                 a.stats_file = Some(it.next().ok_or("--stats-file needs a path")?.into())
             }
@@ -135,7 +155,13 @@ fn real_main() -> Result<(), String> {
         .select()
         .map_err(|e| format!("cannot start the window system: {e}"))?;
 
-    let counters = ui::install(engine.clone(), gpu.clone(), machines.clone());
+    let counters = ui::install(
+        engine.clone(),
+        gpu.clone(),
+        machines.clone(),
+        args.debug,
+        args.view,
+    );
 
     let write_stats = {
         let counters = counters.clone();
@@ -173,11 +199,11 @@ fn real_main() -> Result<(), String> {
                 })
                 .collect();
             let text = format!(
-                "{{\"wakes\":{},\"frames_taken\":{},\"rows_uploaded\":{},\"bytes_uploaded\":{},\"frames_imported\":{},\"rows_imported\":{},\"zero_copy\":{:?},\"before_renders\":{},\"passes\":{},\"popouts\":{},\"docks\":{},\"keys_sent\":{},\"moves_sent\":{},\"input_errors\":{},\"gpu_errors\":{},\"engine\":[{}]}}\n",
+                "{{\"wakes\":{},\"frames_taken\":{},\"rows_uploaded\":{},\"bytes_uploaded\":{},\"frames_imported\":{},\"rows_imported\":{},\"zero_copy\":{:?},\"before_renders\":{},\"passes\":{},\"popouts\":{},\"docks\":{},\"keys_sent\":{},\"moves_sent\":{},\"input_errors\":{},\"gpu_errors\":{},\"engine\":[{}],\"machines\":{}}}\n",
                 g(&c.wakes), g(&c.frames_taken), g(&c.rows_uploaded), g(&c.bytes_uploaded),
                 g(&c.frames_imported), g(&c.rows_imported), gpu.import.describe(), g(&c.before_renders),
                 g(&c.passes), g(&c.popouts), g(&c.docks), g(&c.keys_sent), g(&c.moves_sent), g(&c.input_errors),
-                gpu.errors.count(), per.join(",")
+                gpu.errors.count(), per.join(","), ui::views_json()
             );
             let tmp = path.with_extension("tmp");
             if std::fs::write(&tmp, text).is_ok() {

@@ -15,11 +15,14 @@
 
 mod engine;
 mod input;
+pub mod logs;
 mod sink;
+pub mod status;
+pub mod terminal;
 
 pub use engine::{
-    CursorInfo, Engine, Frame, FrameUpdate, GpuMemory, HeadInfo, ImportedUpdate, MachineId, Result,
-    Wake,
+    ConsoleKind, ConsoleLink, CursorInfo, Engine, Frame, FrameUpdate, GpuMemory, HeadInfo,
+    ImportedUpdate, MachineId, Power, Result, Wake,
 };
 pub use input::{InputEvent, Key, PointerButton};
 pub use sink::InputSink;

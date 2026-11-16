@@ -1,7 +1,8 @@
+use super::status::Facts;
 use super::InputEvent;
 use std::any::Any;
 use std::error::Error;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
@@ -108,6 +109,35 @@ pub struct CursorInfo {
     pub image: Option<Vec<u8>>,
 }
 
+/// What a machine's controls ask of its engine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Power {
+    /// Start a machine that is not running, with the same display as before.
+    Start,
+    /// Ask the guest's machine to quit and wait until it has exited, which
+    /// can take minutes while a CHD disk folds its changes into the image.
+    Stop,
+    /// End the machine at once, with no clean exit.
+    ForceStop,
+    /// Reset the guest as its reset button would.
+    Reset,
+}
+
+/// Which console the PROM uses, a setting of a stopped machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsoleKind {
+    Serial,
+    Graphics,
+}
+
+/// The state of the serial console's connection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConsoleLink {
+    Connected,
+    /// Not connected, and why.
+    Down(String),
+}
+
 /// Called from an engine's own threads when any head of a machine has
 /// something new. It must be cheap and never block; the caller then asks
 /// for the frames on its own thread.
@@ -174,4 +204,36 @@ pub trait Engine: Send + Sync {
 
     /// Deliver one typed input event to the guest. Never blocks on the guest.
     fn send_input(&self, machine: MachineId, event: InputEvent) -> Result<()>;
+
+    /// The machine's directory, where its logs are.
+    fn dir(&self, machine: MachineId) -> Option<PathBuf>;
+
+    /// Where the machine's display connection stands, for naming why there
+    /// is no picture. The runner log's error is not here: the caller reads
+    /// that file and adds it.
+    fn facts(&self, machine: MachineId) -> Facts;
+
+    /// Lines for a debug display: the protocol's state and counters.
+    fn debug(&self, _machine: MachineId) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Start, stop or reset the machine. It returns when that is done, which
+    /// for a stop can be minutes, so call it from a thread that can wait.
+    fn power(&self, machine: MachineId, action: Power) -> Result<()>;
+
+    /// Send bytes to the guest's serial console. Fails while the console is
+    /// not connected.
+    fn console_send(&self, machine: MachineId, bytes: &[u8]) -> Result<()>;
+
+    /// Move what the console has sent since the last call onto `out`, and
+    /// say whether it is connected. Output that arrives while nobody calls
+    /// is kept, up to a limit.
+    fn console_take(&self, machine: MachineId, out: &mut Vec<u8>) -> ConsoleLink;
+
+    /// The console the PROM uses. Readable only while the machine is stopped.
+    fn console_kind(&self, machine: MachineId) -> Result<ConsoleKind>;
+
+    /// Choose the console the PROM uses. Only a stopped machine takes it.
+    fn set_console_kind(&self, machine: MachineId, kind: ConsoleKind) -> Result<()>;
 }

@@ -17,9 +17,10 @@ use super::control::{Control, ControlError, Layout, Plane};
 use super::import::Importer;
 use super::proto::*;
 use super::region::Memory;
+use crate::core::status::LinkFacts;
 use crate::core::{CursorInfo, FrameUpdate, GpuMemory, HeadInfo, ImportedUpdate};
 use std::collections::HashMap;
-use std::sync::atomic::{fence, AtomicBool, Ordering};
+use std::sync::atomic::{fence, AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Largest picture the reader accepts on either side.
@@ -111,11 +112,24 @@ struct State {
     backend: Option<String>,
     /// What imports regions into the GPU, if anything does.
     importer: Option<Arc<dyn Importer>>,
+    /// How the connection to QEMU stands, for saying why there is no picture.
+    link: Link,
+}
+
+#[derive(Default)]
+struct Link {
+    connected: bool,
+    connect_error: Option<String>,
+    protocol_error: Option<String>,
+    connects: u64,
+    connect_failures: u64,
 }
 
 pub struct Display {
     state: Mutex<State>,
     visible: AtomicBool,
+    /// Messages read from QEMU, over every connection.
+    messages: AtomicU64,
 }
 
 impl Default for Display {
@@ -123,6 +137,7 @@ impl Default for Display {
         Display {
             state: Mutex::default(),
             visible: AtomicBool::new(true),
+            messages: AtomicU64::new(0),
         }
     }
 }
@@ -182,6 +197,7 @@ impl Display {
         s.regions.clear();
         s.heads = (0..MAX_HEADS).map(|_| HeadSlot::default()).collect();
         s.control = Some(control);
+        s.link.protocol_error = None;
     }
 
     /// The connection is gone. Heads stop being active; the UI keeps the last
@@ -190,6 +206,49 @@ impl Display {
         let mut s = lock(&self.state);
         s.control = None;
         s.regions.clear();
+        s.link.connected = false;
+    }
+
+    /// A connection to the display socket is up.
+    pub fn link_up(&self) {
+        let mut s = lock(&self.state);
+        s.link.connected = true;
+        s.link.connects += 1;
+        s.link.connect_error = None;
+    }
+
+    /// The display socket could not be reached.
+    pub fn link_connect_failed(&self, why: String) {
+        let mut s = lock(&self.state);
+        s.link.connected = false;
+        s.link.connect_failures += 1;
+        s.link.connect_error = Some(why);
+    }
+
+    /// QEMU's messages could not be used, and the connection was dropped.
+    pub fn link_failed(&self, why: String) {
+        lock(&self.state).link.protocol_error = Some(why);
+    }
+
+    pub fn count_message(&self) {
+        self.messages.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Where the connection stands.
+    pub fn link_facts(&self) -> LinkFacts {
+        let active_heads = self.heads().iter().filter(|h| h.active).count() as u32;
+        let s = lock(&self.state);
+        LinkFacts {
+            connected: s.link.connected,
+            welcomed: s.control.is_some(),
+            regions: s.regions.len() as u32,
+            active_heads,
+            connect_error: s.link.connect_error.clone(),
+            protocol_error: s.link.protocol_error.clone(),
+            connects: s.link.connects,
+            connect_failures: s.link.connect_failures,
+            messages: self.messages.load(Ordering::Relaxed),
+        }
     }
 
     #[cfg(test)]

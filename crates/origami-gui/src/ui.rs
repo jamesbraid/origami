@@ -16,12 +16,20 @@ use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, Model, VecModel};
 
-use crate::core::{CursorInfo, Engine, Frame, InputEvent, MachineId, PointerButton};
+use crate::core::{
+    ConsoleKind, CursorInfo, Engine, Frame, InputEvent, MachineId, PointerButton, Power,
+};
 use crate::gfx::{
     cursor_texture, Blit, Compose, CursorDraw, Gpu, HeadTexture, Presenter, ScaleMode,
 };
 use crate::keymap;
+use crate::termkeys::Mods;
+use crate::textgrid::Painter;
 use crate::{AboutWindow, Shell, TabInfo};
+
+mod views;
+use views::Extra;
+pub use views::View;
 
 /// What the run did, for `--stats-file` and the tests.
 #[derive(Default)]
@@ -40,6 +48,8 @@ pub struct Counters {
     pub keys_sent: AtomicU64,
     pub moves_sent: AtomicU64,
     pub input_errors: AtomicU64,
+    pub text_renders: AtomicU64,
+    pub console_bytes_sent: AtomicU64,
 }
 
 struct Machine {
@@ -60,6 +70,8 @@ struct Machine {
     visible: bool,
     /// Renders of the window that showed it, for the pop-out loop.
     renders: u64,
+    /// The serial console, the logs, the status and the controls.
+    x: Extra,
 }
 
 pub struct Ui {
@@ -79,6 +91,18 @@ pub struct Ui {
     view_px: HashMap<usize, (u32, u32)>,
     pending: Arc<Mutex<HashSet<MachineId>>>,
     about: Option<AboutWindow>,
+    /// Draws the text views, at the scale of the window that shows them.
+    painter: Painter,
+    painter_scale: f32,
+    /// Last size each window's text view reported, in physical pixels.
+    text_px: HashMap<usize, (u32, u32)>,
+    /// Where each window's text view is, in logical pixels, for tests.
+    text_at: HashMap<usize, (f32, f32)>,
+    clipboard: Option<arboard::Clipboard>,
+    /// The text last copied, kept for tests and bug reports.
+    copied: Option<String>,
+    /// Show the protocol and counters.
+    debug: bool,
 }
 
 thread_local! {
@@ -122,6 +146,8 @@ pub fn install(
     engine: Arc<dyn Engine>,
     gpu: Gpu,
     machines: Vec<(MachineId, String)>,
+    debug: bool,
+    first_view: View,
 ) -> Arc<Counters> {
     let main = Shell::new().expect("main window");
     main.set_is_main(true);
@@ -138,6 +164,7 @@ pub fn install(
     main.set_tabs(slint::ModelRc::from(tabs.clone()));
     wire(&main, 0);
     let counters = Arc::new(Counters::default());
+    let dirs: Vec<_> = machines.iter().map(|(id, _)| engine.dir(*id)).collect();
     let ui = Ui {
         engine,
         blit: Blit::new(&gpu),
@@ -162,6 +189,7 @@ pub fn install(
                 pixels: Vec::new(),
                 visible: i == 0,
                 renders: 0,
+                x: Extra::new(dirs[i].clone()),
             })
             .collect(),
         main,
@@ -171,6 +199,13 @@ pub fn install(
         view_px: HashMap::new(),
         pending: Arc::new(Mutex::new(HashSet::new())),
         about: None,
+        painter: Painter::new(1.0),
+        painter_scale: 1.0,
+        text_px: HashMap::new(),
+        text_at: HashMap::new(),
+        clipboard: None,
+        copied: None,
+        debug,
     };
     let pending = ui.pending.clone();
     let ids: Vec<(MachineId, bool)> = ui.machines.iter().map(|m| (m.id, m.visible)).collect();
@@ -191,7 +226,41 @@ pub fn install(
             ui.engine.set_visible(id, visible);
         }
     });
+    with_ui_now(|u| {
+        for mi in 0..u.machines.len() {
+            u.machines[mi].x.view = first_view;
+            u.machines[mi].x.was_running = u.engine.facts(u.machines[mi].id).running;
+            if !u.machines[mi].x.was_running {
+                u.read_console_kind(mi);
+            }
+        }
+    });
     counters
+}
+
+/// Once the windows exist: the timer that keeps the status, logs and
+/// controls current. The returned timer must be kept alive.
+fn start_ticks() -> slint::Timer {
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(500),
+        || {
+            with_ui_now(|u| {
+                for mi in 0..u.machines.len() {
+                    u.tick_machine(mi);
+                }
+            })
+        },
+    );
+    timer
+}
+
+/// The views' state as JSON, for the stats file.
+pub fn views_json() -> serde_json::Value {
+    let mut out = serde_json::Value::Null;
+    with_ui_now(|u| out = u.views_json());
+    out
 }
 
 /// Release the GPU side in a defined order, here and now, while thread-locals
@@ -229,6 +298,7 @@ pub fn run() {
             u.poll(id);
         }
     });
+    let _ticks = start_ticks();
     slint::run_event_loop_until_quit().unwrap();
 }
 
@@ -307,6 +377,80 @@ fn wire(w: &Shell, win: usize) {
     w.on_pointer_left(|| {});
     w.on_view_size(move |ww, hh| {
         with_ui(move |u| u.view_size(win, ww.max(0) as u32, hh.max(0) as u32))
+    });
+    w.on_set_view(move |v| {
+        with_ui(move |u| {
+            let mi = machine_of(u);
+            u.set_view(mi, View::from_index(v));
+        })
+    });
+    w.on_power(move |a| {
+        with_ui(move |u| {
+            let mi = machine_of(u);
+            u.power(
+                mi,
+                match a {
+                    0 => Power::Start,
+                    1 => Power::Stop,
+                    2 => Power::ForceStop,
+                    _ => Power::Reset,
+                },
+            );
+        })
+    });
+    w.on_set_console(move |k| {
+        with_ui(move |u| {
+            let mi = machine_of(u);
+            u.set_console(
+                mi,
+                if k == 0 {
+                    ConsoleKind::Serial
+                } else {
+                    ConsoleKind::Graphics
+                },
+            );
+        })
+    });
+    w.on_toggle_debug(|| with_ui(|u| u.toggle_debug()));
+    w.on_text_key(move |text, ctrl, alt, shift, meta| {
+        let text = text.to_string();
+        // On macOS Slint reports Command as control and Control as meta.
+        let mods = if cfg!(target_os = "macos") {
+            Mods {
+                ctrl: meta,
+                alt,
+                shift,
+                command: ctrl,
+            }
+        } else {
+            Mods {
+                ctrl,
+                alt,
+                shift,
+                command: false,
+            }
+        };
+        with_ui(move |u| u.text_key(win, &text, mods))
+    });
+    w.on_text_down(move |x, y| with_ui(move |u| u.text_down(win, x, y)));
+    w.on_text_up(move || with_ui(move |u| u.text_up(win)));
+    w.on_text_moved(move |x, y| with_ui(move |u| u.text_moved(win, x, y)));
+    w.on_text_wheel(move |d| with_ui(move |u| u.text_wheel(win, d)));
+    w.on_text_size(move |ww, hh| {
+        with_ui(move |u| u.text_size(win, ww.max(0) as u32, hh.max(0) as u32))
+    });
+    w.on_text_origin(move |x, y| with_ui(move |u| u.text_origin(win, x, y)));
+    w.on_copy(move || {
+        with_ui(move |u| {
+            let mi = machine_of(u);
+            u.copy_selection(mi)
+        })
+    });
+    w.on_paste(move || {
+        with_ui(move |u| {
+            let mi = machine_of(u);
+            u.paste(mi)
+        })
     });
     w.window()
         .set_rendering_notifier(move |state, _| {
@@ -414,7 +558,11 @@ impl Ui {
             self.tabs.set_row_data(
                 i,
                 TabInfo {
-                    name: m.name.clone().into(),
+                    name: if m.x.facts.running || m.x.facts.socket.as_os_str().is_empty() {
+                        m.name.clone().into()
+                    } else {
+                        format!("{} (stopped)", m.name).into()
+                    },
                     popped: m.popped,
                 },
             );
@@ -433,15 +581,8 @@ impl Ui {
         if self.current == mi {
             shells.push(&self.main);
         }
-        let head = m.heads.get(m.head_sel).and_then(|h| h.as_ref());
-        let status = match head {
-            _ if !self.engine.is_running(m.id) => "the machine has stopped".to_string(),
-            Some(h) => {
-                let s = self.guest_scale(mi);
-                format!("{}x{}, shown at {:.2}x", h.width, h.height, s)
-            }
-            None => "waiting for the guest's display".to_string(),
-        };
+        let status = self.status_text(mi);
+        let all = shells.clone();
         for w in shells {
             w.set_label(m.name.clone().into());
             w.set_popped(m.popped);
@@ -455,6 +596,7 @@ impl Ui {
                 w.set_win_title(format!("{} - pop-out", m.name).into());
             }
         }
+        self.push_views(mi, &all);
     }
 
     fn redraw(&self, mi: usize) {
@@ -478,6 +620,9 @@ impl Ui {
         let Some(mi) = self.machines.iter().position(|m| m.id == id) else {
             return;
         };
+        // The console is read whether or not anyone looks at the machine, so
+        // its screen is right when they do.
+        self.feed_console(mi);
         if !self.machines[mi].visible {
             // The engine keeps what changed until someone looks again.
             return;
@@ -612,6 +757,7 @@ impl Ui {
         self.main.set_current_tab(i as i32);
         self.update_visibility();
         self.adopt_area(i);
+        self.adopt_text_area(i);
         self.push(i);
         let id = self.machines[i].id;
         self.poll(id);
@@ -663,6 +809,7 @@ impl Ui {
         self.push(mi);
         self.push_tabs();
         self.pops[&mi].show().expect("show pop-out");
+        self.text_px.remove(&win_of(mi));
     }
 
     pub fn dock(&mut self, mi: usize) {
@@ -678,6 +825,7 @@ impl Ui {
         self.machines[mi].area = (0, 0);
         self.update_visibility();
         self.adopt_area(mi);
+        self.adopt_text_area(mi);
         self.push_tabs();
         // The main window's view reappears; its last size is still known.
         self.push(mi);

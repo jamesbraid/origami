@@ -168,6 +168,7 @@ pub fn pump(
         let Some((msg, mut handles)) = read_message(source, stop)? else {
             return Ok(());
         };
+        display.count_message();
         match message_type(&msg) {
             MSG_WELCOME => {
                 if welcomed {
@@ -314,6 +315,7 @@ pub fn run<L: Link>(
     while !stop.load(Ordering::Acquire) {
         let connected = match link.connect() {
             Ok(mut conn) => {
+                display.link_up();
                 let (caps, uuid) = display
                     .importer()
                     .map_or((0, [0; 16]), |i| (i.caps(), i.device_uuid()));
@@ -329,6 +331,9 @@ pub fn run<L: Link>(
                     if let Err(e) = pump(display, &mut *conn.source, stop, wake) {
                         // The same failure at every reconnect is said once.
                         let said = e.to_string();
+                        if e.kind() != io::ErrorKind::UnexpectedEof {
+                            display.link_failed(said.clone());
+                        }
                         if e.kind() != io::ErrorKind::UnexpectedEof
                             && last_error.as_deref() != Some(&said)
                         {
@@ -344,7 +349,10 @@ pub fn run<L: Link>(
                     false
                 }
             }
-            Err(_) => false,
+            Err(e) => {
+                display.link_connect_failed(e.to_string());
+                false
+            }
         };
         if stop.load(Ordering::Acquire) {
             break;
@@ -1156,6 +1164,104 @@ mod tests {
         assert_eq!(
             run(&mut link, &d, &new_uplink(), &stop, quick(), &|| {}),
             Exit::Stopped
+        );
+    }
+
+    #[test]
+    fn the_link_facts_say_which_stage_the_display_reached() {
+        use crate::core::status::{stage, Facts, Reason};
+        let facts_of = |d: &Display| Facts {
+            running: true,
+            socket_exists: true,
+            link: d.link_facts(),
+            ..Default::default()
+        };
+        // Nothing yet: not connected.
+        let d = Display::default();
+        assert_eq!(stage(&facts_of(&d)), Reason::NotConnected);
+        // Connected, no WELCOME.
+        d.link_up();
+        assert_eq!(stage(&facts_of(&d)), Reason::NoWelcome);
+        // A WELCOME and no REGION.
+        let m = machine(16, 8);
+        let steps = vec![Step::Data(welcome(3, 3), mem(&m.block.mem))];
+        let _ = run_pump(&d, steps);
+        let f = d.link_facts();
+        assert!(f.welcomed);
+        assert_eq!((f.regions, f.messages), (0, 1));
+        assert_eq!(stage(&facts_of(&d)), Reason::NoRegion);
+        // A region, and a head with a picture.
+        let d = Display::default();
+        d.link_up();
+        let _ = run_pump(&d, session(&m));
+        let f = d.link_facts();
+        assert_eq!((f.regions, f.active_heads, f.messages), (1, 1, 2));
+        // A head with a plane but no mode: regions without a picture.
+        let idle = machine(16, 8);
+        idle.block.set_layout(0, 0, 0, 0, 0, 0, HEAD_DIRTY_EXACT);
+        let d = Display::default();
+        d.link_up();
+        let _ = run_pump(&d, session(&idle));
+        let f = d.link_facts();
+        assert_eq!((f.regions, f.active_heads), (1, 0));
+        assert_eq!(stage(&facts_of(&d)), Reason::NoPicture);
+    }
+
+    #[test]
+    fn a_refused_socket_and_a_protocol_failure_are_remembered_for_the_status() {
+        let mut link = Scripted {
+            conns: VecDeque::new(),
+            lives_for: u32::MAX,
+            refuse: u32::MAX,
+            connects: 0,
+        };
+        let d = Display::default();
+        run(
+            &mut link,
+            &d,
+            &new_uplink(),
+            &AtomicBool::new(false),
+            quick(),
+            &|| {},
+        );
+        let f = d.link_facts();
+        assert!(f.connect_failures >= 2, "{f:?}");
+        assert!(
+            f.connect_error
+                .as_deref()
+                .is_some_and(|e| e.contains("refused")),
+            "{f:?}"
+        );
+        assert!(!f.connected);
+
+        // A connection that fails the protocol: the reason stays after it drops.
+        let mut link = Scripted {
+            conns: VecDeque::from([(
+                vec![Step::Data(header(0x00ee, 8), Vec::new())],
+                Capture::default(),
+            )]),
+            lives_for: 1,
+            refuse: 0,
+            connects: 0,
+        };
+        let d = Display::default();
+        let exit = run(
+            &mut link,
+            &d,
+            &new_uplink(),
+            &AtomicBool::new(false),
+            quick(),
+            &|| {},
+        );
+        assert_eq!(exit, Exit::Gone);
+        let f = d.link_facts();
+        assert_eq!(f.connects, 1);
+        assert!(!f.connected && !f.welcomed);
+        assert!(
+            f.protocol_error
+                .as_deref()
+                .is_some_and(|e| e.contains("unknown message type")),
+            "{f:?}"
         );
     }
 

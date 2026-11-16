@@ -20,6 +20,20 @@
     memory. Otherwise it copies the lines that changed. `origami-gui
     --gpu-info` says which applies, and `ORIGAMI_GUI_ZERO_COPY=0` forces the
     copy.
+  - `origami-gui` shows why a machine has no picture instead of waiting: QEMU
+    not running, no display socket, connected with no region, a guest that has
+    set no video mode, or the last distinct error line of `logs/runner.log`
+    with its count, and says whether the picture is drawn without a copy. Each
+    machine also has a Serial view, a terminal on its serial console (full
+    keyboard including Ctrl-C and Esc, scrollback, drag to select, copy and
+    paste) that works with the display down, and a Logs view that follows
+    `runner.log` and `serial.log` with runs of the same line merged (×65371).
+    The toolbar starts, stops, force stops and resets the machine, and sets
+    the PROM's console to serial or graphics on a stopped one. `--debug` or
+    the Debug button shows the display protocol's state and counters, and
+    `--view serial` opens on the Serial view. A machine accepts one serial
+    console connection at a time, so `origami console` fails while the viewer
+    has it connected.
   - `origami reset DIR` resets a running guest as its reset button would, and
     `origami stop --force DIR` kills QEMU at once, with no clean exit: the
     guest does not sync its disks and a CHD disk's changes stay in its

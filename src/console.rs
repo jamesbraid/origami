@@ -46,6 +46,12 @@ impl Console {
         Self { stream }
     }
 
+    /// A second handle on the connection, so one thread can write while
+    /// another reads.
+    pub fn try_clone_stream(&self) -> Result<TcpStream> {
+        Ok(self.stream.try_clone()?)
+    }
+
     /// Read what the guest has written. Returns None when the read timed out
     /// or was interrupted, and Some(0) when the guest closed the console.
     pub fn read_some(&mut self, buffer: &mut [u8]) -> Result<Option<usize>> {

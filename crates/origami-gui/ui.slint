@@ -59,13 +59,67 @@ component MachineView inherits Rectangle {
 component Btn inherits Rectangle {
     in property <string> text;
     in property <bool> on;
+    in property <bool> enabled: true;
     callback tap();
     min-width: 64px;
     height: 26px;
     border-radius: 3px;
-    background: ta.pressed ? #3a5a80 : on ? #2f6db0 : #3a3a3a;
-    Text { text: root.text; color: white; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
-    ta := TouchArea { clicked => { root.tap(); } }
+    background: !root.enabled ? #2a2a2a : ta.pressed ? #3a5a80 : on ? #2f6db0 : #3a3a3a;
+    Text { text: root.text; color: root.enabled ? white : #707070; font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+    ta := TouchArea { enabled: root.enabled; clicked => { root.tap(); } }
+}
+
+// The serial console and the logs: a picture of text cells the viewer drew,
+// shown 1:1, with the keyboard and pointer reported in physical pixels.
+component CellView inherits Rectangle {
+    in property <image> img;
+    callback key(string, bool, bool, bool, bool);
+    callback down(float, float);
+    callback up();
+    callback moved(float, float);
+    callback wheel(float);
+    callback view-size(int, int);
+    // Where the view sits in its window, in logical pixels.
+    callback view-origin(float, float);
+    background: #101010;
+    border-width: 2px;
+    border-color: fs.has-focus ? #4aa3ff : #303030;
+    changed width => { root.view-size(self.width / 1phx, self.height / 1phx); root.view-origin(self.absolute-position.x / 1px, self.absolute-position.y / 1px); }
+    changed height => { root.view-size(self.width / 1phx, self.height / 1phx); root.view-origin(self.absolute-position.x / 1px, self.absolute-position.y / 1px); }
+    init => { root.view-size(self.width / 1phx, self.height / 1phx); root.view-origin(self.absolute-position.x / 1px, self.absolute-position.y / 1px); fs.focus(); }
+    Image {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        source: root.img;
+        image-fit: fill;
+        image-rendering: pixelated;
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            root.key(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, e.modifiers.meta);
+            accept
+        }
+    }
+    ta := TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left {
+                if e.kind == PointerEventKind.down {
+                    fs.focus();
+                    root.down(self.mouse-x / 1phx, self.mouse-y / 1phx);
+                } else if e.kind == PointerEventKind.up || e.kind == PointerEventKind.cancel {
+                    root.up();
+                }
+            }
+        }
+        scroll-event(e) => {
+            root.wheel(e.delta-y / 1px);
+            accept
+        }
+        changed mouse-x => { root.moved(self.mouse-x / 1phx, self.mouse-y / 1phx); }
+        changed mouse-y => { root.moved(self.mouse-x / 1phx, self.mouse-y / 1phx); }
+    }
 }
 
 // The About window. Slint's royalty-free licence asks for the AboutSlint
@@ -108,6 +162,42 @@ export component Shell inherits Window {
     in property <int> head-count;
     in property <int> head-sel;
     in property <string> status;
+    in property <int> view;         // 0 display, 1 serial, 2 logs
+    in property <image> text-img;
+    in property <bool> running;
+    in property <string> busy;
+    in property <string> notice;
+    in property <int> console-kind; // -1 unknown, 0 serial, 1 graphics
+    in property <bool> debug;
+    in property <string> debug-text;
+    // Where each button is, in the window's logical pixels, for a test to click.
+    out property <[{name: string, x: length, y: length}]> buttons: [
+        { name: "view-display", x: b-display.absolute-position.x + b-display.width / 2, y: b-display.absolute-position.y + b-display.height / 2 },
+        { name: "view-serial", x: b-serial.absolute-position.x + b-serial.width / 2, y: b-serial.absolute-position.y + b-serial.height / 2 },
+        { name: "view-logs", x: b-logs.absolute-position.x + b-logs.width / 2, y: b-logs.absolute-position.y + b-logs.height / 2 },
+        { name: "start", x: b-start.absolute-position.x + b-start.width / 2, y: b-start.absolute-position.y + b-start.height / 2 },
+        { name: "stop", x: b-stop.absolute-position.x + b-stop.width / 2, y: b-stop.absolute-position.y + b-stop.height / 2 },
+        { name: "force-stop", x: b-force.absolute-position.x + b-force.width / 2, y: b-force.absolute-position.y + b-force.height / 2 },
+        { name: "reset", x: b-reset.absolute-position.x + b-reset.width / 2, y: b-reset.absolute-position.y + b-reset.height / 2 },
+        { name: "console-serial", x: b-con-serial.absolute-position.x + b-con-serial.width / 2, y: b-con-serial.absolute-position.y + b-con-serial.height / 2 },
+        { name: "console-graphics", x: b-con-graphics.absolute-position.x + b-con-graphics.width / 2, y: b-con-graphics.absolute-position.y + b-con-graphics.height / 2 },
+        { name: "debug", x: b-debug.absolute-position.x + b-debug.width / 2, y: b-debug.absolute-position.y + b-debug.height / 2 },
+        { name: "copy", x: b-copy.absolute-position.x + b-copy.width / 2, y: b-copy.absolute-position.y + b-copy.height / 2 },
+        { name: "paste", x: b-paste.absolute-position.x + b-paste.width / 2, y: b-paste.absolute-position.y + b-paste.height / 2 },
+    ];
+    callback set-view(int);
+    callback power(int);            // 0 start, 1 stop, 2 force stop, 3 reset
+    callback set-console(int);      // 0 serial, 1 graphics
+    callback toggle-debug();
+    callback text-key(string, bool, bool, bool, bool);
+    callback text-down(float, float);
+    callback text-up();
+    callback text-moved(float, float);
+    callback text-wheel(float);
+    callback text-size(int, int);
+    callback text-origin(float, float);
+    callback copy();
+    callback paste();
     callback tab-selected(int);
     callback pop-out();
     callback about();
@@ -123,7 +213,9 @@ export component Shell inherits Window {
 
     title: root.win-title;
     preferred-width: 1320px;
-    preferred-height: root.is-main ? 1120px : 1090px;
+    // Room for a 1280x1024 picture at 1:1 under the tab bar, the two toolbar
+    // rows and a one-line status.
+    preferred-height: root.is-main ? 1172px : 1142px;
     background: #202020;
     VerticalLayout {
         padding: 4px;
@@ -153,18 +245,45 @@ export component Shell inherits Window {
             Btn { text: root.is-main ? "Pop out" : "Dock"; tap => { root.is-main ? root.pop-out() : root.dock(); } }
             Btn { text: "About"; tap => { root.about(); } }
             Rectangle { width: 10px; }
-            Btn { text: "Integer"; on: root.scale-mode == 1; tap => { root.set-scale(1); } }
-            Btn { text: "Fit"; on: root.scale-mode == 0; tap => { root.set-scale(0); } }
-            if root.head-count > 1: Btn { text: "Head " + (root.head-sel + 1) + "/" + root.head-count; tap => { root.next-head(); } }
-            Text { text: root.status; color: #a0a0a0; font-size: 12px; vertical-alignment: center; }
+            b-display := Btn { text: "Display"; on: root.view == 0; tap => { root.set-view(0); } }
+            b-serial := Btn { text: "Serial"; on: root.view == 1; tap => { root.set-view(1); } }
+            b-logs := Btn { text: "Logs"; on: root.view == 2; tap => { root.set-view(2); } }
+            Rectangle { width: 10px; }
+            if root.view == 0: Btn { text: "Integer"; on: root.scale-mode == 1; tap => { root.set-scale(1); } }
+            if root.view == 0: Btn { text: "Fit"; on: root.scale-mode == 0; tap => { root.set-scale(0); } }
+            if root.view == 0 && root.head-count > 1: Btn { text: "Head " + (root.head-sel + 1) + "/" + root.head-count; tap => { root.next-head(); } }
             Rectangle { }
+        }
+        HorizontalLayout {
+            spacing: 4px;
+            height: 28px;
+            b-start := Btn { text: "Start"; enabled: !root.running && root.busy == ""; tap => { root.power(0); } }
+            b-stop := Btn { text: "Stop"; enabled: root.running && root.busy == ""; tap => { root.power(1); } }
+            b-force := Btn { text: "Force stop"; enabled: root.running; tap => { root.power(2); } }
+            b-reset := Btn { text: "Reset"; enabled: root.running && root.busy == ""; tap => { root.power(3); } }
+            Rectangle { width: 10px; }
+            Text { text: "PROM console:"; color: #a0a0a0; font-size: 12px; vertical-alignment: center; }
+            b-con-serial := Btn { text: "Serial"; on: root.console-kind == 0; enabled: !root.running && root.busy == ""; tap => { root.set-console(0); } }
+            b-con-graphics := Btn { text: "Graphics"; on: root.console-kind == 1; enabled: !root.running && root.busy == ""; tap => { root.set-console(1); } }
+            Rectangle { width: 10px; }
+            b-debug := Btn { text: "Debug"; on: root.debug; tap => { root.toggle-debug(); } }
+            b-copy := Btn { text: "Copy"; enabled: root.view == 1; tap => { root.copy(); } }
+            b-paste := Btn { text: "Paste"; enabled: root.view == 1; tap => { root.paste(); } }
+            Text { text: root.busy != "" ? root.busy : root.notice; color: root.busy != "" ? #e5c07b : #a0a0a0; font-size: 12px; vertical-alignment: center; }
+            Rectangle { }
+        }
+        Text {
+            text: root.status;
+            color: #a0a0a0;
+            font-size: 12px;
+            wrap: word-wrap;
         }
         if root.popped && root.is-main: Rectangle {
             vertical-stretch: 1;
             background: #181818;
             Text { text: root.label + " is in its own window"; color: #909090; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
         }
-        if !(root.popped && root.is-main): MachineView {
+        if !(root.popped && root.is-main) && root.view == 0: MachineView {
             vertical-stretch: 1;
             img: root.img;
             guest-cursor: root.guest-cursor;
@@ -174,6 +293,31 @@ export component Shell inherits Window {
             wheel(n) => { root.wheel(n); }
             pointer-left => { root.pointer-left(); }
             view-size(w, h) => { root.view-size(w, h); }
+        }
+        if !(root.popped && root.is-main) && root.view != 0: CellView {
+            vertical-stretch: 1;
+            img: root.text-img;
+            key(t, c, a, s, m) => { root.text-key(t, c, a, s, m); }
+            down(x, y) => { root.text-down(x, y); }
+            up => { root.text-up(); }
+            moved(x, y) => { root.text-moved(x, y); }
+            wheel(d) => { root.text-wheel(d); }
+            view-size(w, h) => { root.text-size(w, h); }
+            view-origin(x, y) => { root.text-origin(x, y); }
+        }
+        if root.debug: Rectangle {
+            background: #1a1d21;
+            height: debug-label.preferred-height + 8px;
+            debug-label := Text {
+                x: 6px;
+                y: 4px;
+                width: parent.width - 12px;
+                text: root.debug-text;
+                color: #9cdcfe;
+                font-size: 11px;
+                font-family: "DejaVu Sans Mono";
+                wrap: word-wrap;
+            }
         }
     }
 }
