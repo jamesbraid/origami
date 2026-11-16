@@ -8,6 +8,7 @@
 //! view-sized texture per view.
 
 use super::{Gpu, HeadTexture};
+use std::sync::Mutex;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum ScaleMode {
@@ -37,6 +38,11 @@ pub struct Blit {
     params: wgpu::Buffer,
     /// Bound when there is no cursor.
     blank: wgpu::Texture,
+    /// The bind group of the textures last drawn: they change only on a
+    /// resize or a new cursor image, not per frame.
+    cached: Mutex<Option<(wgpu::Texture, Option<wgpu::Texture>, wgpu::BindGroup)>>,
+    /// The parameters last written; most frames repeat them.
+    written: Mutex<Option<[u32; 12]>>,
 }
 
 impl Blit {
@@ -140,6 +146,8 @@ impl Blit {
             linear,
             params,
             blank,
+            cached: Mutex::new(None),
+            written: Mutex::new(None),
         }
     }
 
@@ -148,6 +156,28 @@ impl Blit {
     pub fn draw(
         &self,
         gpu: &Gpu,
+        target: &wgpu::TextureView,
+        area: (u32, u32),
+        head: &HeadTexture,
+        mode: ScaleMode,
+        cursor: Option<&CursorDraw>,
+    ) {
+        let mut enc = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("blit"),
+            });
+        self.encode(gpu, &mut enc, target, area, head, mode, cursor);
+        gpu.queue.submit([enc.finish()]);
+    }
+
+    /// [`Blit::draw`] recorded into `enc`, which the caller submits. One
+    /// pass per submit: the parameters are written to one buffer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn encode(
+        &self,
+        gpu: &Gpu,
+        enc: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         area: (u32, u32),
         head: &HeadTexture,
@@ -171,61 +201,71 @@ impl Blit {
             cursor.map_or(0.0, |c| c.width as f32),
             cursor.map_or(0.0, |c| c.height as f32),
         ];
-        gpu.queue
-            .write_buffer(&self.params, 0, bytemuck::cast_slice(&params));
-        let sv = head.texture.create_view(&Default::default());
-        let cv = cursor
-            .map_or(&self.blank, |c| c.texture)
-            .create_view(&Default::default());
-        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("blit"),
-            layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&sv),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.linear),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.params.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&cv),
-                },
-            ],
-        });
-        let mut enc = gpu
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("blit"),
-            });
-        {
-            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("blit"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: target,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &group, &[]);
-            pass.draw(0..3, 0..1);
+        let bits = params.map(f32::to_bits);
+        let mut written = self.written.lock().unwrap_or_else(|e| e.into_inner());
+        if *written != Some(bits) {
+            gpu.queue
+                .write_buffer(&self.params, 0, bytemuck::cast_slice(&params));
+            *written = Some(bits);
         }
-        gpu.queue.submit([enc.finish()]);
+        drop(written);
+        let mut cached = self.cached.lock().unwrap_or_else(|e| e.into_inner());
+        let hit = cached
+            .as_ref()
+            .is_some_and(|(h, c, _)| *h == head.texture && c.as_ref() == cursor.map(|c| c.texture));
+        if !hit {
+            let sv = head.texture.create_view(&Default::default());
+            let cv = cursor
+                .map_or(&self.blank, |c| c.texture)
+                .create_view(&Default::default());
+            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("blit"),
+                layout: &self.layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&sv),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.linear),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.params.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&cv),
+                    },
+                ],
+            });
+            *cached = Some((
+                head.texture.clone(),
+                cursor.map(|c| c.texture.clone()),
+                group,
+            ));
+        }
+        let group = &cached.as_ref().expect("set above").2;
+        let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("blit"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, group, &[]);
+        pass.draw(0..3, 0..1);
     }
 }
 

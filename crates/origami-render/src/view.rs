@@ -46,9 +46,8 @@ pub struct View {
     visible: bool,
     /// Presents since attach, for the host's statistics.
     pub presents: u64,
-    /// Wall nanoseconds in `draw` since attach: acquiring the image,
-    /// encoding and submitting the pass; and handing the image to the
-    /// platform's presentation, which a window system can make slow.
+    /// Wall nanoseconds in `draw` since attach: acquire, encode and submit;
+    /// and the platform's present, which a window system can make slow.
     pub draw_ns: u64,
     pub present_ns: u64,
 }
@@ -174,7 +173,23 @@ impl View {
         mode: ScaleMode,
         cursor: Option<&CursorDraw>,
     ) -> Result<Drawn, String> {
+        self.draw_with(gpu, head, mode, cursor, |_| {})
+    }
+
+    /// [`View::draw`] with `before` recording into the same command buffer, so
+    /// a frame costs one submit. It runs even when no image could be had.
+    pub fn draw_with(
+        &mut self,
+        gpu: &Gpu,
+        head: &HeadTexture,
+        mode: ScaleMode,
+        cursor: Option<&CursorDraw>,
+        before: impl FnOnce(&mut wgpu::CommandEncoder),
+    ) -> Result<Drawn, String> {
+        let mut enc = gpu.device.create_command_encoder(&Default::default());
         if !self.visible || self.config.width == 0 || self.config.height == 0 {
+            before(&mut enc);
+            gpu.queue.submit([enc.finish()]);
             return Ok(Drawn::Skipped);
         }
         let start = std::time::Instant::now();
@@ -183,9 +198,13 @@ impl View {
             // Usable now; the swapchain is rebuilt after it is shown.
             wgpu::CurrentSurfaceTexture::Suboptimal(f) => (f, true),
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                before(&mut enc);
+                gpu.queue.submit([enc.finish()]);
                 return Ok(Drawn::Skipped);
             }
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                before(&mut enc);
+                gpu.queue.submit([enc.finish()]);
                 self.surface.configure(&gpu.device, &self.config);
                 return Ok(Drawn::Reconfigured);
             }
@@ -193,7 +212,18 @@ impl View {
                 return Err("the surface reported a validation error".into());
             }
         };
-        self.draw_into(gpu, &frame, head, mode, cursor);
+        before(&mut enc);
+        let target = frame.texture.create_view(&Default::default());
+        self.blit.encode(
+            gpu,
+            &mut enc,
+            &target,
+            (self.config.width, self.config.height),
+            head,
+            mode,
+            cursor,
+        );
+        gpu.queue.submit([enc.finish()]);
         let drawn = start.elapsed();
         gpu.queue.present(frame);
         self.draw_ns += drawn.as_nanos() as u64;
@@ -203,25 +233,6 @@ impl View {
             self.surface.configure(&gpu.device, &self.config);
         }
         Ok(Drawn::Presented)
-    }
-
-    fn draw_into(
-        &self,
-        gpu: &Gpu,
-        frame: &wgpu::SurfaceTexture,
-        head: &HeadTexture,
-        mode: ScaleMode,
-        cursor: Option<&CursorDraw>,
-    ) {
-        let target = frame.texture.create_view(&Default::default());
-        self.blit.draw(
-            gpu,
-            &target,
-            (self.config.width, self.config.height),
-            head,
-            mode,
-            cursor,
-        );
     }
 }
 

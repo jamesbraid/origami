@@ -1069,13 +1069,11 @@ pub struct origami_view_counters {
     pub reserved: u32,
     /// Pictures drawn and presented.
     pub presents: u64,
-    /// Taking the frame from the display client, drawing it into the head
-    /// texture and updating the cursor.
+    /// Taking the frame from the display client and updating the cursor.
     pub take_ns: u64,
-    /// Acquiring the window's image and drawing the head into it.
+    /// Acquiring the window's image, drawing the picture and the head into it.
     pub draw_ns: u64,
-    /// Handing the image to the window system, whose cost is not ours: a
-    /// compositor or X server without direct presentation makes it large.
+    /// Handing the image to the window system, which can make it large.
     pub present_ns: u64,
 }
 
@@ -1257,7 +1255,7 @@ mod present {
 
         pub(super) fn set_visible(&mut self, visible: bool) -> Result<(), Fail> {
             self.view.set_visible(visible);
-            self.machine.machine.set_visible(visible);
+            self.machine.machine.set_visible(visible)?;
             Ok(())
         }
 
@@ -1316,6 +1314,7 @@ mod present {
             if !self.view.visible() {
                 return Ok(ORIGAMI_DRAWN_SKIPPED);
             }
+            let mut pending = None;
             match self
                 .machine
                 .machine
@@ -1330,12 +1329,12 @@ mod present {
                     ));
                 }
                 Some(Frame::Imported(imported)) => {
-                    self.texture = Some(HeadTexture::apply_imported(
+                    self.texture = Some(HeadTexture::prepare(
                         &self.gpu,
-                        &self.compose,
                         self.texture.take(),
                         &imported,
                     ));
+                    pending = Some(imported);
                 }
                 None => {}
             }
@@ -1355,10 +1354,22 @@ mod present {
                 }),
                 _ => None,
             };
+            // The picture's rows and the window's pass go in one submit.
+            let (gpu, compose) = (&self.gpu, &self.compose);
+            let mut rows = None;
             let drawn = self
                 .view
-                .draw(&self.gpu, texture, ScaleMode::Integer, draw.as_ref())
+                .draw_with(gpu, texture, ScaleMode::Integer, draw.as_ref(), |enc| {
+                    if let Some(frame) = &pending {
+                        rows = Some(texture.encode_imported(gpu, compose, enc, frame));
+                    }
+                })
                 .map_err(|e| Fail(Status::Internal, e))?;
+            if let (Some(rows), Some(frame), Some(texture)) =
+                (rows, &pending, self.texture.as_mut())
+            {
+                texture.note_imported(rows, frame);
+            }
             Ok(match drawn {
                 Drawn::Presented => ORIGAMI_DRAWN_PRESENTED,
                 Drawn::Skipped => ORIGAMI_DRAWN_SKIPPED,

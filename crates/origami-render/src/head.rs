@@ -74,21 +74,48 @@ impl HeadTexture {
         current: Option<HeadTexture>,
         frame: &ImportedUpdate,
     ) -> HeadTexture {
+        let mut h = Self::fit(gpu, current, frame.update.width, frame.update.height);
+        let mut enc = gpu.device.create_command_encoder(&Default::default());
+        let rows = h.encode_imported(gpu, compose, &mut enc, frame);
+        gpu.queue.submit([enc.finish()]);
+        h.note_imported(rows, frame);
+        h
+    }
+
+    /// This head's texture, or a new one when `current` is not the size
+    /// `frame` says, to be drawn into by [`HeadTexture::encode_imported`].
+    pub fn prepare(gpu: &Gpu, current: Option<HeadTexture>, frame: &ImportedUpdate) -> HeadTexture {
+        Self::fit(gpu, current, frame.update.width, frame.update.height)
+    }
+
+    /// Record an imported update into `enc`, returning the rows; then call
+    /// [`HeadTexture::note_imported`].
+    pub fn encode_imported(
+        &self,
+        gpu: &Gpu,
+        compose: &Compose,
+        enc: &mut wgpu::CommandEncoder,
+        frame: &ImportedUpdate,
+    ) -> Option<u32> {
+        compose.encode(gpu, enc, &self.texture, frame)
+    }
+
+    /// Count an update [`HeadTexture::encode_imported`] recorded. None means
+    /// the frame named memory this device cannot read: the texture is as it was.
+    pub fn note_imported(&mut self, rows: Option<u32>, frame: &ImportedUpdate) {
         let u = &frame.update;
-        let mut h = Self::fit(gpu, current, u.width, u.height);
-        if let Some(rows) = compose.draw(gpu, &h.texture, frame) {
-            h.rows_imported += u64::from(rows);
-            h.seq = u.seq;
+        if let Some(rows) = rows {
+            self.rows_imported += u64::from(rows);
+            self.seq = u.seq;
         } else {
             static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
             if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 eprintln!(
-                    "origami-gui: cannot draw a {}x{} plane (stride {}, offset {}) from its imported memory",
+                    "origami: cannot draw a {}x{} plane (stride {}, offset {}) from its imported memory",
                     u.width, u.height, frame.stride, frame.offset
                 );
             }
         }
-        h
     }
 
     /// Apply an update to `current` (or make the first texture). Only the
