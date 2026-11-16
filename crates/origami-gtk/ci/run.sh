@@ -2,7 +2,7 @@
 # usage: run.sh SCRATCH OUTNAME MODE [gpu=N|none] [-- app args]
 # Runs one session in the spike run image, capped at 16g, mounting only SCRATCH and the QEMU build.
 # SCRATCH holds target/ (cargo output), rt/ (the QEMU runtime tree), cache/ (PROMs), work/, out/.
-S=$1; NAME=$2; MODE=$3; GPU=${4:-none}; shift 4 2>/dev/null || shift $#
+S=$1; NAME=$2; MODE=$3; GPU=${4:-none}; shift $(( $# < 4 ? $# : 4 ))
 [ "$1" = -- ] && shift
 W=$(cd "$(dirname "$0")" && pwd)
 GPUARG=""

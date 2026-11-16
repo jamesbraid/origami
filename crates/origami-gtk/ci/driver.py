@@ -376,6 +376,15 @@ def first_light(quick=False):
             t1 = a.machine("octane2")["motion_total"]
             got = (t1[0] - t0[0], t1[1] - t0[1])
             check("capture: the guest got the distance the pointer moved", abs(got[0] - 20) <= 2 and abs(got[1] - 5) <= 2, got)
+            # Fast motion: forty moves in one xdotool call arrive back to back,
+            # before each warp lands. Each must be counted once.
+            t0 = a.machine("octane2")["motion_total"]
+            burst = ["mousemove_relative", "--", "25", "0"] * 40
+            sh("xdotool", *burst)
+            time.sleep(0.5)
+            t1 = a.machine("octane2")["motion_total"]
+            got = (t1[0] - t0[0], t1[1] - t0[1])
+            check("capture: a burst of fast motion is counted once (1000 across)", abs(got[0] - 1000) <= 5 and abs(got[1]) <= 3, got)
             # The pointer may not reach a window edge: push far past it.
             for _ in range(8):
                 sh("xdotool", "mousemove_relative", "--", "400", "300")
@@ -469,7 +478,44 @@ def settings():
         a.stop()
 
 
-SCENARIOS = {"settings": settings, "first-light": first_light, "pointer": lambda: first_light(True)}
+def popout():
+    """A tab moved to its own window, and that window closed: the machine
+    goes back to the library with nothing orphaned, and opens again."""
+    if mode != "x11":
+        skip("pop-out", "needs a window manager to close a window")
+        return
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        check("one window to start with", a.state()["windows"] == 1)
+        a.req("invoke window.move-to-new-window octane2")
+        time.sleep(1.5)
+        check("the tab moved to a window of its own", a.state()["windows"] == 2 and a.machine("octane2")["visible"], a.state()["windows"])
+        shot("popped-out")
+        sh("wmctrl", "-c", ":ACTIVE:")
+        gone = a.wait("pop-out closed", lambda: a.state()["windows"] == 1, 10, 0.3)
+        check("closing the pop-out closes the window", gone is not None, [a.state()["windows"], sh("wmctrl", "-l").stdout])
+        check("the machine is forgotten, not orphaned", a.machine("octane2") is None, a.state()["machines"])
+        a.req("open octane2")
+        time.sleep(1)
+        m = a.machine("octane2")
+        check("the library opens it again in the main window", m is not None and m["visible"], m)
+        # Cycle it out and in: no error, nothing left behind.
+        for _ in range(5):
+            a.req("invoke window.move-to-new-window octane2")
+            time.sleep(0.6)
+            sh("wmctrl", "-c", ":ACTIVE:")
+            time.sleep(0.6)
+            a.req("open octane2")
+            time.sleep(0.4)
+        check("five more pop-out and close cycles leave one window and one tab", a.state()["windows"] == 1 and len(a.state()["machines"]) == 1, a.state()["windows"])
+    finally:
+        a.stop()
+
+
+SCENARIOS = {"popout": popout, "settings": settings, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:
