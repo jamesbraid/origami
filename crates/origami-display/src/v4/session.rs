@@ -216,6 +216,77 @@ pub enum Event {
     },
 }
 
+/// The part of a session other threads use: requests and encoded messages go
+/// out on the shared socket while one thread reads events.
+#[derive(Clone)]
+pub struct SessionHandle(Arc<Shared>);
+
+impl SessionHandle {
+    /// The latest description of a head.
+    pub fn head(&self, head: u32) -> Option<Head> {
+        self.0
+            .heads
+            .lock()
+            .unwrap()
+            .get(head as usize)?
+            .info
+            .clone()
+    }
+
+    pub fn head_count(&self) -> usize {
+        self.0.heads.lock().unwrap().len()
+    }
+
+    /// Ask for a frame. Records the request so a release re-sends it.
+    pub fn request(&self, head: u32, sample_now: bool) -> io::Result<()> {
+        let r = {
+            let mut heads = self.0.heads.lock().unwrap();
+            let h = heads
+                .get_mut(head as usize)
+                .ok_or(io::ErrorKind::NotFound)?;
+            h.want_frame = true;
+            wire::Request {
+                head,
+                kinds: wire::REQ_FRAME,
+                frame_seen: h.frame_seen,
+                cursor_seen: h.cursor_seen,
+                flags: if sample_now { wire::REQ_SAMPLE_NOW } else { 0 },
+            }
+        };
+        self.0.write(&r.encode())
+    }
+
+    /// Ask to be told when the cursor differs from `cursor_seen`.
+    pub fn request_cursor(&self, head: u32, cursor_seen: u32) -> io::Result<()> {
+        let frame_seen = {
+            let mut heads = self.0.heads.lock().unwrap();
+            let h = heads
+                .get_mut(head as usize)
+                .ok_or(io::ErrorKind::NotFound)?;
+            h.cursor_seen = cursor_seen;
+            h.frame_seen
+        };
+        let r = wire::Request {
+            head,
+            kinds: wire::REQ_CURSOR,
+            frame_seen,
+            cursor_seen,
+            flags: 0,
+        };
+        self.0.write(&r.encode())
+    }
+
+    /// Send any message already encoded, as one write.
+    pub fn send(&self, m: &[u8]) -> io::Result<()> {
+        self.0.write(m)
+    }
+
+    /// End the session: the thread reading events sees the stream end.
+    pub fn close(&self) {
+        self.0.fail();
+    }
+}
+
 /// A connected, handshaken session.
 pub struct Session {
     shared: Arc<Shared>,
@@ -223,7 +294,7 @@ pub struct Session {
     reader: Reader,
     pending: VecDeque<Event>,
     pub welcome: Welcome,
-    pub state: StateView,
+    pub state: Arc<StateView>,
     regions: HashMap<u32, Arc<Mapping>>,
     ready: bool,
     handles_seen_sent: u64,
@@ -280,6 +351,8 @@ impl Session {
             prev_session_id: 0,
             offers: p.offers.clone(),
         };
+        #[cfg(not(target_os = "linux"))]
+        super::transport::no_sigpipe(&stream)?;
         send_all(&stream, &hello.encode(), None)?;
         Session::handshake(stream)
     }
@@ -346,8 +419,10 @@ impl Session {
         let (_, fb_map) = regions
             .remove(&welcome.feedback_region)
             .ok_or_else(|| SessionError::Protocol("no feedback region".into()))?;
-        let state = StateView::new(state_map, closed.clone(), welcome.session_id)
-            .map_err(|e| SessionError::Protocol(e.into()))?;
+        let state = Arc::new(
+            StateView::new(state_map, closed.clone(), welcome.session_id)
+                .map_err(|e| SessionError::Protocol(e.into()))?,
+        );
         if fb_map.len() < wire::FEEDBACK_SIZE || !fb_map.writable() {
             return Err(SessionError::Protocol("feedback region".into()));
         }
@@ -390,61 +465,31 @@ impl Session {
 
     /// The latest description of a head.
     pub fn head(&self, head: u32) -> Option<Head> {
-        self.shared
-            .heads
-            .lock()
-            .unwrap()
-            .get(head as usize)?
-            .info
-            .clone()
+        self.handle().head(head)
     }
 
     pub fn head_count(&self) -> usize {
-        self.shared.heads.lock().unwrap().len()
+        self.handle().head_count()
     }
 
     /// Ask for a frame. Records the request so a release re-sends it.
     pub fn request(&self, head: u32, sample_now: bool) -> io::Result<()> {
-        let r = {
-            let mut heads = self.shared.heads.lock().unwrap();
-            let h = heads
-                .get_mut(head as usize)
-                .ok_or(io::ErrorKind::NotFound)?;
-            h.want_frame = true;
-            wire::Request {
-                head,
-                kinds: wire::REQ_FRAME,
-                frame_seen: h.frame_seen,
-                cursor_seen: h.cursor_seen,
-                flags: if sample_now { wire::REQ_SAMPLE_NOW } else { 0 },
-            }
-        };
-        self.shared.write(&r.encode())
+        self.handle().request(head, sample_now)
     }
 
     /// Ask to be told when the cursor differs from `cursor_seen`.
     pub fn request_cursor(&self, head: u32, cursor_seen: u32) -> io::Result<()> {
-        let frame_seen = {
-            let mut heads = self.shared.heads.lock().unwrap();
-            let h = heads
-                .get_mut(head as usize)
-                .ok_or(io::ErrorKind::NotFound)?;
-            h.cursor_seen = cursor_seen;
-            h.frame_seen
-        };
-        let r = wire::Request {
-            head,
-            kinds: wire::REQ_CURSOR,
-            frame_seen,
-            cursor_seen,
-            flags: 0,
-        };
-        self.shared.write(&r.encode())
+        self.handle().request_cursor(head, cursor_seen)
     }
 
     /// Send any message already encoded.
     pub fn send(&self, m: &[u8]) -> io::Result<()> {
         self.shared.write(m)
+    }
+
+    /// A clonable end for other threads to ask and send through.
+    pub fn handle(&self) -> SessionHandle {
+        SessionHandle(self.shared.clone())
     }
 
     pub fn socket(&self) -> &UnixStream {
@@ -622,7 +667,7 @@ fn map_region(r: &Region, fd: Option<OwnedFd>) -> Result<Mapping, SessionError> 
         .map_err(|e| SessionError::Protocol(format!("region {}: {e}", r.id)))
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use std::io::Read;

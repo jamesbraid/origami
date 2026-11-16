@@ -1,0 +1,256 @@
+//! The product's viewer against the reference producer: pictures by their
+//! pixels, wake-ups, and what a hidden viewer asks for.
+
+use origami_display::v4::testext::{self, kind, pattern, Stimulus};
+use origami_display::v4::viewer::Viewer;
+use origami_display::v4::wire;
+use origami_display::Taken;
+use origami_display_producer::reference;
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+const W: u32 = 256;
+const H: u32 = 128;
+
+struct Rig {
+    viewer: Arc<Viewer>,
+    wakes: Arc<AtomicU64>,
+    ix: u8,
+    thread: Option<std::thread::JoinHandle<()>>,
+    producer: Option<origami_display_producer::Producer>,
+    dir: std::path::PathBuf,
+}
+
+impl Rig {
+    fn start(push: bool) -> Rig {
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!("viewer-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("d.sock");
+        let producer = reference::start(UnixListener::bind(&path).unwrap(), 1, W, H, push).unwrap();
+        let viewer = Arc::new(Viewer::new().offer(
+            wire::feat::TEST,
+            wire::Offer {
+                name: testext::NAME.into(),
+                version_min: testext::VERSION,
+                version_max: testext::VERSION,
+                payload: vec![],
+            },
+        ));
+        let wakes = Arc::new(AtomicU64::new(0));
+        let thread = {
+            let (viewer, wakes) = (viewer.clone(), wakes.clone());
+            let stream = UnixStream::connect(&path).unwrap();
+            std::thread::spawn(move || {
+                let wake = || {
+                    wakes.fetch_add(1, Ordering::SeqCst);
+                };
+                let _ = viewer.run(stream, &wake);
+            })
+        };
+        let t = Instant::now();
+        let ix = loop {
+            if let Some(ix) = viewer.extension(testext::NAME) {
+                break ix;
+            }
+            assert!(t.elapsed() < Duration::from_secs(10), "no welcome");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        Rig {
+            viewer,
+            wakes,
+            ix,
+            thread: Some(thread),
+            producer: Some(producer),
+            dir,
+        }
+    }
+
+    fn stimulus(&self, pat: u32, step: u32) {
+        let s = Stimulus {
+            head: 0,
+            kind: kind::PATTERN,
+            seed: 7,
+            step,
+            arg: pat,
+        };
+        self.viewer.send_raw(&s.encode(self.ix)).unwrap();
+    }
+
+    fn wait_wake(&self, since: u64) -> bool {
+        let t = Instant::now();
+        while t.elapsed() < Duration::from_secs(5) {
+            if self.wakes.load(Ordering::SeqCst) > since {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        false
+    }
+
+    fn still(&self) -> u64 {
+        std::thread::sleep(Duration::from_millis(300));
+        self.wakes.load(Ordering::SeqCst)
+    }
+
+    /// The first frame of a still head arrives unasked: take it.
+    fn first(&self, picture: &mut [u32]) {
+        assert!(self.wait_wake(0), "no first frame");
+        self.take_into(picture);
+    }
+
+    /// Take the waiting frame and lay its rows over `picture`.
+    fn take_into(&self, picture: &mut [u32]) -> Vec<(u32, u32)> {
+        let mut px = Vec::new();
+        let Taken::Frame(u) = self.viewer.take(0, &mut px) else {
+            panic!("no frame to take");
+        };
+        assert_eq!((u.width, u.height), (W, H));
+        let mut at = 0;
+        for &(a, b) in &u.runs {
+            for y in a..b {
+                for x in 0..W {
+                    let p = &px[at..at + 4];
+                    picture[(y * W + x) as usize] =
+                        u32::from_le_bytes([p[0], p[1], p[2], p[3]]) & 0xFF_FFFF;
+                    at += 4;
+                }
+            }
+        }
+        assert_eq!(at, px.len());
+        u.runs
+    }
+}
+
+impl Drop for Rig {
+    fn drop(&mut self) {
+        self.viewer.close();
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+        if let Some(p) = self.producer.take() {
+            p.stop();
+        }
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn lines_differing(a: &[u32], b: &[u32]) -> Vec<u32> {
+    (0..H)
+        .filter(|y| {
+            let r = (y * W) as usize..((y + 1) * W) as usize;
+            a[r.clone()] != b[r]
+        })
+        .collect()
+}
+
+fn expect(pat: u32, step: u32) -> Vec<u32> {
+    testext::pattern_picture(pat, 7, step, W, H)
+}
+
+fn each_style(body: impl Fn(&Rig)) {
+    for push in [false, true] {
+        body(&Rig::start(push));
+    }
+}
+
+#[test]
+fn a_picture_arrives_by_its_pixels_and_a_still_screen_wakes_nobody() {
+    each_style(|rig| {
+        let mut picture = vec![0u32; (W * H) as usize];
+        rig.first(&mut picture);
+        let wakes = rig.wakes.load(Ordering::SeqCst);
+        rig.stimulus(pattern::BAR, 0);
+        assert!(rig.wait_wake(wakes));
+        let heads = rig.viewer.heads();
+        assert!(heads[0].active);
+        rig.take_into(&mut picture);
+        assert_eq!(
+            lines_differing(&picture, &expect(pattern::BAR, 0)),
+            Vec::<u32>::new()
+        );
+        // The bar moves down: only the lines it left and entered arrive.
+        let wakes = rig.wakes.load(Ordering::SeqCst);
+        rig.stimulus(pattern::BAR, 1);
+        assert!(rig.wait_wake(wakes));
+        let runs = rig.take_into(&mut picture);
+        assert_eq!(
+            lines_differing(&picture, &expect(pattern::BAR, 1)),
+            Vec::<u32>::new()
+        );
+        assert_eq!(runs, vec![(0, 8), (120, 128)]);
+        let st = rig.viewer.stats();
+        assert_eq!(st.imported_lines, 0);
+        assert!(st.copied_bytes > 0);
+        let idle = rig.still();
+        assert_eq!(rig.still(), idle, "a still picture woke the viewer");
+    });
+}
+
+#[test]
+fn a_hidden_viewer_asks_for_nothing_new_and_showing_it_brings_the_change() {
+    each_style(|rig| {
+        let mut picture = vec![0u32; (W * H) as usize];
+        rig.first(&mut picture);
+        let wakes = rig.wakes.load(Ordering::SeqCst);
+        rig.stimulus(pattern::LINES, 5);
+        assert!(rig.wait_wake(wakes));
+        rig.take_into(&mut picture);
+        rig.viewer.set_visible(false);
+        // The request sent when the last frame arrived is still recorded:
+        // one more frame may land, silently.
+        let wakes = rig.wakes.load(Ordering::SeqCst);
+        rig.stimulus(pattern::LINES, 9);
+        rig.stimulus(pattern::LINES, 12);
+        let after = rig.still();
+        assert_eq!(after, wakes, "a hidden viewer was woken");
+        rig.take_into(&mut picture);
+        rig.stimulus(pattern::LINES, 15);
+        assert_eq!(rig.still(), wakes);
+        // Showing asks again; the producer has a newer picture.
+        rig.viewer.set_visible(true);
+        assert!(rig.wait_wake(wakes), "showing did not bring the change");
+        let t = Instant::now();
+        while picture != expect(pattern::LINES, 15) {
+            assert!(
+                t.elapsed() < Duration::from_secs(5),
+                "never reached step 15"
+            );
+            let seen = rig.wakes.load(Ordering::SeqCst);
+            let runs = rig.take_into(&mut picture);
+            let want = expect(pattern::LINES, 15);
+            let bad: Vec<u32> = (0..H)
+                .filter(|y| {
+                    let r = (y * W) as usize..((y + 1) * W) as usize;
+                    picture[r.clone()] != want[r]
+                })
+                .collect();
+            if !bad.is_empty() {
+                assert!(
+                    rig.wait_wake(seen),
+                    "stuck: lines {bad:?} differ after runs {runs:?}"
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn input_reaches_the_session_as_one_write() {
+    each_style(|rig| {
+        use origami_engine::{InputEvent, Key};
+        rig.viewer
+            .send_input(&[
+                InputEvent::Key {
+                    key: Key::A,
+                    down: true,
+                },
+                InputEvent::PointerMove { dx: 3, dy: 4 },
+            ])
+            .unwrap();
+        rig.viewer.send_input(&[]).unwrap();
+    });
+}

@@ -5,4 +5,5 @@ pub mod regions;
 pub mod session;
 pub mod testext;
 pub mod transport;
+pub mod viewer;
 pub mod wire;

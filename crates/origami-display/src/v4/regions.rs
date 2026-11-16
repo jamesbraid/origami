@@ -3,7 +3,9 @@
 
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsRawFd, OwnedFd};
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
+use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 pub const SEAL_SEAL: i32 = 1;
@@ -11,7 +13,9 @@ pub const SEAL_SHRINK: i32 = 2;
 pub const SEAL_GROW: i32 = 4;
 pub const SEAL_FUTURE_WRITE: i32 = 16;
 
-/// The seals on a memfd, or an error if `fd` is not sealable.
+/// The seals on a memfd, or an error if `fd` is not sealable. Linux only:
+/// macOS regions are unsealed shared-memory objects.
+#[cfg(target_os = "linux")]
 pub fn seals(fd: &impl AsRawFd) -> io::Result<i32> {
     // SAFETY: F_GET_SEALS takes no argument and reads kernel state only.
     let r = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GET_SEALS) };
@@ -37,6 +41,7 @@ unsafe impl Sync for Mapping {}
 impl Mapping {
     /// Map all of `fd`, which must be exactly `size` bytes, and when a
     /// viewer is the caller (`expect`), carry the seals the contract requires.
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
     pub fn map(fd: OwnedFd, size: u64, writable: bool, expect: Expect) -> io::Result<Mapping> {
         let file = File::from(fd);
         let actual = file.metadata()?.len();
@@ -45,6 +50,7 @@ impl Mapping {
                 "region is {actual} bytes, message says {size}"
             )));
         }
+        #[cfg(target_os = "linux")]
         if expect != Expect::Nothing {
             let s =
                 seals(&file).map_err(|e| io::Error::other(format!("not a sealed memfd: {e}")))?;

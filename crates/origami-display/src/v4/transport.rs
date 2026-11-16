@@ -10,6 +10,41 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 const MAX_UNMATCHED_FDS: usize = 64;
 const READ_CHUNK: usize = 64 * 1024;
 
+/// Linux marks received descriptors close-on-exec as they arrive; macOS has
+/// no such flag, so they are marked as soon as they are taken.
+#[cfg(target_os = "linux")]
+const RECV_FLAGS: libc::c_int = libc::MSG_CMSG_CLOEXEC;
+#[cfg(not(target_os = "linux"))]
+const RECV_FLAGS: libc::c_int = 0;
+
+/// macOS has no `MSG_NOSIGNAL`; `SO_NOSIGPIPE` on the socket does the work.
+#[cfg(target_os = "linux")]
+const SEND_FLAGS: libc::c_int = libc::MSG_NOSIGNAL;
+#[cfg(not(target_os = "linux"))]
+const SEND_FLAGS: libc::c_int = 0;
+
+/// Keep a write to a closed socket from raising `SIGPIPE`, where the send
+/// flag cannot.
+#[cfg(not(target_os = "linux"))]
+pub fn no_sigpipe(sock: &impl AsRawFd) -> io::Result<()> {
+    let on: libc::c_int = 1;
+    // SAFETY: setsockopt with an int the size it says.
+    let r = unsafe {
+        libc::setsockopt(
+            sock.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_NOSIGPIPE,
+            (&on as *const libc::c_int).cast(),
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    if r < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 pub enum Fault {
     /// The peer broke the framing or handle rules: answer `ERROR PROTOCOL`.
@@ -78,7 +113,7 @@ impl Reader {
         msg.msg_control = cmsg.as_mut_ptr().cast();
         msg.msg_controllen = std::mem::size_of_val(&cmsg) as _;
         // SAFETY: `msg` points at live buffers of the stated sizes.
-        let n = unsafe { libc::recvmsg(sock, &mut msg, libc::MSG_CMSG_CLOEXEC) };
+        let n = unsafe { libc::recvmsg(sock, &mut msg, RECV_FLAGS) };
         if n < 0 {
             self.buf.truncate(old);
             return Err(Fault::Io(io::Error::last_os_error()));
@@ -93,8 +128,10 @@ impl Reader {
                     let count = ((*c).cmsg_len as usize - libc::CMSG_LEN(0) as usize)
                         / std::mem::size_of::<RawFd>();
                     for i in 0..count {
-                        self.fds
-                            .push_back(OwnedFd::from_raw_fd(data.add(i).read_unaligned()));
+                        let fd = data.add(i).read_unaligned();
+                        #[cfg(not(target_os = "linux"))]
+                        libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+                        self.fds.push_back(OwnedFd::from_raw_fd(fd));
                     }
                 }
                 c = libc::CMSG_NXTHDR(&msg, c);
@@ -172,7 +209,7 @@ pub fn send(sock: RawFd, data: &[u8], fd: Option<RawFd>) -> io::Result<usize> {
         }
     }
     // SAFETY: valid msghdr over live buffers.
-    let n = unsafe { libc::sendmsg(sock, &msg, libc::MSG_NOSIGNAL) };
+    let n = unsafe { libc::sendmsg(sock, &msg, SEND_FLAGS) };
     if n < 0 {
         Err(io::Error::last_os_error())
     } else {

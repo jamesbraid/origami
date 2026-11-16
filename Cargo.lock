@@ -4735,6 +4735,7 @@ dependencies = [
  "libc",
  "memmap2",
  "origami-display",
+ "origami-engine",
 ]
 
 [[package]]

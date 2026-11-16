@@ -10,3 +10,6 @@ license = "BSD-3-Clause"
 origami-display = { path = "../origami-display" }
 libc = "0.2"
 memmap2 = "0.9"
+
+[dev-dependencies]
+origami-engine = { path = "../origami-engine" }
