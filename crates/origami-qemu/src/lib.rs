@@ -15,6 +15,7 @@ pub mod graphics;
 pub mod init;
 #[cfg(test)]
 mod preset_tests;
+pub mod runner_engine;
 pub mod runtime;
 pub mod settings;
 pub mod shares;
@@ -26,6 +27,7 @@ pub use catalogue::{offering_data, OfferingData};
 pub use control::connect_console;
 pub use engine::QemuEngine;
 pub use init::InitTool;
+pub use runner_engine::RunnerEngine;
 pub use runtime::Runtime;
 
 /// The machine list of the QEMU that launches guests.

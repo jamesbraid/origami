@@ -7,6 +7,7 @@ rust-version = "1.95"
 license = "BSD-3-Clause"
 
 [dependencies]
+origami-display = { path = "../origami-display" }
 origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }
 qapi = { version = "0.15", features = ["qmp"] }
