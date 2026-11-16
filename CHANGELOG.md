@@ -17,6 +17,7 @@ Features:
 - Settings: `--set` takes the inputs the preset lists as settings, each checked for its kind of value. A list takes a slot, as in `--set chassis-eeprom.0=FILE`. `origami machines PRESET` lists them. A CPU input is `prid` or `fpu-id` instead of one name for each CPU part. `l2-controller` is listed but refused: the CLI starts no such process.
 - CPU clock: `--processor` also picks the clock of an Origin 3200, 3400 or Onyx 3000.
 - origami-gui: a viewer that draws each machine's graphics from shared memory (`run --display shm`), with serial and log views and controls. It is a testbed outside the release build: select it with `cargo build -p origami-gui`.
+- Headless machines: a machine created without graphics (`--graphics none`) gets the serial line as its PROM console, since the PROM's default is the graphics head and a headless Octane2 panics installing from CD. A new machine's NVRAM is blank until the PROM has run, so the setting waits in `machine.toml` as `[firstboot]` and applies once the PROM has initialised the NVRAM. Machines whose NVRAM `origami nvram` does not edit, such as the O2, are unchanged.
 - reset and stop --force: `origami reset DIR` resets a running guest, and `origami stop --force DIR` kills QEMU at once. `state/run.json` records QEMU's own pid as `qemu_pid`.
 
 Changed:

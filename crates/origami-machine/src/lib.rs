@@ -373,6 +373,9 @@ pub struct MachineFile {
     /// The firmware images that seeded the stores, where known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub firmware: Option<model::FirmwareRecord>,
+    /// Settings applied once the PROM has initialised the machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub firstboot: Option<model::FirstBoot>,
     /// Which engine runs the machine, and the options only it reads.
     pub engine: model::EngineChoice,
 }
@@ -433,6 +436,7 @@ impl From<LegacyFile> for MachineFile {
             drive: old.drive,
             share: old.share,
             firmware: None,
+            firstboot: None,
             engine: model::EngineChoice::qemu(&old.qemu.extra_args),
         }
     }
@@ -1396,6 +1400,7 @@ mod tests {
             drive: vec![],
             share: vec![],
             firmware: None,
+            firstboot: None,
             engine: model::EngineChoice::qemu(&[]),
         };
         let error = set_machine_mac(

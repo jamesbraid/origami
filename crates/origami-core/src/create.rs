@@ -5,7 +5,8 @@ use crate::spec::MachineSpec;
 use crate::{Change, Report};
 use origami_engine::{Engine, EngineStores};
 use origami_machine::{
-    graphics, preset, profiles, validate_create_inputs, Identity, MachineInit, Result,
+    graphics, nvram, preset, profiles, read_machine, validate_create_inputs, write_machine,
+    Identity, MachineInit, Offering, Result,
 };
 use std::fs;
 
@@ -96,6 +97,20 @@ pub fn create(engine: &dyn Engine, spec: &MachineSpec) -> Result<Report> {
         inputs,
     )?;
     drop(emu_ids);
+    // A machine that can have graphics but has none shows nothing on the
+    // PROM's default console.
+    let headless = pipe_count == 0 && graphics::record(machines, &offer.topology).is_some();
+    let console = if headless {
+        match prefer_serial_console(&spec.dir, offer) {
+            Ok(console) => Some(console),
+            Err(error) => {
+                let _ = fs::remove_dir_all(&spec.dir);
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
     let mut changes: Vec<Change> = spec
         .network
         .iter()
@@ -111,6 +126,13 @@ pub fn create(engine: &dyn Engine, spec: &MachineSpec) -> Result<Report> {
     }
     let mut report = Report::default();
     report.result(format!("created {}", spec.dir.display()));
+    match console {
+        Some(nvram::Console::Set) => report.detail("the PROM console is the serial line"),
+        Some(nvram::Console::Deferred) => report.detail(
+            "the PROM console becomes the serial line when the PROM first initialises the NVRAM",
+        ),
+        _ => {}
+    }
     if nodes_added {
         report.detail(format!(
             "{pipe_count} graphics pipes need {} nodes, so the machine has {} nodes",
@@ -124,4 +146,15 @@ pub fn create(engine: &dyn Engine, spec: &MachineSpec) -> Result<Report> {
         ));
     }
     Ok(report)
+}
+
+/// Make the serial line the PROM console of the new machine in `dir`,
+/// recording it for the first boot where the NVRAM is still blank.
+fn prefer_serial_console(dir: &std::path::Path, offering: &Offering) -> Result<nvram::Console> {
+    let mut file = read_machine(dir)?;
+    let console = nvram::prefer_serial_console(dir, offering, &mut file)?;
+    if console == nvram::Console::Deferred {
+        write_machine(dir, &file)?;
+    }
+    Ok(console)
 }

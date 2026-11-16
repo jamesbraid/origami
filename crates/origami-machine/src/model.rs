@@ -44,7 +44,19 @@ pub struct Machine {
     pub settings: BTreeMap<String, String>,
     /// The catalogue's firmware images that seeded the stores, where known.
     pub firmware: Option<FirmwareRecord>,
+    /// Settings still to apply once the PROM has initialised the machine.
+    pub firstboot: Option<FirstBoot>,
     pub engine: EngineChoice,
+}
+
+/// Settings a new machine cannot take until its PROM has run once, because
+/// the PROM writes its environment into a blank NVRAM at its first boot.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FirstBoot {
+    /// PROM environment variables, as `origami nvram` names them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub nvram: BTreeMap<String, String>,
 }
 
 /// The firmware images that seeded a machine's stores, by the catalogue's
@@ -208,6 +220,7 @@ impl Machine {
             identity: file.identity.clone(),
             settings: file.machine.inputs.clone(),
             firmware: file.firmware.clone(),
+            firstboot: file.firstboot.clone(),
             engine: file.engine.clone(),
         })
     }
@@ -242,6 +255,7 @@ impl Machine {
             identity,
             settings,
             firmware: None,
+            firstboot: None,
             engine: EngineChoice::qemu(&[]),
         }
     }
@@ -267,6 +281,7 @@ impl Machine {
             drive: self.drives.clone(),
             share: self.shares.clone(),
             firmware: self.firmware.clone(),
+            firstboot: self.firstboot.clone(),
             engine: self.engine.clone(),
         }
     }
@@ -305,6 +320,7 @@ mod tests {
             drive: vec![],
             share: vec![],
             firmware: None,
+            firstboot: None,
             engine: EngineChoice::qemu(&["-global".into(), "x.y=z".into()]),
         };
         let machine = Machine::from_file(&machines, &file).unwrap();

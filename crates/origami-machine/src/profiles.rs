@@ -343,6 +343,7 @@ mod tests {
             drive: vec![],
             share: vec![],
             firmware: None,
+            firstboot: None,
             engine: crate::model::EngineChoice::qemu(&[]),
         }
     }

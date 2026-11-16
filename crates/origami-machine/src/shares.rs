@@ -365,6 +365,7 @@ mod tests {
                 path: std::env::temp_dir(),
             }],
             firmware: None,
+            firstboot: None,
             engine: crate::model::EngineChoice::qemu(&[]),
         }
     }

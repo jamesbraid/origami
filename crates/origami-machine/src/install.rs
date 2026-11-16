@@ -1396,6 +1396,7 @@ mod tests {
             drive: vec![],
             share: vec![],
             firmware: None,
+            firstboot: None,
             engine: crate::model::EngineChoice::qemu(&[]),
         };
         let config_one = config(&dir, &file, &media).unwrap();
@@ -1545,6 +1546,7 @@ mod tests {
             drive: vec![],
             share: vec![],
             firmware: None,
+            firstboot: None,
             engine: crate::model::EngineChoice::qemu(&[]),
         };
         let document = with_addons_loaded(&config(&dir, &file, &configured).unwrap());
@@ -2011,6 +2013,7 @@ mod tests {
             drive: vec![],
             share: vec![],
             firmware: None,
+            firstboot: None,
             engine: crate::model::EngineChoice::qemu(&[]),
         };
         config(Path::new("/machine"), &file, media).unwrap()

@@ -4,7 +4,10 @@
 #[path = "../support/mod.rs"]
 mod support;
 
-use origami_core::{apply_changes, create, Change, DriveKind, DriveRequest, MachineSpec};
+use origami_core::{
+    apply_changes, apply_first_boot, create, nvram_read, Change, DriveKind, DriveRequest,
+    MachineSpec,
+};
 use origami_qemu::{QemuEngine, Runtime};
 use std::collections::BTreeMap;
 use std::fs;
@@ -123,4 +126,63 @@ fn a_failing_step_leaves_machine_toml_and_the_stores_untouched() {
 
     apply_changes(&engine, &dir, &[attach(2)]).unwrap();
     assert_ne!(snapshot(&dir), before);
+}
+
+/// An Octane PROM's NVRAM after its first boot: console `g`.
+const OCTANE_NVRAM: &[u8] = include_bytes!("../fixtures/nvram/octane-ip30prom-4.17.raw");
+
+fn console(dir: &Path) -> String {
+    let report = nvram_read(&engine(), dir, Some("console")).unwrap();
+    report.rendered().map(|(_, line)| line).collect()
+}
+
+#[test]
+fn a_machine_without_graphics_takes_the_serial_console_once_its_prom_has_run() {
+    let root = root();
+    let prom = support::synthetic_prom(root);
+    let dir = root.join("headless").join("octane2");
+    let mut spec = MachineSpec::new(&dir, "octane2-vpro");
+    spec.firmware.boot_prom = Some(prom);
+    spec.graphics.product = Some("none".into());
+    create(&engine(), &spec).unwrap();
+    let dir = fs::canonicalize(&dir).unwrap();
+
+    // The new NVRAM is blank, so the setting waits in machine.toml.
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(
+        text.contains("[firstboot.nvram]\nconsole = \"d\"\n"),
+        "{text}"
+    );
+    assert!(apply_first_boot(&engine(), &dir)
+        .unwrap()
+        .rendered()
+        .next()
+        .is_none());
+    assert_eq!(fs::read_to_string(dir.join("machine.toml")).unwrap(), text);
+
+    // The PROM writes its defaults, which put the console on the graphics head.
+    fs::write(dir.join("state/nvram0.raw"), OCTANE_NVRAM).unwrap();
+    assert_eq!(console(&dir), "console=g");
+    let report = apply_first_boot(&engine(), &dir).unwrap();
+    assert_eq!(report.rendered().next().unwrap().1, "console=d");
+    assert_eq!(console(&dir), "console=d");
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(!text.contains("firstboot"), "{text}");
+    assert!(apply_first_boot(&engine(), &dir)
+        .unwrap()
+        .rendered()
+        .next()
+        .is_none());
+}
+
+#[test]
+fn a_machine_with_graphics_keeps_the_proms_console() {
+    let root = root();
+    let prom = support::synthetic_prom(root);
+    let dir = root.join("graphical").join("octane2");
+    let mut spec = MachineSpec::new(&dir, "octane2-vpro");
+    spec.firmware.boot_prom = Some(prom);
+    create(&engine(), &spec).unwrap();
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(!text.contains("firstboot"), "{text}");
 }

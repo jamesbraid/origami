@@ -11,6 +11,7 @@
 
 mod change;
 mod create;
+mod first_boot;
 mod inspect;
 mod install;
 mod report;
@@ -20,6 +21,7 @@ mod upgrade;
 
 pub use change::{apply_change, apply_changes, nvram_read, Change};
 pub use create::create;
+pub use first_boot::apply_first_boot;
 pub use inspect::{check, directory, listing, open, show, validate, Loaded};
 pub use install::{install_addon, install_check, install_init, InstallAddon, InstallInit};
 pub use report::{Incomplete, Kind, Line, Report, Stream};

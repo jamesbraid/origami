@@ -426,6 +426,85 @@ pub fn open(dir: &Path, offering: &Offering) -> Result<Store> {
     Ok(store)
 }
 
+/// What [`prefer_serial_console`] did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Console {
+    /// The PROM had initialised the store, and its console is now the serial line.
+    Set,
+    /// The PROM has not run yet; the setting waits in `[firstboot]`.
+    Deferred,
+    /// The PROM keeps its environment where `origami nvram` cannot reach.
+    Unsupported,
+}
+
+/// The PROM variable that picks the console, and its value for the serial
+/// line. A PROM defaults to the graphics head, so a machine without one
+/// needs this to show anything.
+const SERIAL_CONSOLE: (&str, &str) = ("console", "d");
+
+/// Make the serial line `dir`'s PROM console. A blank NVRAM cannot take it
+/// before the PROM has run, so then `file` records it as a first-boot
+/// setting, which [`apply_first_boot`] applies later. The caller holds the
+/// edit lock and writes `file`.
+pub fn prefer_serial_console(
+    dir: &Path,
+    offering: &Offering,
+    file: &mut crate::MachineFile,
+) -> Result<Console> {
+    let Ok(layout) = Layout::for_offering(offering) else {
+        return Ok(Console::Unsupported);
+    };
+    let path = store_path(dir);
+    let data =
+        fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let mut store =
+        Store::new(layout, data).map_err(|error| format!("{}: {error}", path.display()))?;
+    if !layout.initialised(store.bytes()) {
+        let (name, value) = SERIAL_CONSOLE;
+        file.firstboot
+            .get_or_insert_with(Default::default)
+            .nvram
+            .insert(name.into(), value.into());
+        return Ok(Console::Deferred);
+    }
+    store.check()?;
+    store.set(SERIAL_CONSOLE.0, SERIAL_CONSOLE.1)?;
+    save(dir, &store)?;
+    Ok(Console::Set)
+}
+
+/// Apply the first-boot NVRAM settings in `file` if the PROM has initialised
+/// the store, and drop them from `file`. Returns the settings applied, none
+/// when the PROM has not run yet. The caller holds the edit lock and writes
+/// `file`.
+pub fn apply_first_boot(
+    dir: &Path,
+    offering: &Offering,
+    file: &mut crate::MachineFile,
+) -> Result<Vec<(String, String)>> {
+    let Some(firstboot) = file.firstboot.as_ref().filter(|f| !f.nvram.is_empty()) else {
+        return Ok(vec![]);
+    };
+    let layout = Layout::for_offering(offering)?;
+    let path = store_path(dir);
+    let data =
+        fs::read(&path).map_err(|error| format!("cannot read {}: {error}", path.display()))?;
+    let mut store =
+        Store::new(layout, data).map_err(|error| format!("{}: {error}", path.display()))?;
+    if !layout.initialised(store.bytes()) {
+        return Ok(vec![]);
+    }
+    store.check()?;
+    let mut applied = vec![];
+    for (name, value) in &firstboot.nvram {
+        store.set(name, value)?;
+        applied.push((name.clone(), value.clone()));
+    }
+    save(dir, &store)?;
+    file.firstboot = None;
+    Ok(applied)
+}
+
 /// Replace `dir`'s store with `store`, so an interrupted write leaves the
 /// old one in place.
 pub fn save(dir: &Path, store: &Store) -> Result<()> {
@@ -613,5 +692,77 @@ mod tests {
         damaged[0x20] ^= 1;
         let error = store(Layout::BaseIo, &damaged).check().unwrap_err();
         assert!(error.to_string().contains("checksum"), "{error}");
+    }
+
+    fn octane() -> Offering {
+        let mut offering = crate::preset(&crate::test_machines(), "octane-impact")
+            .unwrap()
+            .clone();
+        offering.topology = "octane2".into();
+        offering.storage = vec![crate::StorageItem {
+            name: STORE.into(),
+            size: 0x200,
+            initial: "zero".into(),
+            read_only: false,
+        }];
+        offering
+    }
+
+    fn blank_machine(nvram: &[u8]) -> (tempfile::TempDir, crate::MachineFile) {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("state")).unwrap();
+        fs::write(store_path(dir.path()), nvram).unwrap();
+        let file = crate::MachineFile::parse(
+            "format = 5\n[machine]\nmodel = \"octane2\"\nnodes = 1\ncpus_per_node = 1\n\
+             memory_per_node = \"256MiB\"\n[engine]\nid = \"qemu\"\n",
+        )
+        .unwrap();
+        (dir, file)
+    }
+
+    #[test]
+    fn the_serial_console_is_set_at_once_in_a_store_the_prom_has_written() {
+        let (dir, mut file) = blank_machine(OCTANE);
+        let done = prefer_serial_console(dir.path(), &octane(), &mut file).unwrap();
+        assert_eq!(done, Console::Set);
+        assert!(file.firstboot.is_none());
+        let store = open(dir.path(), &octane()).unwrap();
+        assert_eq!(store.get("console").unwrap().1, "d");
+    }
+
+    #[test]
+    fn the_serial_console_waits_in_the_file_while_the_store_is_blank() {
+        let (dir, mut file) = blank_machine(&[0; 0x200]);
+        let done = prefer_serial_console(dir.path(), &octane(), &mut file).unwrap();
+        assert_eq!(done, Console::Deferred);
+        assert_eq!(fs::read(store_path(dir.path())).unwrap(), [0; 0x200]);
+        assert_eq!(file.firstboot.as_ref().unwrap().nvram["console"], "d");
+        // Nothing applies until the PROM has run.
+        assert!(apply_first_boot(dir.path(), &octane(), &mut file)
+            .unwrap()
+            .is_empty());
+        assert!(file.firstboot.is_some());
+        fs::write(store_path(dir.path()), OCTANE).unwrap();
+        let applied = apply_first_boot(dir.path(), &octane(), &mut file).unwrap();
+        assert_eq!(applied, [("console".to_string(), "d".to_string())]);
+        assert!(file.firstboot.is_none());
+        assert_eq!(
+            open(dir.path(), &octane())
+                .unwrap()
+                .get("console")
+                .unwrap()
+                .1,
+            "d"
+        );
+    }
+
+    #[test]
+    fn a_prom_whose_environment_is_out_of_reach_gets_no_setting() {
+        let (dir, mut file) = blank_machine(&[0; 0x200]);
+        let mut o2 = octane();
+        o2.topology = "o2".into();
+        let done = prefer_serial_console(dir.path(), &o2, &mut file).unwrap();
+        assert_eq!(done, Console::Unsupported);
+        assert!(file.firstboot.is_none());
     }
 }

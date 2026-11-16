@@ -26,6 +26,7 @@ fn file(o: &Offering) -> MachineFile {
         drive: vec![],
         share: vec![],
         firmware: None,
+        firstboot: None,
         engine: origami_machine::model::EngineChoice::qemu(&[]),
     }
 }
