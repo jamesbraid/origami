@@ -11,7 +11,7 @@ use super::event::{EventKind, Slot};
 use super::operation::{self, Control as OpControl, Operation};
 use origami_engine::{
     ConsoleIo, Control, CursorInfo, DisplayEndpoint, DisplayRequest, Engine, Frame, FrameSource,
-    InputEvent, Key, PointerButton, RunState, Session, Stop, Wiring,
+    FrameStats, InputEvent, Key, PointerButton, RunState, Session, Stop, Wiring,
 };
 use origami_machine::dir::MachineDir;
 use origami_machine::model;
@@ -340,6 +340,19 @@ impl Machine {
 
     pub fn cursor(&self, head: usize, known_gen: u32) -> CoreResult<Option<CursorInfo>> {
         Ok(self.inner.frames()?.cursor(head, known_gen))
+    }
+
+    /// Frame counters of the display client, for tests of zero copy.
+    pub fn frame_stats(&self) -> Option<FrameStats> {
+        self.inner.frames().ok()?.stats()
+    }
+
+    /// Tell the engine whether any view shows the machine. While hidden it
+    /// sends no frame wake-ups; showing it again wakes once if it changed.
+    pub fn set_visible(&self, visible: bool) {
+        if let Ok(frames) = self.inner.frames() {
+            frames.set_visible(visible);
+        }
     }
 
     /// Call `hook` from an engine thread whenever a head has news, with no

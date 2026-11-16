@@ -21,6 +21,18 @@ pub struct HeadInfo {
     pub active: bool,
 }
 
+/// What a display client has moved, for a test of zero copy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameStats {
+    pub frames: u64,
+    /// Lines handed out, copied or imported.
+    pub lines: u64,
+    /// Lines the GPU reads in place, a part of `lines`.
+    pub imported_lines: u64,
+    /// Pixel bytes the client copied out of shared memory.
+    pub copied_bytes: u64,
+}
+
 /// The rows of a head that changed since the last [`Engine::take_frame`] of
 /// that head.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -335,6 +335,17 @@ fn release_all_keys_lifts_what_is_held_and_reaches_the_engine() {
 }
 
 #[test]
+fn hiding_a_machine_reaches_its_frame_source() {
+    let f = fixture();
+    let (machine, session) = f.started("m");
+    assert!(session.frames_visible());
+    machine.set_visible(false);
+    assert!(!session.frames_visible());
+    machine.set_visible(true);
+    assert!(session.frames_visible());
+}
+
+#[test]
 fn the_console_keeps_a_ring_that_several_readers_can_follow() {
     let f = fixture_with(None, 32);
     let (machine, session) = f.started("m");

@@ -530,6 +530,19 @@ impl FrameSource for Shown {
         self.display.cursor(head, known_gen)
     }
 
+    fn set_visible(&self, visible: bool) {
+        Shown::set_visible(self, visible);
+    }
+
+    fn stats(&self) -> Option<origami_engine::FrameStats> {
+        let s = self.display.stats();
+        Some(origami_engine::FrameStats {
+            frames: s.frames,
+            lines: s.lines,
+            imported_lines: s.imported_lines,
+            copied_bytes: s.copied_bytes,
+        })
+    }
 }
 
 /// How much of `serial.log` primes a console that connects to a guest that

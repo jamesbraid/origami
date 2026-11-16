@@ -33,8 +33,8 @@ pub use session::{
 pub use sink::InputSink;
 pub use stores::EngineStores;
 pub use types::{
-    ConsoleKind, ConsoleLink, CursorInfo, Frame, FrameUpdate, GpuMemory, HeadInfo, ImportedUpdate,
-    MachineId, Power, Result, Wake,
+    ConsoleKind, ConsoleLink, CursorInfo, Frame, FrameStats, FrameUpdate, GpuMemory, HeadInfo,
+    ImportedUpdate, MachineId, Power, Result, Wake,
 };
 
 /// The offerings an engine runs, with its data for each.

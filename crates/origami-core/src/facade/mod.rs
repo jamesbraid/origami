@@ -28,7 +28,9 @@ pub use machine::{
 };
 pub use operation::{Operation, OperationState};
 
-pub use origami_engine::{Control, CursorInfo, Frame, FrameUpdate, InputEvent, Key, PointerButton};
+pub use origami_engine::{
+    Control, CursorInfo, Frame, FrameStats, FrameUpdate, InputEvent, Key, PointerButton,
+};
 
 #[cfg(test)]
 mod tests;

@@ -44,6 +44,15 @@ pub trait FrameSource: Send + Sync {
     fn cursor(&self, _head: usize, _known_gen: u32) -> Option<crate::CursorInfo> {
         None
     }
+
+    /// Whether anyone is looking. A source that is told asks its engine for
+    /// no wake-ups while hidden and one when shown again if it changed.
+    fn set_visible(&self, _visible: bool) {}
+
+    /// What the source has moved so far, if it counts.
+    fn stats(&self) -> Option<crate::FrameStats> {
+        None
+    }
 }
 
 /// A serial line of the machine.

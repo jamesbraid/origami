@@ -9,10 +9,10 @@
 //! [`crate::contract`] passes on it.
 
 use crate::{
-    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, DiskFormat,
-    DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats, DriveKind, Engine, EngineInfo,
-    Facts, Frame, FrameSource, FrameUpdate, HeadInfo, IdentityKind, InputEvent, LaunchPlan,
-    MachineId, Report, Result, RunState, Session, Stop, Wake, Wiring,
+    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, CursorInfo,
+    DiskFormat, DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats, DriveKind, Engine,
+    EngineInfo, Facts, Frame, FrameSource, FrameUpdate, HeadInfo, IdentityKind, InputEvent,
+    LaunchPlan, MachineId, Report, Result, RunState, Session, Stop, Wake, Wiring,
 };
 use origami_machine::dir::MachineDir;
 use origami_machine::model::Machine;
@@ -351,6 +351,18 @@ impl FakeSession {
         (self.wake)(self.id);
     }
 
+    /// Whether the front end last told the frame source it is shown.
+    pub fn frames_visible(&self) -> bool {
+        self.frames.visible.load(Ordering::Acquire)
+    }
+
+    /// The guest shows a cursor: 8 by 8 opaque white, hot spot at its top
+    /// left, with its hot spot at (`x`, `y`) in the picture.
+    pub fn show_cursor(&self, x: i32, y: i32) {
+        *self.frames.cursor.lock().unwrap() = Some((x, y));
+        (self.wake)(self.id);
+    }
+
     /// The guest dies with `code`, having said `message` last.
     pub fn crash(&self, code: i32, message: &str) {
         self.exit(Some(code), Some(message.into()));
@@ -499,6 +511,8 @@ impl Session for FakeSession {
 /// (x, y) at picture number `seq` is the bytes `[seq, y, x, 0]`.
 struct Frames {
     heads: Mutex<Vec<HeadState>>,
+    cursor: Mutex<Option<(i32, i32)>>,
+    visible: AtomicBool,
 }
 
 struct HeadState {
@@ -510,6 +524,8 @@ struct HeadState {
 impl Frames {
     fn new(heads: usize) -> Self {
         Self {
+            cursor: Mutex::new(None),
+            visible: AtomicBool::new(true),
             heads: Mutex::new(
                 (0..heads)
                     .map(|_| HeadState {
@@ -562,6 +578,25 @@ impl FrameSource for Frames {
                 active: true,
             })
             .collect()
+    }
+
+    fn set_visible(&self, visible: bool) {
+        self.visible.store(visible, Ordering::Release);
+    }
+
+    fn cursor(&self, _head: usize, known_gen: u32) -> Option<CursorInfo> {
+        let (x, y) = (*self.cursor.lock().unwrap())?;
+        Some(CursorInfo {
+            on: true,
+            x,
+            y,
+            hot_x: 0,
+            hot_y: 0,
+            width: 8,
+            height: 8,
+            gen: 1,
+            image: (known_gen != 1).then(|| vec![0xff; 8 * 8 * 4]),
+        })
     }
 
     fn take_frame(&self, head: usize, pixels: &mut Vec<u8>) -> Option<Frame> {
