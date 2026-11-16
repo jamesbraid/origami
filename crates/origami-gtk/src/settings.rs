@@ -136,7 +136,7 @@ fn build_machine_dialog(
             let f = &l.file;
             let hw = adw::PreferencesPage::builder()
                 .title("Processor & Memory")
-                .icon_name("cpu-symbolic")
+                .icon_name("system-run-symbolic")
                 .build();
             let g = adw::PreferencesGroup::builder()
                 .title("Processor and memory")

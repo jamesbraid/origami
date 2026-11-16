@@ -9,6 +9,7 @@
 //!   ping | state | stats | cursor [MACHINE] | release-keys [MACHINE]
 //!   invoke COMMAND [MACHINE]      run a command as a menu item would
 //!   open MACHINE | select MACHINE
+//!   change memory N | cpus N | network MODE | forward NAME HOST GUEST | share NAME DIR
 //!   compare NAME [MACHINE]        the picture shown, against QMP screendump
 //!   quit                          stop every machine and exit
 
@@ -16,6 +17,7 @@ use crate::app::{self, App, Msg};
 use crate::machine::MachineUi;
 use crate::window;
 use adw::prelude::*;
+use origami_core::{Change, NetworkChange, NetworkMode};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
@@ -254,6 +256,57 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 })
                 .collect();
             json!({"machines": ms, "cpu_s": cpu_seconds(), "gpu": app.dev.as_ref().map(|d| d.describe())})
+        }
+        "change" => {
+            // The same core call Settings makes, for tests that cannot click
+            // through a dialog: change memory|cpus|network|forward|share ...
+            let Some(m) = machine(app, None) else {
+                return json!({"error": "no machine"});
+            };
+            let args: Vec<&str> = line.split_whitespace().skip(2).collect();
+            let num = |i: usize| args.get(i).and_then(|v| v.parse::<u32>().ok()).unwrap_or(0);
+            let change = match (a1, args.first()) {
+                (Some("memory"), Some(_)) => Change::SetMemory(num(0)),
+                (Some("cpus"), Some(_)) => Change::SetProcessor {
+                    module: None,
+                    cpus_per_node: Some(num(0)),
+                },
+                (Some("network"), Some(mode)) => {
+                    let mode = match *mode {
+                        "private" => NetworkMode::Private,
+                        "none" => NetworkMode::None,
+                        _ => NetworkMode::User,
+                    };
+                    Change::SetNetwork(NetworkChange {
+                        mode,
+                        endpoint: None,
+                        interface: None,
+                        share_address: None,
+                        subnet: None,
+                        mac: None,
+                    })
+                }
+                (Some("forward"), Some(name)) => Change::AddForward(origami_machine::PortForward {
+                    name: (*name).into(),
+                    protocol: "tcp".into(),
+                    host_port: num(1) as u16,
+                    guest_port: num(2) as u16,
+                }),
+                (Some("share"), Some(name)) => Change::AddShare {
+                    name: (*name).into(),
+                    host_dir: args.get(1).unwrap_or(&".").into(),
+                },
+                _ => {
+                    return json!({"error": "change memory N | cpus N | network MODE | forward NAME HOST GUEST | share NAME DIR"})
+                }
+            };
+            let r = origami_core::apply_change(&*app.engine, &m.dir, &change);
+            *m.entry.borrow_mut() = crate::library::read(&m.dir);
+            window::rebuild_hero(&m);
+            match r {
+                Ok(_) => json!({"ok": true}),
+                Err(e) => json!({"error": e.to_string()}),
+            }
         }
         "release-keys" => {
             let Some(m) = machine(app, a1) else {

@@ -415,7 +415,42 @@ def first_light(quick=False):
         a.stop()
 
 
-SCENARIOS = {"first-light": first_light, "pointer": lambda: first_light(True)}
+def settings():
+    """Edits go through the core: a stopped machine takes them and its file
+    changes; a running one refuses."""
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        toml_path = os.path.join(lib, "octane2", "machine.toml")
+        read = lambda: open(toml_path).read()
+        r = a.req("change memory 512")
+        check("memory changes on a stopped machine", r.get("ok") and "512" in read(), r)
+        r = a.req("change network private")
+        check("network mode changes", r.get("ok") and 'mode = "private"' in read(), r)
+        r = a.req("change forward ssh 2222 22")
+        check("a port forward is added", r.get("ok") and "2222" in read(), r)
+        r = a.req("change memory 99999")
+        check("a memory size the machine does not take is refused", "error" in r, r)
+        a.req("invoke machine.settings octane2")
+        time.sleep(3)
+        shot("settings")
+        key("Escape")
+        a.req("invoke machine.start octane2")
+        a.wait("up", lambda: (a.machine("octane2") or {}).get("state") in ("Starting", "Running"), 30, 0.2)
+        time.sleep(3)
+        r = a.req("change memory 256")
+        check("a running machine refuses an edit", "error" in r and "512" in read(), r)
+        a.req("invoke machine.force-quit octane2")
+        a.wait("down", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+        r = a.req("change memory 256")
+        check("it takes the edit again once stopped", r.get("ok") and "256" in read(), r)
+    finally:
+        a.stop()
+
+
+SCENARIOS = {"settings": settings, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:
