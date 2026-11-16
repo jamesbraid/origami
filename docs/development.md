@@ -204,6 +204,19 @@ leaves fewer heads for the next. The queue-overflow check needs the producer to
 read about 260,000 reports; `CONF_OVERFLOW_SECS` raises its 45 second budget,
 and a skipped check fails the run unless `--allow-skips` is given.
 
+The frame plane speaks version 4 to a QEMU that has the `display-shm` device
+and version 3 to an older one: `qom-list-types` on a machine-less QEMU decides,
+once per QEMU binary. For version 4 the runner listens on `state/display.sock`
+and passes the socket down (`-device display-shm,fd=N`), so a viewer can connect
+before QEMU is ready and the runner removes the socket when the machine ends.
+The viewer's GPU imports the shared-memory slots where it can and lends each
+back when it has read it: Vulkan host memory on Linux (asked for as `RW_PIXELS`,
+because the driver pins host memory for writing) and Metal no-copy on macOS
+(not yet run). Otherwise the changed lines are copied. Windows stays on version
+3 until the version 4 session library and QEMU's producer support it.
+`crates/origami-ffi/tests/qemu_boot.rs` boots an Octane2 and an IRIX desktop
+through the C frame plane on either; its header lists the variables.
+
 ## Licenses and dependency sources
 
 The Origami CLI, Instigator and original Origami additions to QEMU use

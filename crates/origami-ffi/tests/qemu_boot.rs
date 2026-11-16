@@ -5,9 +5,14 @@
 //! server (`DISPLAY`, Xvfb is enough; the window is made as large as the
 //! picture so the draw is 1:1), ImageMagick's `import`, and:
 //!
-//! - ORIGAMI_RUNTIME_DIR: the QEMU runtime tree (a QEMU with display protocol 3)
+//! - ORIGAMI_RUNTIME_DIR: the QEMU runtime tree. A QEMU with the `display-shm`
+//!   device runs display protocol 4, an older one protocol 3; the test says
+//!   which it found.
 //! - ORIGAMI_BIN: the `origami` executable, which creates and runs machines
 //! - ORIGAMI_GUI_TEST_DIR: a directory for the machine
+//! - ORIGAMI_TEST_DISK (optional): an IRIX disk for the desktop phase, used
+//!   only as the read-only backing file of an overlay made here.
+//!   ORIGAMI_TEST_DISK_SHA256 names the hash it must have, checked first.
 //!
 //! `ORIGAMI_GUI_ZERO_COPY=0` runs the copying path. Run it in release mode
 //! with `cargo test -p origami-ffi --release --test qemu_boot -- --ignored --nocapture`;
@@ -414,6 +419,35 @@ fn move_by(dx: i32, dy: i32) -> origami_input_event {
     }
 }
 
+/// The disk's SHA-256, by `sha256sum`.
+fn sha256_of(path: &Path) -> String {
+    let out = Command::new("sha256sum")
+        .arg(path)
+        .output()
+        .expect("sha256sum");
+    assert!(out.status.success(), "sha256sum failed");
+    String::from_utf8_lossy(&out.stdout)
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The display protocol the runtime's QEMU speaks: 4 when it has the
+/// `display-shm` device.
+fn protocol() -> u32 {
+    let qemu = var("ORIGAMI_RUNTIME_DIR").join("qemu-system-mips64");
+    let out = Command::new(qemu)
+        .args(["-device", "help"])
+        .output()
+        .expect("qemu -device help");
+    if String::from_utf8_lossy(&out.stdout).contains("\"display-shm\"") {
+        4
+    } else {
+        3
+    }
+}
+
 /// Where the red arrow of IRIX's pointer is in a screendump: the top left of
 /// its red pixels. Used when the guest's cursor is in the picture itself.
 fn find_arrow(rgb: &[u8], w: u32) -> Option<(i32, i32)> {
@@ -568,6 +602,7 @@ fn irix_phase(rig: &mut Rig, qmp_port: u16, work: &Path) {
     );
 
     // Idle cost with the cursor moving, then with it still.
+    let (moving_from, moving_cpu_from) = (rig.ours_us.len(), rig.cpu_ms.len());
     let ticks0 = thread_ticks();
     let vs0 = rig.view_stats();
     let (wakes0, presents0, cpu0) = (WAKES.load(Ordering::Relaxed), rig.presents, process_cpu());
@@ -602,6 +637,16 @@ fn irix_phase(rig: &mut Rig, qmp_port: u16, work: &Path) {
             eprintln!("MEASURE moving thread {name}: {d} ticks (10 ms each)");
         }
     }
+    let mut ours = rig.ours_us[moving_from..].to_vec();
+    let mut cpu_ms = rig.cpu_ms[moving_cpu_from..].to_vec();
+    eprintln!(
+        "MEASURE moving, our CPU per presented frame: p50 {:.0} us p95 {:.0} us; present-call thread CPU p50 {:.3} ms p95 {:.3} ms; over {} presents",
+        percentile(&mut ours, 0.5),
+        percentile(&mut ours, 0.95),
+        percentile(&mut cpu_ms, 0.5),
+        percentile(&mut cpu_ms, 0.95),
+        ours.len()
+    );
     rig.settle(Duration::from_secs(3), Duration::from_secs(60));
     let (wakes0, presents0, cpu0) = (WAKES.load(Ordering::Relaxed), rig.presents, process_cpu());
     let t = Instant::now();
@@ -611,19 +656,21 @@ fn irix_phase(rig: &mut Rig, qmp_port: u16, work: &Path) {
         }
     }
     let cpu = process_cpu() - cpu0;
+    let wakes = WAKES.load(Ordering::Relaxed) - wakes0;
     eprintln!(
-        "MEASURE idle after the cursor stopped, 10 s: {} wakes, {} presents, {:.1} ms process CPU ({:.2}% of one core)",
-        WAKES.load(Ordering::Relaxed) - wakes0,
+        "MEASURE idle after the cursor stopped, 10 s: {wakes} wakes, {} presents, {:.1} ms process CPU ({:.2}% of one core)",
         rig.presents - presents0,
         cpu * 1e3,
         cpu / 10.0 * 100.0
     );
+    assert_eq!(wakes, 0, "the still desktop woke the viewer");
 }
 
 #[test]
 #[ignore = "starts a machine; see the header"]
 fn an_octane2_boot_reaches_the_window_without_the_cpu_touching_a_pixel() {
     let want_import = std::env::var("ORIGAMI_GUI_ZERO_COPY").map_or(true, |v| v != "0");
+    eprintln!("MEASURE display protocol {}", protocol());
     let work = var("ORIGAMI_GUI_TEST_DIR").join(format!("ffi-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).unwrap();
@@ -643,6 +690,11 @@ fn an_octane2_boot_reaches_the_window_without_the_cpu_touching_a_pixel() {
     // overlay made here, so the original is never written.
     let disk = std::env::var_os("ORIGAMI_TEST_DISK").map(PathBuf::from);
     if let Some(disk) = &disk {
+        let hash = sha256_of(disk);
+        eprintln!("MEASURE disk sha256 {hash}");
+        if let Ok(want) = std::env::var("ORIGAMI_TEST_DISK_SHA256") {
+            assert_eq!(hash, want, "the disk is not the one named");
+        }
         let overlay = work.join("overlay.qcow2");
         let rt = var("ORIGAMI_RUNTIME_DIR").join("qemu-img");
         let made = Command::new(rt)
@@ -778,7 +830,9 @@ fn an_octane2_boot_reaches_the_window_without_the_cpu_touching_a_pixel() {
             "MEASURE IRIX run: frames {} imported lines {} CPU-copied picture bytes {}",
             s.frames, s.imported_lines, s.copied_bytes
         );
-        assert_eq!(s.copied_bytes, 0);
+        if want_import {
+            assert_eq!(s.copied_bytes, 0, "a picture byte was copied by the CPU");
+        }
         unsafe {
             origami_view_detach(rig.view);
             origami_machine_release(machine);
