@@ -105,7 +105,7 @@ struct Run {
     operation: Option<u64>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Held {
     keys: Vec<Key>,
     buttons: Vec<PointerButton>,
@@ -308,7 +308,7 @@ impl Machine {
     /// that lost focus mid-press. Returns how many it released.
     pub fn release_all_keys(&self) -> CoreResult<u32> {
         let session = self.inner.session()?;
-        let held = std::mem::take(&mut *self.inner.held.lock().unwrap());
+        let held = self.inner.held.lock().unwrap().clone();
         let events: Vec<InputEvent> = held
             .keys
             .iter()
@@ -322,6 +322,9 @@ impl Machine {
             return Ok(0);
         }
         session.send_input(&events).map_err(CoreError::engine)?;
+        // Forget the keys only once the guest has been told: after a failed
+        // send they are still down.
+        *self.inner.held.lock().unwrap() = Default::default();
         Ok(events.len() as u32)
     }
 
@@ -550,8 +553,10 @@ impl MachineInner {
     }
 
     fn launch(self: &Arc<Self>, control: &OpControl) -> CoreResult<()> {
-        crate::apply_first_boot(self.engine.as_ref(), self.dir.path())
-            .map_err(CoreError::machine)?;
+        // A convenience setting must not keep the machine from starting.
+        if let Err(error) = crate::apply_first_boot(self.engine.as_ref(), self.dir.path()) {
+            eprintln!("warning: could not apply the first-boot settings: {error}");
+        }
         let report = self.engine.validate(&self.model, &self.dir);
         if let Some(problem) = report.errors().next() {
             return Err(CoreError::new(ErrorKind::Invalid, problem.message.clone()));

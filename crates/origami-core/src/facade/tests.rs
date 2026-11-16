@@ -464,12 +464,10 @@ fn a_start_applies_the_pending_first_boot_settings_first() {
         .replace("id = \"qemu\"", "id = \"fake\"");
     text.push_str("\n[firstboot.nvram]\nconsole = \"d\"\n");
     std::fs::write(&file, text).unwrap();
-    // The fake topology has no NVRAM layout, so the settings cannot apply
-    // and the start says why instead of launching.
+    // The fake topology has no NVRAM layout, so the settings cannot apply;
+    // that is a warning, and the machine still starts.
     let machine = f.core.open_machine(&key).unwrap();
-    let OperationState::Failed(error) = machine.start().unwrap().wait(Some(WAIT)) else {
-        panic!("the start ignored the first-boot settings");
-    };
-    assert!(error.message.contains("nvram"), "{error}");
-    assert_eq!(machine.view().state, MachineState::NotRunning);
+    let state = machine.start().unwrap().wait(Some(WAIT));
+    assert!(matches!(state, OperationState::Succeeded), "{state:?}");
+    assert_ne!(machine.view().state, MachineState::NotRunning);
 }

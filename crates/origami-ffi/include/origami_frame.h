@@ -326,7 +326,9 @@ size_t origami_last_error(char *buf, size_t cap);
 uint32_t origami_frame_abi_version(void);
 
 // Release a machine handle from `origami_machine_open` or
-// `OrigamiMachine.frame_plane_handle`. Null is ignored.
+// `OrigamiMachine.frame_plane_handle`. Null is ignored. Releasing the last
+// handle of a machine clears its wake callback and waits for a running call
+// to finish, so do not release from inside the callback.
 void origami_machine_release(const struct origami_machine *machine);
 
 // Make a core whose machine library is the folder `library_root`. In a

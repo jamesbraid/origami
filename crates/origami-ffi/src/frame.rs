@@ -185,6 +185,10 @@ impl Drop for origami_machine {
         {
             self.machine.remove_frame_hook(hook);
         }
+        // The hooks are gone; clearing the slot also waits for a call that
+        // is already running, so the callback never fires after the last
+        // release returns.
+        *self.callback.write().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 
@@ -233,12 +237,16 @@ unsafe fn text<'a>(p: *const c_char, what: &str) -> Result<&'a str, Fail> {
 }
 
 /// Release a machine handle from `origami_machine_open` or
-/// `OrigamiMachine.frame_plane_handle`. Null is ignored.
+/// `OrigamiMachine.frame_plane_handle`. Null is ignored. Releasing the last
+/// handle of a machine clears its wake callback and waits for a running call
+/// to finish, so do not release from inside the callback.
 #[no_mangle]
 pub unsafe extern "C" fn origami_machine_release(machine: *const origami_machine) {
     if !machine.is_null() {
         // SAFETY: the handle holds one strong count, given up here.
-        drop(unsafe { Arc::from_raw(machine) });
+        let machine = unsafe { Arc::from_raw(machine) };
+        // A panic in a drop must not unwind into C.
+        let _ = catch_unwind(AssertUnwindSafe(move || drop(machine)));
     }
 }
 
@@ -284,7 +292,7 @@ pub unsafe extern "C" fn origami_core_release(core: *mut CoreHandle) {
     if !core.is_null() {
         // SAFETY: made by `origami_core_new`, released once.
         let core = unsafe { Box::from_raw(core) };
-        core.core.shutdown();
+        let _ = catch_unwind(AssertUnwindSafe(move || core.core.shutdown()));
     }
 }
 
@@ -989,7 +997,8 @@ pub unsafe extern "C" fn origami_view_present(
 pub unsafe extern "C" fn origami_view_detach(view: *mut origami_view) {
     if !view.is_null() {
         // SAFETY: made by `origami_view_attach`, detached once.
-        drop(unsafe { Box::from_raw(view) });
+        let view = unsafe { Box::from_raw(view) };
+        let _ = catch_unwind(AssertUnwindSafe(move || drop(view)));
     }
 }
 
