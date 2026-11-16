@@ -229,6 +229,18 @@ pub(crate) fn qmp_ready_timeout() -> Duration {
         .map_or(QMP_READY_TIMEOUT, Duration::from_secs)
 }
 
+/// The display device id and head number of each graphic head, in head order.
+pub fn head_devices(
+    machines: &Machines,
+    offering: &Offering,
+    file: &MachineFile,
+) -> Vec<(String, u32)> {
+    origami_machine::graphics::heads(machines, &offering.topology, &file.pipe)
+        .into_iter()
+        .map(|h| (h.slot, h.head))
+        .collect()
+}
+
 /// Where each head of the machine is served for `--display vnc` from
 /// `port`: the head and its TCP port, in port order. A machine with one
 /// head has the single server a VNC display always had.
@@ -937,6 +949,8 @@ pub struct Launched {
     pub name: String,
     /// Removable drives: guest name and QEMU block device id.
     pub removable: Vec<(String, String)>,
+    /// Each graphic head's display device id and its head number there.
+    pub heads: Vec<(String, u32)>,
     pub display: Option<PathBuf>,
     /// The display protocol the machine speaks, 0 for none: 3 or 4.
     pub display_protocol: u32,
@@ -1113,6 +1127,7 @@ pub fn launch(
         .filter(|(_, drive)| drive.kind == "cdrom")
         .map(|(index, drive)| (drive.name.clone(), format!("drive{index}")))
         .collect();
+    let heads = head_devices(machines, offering, file);
     let mut command = Command::new(qemu);
     command.args(args).current_dir(dir).stdin(Stdio::null());
     // The listening socket is made close-on-exec; QEMU is told its number.
@@ -1148,6 +1163,7 @@ pub fn launch(
                 engine_console,
                 name,
                 removable,
+                heads,
                 display: matches!(display, Display::Shm { .. } | Display::ShmV4 { .. })
                     .then(|| display_socket(dir)),
                 display_protocol: match display {
@@ -1368,9 +1384,11 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-display", "sdl,window-close=off"]));
-        assert!(args
-            .windows(2)
-            .any(|pair| pair == ["-device", "psitech-rad4,bus=pci,addr=5,product=rad4"]));
+        assert!(args.windows(2).any(|pair| pair
+            == [
+                "-device",
+                "psitech-rad4,bus=pci,addr=5,product=rad4,id=pci-5"
+            ]));
         assert!(args.windows(2).any(|pair| pair == ["-serial", "stdio"]));
     }
 
@@ -1976,7 +1994,7 @@ mod tests {
         assert!(args
             .iter()
             .filter(|a| a.starts_with("sgi-mgras,"))
-            .all(|a| !a.contains(",id=")));
+            .all(|a| a.contains(",id=")));
     }
 
     #[test]

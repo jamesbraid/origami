@@ -75,6 +75,8 @@ struct QemuPlan {
     display: Option<PathBuf>,
     /// The drives that take media: guest name and QEMU block device id.
     removable: Vec<(String, String)>,
+    /// Each graphic head's display device id and head number there.
+    heads: Vec<(String, u32)>,
 }
 
 fn display_of(request: DisplayRequest) -> Display {
@@ -237,6 +239,7 @@ impl Engine for QemuEngine {
             display: matches!(display, Display::Shm { .. })
                 .then(|| runtime::display_socket(dir.path())),
             removable,
+            heads: runtime::head_devices(&catalogue, offering, &file),
         };
         Ok(LaunchPlan::new(
             ENGINE,
@@ -313,6 +316,7 @@ impl Engine for QemuEngine {
             record,
             spec.display,
             spec.removable,
+            spec.heads,
             wake,
             None,
         ))
@@ -338,6 +342,7 @@ impl QemuEngine {
             record,
             launched.display.clone(),
             launched.removable.clone(),
+            launched.heads.clone(),
             wake,
             launched.take_display_guard(),
         )
@@ -352,6 +357,7 @@ impl QemuEngine {
         record: Record,
         display: Option<PathBuf>,
         removable: Vec<(String, String)>,
+        heads: Vec<(String, u32)>,
         wake: Wake,
         guard: Option<Box<dyn std::any::Any + Send>>,
     ) -> Arc<dyn Session> {
@@ -367,6 +373,7 @@ impl QemuEngine {
             record,
             display,
             removable,
+            heads,
             console_taken: AtomicBool::new(false),
         });
         std::thread::spawn(move || {
@@ -419,12 +426,26 @@ fn monitor(
     wake(id);
 }
 
+/// QMP takes `head` only with `device`; a machine with no named display
+/// device has just its primary console.
+fn screendump_target(
+    heads: &[(String, u32)],
+    head: usize,
+) -> Result<(Option<String>, Option<i64>)> {
+    match heads.get(head) {
+        Some((device, head)) => Ok((Some(device.clone()), Some(i64::from(*head)))),
+        None if heads.is_empty() && head == 0 => Ok((None, None)),
+        None => Err(format!("head {head} does not exist").into()),
+    }
+}
+
 struct QemuSession {
     id: MachineId,
     inner: Arc<Inner>,
     record: Record,
     display: Option<PathBuf>,
     removable: Vec<(String, String)>,
+    heads: Vec<(String, u32)>,
     console_taken: AtomicBool,
 }
 
@@ -533,10 +554,11 @@ impl Session for QemuSession {
     }
 
     fn screendump(&self, head: usize, path: &Path) -> Result<()> {
+        let (device, head) = screendump_target(&self.heads, head)?;
         self.qmp()?.execute(&qmp::screendump {
             filename: path.display().to_string(),
-            device: None,
-            head: Some(head as i64),
+            device,
+            head,
             format: None,
         })?;
         Ok(())
@@ -593,5 +615,23 @@ impl Session for QemuSession {
             state,
             pid: Some(self.record.qemu_pid),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::screendump_target;
+
+    #[test]
+    fn a_head_is_dumped_with_its_display_device() {
+        let heads = vec![("io4".to_string(), 0), ("io4".to_string(), 1)];
+        assert_eq!(
+            screendump_target(&heads, 1).unwrap(),
+            (Some("io4".into()), Some(1))
+        );
+        assert!(screendump_target(&heads, 2).is_err());
+        // No named device: only the primary console, and no head to give.
+        assert_eq!(screendump_target(&[], 0).unwrap(), (None, None));
+        assert!(screendump_target(&[], 1).is_err());
     }
 }

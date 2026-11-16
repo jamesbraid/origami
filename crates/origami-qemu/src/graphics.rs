@@ -1,7 +1,7 @@
 //! The graphics QEMU is given: the `-M` properties a pipe needs and one
 //! `-device` for each pipe.
 
-use origami_machine::graphics::{channels, record, Pipe, Property};
+use origami_machine::graphics::{record, Pipe, Property};
 use origami_machine::{Machines, Result};
 
 /// The `-M` properties `topology` needs once it has a pipe.
@@ -58,11 +58,9 @@ pub fn arguments(machines: &Machines, topology: &str, pipes: &[Pipe]) -> Result<
                 device.push_str(&format!(",{}={value}", setting.name));
             }
         }
-        // A pipe with several heads is named, so the display arguments can
-        // pick one of them.
-        if channels(machines, topology, pipe) > 1 {
-            device.push_str(&format!(",id={}", pipe.slot));
-        }
+        // Every pipe is named: the display arguments and screendump pick a
+        // head by device id.
+        device.push_str(&format!(",id={}", pipe.slot));
         args.extend(["-device".into(), device]);
     }
     Ok(args)
@@ -105,12 +103,15 @@ mod tests {
         let pipes = select("origin200", 1, request(Some("rad4"), None));
         assert_eq!(
             args("origin200", &pipes),
-            ["-device", "psitech-rad4,bus=pci,addr=5,product=rad4"]
+            [
+                "-device",
+                "psitech-rad4,bus=pci,addr=5,product=rad4,id=pci-5"
+            ]
         );
         let pipes = select("origin2000-rack", 4, request(Some("si"), Some("io3")));
         assert_eq!(
             args("origin2000-rack", &pipes),
-            ["-device", "sgi-mgras,slot=io3,product=si"]
+            ["-device", "sgi-mgras,slot=io3,product=si,id=io3"]
         );
     }
 
