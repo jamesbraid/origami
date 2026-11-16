@@ -76,6 +76,9 @@
 
 #define ORIGAMI_DRAWN_AGAIN 2
 
+// The window is not on screen: the head was drawn offscreen, not presented.
+#define ORIGAMI_DRAWN_OCCLUDED 3
+
 // A key position on a US keyboard, numbered from 0 in this order.
 enum origami_key
 #if defined(__cplusplus) || __STDC_VERSION__ >= 202311L

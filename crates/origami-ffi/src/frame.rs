@@ -978,6 +978,8 @@ pub struct origami_view {
 pub const ORIGAMI_DRAWN_SKIPPED: u32 = 0;
 pub const ORIGAMI_DRAWN_PRESENTED: u32 = 1;
 pub const ORIGAMI_DRAWN_AGAIN: u32 = 2;
+/// The window is not on screen: the head was drawn offscreen, not presented.
+pub const ORIGAMI_DRAWN_OCCLUDED: u32 = 3;
 
 /// Draw `head` of `machine` into the window `surface` names, `width` by
 /// `height` physical pixels at `scale` (2.0 on a Retina display). The view
@@ -1381,6 +1383,7 @@ mod present {
                 Drawn::Presented => ORIGAMI_DRAWN_PRESENTED,
                 Drawn::Skipped => ORIGAMI_DRAWN_SKIPPED,
                 Drawn::Reconfigured => ORIGAMI_DRAWN_AGAIN,
+                Drawn::Occluded => ORIGAMI_DRAWN_OCCLUDED,
             })
         }
     }

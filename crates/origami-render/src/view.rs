@@ -35,6 +35,11 @@ pub enum Drawn {
     /// has no image to give just now (a minimised or covered window). The
     /// caller draws again when it next has something to show.
     Skipped,
+    /// The window system says the window is covered or not shown (Metal
+    /// reports this for any window that is not on screen, headless ones
+    /// included). The head was drawn into an offscreen image of the same
+    /// size and nothing was presented.
+    Occluded,
     /// The swapchain no longer matched the window and was rebuilt. Nothing
     /// was presented; draw again.
     Reconfigured,
@@ -45,6 +50,8 @@ pub struct View {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     blit: Blit,
+    /// The target of a draw while the window is occluded.
+    offscreen: Option<wgpu::Texture>,
     scale: f64,
     visible: bool,
     /// Presents since attach, for the host's statistics.
@@ -126,6 +133,7 @@ impl View {
             surface,
             config,
             blit: Blit::with_format(gpu, format),
+            offscreen: None,
             scale,
             visible: true,
             presents: 0,
@@ -204,10 +212,43 @@ impl View {
             wgpu::CurrentSurfaceTexture::Success(f) => (f, false),
             // Usable now; the swapchain is rebuilt after it is shown.
             wgpu::CurrentSurfaceTexture::Suboptimal(f) => (f, true),
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+            wgpu::CurrentSurfaceTexture::Timeout => {
                 before(&mut enc);
                 gpu.queue.submit([enc.finish()]);
                 return Ok(Drawn::Skipped);
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                before(&mut enc);
+                let size = (self.config.width, self.config.height);
+                let stale = self
+                    .offscreen
+                    .as_ref()
+                    .is_none_or(|t| (t.width(), t.height()) != size);
+                if stale {
+                    self.offscreen = Some(gpu.device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some("occluded view"),
+                        size: wgpu::Extent3d {
+                            width: size.0,
+                            height: size.1,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: self.config.format,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        view_formats: &[],
+                    }));
+                }
+                let target = self
+                    .offscreen
+                    .as_ref()
+                    .unwrap()
+                    .create_view(&Default::default());
+                self.blit
+                    .encode(gpu, &mut enc, &target, size, head, mode, cursor);
+                gpu.queue.submit([enc.finish()]);
+                return Ok(Drawn::Occluded);
             }
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                 before(&mut enc);
