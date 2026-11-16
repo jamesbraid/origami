@@ -1,0 +1,96 @@
+name: package-windows
+
+# The Windows runner has no compiler: Rust is cross-built on Linux, the zip is
+# made on Windows. Needs apps/windows, so it runs by hand and for app/windows.
+on:
+  workflow_dispatch:
+  push:
+    branches: [app/windows]
+    paths: ['xtask/**', '.github/workflows/package-windows.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Cross compiler and Rust
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
+            --target x86_64-pc-windows-gnu
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install the C# generator (the pin crates/origami-ffi/bindings/csharp/gen.sh names)
+        run: |
+          cargo install uniffi-bindgen-cs --locked \
+            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+      - name: Build the Rust parts
+        run: cargo xtask dist --app --platform windows-x86_64 --target x86_64-pc-windows-gnu --prebuild "$PWD/prebuilt"
+      - uses: actions/upload-artifact@v3
+        with:
+          name: windows-prebuilt
+          path: prebuilt
+          if-no-files-found: error
+          retention-days: 3
+
+  windows:
+    if: github.server_url != 'https://github.com'
+    needs: native
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@v3
+        with:
+          name: windows-prebuilt
+          path: prebuilt
+      - name: Install the .NET SDK (user level)
+        shell: powershell
+        run: |
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:RUNNER_TEMP\dotnet"
+      - name: Package
+        run: |
+          export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          prebuilt/xtask.exe dist --app --platform windows-x86_64 --prebuilt prebuilt --out dist
+          ls -la dist
+      - name: Start the extracted package
+        # From a path with spaces, as a user's home may be.
+        shell: powershell
+        run: |
+          $zip = (Get-ChildItem dist\origami-*-app.zip).FullName
+          $root = Join-Path $env:RUNNER_TEMP "origami extract"
+          New-Item -ItemType Directory -Force $root | Out-Null
+          tar -xf $zip -C $root
+          $top = (Get-ChildItem $root).FullName
+          & "$top\bin\origami.exe" version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $out = Join-Path $env:RUNNER_TEMP "selftest-out"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $p = Start-Process -FilePath "$top\app\Origami.exe" -ArgumentList "--selftest","`"$out\selftest.json`"","--library","`"$out\library`"","--create-product","octane2" -WorkingDirectory "$top\app" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(240000)) { $p.Kill(); "self-test did not exit"; exit 99 }
+          if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } elseif (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" }
+          "exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: windows-package
+          path: dist
+          if-no-files-found: warn
