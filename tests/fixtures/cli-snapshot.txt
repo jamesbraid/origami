@@ -1,0 +1,1386 @@
+=== origami --help
+exit 0
+--- stdout
+Experimental SGI emulation
+
+Usage: origami
+       origami <COMMAND>
+
+Commands:
+  machines                List machine presets, or show one preset's graphics and processor choices
+  version                 Show version and Git identity for each bundled executable
+  create                  Create a machine configuration and acquire its verified PROM
+  validate                Check a machine configuration
+  upgrade                 Upgrade a stopped machine created by an earlier Origami
+  show                    Show a machine configuration
+  show-command            Print the QEMU command without starting the guest
+  run                     Start a guest
+  status                  Show whether a machine is running
+  console                 Connect to a background guest's serial console
+  stop                    Stop a background guest
+  drive-create            Create and attach a new system disk
+  drive-attach            Attach an existing disk, CD or tape image; a disk may be a CHD
+  drive-detach            Detach a drive without deleting its image
+  graphics-set            Change a stopped machine's graphics, where its topology allows that
+  console-set             Choose the serial port a stopped guest's console uses
+  nvram                   List or change a stopped machine's PROM environment in its NVRAM
+  network-set             Change networking on a stopped guest
+  network-forward-add     Forward a host loopback port to a guest port
+  network-forward-remove  Remove a port forward
+  share                   Share a host folder with the guest over NFS, or remove a share
+  install-init            Configure install media and private networking without starting the guest
+  install-addon           Add an optional package source to an installation
+  install-check           Check install media without installing IRIX; remote media are only probed
+  install-serve           Serve installation media until stopped
+  install-apply           At Inst>, install the selected profile and its add-ons, then restart
+  help                    Print this message or the help of the given subcommand(s)
+
+Options:
+  -V, --version  Show version and Git identity for each bundled executable
+  -h, --help     Print help
+--- stderr
+=== origami help
+exit 0
+--- stdout
+Experimental SGI emulation
+
+Usage: origami
+       origami <COMMAND>
+
+Commands:
+  machines                List machine presets, or show one preset's graphics and processor choices
+  version                 Show version and Git identity for each bundled executable
+  create                  Create a machine configuration and acquire its verified PROM
+  validate                Check a machine configuration
+  upgrade                 Upgrade a stopped machine created by an earlier Origami
+  show                    Show a machine configuration
+  show-command            Print the QEMU command without starting the guest
+  run                     Start a guest
+  status                  Show whether a machine is running
+  console                 Connect to a background guest's serial console
+  stop                    Stop a background guest
+  drive-create            Create and attach a new system disk
+  drive-attach            Attach an existing disk, CD or tape image; a disk may be a CHD
+  drive-detach            Detach a drive without deleting its image
+  graphics-set            Change a stopped machine's graphics, where its topology allows that
+  console-set             Choose the serial port a stopped guest's console uses
+  nvram                   List or change a stopped machine's PROM environment in its NVRAM
+  network-set             Change networking on a stopped guest
+  network-forward-add     Forward a host loopback port to a guest port
+  network-forward-remove  Remove a port forward
+  share                   Share a host folder with the guest over NFS, or remove a share
+  install-init            Configure install media and private networking without starting the guest
+  install-addon           Add an optional package source to an installation
+  install-check           Check install media without installing IRIX; remote media are only probed
+  install-serve           Serve installation media until stopped
+  install-apply           At Inst>, install the selected profile and its add-ons, then restart
+  help                    Print this message or the help of the given subcommand(s)
+
+Options:
+  -V, --version  Show version and Git identity for each bundled executable
+  -h, --help     Print help
+--- stderr
+=== origami machines --help
+exit 0
+--- stdout
+List machine presets, or show one preset's graphics and processor choices
+
+Usage: origami machines [OPTIONS] [PRESET]
+
+Arguments:
+  [PRESET]  Show this preset in detail
+
+Options:
+      --all   Show every preset in detail
+  -h, --help  Print help
+
+Example: origami machines octane2-vpro
+--- stderr
+=== origami version --help
+exit 0
+--- stdout
+Show version and Git identity for each bundled executable
+
+Usage: origami version
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami create --help
+exit 0
+--- stdout
+Create a machine configuration and acquire its verified PROM
+
+Usage: origami create [OPTIONS] --preset <PRESET> <DIR>
+
+Arguments:
+  <DIR>  Destination machine directory
+
+Options:
+      --preset <PRESET>        Machine preset from origami machines
+      --prom <FILE>            Local boot PROM instead of a download
+      --io-prom <FILE>         Local IO PROM for presets with a BASEIO or GIGAchannel board
+      --processor <ID>         Processor module, for presets that offer a choice (see origami machines)
+      --memory-per-node <MiB>  Memory per node in MiB
+  -h, --help                   Print help
+
+Graphics options:
+      --graphics <PRODUCT>             Graphics product, such as si, v12 or ir2, or none for no graphics; omit for the preset's
+      --graphics-slot <SLOT>           Slot for the pipe, such as io3 or widget-11; omit for the preset's or the machine's usual slot
+      --graphics-pipes <N>             How many pipes of that product the machine fits, such as 4 for an Onyx 3400; see origami machines PRESET for its limit
+      --graphics-setting <NAME=VALUE>  A pipe setting other than its default, such as rm-count=1; repeatable
+
+Hardware options:
+      --mac <MAC>                The machine's Ethernet address, for its identity and onboard network
+      --emu-id <N>               The machine's emu-id, 1 to 2999, which its host id and, unless --mac is given, its Ethernet address derive from. Without it `create` takes the lowest free number; 3000 and up are reserved for harness and CI machines
+      --set <NAME[.SLOT]=VALUE>  Give a machine input its preset takes, such as board-id-word=0x4000, prid=0xe24 or, for a list, chassis-eeprom.0=FILE; repeatable. origami machines PRESET lists them
+
+Example: origami create o200 --preset origin200-1
+--- stderr
+=== origami validate --help
+exit 0
+--- stdout
+Check a machine configuration
+
+Usage: origami validate <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami upgrade --help
+exit 0
+--- stdout
+Upgrade a stopped machine created by an earlier Origami
+
+Usage: origami upgrade [OPTIONS] <DIR>
+
+Arguments:
+  <DIR>  
+
+Options:
+      --prom <FILE>     Local boot PROM instead of a download, for a machine that needs one
+      --io-prom <FILE>  Local IO PROM for a machine with a BASEIO or GIGAchannel board
+  -h, --help            Print help
+--- stderr
+=== origami show --help
+exit 0
+--- stdout
+Show a machine configuration
+
+Usage: origami show <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami show-command --help
+exit 0
+--- stdout
+Print the QEMU command without starting the guest
+
+Usage: origami show-command [OPTIONS] <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+      --display <DISPLAY>    Local window, VNC server or no graphics [possible values: local, vnc, none]
+      --vnc-port <VNC_PORT>  VNC TCP port (default 5900)
+      --qemu-arg <ARG>       Extra QEMU argument, appended after the `[qemu] extra-args` of machine.toml (repeatable; unsupported and not validated)
+  -h, --help                 Print help
+--- stderr
+=== origami run --help
+exit 0
+--- stdout
+Start a guest
+
+Usage: origami run [OPTIONS] <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+      --display <DISPLAY>    Local window, VNC server or no graphics [possible values: local, vnc, none]
+      --vnc-port <VNC_PORT>  VNC TCP port (default 5900)
+      --qemu-arg <ARG>       Extra QEMU argument, appended after the `[qemu] extra-args` of machine.toml (repeatable; unsupported and not validated)
+      --background           Run with console and installer control connections
+  -h, --help                 Print help
+
+Examples:
+  origami run o200
+  origami run o200 --display vnc --vnc-port 5900
+--- stderr
+=== origami status --help
+exit 0
+--- stdout
+Show whether a machine is running
+
+Usage: origami status <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami console --help
+exit 0
+--- stdout
+Connect to a background guest's serial console
+
+Usage: origami console <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami stop --help
+exit 0
+--- stdout
+Stop a background guest
+
+Usage: origami stop <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami drive-create --help
+exit 0
+--- stdout
+Create and attach a new system disk
+
+Usage: origami drive-create <DIR> <SIZE-MiB>
+
+Arguments:
+  <DIR>       
+  <SIZE-MiB>  
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami drive-attach --help
+exit 0
+--- stdout
+Attach an existing disk, CD or tape image; a disk may be a CHD
+
+Usage: origami drive-attach [OPTIONS] --type <KIND> --target <TARGET> <DIR> <FILE>
+
+Arguments:
+  <DIR>   
+  <FILE>  
+
+Options:
+      --type <KIND>      [possible values: disk, cdrom, tape]
+      --target <TARGET>  
+      --overlay          Keep a CHD disk's writes in its .diff.chd file instead of folding them into the image when the machine stops
+  -h, --help             Print help
+--- stderr
+=== origami drive-detach --help
+exit 0
+--- stdout
+Detach a drive without deleting its image
+
+Usage: origami drive-detach <DIR> <NAME>
+
+Arguments:
+  <DIR>   
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami graphics-set --help
+exit 0
+--- stdout
+Change a stopped machine's graphics, where its topology allows that
+
+Usage: origami graphics-set [OPTIONS] <DIR>
+
+Arguments:
+  <DIR>  
+
+Options:
+  -h, --help  Print help
+
+Graphics options:
+      --graphics <PRODUCT>             Graphics product, such as si, v12 or ir2, or none for no graphics; omit for the preset's
+      --graphics-slot <SLOT>           Slot for the pipe, such as io3 or widget-11; omit for the preset's or the machine's usual slot
+      --graphics-pipes <N>             How many pipes of that product the machine fits, such as 4 for an Onyx 3400; see origami machines PRESET for its limit
+      --graphics-setting <NAME=VALUE>  A pipe setting other than its default, such as rm-count=1; repeatable
+
+No graphics can change after a machine is created yet; create a new machine instead.
+--- stderr
+=== origami console-set --help
+exit 0
+--- stdout
+Choose the serial port a stopped guest's console uses
+
+Usage: origami console-set [OPTIONS] <DIR>
+
+Arguments:
+  <DIR>  
+
+Options:
+      --port <PORT>  Serial line to connect, named as in QEMU's machine list (such as l1 or ioc3_a); omit to use the machine's default console
+  -h, --help         Print help
+--- stderr
+=== origami nvram --help
+exit 0
+--- stdout
+List or change a stopped machine's PROM environment in its NVRAM
+
+Usage: origami nvram <DIR> [COMMAND]
+
+Commands:
+  get   Show one variable
+  set   Set variables and recompute the checksum
+  help  Print this message or the help of the given subcommand(s)
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+  -h, --help  Print help
+
+Examples:
+  origami nvram octane
+  origami nvram octane get console
+  origami nvram octane set console=d AutoLoad=Yes
+--- stderr
+=== origami network-set --help
+exit 0
+--- stdout
+Change networking on a stopped guest
+
+Usage: origami network-set [OPTIONS] --mode <MODE> <DIR>
+
+Arguments:
+  <DIR>  
+
+Options:
+      --mode <MODE>                     [possible values: user, none, private, tap, vmnet]
+      --endpoint <ENDPOINT>             Instigator's private network endpoint, or the socket_vmnet socket; a private network without one is hosted by `run`
+      --interface <INTERFACE>           Tap device on Linux, or TAP-Windows6 adapter name on Windows
+      --share-address <ADDRESS/PREFIX>  Where shares are served on a tap or vmnet network, such as 192.168.1.50/24: a free address on that network
+      --subnet <A.B.C.0/24>             The private /24 that user and private networking use, such as 10.42.0.0/24 (default 10.98.0.0/24); it stays set across mode changes
+      --mac <MAC>                       Machine MAC, when it has none yet
+  -h, --help                            Print help
+--- stderr
+=== origami network-forward-add --help
+exit 0
+--- stdout
+Forward a host loopback port to a guest port
+
+Usage: origami network-forward-add --protocol <PROTOCOL> --host-port <HOST_PORT> --guest-port <GUEST_PORT> <DIR> <NAME>
+
+Arguments:
+  <DIR>   
+  <NAME>  
+
+Options:
+      --protocol <PROTOCOL>      [possible values: tcp, udp]
+      --host-port <HOST_PORT>    
+      --guest-port <GUEST_PORT>  
+  -h, --help                     Print help
+--- stderr
+=== origami network-forward-remove --help
+exit 0
+--- stdout
+Remove a port forward
+
+Usage: origami network-forward-remove <DIR> <NAME>
+
+Arguments:
+  <DIR>   
+  <NAME>  
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami share --help
+exit 0
+--- stdout
+Share a host folder with the guest over NFS, or remove a share
+
+Usage: origami share [OPTIONS] <DIR> <NAME> [HOSTDIR]
+
+Arguments:
+  <DIR>      
+  <NAME>     The name the guest mounts, as ADDRESS:/NAME
+  [HOSTDIR]  The host folder to share
+
+Options:
+      --remove  Remove the share
+  -h, --help    Print help
+
+Examples:
+  origami share o200 src ~/code
+  origami share o200 src --remove
+--- stderr
+=== origami install-init --help
+exit 0
+--- stdout
+Configure install media and private networking without starting the guest
+
+Usage: origami install-init [OPTIONS] <DIR>
+
+Arguments:
+  <DIR>  
+
+Options:
+      --media-root <DIR>   
+      --mac <MAC>          Machine MAC, when it has none yet
+      --profile <PROFILE>  [default: standard] [possible values: minimal, standard]
+      --release <RELEASE>  IRIX release to install [default: 6.5.30] [possible values: 6.5.22, 6.5.30]
+  -h, --help               Print help
+--- stderr
+=== origami install-addon --help
+exit 0
+--- stdout
+Add an optional package source to an installation
+
+Usage: origami install-addon [OPTIONS] --name <NAME> <DIR>
+
+Arguments:
+  <DIR>  
+
+Options:
+      --name <NAME>           Add-on name; mipspro and rad4 need no --source
+      --source <PATH-OR-URL>  
+      --install <INSTALL>     
+      --base <BASE>           
+      --dist <DIST>           
+      --media-root <DIR>      Local media for a named add-on, the directory containing mipspro/
+  -h, --help                  Print help
+--- stderr
+=== origami install-check --help
+exit 0
+--- stdout
+Check install media without installing IRIX; remote media are only probed
+
+Usage: origami install-check [OPTIONS] <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+      --full  Also read remote media and assemble the install tree, as install-serve does
+  -h, --help  Print help
+--- stderr
+=== origami install-serve --help
+exit 0
+--- stdout
+Serve installation media until stopped
+
+Usage: origami install-serve <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami install-apply --help
+exit 0
+--- stdout
+At Inst>, install the selected profile and its add-ons, then restart
+
+Usage: origami install-apply <DIR>
+
+Arguments:
+  <DIR>  
+
+Options:
+  -h, --help  Print help
+--- stderr
+=== origami machines
+exit 0
+--- stdout
+PRESET                       MACHINE               CPUS  GRAPHICS
+origin200-1                  Origin 200               1  none
+origin200-2                  Origin 200               2  none
+origin200-rad4               Origin 200               2  RAD4
+origin200-dual               Origin 200 dual          4  none
+origin200-impact             Origin 200               1  SI (GIGAchannel)
+origin2000-impact            Origin 2000 deskside     2  SI
+origin2000-8                 Origin 2000 rack         8  none
+onyx2-infinite-reality       Onyx2 deskside           4  InfiniteReality2
+onyx2-rack-infinite-reality  Onyx2 rack               1  InfiniteReality3
+origin300-2                  Origin 300               2  none
+origin3200                   Origin 3200              8  none
+origin3400                   Origin 3400             16  none
+origin3900                   Origin 3900             16  none
+onyx350                      Onyx 350                 4  VPro V12
+onyx3000-vpro                Onyx 3000                8  VPro V12
+onyx3400-infinite-reality    Onyx 3400               16  InfiniteReality3
+octane-impact                Octane                   1  SI
+octane2-impact               Octane2                  1  SI
+octane2-vpro                 Octane2                  1  VPro V12
+fuel-1                       Fuel                     1  VPro V12
+o2                           O2                       1  none
+tezro                        Tezro                    4  VPro V12
+
+Everything here is experimental.
+Details and graphics choices: origami machines PRESET
+--- stderr
+=== origami machines --all
+exit 0
+--- stdout
+origin200-1: Origin 200, 1 CPU, 256 MiB per node, no graphics
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  rad4     RAD4
+  rad4-km  RAD4-KM
+  none (default)
+
+Slots: pci-5, pci-6, pci-7
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+  junk-uart (boolean)
+
+Processor modules (create --processor ID): r10000-180mhz-1mb (default),
+  r10000-180mhz-2mb, r10000-225mhz-2mb, r12000-270mhz-4mb
+
+origin200-2: Origin 200, 2 CPUs, 256 MiB per node, no graphics
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  rad4     RAD4
+  rad4-km  RAD4-KM
+  none (default)
+
+Slots: pci-5, pci-6, pci-7
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+  junk-uart (boolean)
+
+Processor modules (create --processor ID): r10000-180mhz-1mb (default),
+  r10000-180mhz-2mb, r10000-225mhz-2mb, r12000-270mhz-4mb
+
+origin200-rad4: Origin 200, 2 CPUs, 256 MiB per node, RAD4 in pci-5
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  rad4     RAD4 (default)
+  rad4-km  RAD4-KM
+  none
+
+Slots: pci-5, pci-6, pci-7
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+  junk-uart (boolean)
+
+Processor modules (create --processor ID): r10000-180mhz-1mb (default),
+  r10000-180mhz-2mb, r10000-225mhz-2mb, r12000-270mhz-4mb
+
+origin200-dual: Origin 200 dual, 4 CPUs, 256 MiB per node, no graphics
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  rad4     RAD4
+  rad4-km  RAD4-KM
+  none (default)
+
+Slots: m0-pci-5, m0-pci-6, m0-pci-7
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+  junk-uart (boolean)
+
+Processor modules (create --processor ID): r10000-180mhz-1mb (default),
+  r10000-180mhz-2mb, r10000-225mhz-2mb, r12000-270mhz-4mb
+
+origin200-impact: Origin 200, 1 CPU, 256 MiB per node, SI (GIGAchannel) in io6
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  si       Solid IMPACT (SI) (default)
+  si-t     SI with texture
+  ssi      SSI
+  mxi      MXI
+  esi      ESI
+  esi-t    ESI with texture
+  essi     ESSI
+  emxi     EMXI
+  rad4     RAD4
+  rad4-km  RAD4-KM
+  none
+
+Slots: io6, pci-5, pci-6, pci-7
+
+Not offered:
+  InfiniteReality: SGI did not offer InfiniteReality on the Origin 200, and the
+    known GIGAchannel pipe is an owner conversion the model does not build
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+  junk-uart (boolean)
+
+Processor modules (create --processor ID): r10000-180mhz-1mb (default),
+  r10000-180mhz-2mb, r10000-225mhz-2mb, r12000-270mhz-4mb
+
+origin2000-impact: Origin 2000 deskside, 2 CPUs, 256 MiB per node, SI in io3
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  si     Solid IMPACT (SI) (default)
+  si-t   SI with texture
+  ssi    SSI
+  mxi    MXI
+  esi    ESI
+  esi-t  ESI with texture
+  essi   ESSI
+  emxi   EMXI
+  none
+
+Slots: io2, io3, io4, io5, io6
+
+Not offered:
+  InfiniteReality: an Origin 2000 with an InfiniteReality pipe is an Onyx2, so
+    use onyx2-deskside
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+
+origin2000-8: Origin 2000 rack, 8 CPUs, 256 MiB per node, no graphics
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  si     Solid IMPACT (SI)
+  si-t   SI with texture
+  ssi    SSI
+  mxi    MXI
+  esi    ESI
+  esi-t  ESI with texture
+  essi   ESSI
+  emxi   EMXI
+  none (default)
+
+Slots: io2, io3, io4, io5, io6, io7, io8, io9, io10, io11, io12
+
+Not offered:
+  InfiniteReality: an Origin 2000 with an InfiniteReality pipe is an Onyx2, so
+    use onyx2-rack
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+
+onyx2-infinite-reality: Onyx2 deskside, 4 CPUs, 256 MiB per node,
+    InfiniteReality2 in io4
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  ir2   InfiniteReality2 (default)
+        settings: geometry=ge14-4*|ge14-2, rm-count=1|2*,
+                  display=dg5-8*|dg5-2|dg5-2-gvo
+  ir2e  InfiniteReality2E
+        settings: rm-count=1|2*, display=dg5-8*|dg5-2|dg5-2-gvo
+
+Slots: io4
+
+Not offered:
+  InfiniteReality with rm-count=4: a pipe with no Ktown is an Onyx2 deskside
+    pipe, which holds at most two raster managers
+  InfiniteReality3: no manual or capture places an InfiniteReality3 in an Onyx2
+    deskside
+  No graphics: SGI sold no Onyx2 without an InfiniteReality pipe, and an Onyx2
+    with no pipe is an Origin 2000, so use origin2000-deskside or
+    origin2000-rack
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+
+onyx2-rack-infinite-reality: Onyx2 rack, 1 CPU, 256 MiB per node,
+    InfiniteReality3 in io3
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  ir2e  InfiniteReality2E
+        settings: rm-count=1*|2|4, display=dg5-2*|dg5-8|dg5-2-gvo
+  ir3   InfiniteReality3 (default)
+        settings: rm-count=1*|2|4, display=dg5-2*|dg5-8|dg5-2-gvo
+
+Pipes: 1 to 2 (create --graphics-pipes N); a pipe on a node board the preset
+  lacks adds that node
+
+Slots: io3
+
+Not offered:
+  InfiniteReality2: no manual or capture places a GE14 InfiniteReality2 in an
+    Onyx2 rack
+  No graphics: SGI sold no Onyx2 without an InfiniteReality pipe, and an Onyx2
+    with no pipe is an Origin 2000, so use origin2000-deskside or
+    origin2000-rack
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+
+origin300-2: Origin 300, 2 CPUs, 512 MiB per node, no graphics
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 32769 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  ioc3-subsystem-id (integer)
+  prid (integer), default 0xf24 (inferred)
+  chassis-eeprom (file) slots 0 1
+  board-eeprom (file) slots 0 1
+  spd-eeprom (file) slots 0 1
+  brick-serial (text)
+  debug-switches (integer), default 0 (approximated)
+  origin300-l1cmd-compat (boolean), default off (approximated)
+
+origin3200: Origin 3200, 8 CPUs, 4096 MiB per node, no graphics
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 2 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  prid (integer), default 0xe35 (inferred)
+  fpu-id (integer), default 0x935 (inferred)
+  l2-controller (boolean), default off (approximated)
+
+Processor modules (create --processor ID): r12000-400mhz-8mb (default),
+  r14000-500mhz-8mb, r14000-600mhz-8mb, r16000-800mhz-8mb
+
+origin3400: Origin 3400, 16 CPUs, 4096 MiB per node, no graphics
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 2 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  prid (integer), default 0xe35 (inferred)
+  fpu-id (integer), default 0x935 (inferred)
+  l2-controller (boolean), default on (approximated)
+
+Processor modules (create --processor ID): r12000-400mhz-8mb (default),
+  r14000-500mhz-8mb, r14000-600mhz-8mb, r16000-800mhz-8mb
+
+origin3900: Origin 3900, 16 CPUs, 2048 MiB per node, no graphics
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 1 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  prid (integer)
+
+onyx350: Onyx 350, 4 CPUs, 8192 MiB per node, VPro V12 in widget-12
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  v12   VPro V12 (default)
+  none
+
+Slots: widget-12
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 8193 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  prid (integer)
+  chassis-eeprom (file) slots 0
+  board-eeprom (file) slots 0
+
+onyx3000-vpro: Onyx 3000, 8 CPUs, 4096 MiB per node, VPro V12 in vbrick-v12
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  v12   VPro V12 (default)
+
+Slots: vbrick-v12
+
+Not offered:
+  No graphics: the V-brick exists to hold its V12 pipe
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 2 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  prid (integer), default 0xe35 (inferred)
+  fpu-id (integer), default 0x935 (inferred)
+  l2-controller (boolean), default off (approximated)
+
+Processor modules (create --processor ID): r12000-400mhz-8mb (default),
+  r14000-500mhz-8mb, r14000-600mhz-8mb, r16000-800mhz-8mb
+
+onyx3400-infinite-reality: Onyx 3400, 16 CPUs, 4096 MiB per node,
+    InfiniteReality3 in gbrick0-pipe0-pipe
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  ir3   InfiniteReality3 (default)
+        settings: rm-count=1*|2|4, display=dg5-2*|dg5-8|dg5-2-gvo
+
+Pipes: 1 to 4 (create --graphics-pipes N); a pipe on a node board the preset
+  lacks adds that node
+
+Slots: gbrick0-pipe0-pipe, gbrick0-pipe1-pipe, gbrick1-pipe0-pipe,
+  gbrick1-pipe1-pipe
+
+Not offered:
+  InfiniteReality2: the G-brick pipe layer is an InfiniteReality3 pipe, and no
+    other revision is modelled for the G-brick
+  InfiniteReality2E: the G-brick pipe layer is an InfiniteReality3 pipe, and no
+    other revision is modelled for the G-brick
+  InfiniteReality3 with rm-count=4: a G-brick's pipe 1 takes one or two raster
+    managers; only pipe 0 takes four
+  No graphics: an Onyx 3400 with InfiniteReality is sold with G-bricks; a system
+    with none is an Origin 3400, so use origin3400
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 2 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  prid (integer), default 0xe35 (inferred)
+  fpu-id (integer), default 0x935 (inferred)
+  l2-controller (boolean), default on (approximated)
+
+octane-impact: Octane, 1 CPU, 128 MiB per node, SI in widget-11
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  si     Solid IMPACT (SI) (default)
+  si-t   SI with texture
+  ssi    SSI
+  mxi    MXI
+  esi    ESI
+  esi-t  ESI with texture
+  essi   ESSI
+  emxi   EMXI
+  none
+
+Slots: widget-11, widget-9, widget-10, widget-12
+
+Not offered:
+  VPro: VPro V12 needs Crossbow 1.4, the ER power supply 060-0035-00x and PROM
+    4.5 (007-4210-003), and this Octane presents Crossbow revision code 4 and
+    the SR supply
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  flash-select (boolean), default off (approximated)
+  flash-strap (boolean), default off (approximated)
+  prid (integer), default 0x927 (inferred)
+
+octane2-impact: Octane2, 1 CPU, 256 MiB per node, SI in widget-11
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  si     Solid IMPACT (SI) (default)
+  si-t   SI with texture
+  ssi    SSI
+  mxi    MXI
+  esi    ESI
+  esi-t  ESI with texture
+  essi   ESSI
+  emxi   EMXI
+  v12    VPro V12
+  none
+
+Slots: widget-11, widget-9, widget-10, widget-12
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  flash-select (boolean), default on (approximated)
+  flash-strap (boolean), default on (approximated)
+  prid (integer), default 0xe35 (inferred)
+  fpu-id (integer), default 0x900 (inferred)
+
+octane2-vpro: Octane2, 1 CPU, 256 MiB per node, VPro V12 in widget-11
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  si     Solid IMPACT (SI)
+  si-t   SI with texture
+  ssi    SSI
+  mxi    MXI
+  esi    ESI
+  esi-t  ESI with texture
+  essi   ESSI
+  emxi   EMXI
+  v12    VPro V12 (default)
+  none
+
+Slots: widget-11, widget-9, widget-10, widget-12
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  flash-select (boolean), default on (approximated)
+  flash-strap (boolean), default on (approximated)
+  prid (integer), default 0xe35 (inferred)
+  fpu-id (integer), default 0x900 (inferred)
+
+fuel-1: Fuel, 1 CPU, 512 MiB per node, VPro V12 in widget-13
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  v12   VPro V12 (default)
+
+Slots: widget-13
+
+Not offered:
+  No graphics: every Fuel has its VPro graphics slot at widget 13
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 16388 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  ioc3-subsystem-id (integer)
+  prid (integer), default 0xf23 (inferred)
+  chassis-eeprom (file) slots 0
+  board-eeprom (file) slots 0
+  fuel-mac-eeprom (file)
+
+o2: O2, 1 CPU, 1024 MiB per node, no graphics
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  password-clear-input (0|1), preset sets 1
+  rom-at29c040a-protection (disabled|enabled), preset sets disabled
+  rom-at29c040a-lower-lock (unlocked|locked), preset sets unlocked
+  rom-at29c040a-upper-lock (unlocked|locked), preset sets unlocked
+  identity-eprom-file (file)
+
+tezro: Tezro, 4 CPUs, 4096 MiB per node, VPro V12 in widget-12
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  v12   VPro V12 (default)
+  none
+
+Slots: widget-12
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  board-id-word (integer), default 8193 (approximated)
+  bedrock-revision (integer)
+  l1-type-code (integer)
+  l1-revision (text)
+  prid (integer), default 0xf41 (inferred)
+  chassis-eeprom (file) slots 0
+  board-eeprom (file) slots 0
+
+Processor modules (create --processor ID): r16000-700mhz-4mb (default),
+  r16000-800mhz-4mb-rev22, r16000-800mhz-8mb-rev22
+--- stderr
+=== origami machines origin200-1
+exit 0
+--- stdout
+origin200-1: Origin 200, 1 CPU, 256 MiB per node, no graphics
+
+Graphics (create --graphics PRODUCT [--graphics-slot SLOT]; * = default):
+  rad4     RAD4
+  rad4-km  RAD4-KM
+  none (default)
+
+Slots: pci-5, pci-6, pci-7
+
+Settings (create --set NAME[.SLOT]=VALUE):
+  prid (integer), default 0x926 (inferred)
+  dip-switches (integer) names no-diag heavy-diag mfg-diag verbose global-pod
+    local-pod no-mem-pod default-env bypass-io6 no-global-master pod
+    skip-prom-diags
+  junk-uart (boolean)
+
+Processor modules (create --processor ID): r10000-180mhz-1mb (default),
+  r10000-180mhz-2mb, r10000-225mhz-2mb, r12000-270mhz-4mb
+--- stderr
+=== origami machines no-such-preset
+exit 1
+--- stdout
+--- stderr
+origami: unknown or unimplemented preset: no-such-preset
+=== origami show <ROOT>/origin200_1
+exit 0
+--- stdout
+origin200: 1 CPUs, 1 nodes, 256MiB per node
+graphics: none
+processor: 180 MHz R10000, 1 MB secondary cache
+state: <ROOT>/origin200_1/state
+console: ioc3_a
+network: user (ef0, IOC3)
+subnet: 10.98.0.0/24
+identity MAC: 08:00:69:e1:00:10
+emu-id: 1
+--- stderr
+=== origami show-command <ROOT>/origin200_1
+exit 0
+--- stdout
+<ROOT>/prefix/libexec/origami/qemu-system-mips64 -L <ROOT>/prefix/libexec/origami/../../share/origami/qemu -nodefaults -accel tcg -M origin200,topology=origin200,nodes=1,population=1,mac=08:00:69:e1:00:10,emu-id=1,debug-leds=off,node0-flash=node0-flash,nvram0=nvram0,nvram0-clock=nvram0-clock,module0-nvram=module0-nvram -cpu R10000 -smp 1 -m 256 -blockdev driver=raw,node-name=node0-flash,file.driver=file,file.filename=<ROOT>/origin200_1/state/node0-flash.raw -blockdev driver=raw,node-name=nvram0,file.driver=file,file.filename=<ROOT>/origin200_1/state/nvram0.raw -blockdev driver=raw,node-name=nvram0-clock,file.driver=file,file.filename=<ROOT>/origin200_1/state/nvram0-clock.raw -blockdev driver=raw,node-name=module0-nvram,file.driver=file,file.filename=<ROOT>/origin200_1/state/module0-nvram.raw -display none -audio none -serial stdio -netdev user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65 -net nic,model=sgi-ioc3-eth,netdev=net0
+--- stderr
+=== origami validate <ROOT>/origin200_1
+exit 0
+--- stdout
+valid: origin200 (1 CPUs)
+--- stderr
+=== origami status <ROOT>/origin200_1
+exit 0
+--- stdout
+stopped
+--- stderr
+=== origami show <ROOT>/origin2000_8
+exit 0
+--- stdout
+origin2000: 8 CPUs, 4 nodes, 256MiB per node
+graphics: none
+processor: 180 MHz R10000, 1 MB secondary cache
+state: <ROOT>/origin2000_8/state
+console: ioc3_a
+network: user (ef0, IOC3)
+subnet: 10.98.0.0/24
+identity MAC: 08:00:69:e1:00:20
+emu-id: 2
+--- stderr
+=== origami show-command <ROOT>/origin2000_8
+exit 0
+--- stdout
+<ROOT>/prefix/libexec/origami/qemu-system-mips64 -L <ROOT>/prefix/libexec/origami/../../share/origami/qemu -nodefaults -accel tcg,thread=multi -M origin2000,topology=origin2000-rack,nodes=4,population=2:2:2:2,mac=08:00:69:e1:00:20,emu-id=2,node0-flash=node0-flash,node1-flash=node1-flash,node2-flash=node2-flash,node3-flash=node3-flash,io0-flash=io0-flash,nvram0=nvram0,nvram0-clock=nvram0-clock,module0-nvram=module0-nvram -cpu R10000 -smp 8 -m 1024 -blockdev driver=raw,node-name=node0-flash,file.driver=file,file.filename=<ROOT>/origin2000_8/state/node0-flash.raw -blockdev driver=raw,node-name=node1-flash,file.driver=file,file.filename=<ROOT>/origin2000_8/state/node1-flash.raw -blockdev driver=raw,node-name=node2-flash,file.driver=file,file.filename=<ROOT>/origin2000_8/state/node2-flash.raw -blockdev driver=raw,node-name=node3-flash,file.driver=file,file.filename=<ROOT>/origin2000_8/state/node3-flash.raw -blockdev driver=raw,node-name=io0-flash,file.driver=file,file.filename=<ROOT>/origin2000_8/state/io0-flash.raw -blockdev driver=raw,node-name=nvram0,file.driver=file,file.filename=<ROOT>/origin2000_8/state/nvram0.raw -blockdev driver=raw,node-name=nvram0-clock,file.driver=file,file.filename=<ROOT>/origin2000_8/state/nvram0-clock.raw -blockdev driver=raw,node-name=module0-nvram,file.driver=file,file.filename=<ROOT>/origin2000_8/state/module0-nvram.raw -display none -audio none -serial stdio -netdev user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65 -net nic,model=sgi-ioc3-eth,netdev=net0
+--- stderr
+=== origami validate <ROOT>/origin2000_8
+exit 0
+--- stdout
+valid: origin2000-rack (8 CPUs)
+--- stderr
+=== origami status <ROOT>/origin2000_8
+exit 0
+--- stdout
+stopped
+--- stderr
+=== origami show <ROOT>/origin300_2
+exit 0
+--- stdout
+origin300: 2 CPUs, 1 nodes, 512MiB per node
+graphics: none
+processor: 500 MHz R14000, 2 MB secondary cache
+state: <ROOT>/origin300_2/state
+console: l1
+network: user (ef0, IOC3)
+subnet: 10.98.0.0/24
+identity MAC: 08:00:69:e1:00:30
+emu-id: 3
+--- stderr
+=== origami show-command <ROOT>/origin300_2
+exit 0
+--- stdout
+<ROOT>/prefix/libexec/origami/qemu-system-mips64 -L <ROOT>/prefix/libexec/origami/../../share/origami/qemu -nodefaults -accel tcg,thread=multi -M origin300,topology=origin300,nodes=1,population=2,mac=08:00:69:e1:00:30,emu-id=3,node0-flash=node0-flash,nvram0=nvram0,nvram0-clock=nvram0-clock -cpu R14000 -smp 2 -m 512 -blockdev driver=raw,node-name=node0-flash,file.driver=file,file.filename=<ROOT>/origin300_2/state/node0-flash.raw -blockdev driver=raw,node-name=nvram0,file.driver=file,file.filename=<ROOT>/origin300_2/state/nvram0.raw -blockdev driver=raw,node-name=nvram0-clock,file.driver=file,file.filename=<ROOT>/origin300_2/state/nvram0-clock.raw -display none -audio none -serial stdio -netdev user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65 -net nic,model=sgi-ioc3-eth,netdev=net0
+--- stderr
+=== origami validate <ROOT>/origin300_2
+exit 0
+--- stdout
+valid: origin300 (2 CPUs)
+--- stderr
+=== origami status <ROOT>/origin300_2
+exit 0
+--- stdout
+stopped
+--- stderr
+=== origami show <ROOT>/octane_impact
+exit 0
+--- stdout
+octane: 1 CPUs, 1 nodes, 128MiB per node
+graphics: Solid IMPACT (SI) (si) in widget-11, Crossbow port 11, the default graphics port
+  fidelity: implemented
+processor: 195 MHz R10000, 1 MB secondary cache
+state: <ROOT>/octane_impact/state
+console: ioc3_a
+network: user (ef0, IOC3)
+subnet: 10.98.0.0/24
+identity MAC: 08:00:69:e1:00:40
+emu-id: 4
+--- stderr
+=== origami show-command <ROOT>/octane_impact
+exit 0
+--- stdout
+<ROOT>/prefix/libexec/origami/qemu-system-mips64 -L <ROOT>/prefix/libexec/origami/../../share/origami/qemu -nodefaults -accel tcg -M octane,topology=octane,nodes=1,mac=08:00:69:e1:00:40,emu-id=4,node0-flash=node0-flash,nvram0=nvram0,nvram0-clock=nvram0-clock -cpu R10000 -smp 1 -m 128 -blockdev driver=raw,node-name=node0-flash,file.driver=file,file.filename=<ROOT>/octane_impact/state/node0-flash.raw -blockdev driver=raw,node-name=nvram0,file.driver=file,file.filename=<ROOT>/octane_impact/state/nvram0.raw -blockdev driver=raw,node-name=nvram0-clock,file.driver=file,file.filename=<ROOT>/octane_impact/state/nvram0-clock.raw -display sdl,window-close=off -audio none -device sgi-mgras,slot=widget-11,product=si -serial stdio -netdev user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65 -net nic,model=sgi-ioc3-eth,netdev=net0
+--- stderr
+=== origami validate <ROOT>/octane_impact
+exit 0
+--- stdout
+valid: octane (1 CPUs)
+--- stderr
+=== origami status <ROOT>/octane_impact
+exit 0
+--- stdout
+stopped
+--- stderr
+=== origami show <ROOT>/octane2_vpro
+exit 0
+--- stdout
+octane2: 1 CPUs, 1 nodes, 256MiB per node
+graphics: VPro V12 (v12) in widget-11, Crossbow port 11, the default graphics port
+  fidelity: implemented
+processor: 360 MHz R12000, 2 MB secondary cache
+state: <ROOT>/octane2_vpro/state
+console: ioc3_a
+network: user (ef0, IOC3)
+subnet: 10.98.0.0/24
+identity MAC: 08:00:69:e1:00:50
+emu-id: 5
+--- stderr
+=== origami show-command <ROOT>/octane2_vpro
+exit 0
+--- stdout
+<ROOT>/prefix/libexec/origami/qemu-system-mips64 -L <ROOT>/prefix/libexec/origami/../../share/origami/qemu -nodefaults -accel tcg -M octane2,topology=octane2,nodes=1,mac=08:00:69:e1:00:50,emu-id=5,node0-flash=node0-flash,nvram0=nvram0,nvram0-clock=nvram0-clock -cpu R12000 -smp 1 -m 256 -blockdev driver=raw,node-name=node0-flash,file.driver=file,file.filename=<ROOT>/octane2_vpro/state/node0-flash.raw -blockdev driver=raw,node-name=nvram0,file.driver=file,file.filename=<ROOT>/octane2_vpro/state/nvram0.raw -blockdev driver=raw,node-name=nvram0-clock,file.driver=file,file.filename=<ROOT>/octane2_vpro/state/nvram0-clock.raw -display sdl,window-close=off -audio none -device sgi-odyssey,slot=widget-11,product=v12 -serial stdio -netdev user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65 -net nic,model=sgi-ioc3-eth,netdev=net0
+--- stderr
+=== origami validate <ROOT>/octane2_vpro
+exit 0
+--- stdout
+valid: octane2 (1 CPUs)
+--- stderr
+=== origami status <ROOT>/octane2_vpro
+exit 0
+--- stdout
+stopped
+--- stderr
+=== origami show <ROOT>/onyx2_infinite_reality
+exit 0
+--- stdout
+onyx2: 4 CPUs, 2 nodes, 256MiB per node
+graphics: InfiniteReality2 (ir2) in io4, XIO slot 4, Crossbow widget 8: the deskside's InfiniteReality pipe
+  geometry: ge14-4
+  rm-type: rm7
+  rm-count: 2
+  texture-mb: 64
+  display: dg5-8
+  fidelity: approximated
+  limitation: a GE14-2 presents the GE14-4's board words
+processor: 180 MHz R10000, 1 MB secondary cache
+state: <ROOT>/onyx2_infinite_reality/state
+console: ioc3_a
+network: user (ef0, IOC3)
+subnet: 10.98.0.0/24
+identity MAC: 08:00:69:e1:00:60
+emu-id: 6
+--- stderr
+=== origami show-command <ROOT>/onyx2_infinite_reality
+exit 0
+--- stdout
+<ROOT>/prefix/libexec/origami/qemu-system-mips64 -L <ROOT>/prefix/libexec/origami/../../share/origami/qemu -nodefaults -accel tcg,thread=multi -M onyx2,topology=onyx2-deskside,nodes=2,population=2:2,mac=08:00:69:e1:00:60,emu-id=6,node0-flash=node0-flash,node1-flash=node1-flash,io0-flash=io0-flash,nvram0=nvram0,nvram0-clock=nvram0-clock,module0-nvram=module0-nvram,io4-kona-flash=io4-kona-flash -cpu R10000 -smp 4 -m 512 -blockdev driver=raw,node-name=node0-flash,file.driver=file,file.filename=<ROOT>/onyx2_infinite_reality/state/node0-flash.raw -blockdev driver=raw,node-name=node1-flash,file.driver=file,file.filename=<ROOT>/onyx2_infinite_reality/state/node1-flash.raw -blockdev driver=raw,node-name=io0-flash,file.driver=file,file.filename=<ROOT>/onyx2_infinite_reality/state/io0-flash.raw -blockdev driver=raw,node-name=nvram0,file.driver=file,file.filename=<ROOT>/onyx2_infinite_reality/state/nvram0.raw -blockdev driver=raw,node-name=nvram0-clock,file.driver=file,file.filename=<ROOT>/onyx2_infinite_reality/state/nvram0-clock.raw -blockdev driver=raw,node-name=module0-nvram,file.driver=file,file.filename=<ROOT>/onyx2_infinite_reality/state/module0-nvram.raw -blockdev driver=raw,node-name=io4-kona-flash,file.driver=file,file.filename=<ROOT>/onyx2_infinite_reality/state/io4-kona-flash.raw -display sdl,window-close=off -audio none -device sgi-kona,slot=io4,product=ir2,geometry=ge14-4,rm-type=rm7,rm-count=2,texture-mb=64,display=dg5-8,id=io4 -serial stdio -netdev user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65 -net nic,model=sgi-ioc3-eth,netdev=net0
+--- stderr
+=== origami validate <ROOT>/onyx2_infinite_reality
+exit 0
+--- stdout
+valid: onyx2-deskside (4 CPUs)
+--- stderr
+=== origami status <ROOT>/onyx2_infinite_reality
+exit 0
+--- stdout
+stopped
+--- stderr
+=== origami show <ROOT>/fuel_1
+exit 0
+--- stdout
+fuel: 1 CPUs, 1 nodes, 512MiB per node
+graphics: VPro V12 (v12) in widget-13, the graphics connector at XBridge widget 13
+  fidelity: implemented
+processor: 500 MHz R14000, 2 MB secondary cache
+state: <ROOT>/fuel_1/state
+console: l1
+network: user (ef0, IOC3)
+subnet: 10.98.0.0/24
+identity MAC: 08:00:69:e1:00:70
+emu-id: 7
+--- stderr
+=== origami show-command <ROOT>/fuel_1
+exit 0
+--- stdout
+<ROOT>/prefix/libexec/origami/qemu-system-mips64 -L <ROOT>/prefix/libexec/origami/../../share/origami/qemu -nodefaults -accel tcg -M fuel,topology=fuel,nodes=1,population=1,mac=08:00:69:e1:00:70,emu-id=7,node0-flash=node0-flash,nvram0=nvram0,nvram0-clock=nvram0-clock -cpu R14000 -smp 1 -m 512 -blockdev driver=raw,node-name=node0-flash,file.driver=file,file.filename=<ROOT>/fuel_1/state/node0-flash.raw -blockdev driver=raw,node-name=nvram0,file.driver=file,file.filename=<ROOT>/fuel_1/state/nvram0.raw -blockdev driver=raw,node-name=nvram0-clock,file.driver=file,file.filename=<ROOT>/fuel_1/state/nvram0-clock.raw -display sdl,window-close=off -audio none -device sgi-odyssey,slot=widget-13,product=v12 -serial stdio -netdev user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65 -net nic,model=sgi-ioc3-eth,netdev=net0
+--- stderr
+=== origami validate <ROOT>/fuel_1
+exit 0
+--- stdout
+valid: fuel (1 CPUs)
+--- stderr
+=== origami status <ROOT>/fuel_1
+exit 0
+--- stdout
+stopped
+--- stderr
+=== origami show no-such-machine
+exit 1
+--- stdout
+--- stderr
+origami: cannot open machine directory 'no-such-machine': No such file or directory (os error 2). Use the directory you created with origami create
+=== origami validate no-such-machine
+exit 1
+--- stdout
+--- stderr
+origami: cannot open machine directory 'no-such-machine': No such file or directory (os error 2). Use the directory you created with origami create
+=== origami create bad --preset no-such-preset
+exit 1
+--- stdout
+--- stderr
+origami: unknown or unimplemented preset: no-such-preset
+=== origami graphics-set <ROOT>/origin200_1 --graphics no-such-head
+exit 1
+--- stdout
+--- stderr
+origami: origin200 offers no graphics product no-such-head; choose rad4, rad4-km
+=== origami graphics-set <ROOT>/origin200_1 --graphics none
+exit 0
+--- stdout
+graphics unchanged
+--- stderr
+=== origami console-set <ROOT>/origin200_1 --port no-such-port
+exit 1
+--- stdout
+--- stderr
+origami: origin200 has no no-such-port console; choose ioc3_a or ioc3_b
+=== origami console-set <ROOT>/origin200_1 --port l1
+exit 1
+--- stdout
+--- stderr
+origami: origin200 has no l1 console; choose ioc3_a or ioc3_b
+=== origami nvram <ROOT>/origin200_1
+exit 1
+--- stdout
+--- stderr
+origami: PROM has not initialised NVRAM yet; boot once
+=== origami nvram <ROOT>/origin200_1 get console
+exit 1
+--- stdout
+--- stderr
+origami: PROM has not initialised NVRAM yet; boot once
+=== origami nvram <ROOT>/origin200_1 get no-such-variable
+exit 1
+--- stdout
+--- stderr
+origami: PROM has not initialised NVRAM yet; boot once
+=== origami nvram <ROOT>/origin200_1 set console=d
+exit 1
+--- stdout
+--- stderr
+origami: PROM has not initialised NVRAM yet; boot once
+=== origami nvram <ROOT>/origin200_1 get console
+exit 1
+--- stdout
+--- stderr
+origami: PROM has not initialised NVRAM yet; boot once
+=== origami network-set <ROOT>/origin200_1 --mode nonsense
+exit 2
+--- stdout
+--- stderr
+error: invalid value 'nonsense' for '--mode <MODE>'
+  [possible values: user, none, private, tap, vmnet]
+
+  tip: a similar value exists: 'none'
+
+For more information, try '--help'.
+=== origami network-set <ROOT>/origin200_1 --mode private --subnet 10.42.0.0/24
+exit 0
+--- stdout
+network: private
+subnet: 10.42.0.0/24
+A guest that booted on 10.98.0.0/24 keeps its old address until, as root in IRIX, you run rm /var/adm/proclaim.lease_info* /etc/resolv.conf and restart it.
+--- stderr
+=== origami network-forward-add <ROOT>/origin200_1 --help
+exit 0
+--- stdout
+Forward a host loopback port to a guest port
+
+Usage: origami network-forward-add --protocol <PROTOCOL> --host-port <HOST_PORT> --guest-port <GUEST_PORT> <DIR> <NAME>
+
+Arguments:
+  <DIR>   
+  <NAME>  
+
+Options:
+      --protocol <PROTOCOL>      [possible values: tcp, udp]
+      --host-port <HOST_PORT>    
+      --guest-port <GUEST_PORT>  
+  -h, --help                     Print help
+--- stderr
+=== origami drive-attach <ROOT>/origin200_1 /no/such/image.img --type disk --target 1
+exit 1
+--- stdout
+--- stderr
+origami: No such file or directory (os error 2)
+=== origami drive-detach <ROOT>/origin200_1 scsi9
+exit 1
+--- stdout
+--- stderr
+origami: expected one drive named scsi9, found 0
+=== origami install-check <ROOT>/origin200_1
+exit 1
+--- stdout
+--- stderr
+origami: cannot read <ROOT>/origin200_1/install/media.toml: No such file or directory (os error 2). Configure installation first with origami install-init <ROOT>/origin200_1 --mac MAC --profile standard
+=== origami show <ROOT>/origin200_1
+exit 0
+--- stdout
+origin200: 1 CPUs, 1 nodes, 256MiB per node
+graphics: none
+processor: 180 MHz R10000, 1 MB secondary cache
+state: <ROOT>/origin200_1/state
+console: ioc3_a
+network: private (ef0, IOC3)
+subnet: 10.42.0.0/24
+identity MAC: 08:00:69:e1:00:10
+emu-id: 1
+--- stderr
+=== origami show-command <ROOT>/origin200_1
+exit 0
+--- stdout
+<ROOT>/prefix/libexec/origami/qemu-system-mips64 -L <ROOT>/prefix/libexec/origami/../../share/origami/qemu -nodefaults -accel tcg -M origin200,topology=origin200,nodes=1,population=1,mac=08:00:69:e1:00:10,emu-id=1,debug-leds=off,node0-flash=node0-flash,nvram0=nvram0,nvram0-clock=nvram0-clock,module0-nvram=module0-nvram -cpu R10000 -smp 1 -m 256 -blockdev driver=raw,node-name=node0-flash,file.driver=file,file.filename=<ROOT>/origin200_1/state/node0-flash.raw -blockdev driver=raw,node-name=nvram0,file.driver=file,file.filename=<ROOT>/origin200_1/state/nvram0.raw -blockdev driver=raw,node-name=nvram0-clock,file.driver=file,file.filename=<ROOT>/origin200_1/state/nvram0-clock.raw -blockdev driver=raw,node-name=module0-nvram,file.driver=file,file.filename=<ROOT>/origin200_1/state/module0-nvram.raw -display none -audio none -serial stdio -netdev 'stream,id=net0,server=off,addr.type=inet,addr.host=127.0.0.1,addr.port=<hosted-port>,reconnect-ms=1000' -net nic,model=sgi-ioc3-eth,netdev=net0
+--- stderr
+=== origami console <ROOT>/origin200_1
+exit 1
+--- stdout
+--- stderr
+origami: No such file or directory (os error 2)
+=== origami stop <ROOT>/origin200_1
+exit 1
+--- stdout
+--- stderr
+origami: No such file or directory (os error 2)
+=== origami no-such-command
+exit 2
+--- stdout
+--- stderr
+error: unrecognized subcommand 'no-such-command'
+
+  tip: a similar subcommand exists: 'show-command'
+
+Usage: origami
+       origami <COMMAND>
+
+For more information, try '--help'.
+=== origami console (scripted guest)
+exit 0
+--- stdout
+IRIX Release 6.5 IP27 Origami
+login: # 1 250 MHZ IP27 Processor
+# logout
+--- stderr
+=== origami stop <ROOT>/console
+exit 0
+--- stdout
+stopped
+--- stderr

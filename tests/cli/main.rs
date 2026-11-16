@@ -19,6 +19,7 @@ mod networks;
 mod pipes;
 mod processor;
 mod shares;
+mod snapshot;
 mod stop;
 mod subnet;
 mod upgrade;
