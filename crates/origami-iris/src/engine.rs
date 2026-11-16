@@ -175,9 +175,17 @@ impl Engine for IrisEngine {
     }
 
     fn plan(&self, m: &Machine, dir: &MachineDir, w: &Wiring) -> Result<LaunchPlan> {
+        let mut file = m.to_file();
+        // `console=d` for this launch: a new machine's PROM talks on the serial line.
+        if w.once.iter().any(|o| o == "console=d") {
+            file.firstboot
+                .get_or_insert_with(Default::default)
+                .nvram
+                .insert("console".into(), "d".into());
+        }
         let plan = IrisPlan {
             runner: self.runner.clone(),
-            machine: toml::to_string_pretty(&m.to_file())?,
+            machine: toml::to_string_pretty(&file)?,
             name: w.name.clone(),
             hold: w.paused,
             removable: m

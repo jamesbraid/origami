@@ -70,6 +70,15 @@ pub fn check(file: &MachineFile) -> Result<()> {
     Ok(())
 }
 
+/// The PROM console a new machine is seeded with: the graphics head, since every
+/// iris offering has one, unless its first-boot settings name the serial line.
+pub fn prom_console(file: &MachineFile) -> u8 {
+    match file.firstboot.as_ref().and_then(|f| f.nvram.get("console")) {
+        Some(c) if c == "d" => b'd',
+        _ => b'g',
+    }
+}
+
 /// The iris configuration of `file`, which `offering` describes, in `dir`.
 pub fn iris_toml(
     offering: &Offering,
@@ -181,6 +190,16 @@ mod tests {
         );
         assert!(text.contains("nvram = \"/m/state/nvram.raw\""));
         text.parse::<toml::Table>().unwrap();
+    }
+
+    #[test]
+    fn the_console_is_graphics_unless_first_boot_says_serial() {
+        let (_, mut file) = indy();
+        assert_eq!(prom_console(&file), b'g');
+        let mut firstboot = origami_machine::model::FirstBoot::default();
+        firstboot.nvram.insert("console".into(), "d".into());
+        file.firstboot = Some(firstboot);
+        assert_eq!(prom_console(&file), b'd');
     }
 
     #[test]

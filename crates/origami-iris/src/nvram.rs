@@ -3,8 +3,7 @@
 //!
 //! A new machine's image is blank, and iris would fill it with the PROM's
 //! defaults at the first start. [`seed`] writes them first, with the console
-//! on the serial line since no viewer shows the display yet; `setenv console
-//! g` at the PROM undoes it.
+//! the caller picks: `g` where the machine has a graphics head, `d` without one.
 
 /// The Ethernet address of a machine with no identity: iris's own default,
 /// the first of its emulator-minted block.
@@ -41,15 +40,15 @@ fn checksum(block: &[u8; 256]) -> u8 {
     sum
 }
 
-/// The settings block of a new Indy: the PROM's factory settings with the
-/// console on the serial line. The checksum covers the Ethernet address, which
+/// The settings block of a new Indy: the PROM's factory settings with `console`
+/// (`b'g'` or `b'd'`). The checksum covers the Ethernet address, which
 /// iris injects at every start only while the slot is blank, so it goes in
 /// here.
-fn block(mac: [u8; 6]) -> [u8; 256] {
+fn block(mac: [u8; 6], console: u8) -> [u8; 256] {
     let mut block = [0u8; 256];
     block[1] = REV;
+    block[2] = console;
     for (offset, value) in [
-        (2, "d"),
         (116, "9600"),
         (121, "0"),
         (122, "PST8PDT"),
@@ -111,13 +110,13 @@ impl Kind {
 
 /// Write the factory settings into the image at `path` if the machine has
 /// never started: its settings block is still blank.
-pub fn seed(path: &Path, kind: Kind, mac: [u8; 6]) -> std::io::Result<()> {
+pub fn seed(path: &Path, kind: Kind, mac: [u8; 6], console: u8) -> std::io::Result<()> {
     let (at, blank, size) = kind.at();
     let mut image = std::fs::read(path)?;
     if image.len() as u64 != size || image[at..at + 250].iter().any(|&b| b != blank) {
         return Ok(());
     }
-    image[at..at + 256].copy_from_slice(&block(mac));
+    image[at..at + 256].copy_from_slice(&block(mac, console));
     std::fs::write(path, image)
 }
 
@@ -130,20 +129,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nvram.raw");
         std::fs::write(&path, vec![0u8; SIZE as usize]).unwrap();
-        seed(&path, Kind::Indy, [8, 0, 0x69, 1, 2, 3]).unwrap();
+        seed(&path, Kind::Indy, [8, 0, 0x69, 1, 2, 3], b'g').unwrap();
         let image = std::fs::read(&path).unwrap();
         let seeded: [u8; 256] = image[BLOCK..BLOCK + 256].try_into().unwrap();
-        assert_eq!(seeded[2], b'd');
+        assert_eq!(seeded[2], b'g');
         assert_eq!(&seeded[250..], &[8, 0, 0x69, 1, 2, 3]);
         assert_eq!(seeded[0], checksum(&seeded));
         // The Indigo2's EEPROM is blank at 0xFF and holds the block from byte 0.
         std::fs::write(&path, Kind::Indigo2.blank()).unwrap();
-        seed(&path, Kind::Indigo2, [8, 0, 0x69, 1, 2, 3]).unwrap();
+        seed(&path, Kind::Indigo2, [8, 0, 0x69, 1, 2, 3], b'g').unwrap();
         assert_eq!(std::fs::read(&path).unwrap()[..256], seeded);
         std::fs::write(&path, Kind::Indy.blank()).unwrap();
-        seed(&path, Kind::Indy, [8, 0, 0x69, 1, 2, 3]).unwrap();
+        seed(&path, Kind::Indy, [8, 0, 0x69, 1, 2, 3], b'g').unwrap();
         // A guest's own settings are never overwritten.
-        seed(&path, Kind::Indy, [8, 0, 0x69, 9, 9, 9]).unwrap();
+        seed(&path, Kind::Indy, [8, 0, 0x69, 9, 9, 9], b'd').unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), image);
+        // Without a graphics head the console is the serial line.
+        std::fs::write(&path, Kind::Indy.blank()).unwrap();
+        seed(&path, Kind::Indy, [8, 0, 0x69, 1, 2, 3], b'd').unwrap();
+        assert_eq!(std::fs::read(&path).unwrap()[BLOCK + 2], b'd');
     }
 }

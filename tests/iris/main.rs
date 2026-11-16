@@ -47,7 +47,8 @@ impl Harness for IrisHarness {
             name: name.into(),
             paused: false,
             shares: None,
-            once: vec![],
+            // The suite reads the PROM's serial console.
+            once: vec!["console=d".into()],
         }
     }
 
@@ -109,13 +110,13 @@ fn the_octane2_meets_the_contract() {
 }
 
 /// What a front end does: create a machine through the core, start it, watch
-/// the PROM on the console, stop it.
+/// the PROM on its display, stop it.
 #[test]
 fn the_core_creates_starts_and_stops_an_iris_machine() {
     use origami_core::facade::{
         Config, Core, CreateRequest, MachineState, OperationState, StopKind,
     };
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     let root = tempfile::tempdir().unwrap();
     let engine = IrisEngine::new(env!("CARGO_BIN_EXE_origami"));
@@ -132,18 +133,6 @@ fn the_core_creates_starts_and_stops_an_iris_machine() {
 
     let machine = core.start_machine("indy").unwrap();
     assert_eq!(machine.view().engine, "iris");
-    let deadline = Instant::now() + Duration::from_secs(60);
-    loop {
-        let text = machine.console_read(0, 1 << 16).bytes;
-        if String::from_utf8_lossy(&text).contains("Starting up the system") {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the PROM did not reach its boot message"
-        );
-        std::thread::sleep(Duration::from_millis(200));
-    }
     assert_eq!(machine.view().state, MachineState::Running);
     #[cfg(target_os = "linux")]
     picture_arrives_over_display_protocol_4(root.path());
@@ -183,18 +172,21 @@ fn picture_arrives_over_display_protocol_4(root: &Path) {
     let stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
     let mut session = Session::connect(stream, &HelloParams::default()).unwrap();
     session.request(0, false).unwrap();
-    let frame = loop {
-        match session.recv(Some(Duration::from_secs(30))).unwrap() {
-            Some(Event::Frame(frame)) => break frame,
-            Some(_) => {}
-            None => panic!("no picture in 30 seconds"),
+    // The PROM's console is its graphics head: its gradient is the first picture.
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some(Event::Frame(frame)) = session.recv(Some(Duration::from_secs(1))).unwrap() {
+            assert_eq!((frame.width, frame.height), (1282, 1024));
+            let row = |y: usize| frame.pixels()[y * frame.stride as usize..][..16].to_vec();
+            if row(0) != row(1000) {
+                return;
+            }
+            drop(frame);
+            session.request(0, false).unwrap();
         }
-    };
-    assert_eq!((frame.width, frame.height), (1282, 1024));
-    let row = |y: usize| &frame.pixels()[y * frame.stride as usize..][..16];
-    assert_ne!(
-        row(0),
-        row(1000),
-        "the PROM's gradient is not a flat colour"
-    );
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the PROM drew no gradient in 60 seconds"
+        );
+    }
 }

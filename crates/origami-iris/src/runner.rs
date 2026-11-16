@@ -48,7 +48,12 @@ pub fn serve(
     let mac = crate::nvram::parse_mac(mac).ok_or("the identity MAC is malformed")?;
     for item in &offering.storage {
         if let Some(kind) = crate::nvram::Kind::of(&item.initial) {
-            crate::nvram::seed(&origami_machine::stores::state_path(dir, item), kind, mac)?;
+            crate::nvram::seed(
+                &origami_machine::stores::state_path(dir, item),
+                kind,
+                mac,
+                config::prom_console(&file),
+            )?;
         }
     }
     let ports = Ports::free()?;
@@ -411,13 +416,13 @@ mod tests {
         let mut block = [0u8; 256];
         block[250..].copy_from_slice(&[8, 0, 0x69, 1, 2, 3]);
         iris::dev::sgi_nvram::write_defaults(&mut block, iris::dev::sgi_nvram::REV_IP22);
-        // Same settings but the console, which ours puts on the serial line.
-        block[2] = b'd';
+        // Same settings but the console, which ours puts on the graphics head.
+        block[2] = b'g';
         block[0] = iris::dev::sgi_nvram::checksum(&block);
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nvram.raw");
         std::fs::write(&path, vec![0u8; crate::nvram::SIZE as usize]).unwrap();
-        crate::nvram::seed(&path, crate::nvram::Kind::Indy, [8, 0, 0x69, 1, 2, 3]).unwrap();
+        crate::nvram::seed(&path, crate::nvram::Kind::Indy, [8, 0, 0x69, 1, 2, 3], b'g').unwrap();
         assert_eq!(std::fs::read(&path).unwrap()[64..64 + 256], block);
     }
 }
