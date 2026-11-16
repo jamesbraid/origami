@@ -91,6 +91,8 @@ pub(crate) fn table() -> Vec<Command> {
             MachineStopped,
             ["Cmd+R", "Ctrl+Shift+R", "Ctrl+Shift+R"],
         ),
+        // Not enabled while Starting: the engine's launch cannot be aborted and
+        // there is no session to stop until it returns. Cancel the Start instead.
         command(
             "machine.stop",
             "Power Off",

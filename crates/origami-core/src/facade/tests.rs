@@ -506,6 +506,13 @@ fn the_command_table_names_each_command_and_when_it_applies() {
     assert!(!by("machine.pause")
         .enabled_when
         .holds(Some(MachineState::Paused)));
+    // A starting machine has no session to stop; the Start is cancelled instead.
+    assert!(!by("machine.stop")
+        .enabled_when
+        .holds(Some(MachineState::Starting)));
+    assert!(by("machine.stop")
+        .enabled_when
+        .holds(Some(MachineState::Running)));
     assert_eq!(by("app.quit").shortcuts[0].accelerator, "Cmd+Q");
 }
 
