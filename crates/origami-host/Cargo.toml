@@ -1,0 +1,10 @@
+[package]
+name = "origami-host"
+version = "0.0.0"
+description = "The runner: owns a running machine and serves its console and control"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+
+[dependencies]
