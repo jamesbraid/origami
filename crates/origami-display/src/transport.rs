@@ -262,7 +262,12 @@ pub fn pump(
                         display.note_backend(importer.name().to_string());
                     }
                     BACKEND_SHM_FD | BACKEND_SHM_WIN32 => {
-                        let mem = take_handle(&mut passed, &mut handles)?.map()?;
+                        let handle = take_handle(&mut passed, &mut handles)?;
+                        let opened = display
+                            .importer()
+                            .filter(|_| r.kind != KIND_CURSOR_IMAGE)
+                            .and_then(|i| i.open_section(&r, &handle));
+                        let mem = handle.map()?;
                         if (mem.len() as u64) < r.size {
                             return Err(bad(format!(
                                 "region {} is {} bytes, said {}",
@@ -273,10 +278,12 @@ pub fn pump(
                         }
                         // Where the API can read the mapping in place (Metal),
                         // do; else the reader copies the changed lines.
-                        let wrapped = display
-                            .importer()
-                            .filter(|_| r.kind != KIND_CURSOR_IMAGE)
-                            .and_then(|i| i.wrap(&r, &mem));
+                        let wrapped = opened.or_else(|| {
+                            display
+                                .importer()
+                                .filter(|_| r.kind != KIND_CURSOR_IMAGE)
+                                .and_then(|i| i.wrap(&r, &mem))
+                        });
                         match wrapped {
                             Some(gpu) => {
                                 display.add_gpu_region(r.id, r.size, Some(mem), gpu);
@@ -675,6 +682,8 @@ mod tests {
         accepts: Result<(), String>,
         import: Result<(), String>,
         wrap: bool,
+        /// The API opens a plain section from its handle (Direct3D 12).
+        open: bool,
         imported: Mutex<Vec<(u32, u32, u64)>>,
     }
 
@@ -719,6 +728,14 @@ mod tests {
             self.wrap
                 .then(|| Arc::new(Held) as Arc<dyn origami_engine::GpuMemory>)
         }
+        fn open_section(
+            &self,
+            _r: &Region,
+            _h: &Handle,
+        ) -> Option<Arc<dyn origami_engine::GpuMemory>> {
+            self.open
+                .then(|| Arc::new(Held) as Arc<dyn origami_engine::GpuMemory>)
+        }
         fn name(&self) -> &'static str {
             "fake import"
         }
@@ -733,6 +750,7 @@ mod tests {
             accepts,
             import,
             wrap,
+            open: false,
             imported: Mutex::new(Vec::new()),
         })
     }
@@ -838,6 +856,23 @@ mod tests {
                 other => panic!("{other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn a_section_the_gpu_opens_by_handle_is_drawn_in_place() {
+        let m = machine(16, 8);
+        let d = Display::default();
+        d.set_importer(Arc::new(FakeImporter {
+            accepts: Ok(()),
+            import: Ok(()),
+            wrap: false,
+            open: true,
+            imported: Mutex::new(Vec::new()),
+        }));
+        let _ = run_pump(&d, session(&m));
+        let mut px = Vec::new();
+        assert!(matches!(d.take(0, &mut px).unwrap(), Taken::Imported(_)));
+        assert!(px.is_empty());
     }
 
     #[test]

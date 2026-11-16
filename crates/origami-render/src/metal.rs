@@ -190,7 +190,7 @@ mod tests {
         let mem = shared_memory(len).map().expect("map");
         assert_eq!(mem.len(), len);
         let buffer = wrap(&gpu.device, &mem, len as u64).expect("wrap");
-        let region: Arc<dyn origami_engine::GpuMemory> = Arc::new(ImportedBuffer { buffer });
+        let region: Arc<dyn origami_engine::GpuMemory> = Arc::new(ImportedBuffer::new(buffer));
         let compose = Compose::new(&gpu);
         let frame = |runs: Vec<(u32, u32)>, seq: u64| ImportedUpdate {
             update: FrameUpdate {

@@ -514,7 +514,7 @@ mod tests {
 
         let fd = exported.fd.take().unwrap();
         let buffer = import(&gpu.device, caps, &exported.region, Handle::Fd(fd)).expect("import");
-        let region: Arc<dyn GpuMemory> = Arc::new(ImportedBuffer { buffer });
+        let region: Arc<dyn GpuMemory> = Arc::new(ImportedBuffer::new(buffer));
         let compose = Compose::new(&gpu);
         let word = |x: u32, y: u32| 0x0001_0203 + x * 0x0001_0000 + y * 0x0000_0100;
         let paint = |f: &dyn Fn(u32, u32) -> u32| {

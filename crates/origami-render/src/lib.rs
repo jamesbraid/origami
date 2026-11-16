@@ -5,6 +5,8 @@
 
 mod blit;
 mod compose;
+#[cfg(windows)]
+mod d3d12;
 mod device;
 mod head;
 mod import;

@@ -22,6 +22,8 @@ use std::any::Any;
 use std::io;
 use std::sync::Arc;
 
+#[cfg(windows)]
+use super::d3d12;
 #[cfg(target_os = "macos")]
 use super::metal as native;
 #[cfg(any(target_os = "linux", windows))]
@@ -30,6 +32,14 @@ use super::vulkan as native;
 /// A region on the device, as a storage buffer.
 pub struct ImportedBuffer {
     pub buffer: wgpu::Buffer,
+    /// What the buffer needs alive besides itself (a Direct3D heap).
+    pub keep: Option<Box<dyn Any + Send + Sync>>,
+}
+
+impl ImportedBuffer {
+    pub fn new(buffer: wgpu::Buffer) -> ImportedBuffer {
+        ImportedBuffer { buffer, keep: None }
+    }
 }
 
 impl GpuMemory for ImportedBuffer {
@@ -44,6 +54,9 @@ pub enum Kind {
     Vulkan(native::Caps),
     #[cfg(target_os = "macos")]
     Metal,
+    /// Direct3D 12 opens QEMU's shared-memory section as a heap.
+    #[cfg(windows)]
+    D3d12,
 }
 
 pub struct ImportSupport {
@@ -89,6 +102,18 @@ impl ImportSupport {
                 Err(why) => plain(why),
             };
         }
+        #[cfg(windows)]
+        if adapter.get_info().backend == wgpu::Backend::Dx12 {
+            let (d, q, _) = plain(String::new())?;
+            let support = match d3d12::probe(&d) {
+                Ok(()) => ImportSupport {
+                    kind: Some(Kind::D3d12),
+                    why_not: String::new(),
+                },
+                Err(why) => ImportSupport::none(why),
+            };
+            return Ok((d, q, support));
+        }
         #[cfg(target_os = "macos")]
         if adapter.get_info().backend == wgpu::Backend::Metal {
             let (d, q, _) = plain(String::new())?;
@@ -124,6 +149,8 @@ impl ImportSupport {
             Some(Kind::Vulkan(c)) => format!("vulkan import ({})", c.describe()),
             #[cfg(target_os = "macos")]
             Some(Kind::Metal) => "metal no-copy".to_string(),
+            #[cfg(windows)]
+            Some(Kind::D3d12) => "d3d12 section heap".to_string(),
             None => format!("none: {}", self.why_not),
         }
     }
@@ -153,6 +180,9 @@ impl Importer for GpuImporter {
             Some(Kind::Vulkan(_)) => CAP_VULKAN,
             #[cfg(target_os = "macos")]
             Some(Kind::Metal) => CAP_METAL,
+            // QEMU's plain sections are what Direct3D opens: no export asked.
+            #[cfg(windows)]
+            Some(Kind::D3d12) => 0,
             None => 0,
         }
     }
@@ -190,7 +220,7 @@ impl Importer for GpuImporter {
             #[cfg(any(target_os = "linux", windows))]
             Some(Kind::Vulkan(c)) => {
                 let buffer = native::import(&self.device, c, region, handle)?;
-                Ok(Arc::new(ImportedBuffer { buffer }))
+                Ok(Arc::new(ImportedBuffer::new(buffer)))
             }
             _ => Err(io::Error::other("this device imports no exported memory")),
         }
@@ -201,9 +231,24 @@ impl Importer for GpuImporter {
         #[cfg(target_os = "macos")]
         if let Some(Kind::Metal) = self.support.kind {
             return match native::wrap(&self.device, memory, region.size) {
-                Ok(buffer) => Some(Arc::new(ImportedBuffer { buffer })),
+                Ok(buffer) => Some(Arc::new(ImportedBuffer::new(buffer))),
                 Err(why) => {
                     eprintln!("origami-gui: region {}: {why}; copying", region.id);
+                    None
+                }
+            };
+        }
+        None
+    }
+
+    #[cfg_attr(not(windows), allow(unused_variables))]
+    fn open_section(&self, region: &Region, handle: &Handle) -> Option<Arc<dyn GpuMemory>> {
+        #[cfg(windows)]
+        if let Some(Kind::D3d12) = self.support.kind {
+            return match d3d12::open(&self.device, region, handle) {
+                Ok(buffer) => Some(Arc::new(buffer)),
+                Err(why) => {
+                    eprintln!("origami: region {}: {why}; copying", region.id);
                     None
                 }
             };
@@ -217,6 +262,8 @@ impl Importer for GpuImporter {
             Some(Kind::Vulkan(_)) => "vulkan import",
             #[cfg(target_os = "macos")]
             Some(Kind::Metal) => "metal no-copy",
+            #[cfg(windows)]
+            Some(Kind::D3d12) => "d3d12 section heap",
             None => "none",
         }
     }
