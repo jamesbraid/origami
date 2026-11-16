@@ -11,6 +11,7 @@ use origami_machine::{
     Network, Offering, PortForward, Result, Share,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -37,6 +38,18 @@ pub enum Change {
     CreateDisk {
         size_mib: u64,
     },
+    /// The CPUs per node, within the processor module the machine was made
+    /// with. The node flash records the module at creation, so naming
+    /// another is refused.
+    SetProcessor {
+        module: Option<String>,
+        cpus_per_node: Option<u32>,
+    },
+    /// Memory per node in MiB, from the list the machine's offering accepts.
+    SetMemory(u32),
+    /// Machine settings, as `create --set` takes them. Each replaces the
+    /// machine's value for that name; the others stay.
+    SetSettings(BTreeMap<String, String>),
 }
 
 impl Change {
@@ -52,6 +65,9 @@ impl Change {
             Self::AddShare { .. } | Self::RemoveShare(_) => "changing its shares",
             Self::AttachDrive(_) | Self::CreateDisk { .. } => "changing drives",
             Self::DetachDrive(_) => "detaching a drive",
+            Self::SetProcessor { .. } => "changing its processor",
+            Self::SetMemory(_) => "changing its memory",
+            Self::SetSettings(_) => "changing its settings",
         }
     }
 }
@@ -252,7 +268,106 @@ impl Staged<'_> {
                 Ok(())
             }
             Change::CreateDisk { size_mib } => self.create_disk(*size_mib),
+            Change::SetProcessor {
+                module,
+                cpus_per_node,
+            } => self.set_processor(module.as_deref(), *cpus_per_node),
+            Change::SetMemory(mib) => self.set_memory(*mib),
+            Change::SetSettings(settings) => self.set_settings(settings),
         }
+    }
+
+    fn set_processor(&mut self, module: Option<&str>, cpus_per_node: Option<u32>) -> Result<()> {
+        let catalogue = self.check()?;
+        let offer = self.offering(&catalogue)?;
+        if let Some(module) = module.filter(|module| *module != offer.processor.id) {
+            return Err(format!(
+                "this machine was made with {}, and its node flash records the processor \
+                 module, so {module} needs a new machine",
+                offer.processor.id
+            )
+            .into());
+        }
+        let Some(cpus) = cpus_per_node.filter(|cpus| [*cpus] != offer.cpus_per_node[..1]) else {
+            self.report.result("processor unchanged");
+            return Ok(());
+        };
+        let population = vec![cpus; offer.nodes as usize];
+        let fits = |o: &&Offering| {
+            o.topology == offer.topology
+                && o.nodes == offer.nodes
+                && o.processor.id == offer.processor.id
+        };
+        if !catalogue
+            .offerings
+            .iter()
+            .filter(fits)
+            .any(|o| o.cpus_per_node == population)
+        {
+            let mut offered: Vec<u32> = catalogue
+                .offerings
+                .iter()
+                .filter(fits)
+                .map(|o| o.cpus_per_node[0])
+                .collect();
+            offered.sort_unstable();
+            offered.dedup();
+            return Err(format!(
+                "{} with {} takes {} CPUs per node, not {cpus}",
+                offer.topology,
+                offer.processor.id,
+                offered
+                    .iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(" or ")
+            )
+            .into());
+        }
+        self.file.machine.cpus_per_node = cpus;
+        if !self.file.machine.population.is_empty() {
+            self.file.machine.population = population;
+        }
+        self.check()?;
+        self.report
+            .result(format!("processor: {cpus} CPUs per node"));
+        self.dirty = true;
+        Ok(())
+    }
+
+    fn set_memory(&mut self, mib: u32) -> Result<()> {
+        if self.file.machine.memory_per_node == format!("{mib}MiB") {
+            self.report.result("memory unchanged");
+            return Ok(());
+        }
+        self.file.machine.memory_per_node = format!("{mib}MiB");
+        self.check()?;
+        self.report.result(format!(
+            "memory: {mib}MiB per node; the guest sees it at its next boot"
+        ));
+        self.dirty = true;
+        Ok(())
+    }
+
+    fn set_settings(&mut self, settings: &BTreeMap<String, String>) -> Result<()> {
+        let catalogue = self.check()?;
+        let offer = self.offering(&catalogue)?;
+        let mut inputs = self.file.machine.inputs.clone();
+        inputs.extend(settings.clone());
+        let inputs = origami_machine::settings::resolve(&catalogue, offer, inputs)?;
+        if inputs == self.file.machine.inputs {
+            self.report.result("settings unchanged");
+            return Ok(());
+        }
+        self.file.machine.inputs = inputs;
+        self.check()?;
+        for (name, value) in settings {
+            self.report.detail(format!("{name}={value}"));
+        }
+        self.report
+            .result("settings changed; the guest sees them at its next boot");
+        self.dirty = true;
+        Ok(())
     }
 
     fn set_graphics(&mut self, args: &GraphicsRequest) -> Result<()> {

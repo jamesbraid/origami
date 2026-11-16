@@ -23,6 +23,7 @@ Commands:
   drive-attach            Attach an existing disk, CD or tape image; a disk may be a CHD
   drive-detach            Detach a drive without deleting its image
   graphics-set            Change a stopped machine's graphics, where its topology allows that
+  machine-set             Change a stopped machine's CPUs per node, memory or settings
   console-set             Choose the serial port a stopped guest's console uses
   nvram                   List or change a stopped machine's PROM environment in its NVRAM
   network-set             Change networking on a stopped guest
@@ -65,6 +66,7 @@ Commands:
   drive-attach            Attach an existing disk, CD or tape image; a disk may be a CHD
   drive-detach            Detach a drive without deleting its image
   graphics-set            Change a stopped machine's graphics, where its topology allows that
+  machine-set             Change a stopped machine's CPUs per node, memory or settings
   console-set             Choose the serial port a stopped guest's console uses
   nvram                   List or change a stopped machine's PROM environment in its NVRAM
   network-set             Change networking on a stopped guest
@@ -371,6 +373,25 @@ Graphics options:
       --graphics-setting <NAME=VALUE>  A pipe setting other than its default, such as rm-count=1; repeatable
 
 No graphics can change after a machine is created yet; create a new machine instead.
+--- stderr
+=== origami machine-set --help
+exit 0
+--- stdout
+Change a stopped machine's CPUs per node, memory or settings
+
+Usage: origami machine-set <--processor <ID>|--cpus-per-node <N>|--memory-per-node <MiB>|--set <NAME[.SLOT]=VALUE>> <DIR>
+
+Arguments:
+  <DIR>  
+
+Options:
+      --processor <ID>           The processor module the machine was made with; another needs a new machine, because its node flash records the module
+      --cpus-per-node <N>        CPUs per node, where the machine's processor module comes in more than one
+      --memory-per-node <MiB>    Memory per node in MiB
+      --set <NAME[.SLOT]=VALUE>  Give a machine setting a new value, such as prid=0xe24; repeatable
+  -h, --help                     Print help
+
+Example: origami machine-set o200 --memory-per-node 512 --set prid=0xe24
 --- stderr
 === origami console-set --help
 exit 0

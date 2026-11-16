@@ -15,6 +15,7 @@ mod emu_id;
 mod install_apply;
 mod install_logging;
 mod lifecycle;
+mod machine_set;
 mod networks;
 mod pipes;
 mod processor;

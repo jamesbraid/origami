@@ -5,6 +5,7 @@ use cli::{Action, NvramAction};
 use origami_core::{Change, DriveRequest, InstallAddon, InstallInit, Report, Status, Stream};
 use origami_machine::{control, graphics, install, shares, Result};
 use origami_qemu::{runtime, QemuEngine};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::{Command, ExitCode};
 
@@ -240,6 +241,33 @@ fn command(action: Action) -> Result<()> {
             }),
         )?,
         Action::DriveDetach { dir, name } => change(&engine, &dir, Change::DetachDrive(name))?,
+        Action::MachineSet {
+            dir,
+            processor,
+            cpus_per_node,
+            memory_per_node,
+            settings,
+        } => {
+            let dir = origami_core::directory(&dir)?;
+            let mut changes = vec![];
+            if processor.is_some() || cpus_per_node.is_some() {
+                changes.push(Change::SetProcessor {
+                    module: processor,
+                    cpus_per_node,
+                });
+            }
+            changes.extend(memory_per_node.map(Change::SetMemory));
+            if !settings.is_empty() {
+                let mut named = BTreeMap::new();
+                for (name, value) in settings {
+                    if named.insert(name.clone(), value).is_some() {
+                        return Err(format!("--set {name} given twice").into());
+                    }
+                }
+                changes.push(Change::SetSettings(named));
+            }
+            emit(&origami_core::apply_changes(&engine, &dir, &changes)?);
+        }
         Action::ConsoleSet { dir, port } => change(&engine, &dir, Change::SetConsole(port))?,
         Action::Nvram(args) => {
             let dir = origami_core::directory(&args.dir)?;

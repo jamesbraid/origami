@@ -105,6 +105,28 @@ pub enum Action {
         #[command(flatten)]
         graphics: GraphicsArgs,
     },
+    /// Change a stopped machine's CPUs per node, memory or settings
+    #[command(
+        after_help = "Example: origami machine-set o200 --memory-per-node 512 --set prid=0xe24",
+        group = clap::ArgGroup::new("what").required(true).multiple(true)
+    )]
+    MachineSet {
+        #[arg(value_name = "DIR")]
+        dir: PathBuf,
+        /// The processor module the machine was made with; another needs a
+        /// new machine, because its node flash records the module
+        #[arg(long, value_name = "ID", group = "what")]
+        processor: Option<String>,
+        /// CPUs per node, where the machine's processor module comes in more than one
+        #[arg(long, value_name = "N", group = "what")]
+        cpus_per_node: Option<u32>,
+        /// Memory per node in MiB
+        #[arg(long, value_name = "MiB", group = "what")]
+        memory_per_node: Option<u32>,
+        /// Give a machine setting a new value, such as prid=0xe24; repeatable
+        #[arg(long = "set", value_name = "NAME[.SLOT]=VALUE", value_parser = parse_setting, group = "what")]
+        settings: Vec<(String, String)>,
+    },
     /// Choose the serial port a stopped guest's console uses
     ConsoleSet {
         #[arg(value_name = "DIR")]

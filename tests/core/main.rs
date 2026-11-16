@@ -186,3 +186,93 @@ fn a_machine_with_graphics_keeps_the_proms_console() {
     let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
     assert!(!text.contains("firstboot"), "{text}");
 }
+
+fn origin200(name: &str) -> PathBuf {
+    let root = root();
+    let dir = root.join(name).join("origin200");
+    let mut spec = MachineSpec::new(&dir, "origin200-1");
+    spec.firmware.boot_prom = Some(support::synthetic_prom(root));
+    create(&engine(), &spec).unwrap();
+    fs::canonicalize(&dir).unwrap()
+}
+
+fn settings(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+}
+
+#[test]
+fn processor_memory_and_settings_change_after_creation() {
+    let dir = origin200("edit");
+    let changes = [
+        Change::SetProcessor {
+            module: Some("r10000-180mhz-1mb".into()),
+            cpus_per_node: Some(2),
+        },
+        Change::SetMemory(192),
+        Change::SetSettings(settings(&[("prid", "0xe24")])),
+    ];
+    apply_changes(&engine(), &dir, &changes).unwrap();
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(text.contains("cpus_per_node = 2"), "{text}");
+    assert!(text.contains("memory_per_node = \"192MiB\""), "{text}");
+    assert!(text.contains("prid = \"0xe24\""), "{text}");
+    // Repeating them changes nothing, and a later setting keeps the earlier.
+    let before = snapshot(&dir);
+    apply_changes(&engine(), &dir, &changes).unwrap();
+    assert_eq!(snapshot(&dir), before);
+    apply_changes(
+        &engine(),
+        &dir,
+        &[Change::SetSettings(settings(&[("junk-uart", "on")]))],
+    )
+    .unwrap();
+    let text = fs::read_to_string(dir.join("machine.toml")).unwrap();
+    assert!(text.contains("prid = \"0xe24\""), "{text}");
+    assert!(text.contains("junk-uart = \"on\""), "{text}");
+}
+
+#[test]
+fn an_invalid_edit_refuses_the_whole_batch_and_changes_nothing() {
+    let dir = origin200("refuse");
+    let before = snapshot(&dir);
+    for bad in [
+        Change::SetMemory(7),
+        Change::SetSettings(settings(&[("no-such-setting", "1")])),
+        Change::SetProcessor {
+            module: None,
+            cpus_per_node: Some(3),
+        },
+        // The module is recorded in the node flash at creation.
+        Change::SetProcessor {
+            module: Some("r12000-270mhz-4mb".into()),
+            cpus_per_node: None,
+        },
+    ] {
+        let error =
+            apply_changes(&engine(), &dir, &[Change::SetMemory(192), bad.clone()]).unwrap_err();
+        assert!(!error.to_string().is_empty(), "{bad:?}");
+        assert_eq!(snapshot(&dir), before, "{bad:?}");
+    }
+}
+
+#[test]
+fn a_running_machine_refuses_edits_to_its_hardware() {
+    let dir = origin200("running");
+    let _running = origami_machine::control::lock_for_edit(&dir, "running").unwrap();
+    let before = snapshot(&dir);
+    for change in [
+        Change::SetMemory(192),
+        Change::SetProcessor {
+            module: None,
+            cpus_per_node: Some(2),
+        },
+        Change::SetSettings(settings(&[("prid", "0xe24")])),
+    ] {
+        let error = apply_changes(&engine(), &dir, &[change]).unwrap_err();
+        assert!(error.to_string().contains("stop the machine"), "{error}");
+    }
+    assert_eq!(snapshot(&dir), before);
+}
