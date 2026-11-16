@@ -35,6 +35,8 @@ pub struct HeadSpec {
     pub pull: bool,
     pub source_index: u32,
     pub unsupported: bool,
+    /// The core pixel format of the head's slots: `XR24` or `XB24`.
+    pub fourcc: u32,
 }
 
 impl Default for HeadSpec {
@@ -48,6 +50,7 @@ impl Default for HeadSpec {
             pull: true,
             source_index: 0,
             unsupported: false,
+            fourcc: wire::FOURCC_XR24,
         }
     }
 }
@@ -69,7 +72,8 @@ pub trait Host: Send {
     fn acquire(&mut self, _head: u32) {}
     /// Pull style: produce line `y` of the head as `XR24` words.
     fn resolve_line(&mut self, _head: u32, _y: u32, _row: &mut [u32]) {}
-    /// Push style: compose and hand the picture to `Producer::push_*`.
+    /// Push style: compose and hand the picture to `Engine::push_begin` and
+    /// `push_complete`.
     fn request_frame(&mut self, _head: u32) {}
     fn stimulus(&mut self, _s: &Stimulus) {}
     /// Make the next stimulus mark from another thread, pausing `micros`
@@ -372,6 +376,11 @@ impl Engine {
 
     pub fn head_count(&self) -> usize {
         self.heads.len()
+    }
+
+    /// The head's current mode, (0, 0) while it has none.
+    pub fn head_size(&self, head: u32) -> (u32, u32) {
+        self.heads.get(head as usize).map_or((0, 0), |h| (h.w, h.h))
     }
 
     // --- heads ---

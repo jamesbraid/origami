@@ -94,7 +94,8 @@ impl Engine {
                         self.run_sample(c.head, id, start);
                     } else if gen == self.heads[hu].mode_gen {
                         let pic = self.heads[hu].held_pic.take();
-                        self.push_apply(c.head, id, start, pic.as_deref());
+                        let stride = self.heads[hu].stride as usize;
+                        self.push_apply(c.head, id, start, pic.as_deref(), stride);
                     } else {
                         self.heads[hu].done_ctr = self.heads[hu].done_ctr.max(id);
                         self.evaluate(c.head);

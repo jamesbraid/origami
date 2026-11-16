@@ -410,7 +410,7 @@ impl Engine {
             width: w,
             height: hh,
             refresh_mhz: refresh,
-            fourcc: wire::FOURCC_XR24,
+            fourcc: self.heads[hu].spec.fourcc,
             stride,
             slot_region: slots,
             pointer_mode: pm,
@@ -898,30 +898,63 @@ impl Engine {
     /// The host finished composing: `pixels` is the whole picture at the head's
     /// stride (or `None`: nothing changed). Compares it into the reference frame.
     pub fn push_complete(&mut self, h: u32, id: u64, pixels: Option<&[u8]>) {
+        let stride = self
+            .heads
+            .get(h as usize)
+            .map_or(0, |hd| hd.stride as usize);
+        self.push_complete_strided(h, id, pixels, stride);
+    }
+
+    /// As [`push_complete`](Self::push_complete) for rows `src_stride` bytes
+    /// apart, so a compositor's buffer is compared where it is.
+    pub fn push_complete_strided(
+        &mut self,
+        h: u32,
+        id: u64,
+        pixels: Option<&[u8]>,
+        src_stride: usize,
+    ) {
         let Some(hd) = self.heads.get_mut(h as usize) else {
             return;
         };
         let start = hd.push_open.take().map_or_else(now_ns, |(_, s)| s);
+        // A picture from before a mode change no longer fits the head: ignore it.
+        let pixels = pixels.filter(|p| fits(p, src_stride, hd.w as usize * 4, hd.h as usize));
         if hd.hold_next {
             // The test hook: this composition completes at CONTROL op 2.
             hd.hold_next = false;
             hd.held = Some((id, start, hd.mode_gen));
-            hd.held_pic = pixels.map(<[u8]>::to_vec);
+            hd.held_pic = pixels.map(|p| {
+                rows_at(
+                    p,
+                    src_stride,
+                    hd.stride as usize,
+                    hd.w as usize * 4,
+                    hd.h as usize,
+                )
+            });
             return;
         }
-        self.push_apply(h, id, start, pixels);
+        self.push_apply(h, id, start, pixels, src_stride);
     }
 
-    pub(crate) fn push_apply(&mut self, h: u32, id: u64, start: u64, pixels: Option<&[u8]>) {
+    pub(crate) fn push_apply(
+        &mut self,
+        h: u32,
+        id: u64,
+        start: u64,
+        pixels: Option<&[u8]>,
+        src_stride: usize,
+    ) {
         let hu = h as usize;
         let hd = &mut self.heads[hu];
         let mut changed = Lines::new(hd.h);
-        if let Some(p) = pixels {
+        let (stride, w) = (hd.stride as usize, hd.w as usize * 4);
+        if let Some(p) = pixels.filter(|p| fits(p, src_stride, w, hd.h as usize)) {
             self.stats.samples += 1;
-            let (stride, w) = (hd.stride as usize, hd.w as usize * 4);
             for y in 0..hd.h as usize {
                 let (a, b) = (
-                    &p[y * stride..y * stride + w],
+                    &p[y * src_stride..y * src_stride + w],
                     &mut hd.reference[y * stride..y * stride + w],
                 );
                 self.stats.lines_produced += 1;
@@ -1256,6 +1289,20 @@ fn hd_slots(s: &Set) -> Vec<u32> {
         .map(|x| x.region)
         .take(wire::MAX_SLOTS)
         .collect()
+}
+
+/// Whether `h` rows of `w` bytes, `stride` apart, lie within `p`.
+fn fits(p: &[u8], stride: usize, w: usize, h: usize) -> bool {
+    h == 0 || (stride >= w && p.len() >= stride * (h - 1) + w)
+}
+
+/// The first `w` bytes of `h` rows of `p`, `from` apart, laid out `to` apart.
+fn rows_at(p: &[u8], from: usize, to: usize, w: usize, h: usize) -> Vec<u8> {
+    let mut out = vec![0; to * h];
+    for y in 0..h {
+        out[y * to..y * to + w].copy_from_slice(&p[y * from..y * from + w]);
+    }
+    out
 }
 
 pub(crate) fn dummy_set() -> Set {

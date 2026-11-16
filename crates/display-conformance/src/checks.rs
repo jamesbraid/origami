@@ -71,14 +71,21 @@ pub const CHECKS: &[(&str, Check)] = &[
 
 // --- pictures ---
 
+/// The frame as `0x00RRGGBB` words, whichever core format the head uses.
 fn picture(f: &FrameLease) -> Vec<u32> {
     let (w, h, stride) = (f.width as usize, f.height as usize, f.stride as usize);
+    let swap = f.fourcc == origami_display::v4::wire::FOURCC_XB24;
     let px = f.pixels();
     let mut v = Vec::with_capacity(w * h);
     for y in 0..h {
         for x in 0..w {
             let o = y * stride + x * 4;
-            v.push(u32::from_le_bytes(px[o..o + 4].try_into().unwrap()) & 0xFF_FFFF);
+            let p = u32::from_le_bytes(px[o..o + 4].try_into().unwrap()) & 0xFF_FFFF;
+            v.push(if swap {
+                (p & 0xFF) << 16 | p & 0xFF00 | p >> 16
+            } else {
+                p
+            });
         }
     }
     v
