@@ -3,13 +3,13 @@
 # and unit-test the crate, fetch the QEMU runtime the product pins, and run
 # the named scenarios on lavapipe under Xvfb (a real-GPU run adds gpu=N).
 #
-# usage: linux.sh SCRATCH [scenario...]     (default: first-light)
+# usage: linux.sh SCRATCH [scenario...]     (default: first-light settings)
 # SCRATCH is a directory this script may fill (cargo target, runtime, outputs).
 set -eu
 S=$(cd "$1" && pwd); shift
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
-SCEN=${*:-first-light}
+SCEN=${*:-first-light settings}
 mkdir -p "$S/ctx" "$S/cargo" "$S/target" "$S/cache" "$S/work" "$S/out"
 cp "$HERE/Containerfile" "$HERE/packages.txt" "$S/ctx/"
 podman build --memory 16g -t localhost/app-linux-build:1 -t localhost/app-linux-run:1 -f "$S/ctx/Containerfile" "$S/ctx"
@@ -24,3 +24,6 @@ for sc in $SCEN; do
   rm -rf "$S/work/$sc" "$S/out/$sc"
   sh "$HERE/run.sh" "$S" "$sc" x11 none -- "$sc"
 done
+# Capture under Wayland: sway has pointer constraints and a virtual pointer.
+rm -rf "$S/work/pointer-sway" "$S/out/pointer-sway"
+sh "$HERE/run.sh" "$S" pointer-sway sway none -- pointer

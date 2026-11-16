@@ -16,8 +16,10 @@ if [ -n "${NVIDIA_RUN:-}" ] && [ "$MODE" != x11 ]; then
 fi
 case $MODE in
 x11)
-  Xvfb :99 -screen 0 1600x1300x24 >"$OUT/xvfb.log" 2>&1 &
-  sleep 2; export DISPLAY=:99 GDK_BACKEND=x11
+  # Containers share the host's abstract X sockets, so parallel runs need their own display.
+  D=$((100 + $(od -An -N2 -tu2 /dev/urandom) % 800))
+  Xvfb :$D -screen 0 1600x1300x24 >"$OUT/xvfb.log" 2>&1 &
+  sleep 2; export DISPLAY=:$D GDK_BACKEND=x11
   openbox >"$OUT/openbox.log" 2>&1 &
   sleep 1
   python3 "$(dirname "$0")/driver.py" "$OUT" x11 "$@"

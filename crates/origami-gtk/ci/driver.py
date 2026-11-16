@@ -53,9 +53,20 @@ class App:
         self.f = self.s.makefile("rw")
 
     def req(self, line):
-        self.f.write(line + "\n")
-        self.f.flush()
-        return json.loads(self.f.readline())
+        try:
+            self.f.write(line + "\n")
+            self.f.flush()
+            answer = self.f.readline()
+        except (BrokenPipeError, ConnectionError):
+            answer = ""
+        if not answer:
+            # The app is gone: say how, so a crash is not a mystery.
+            try:
+                rc = self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                rc = "still running"
+            raise SystemExit("the app stopped answering %r (exit status %s; a negative one is a signal)" % (line, rc))
+        return json.loads(answer)
 
     def state(self):
         for _ in range(3):
