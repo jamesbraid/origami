@@ -62,6 +62,10 @@ them to the paths above. It ships no firmware and no shared libraries: the
 host provides its display, audio and system libraries, as the QEMU
 repository's packaging notes describe.
 
+### iris
+
+`cargo build --release --features iris` links the iris emulator into the `origami` executable, for the machines the `indy` preset makes. iris is a git dependency of `crates/origami-iris` at an exact commit of `jamesbraid/iris` (the `origami/zero-copy` branch, which carries patches we do not send upstream), and the two `[patch.crates-io]` entries in the workspace `Cargo.toml` repeat iris's own for `winit` and `block`. Move the pin in its own change. Only the runner process (`origami _serve`) links iris; the crate's engine half, which front ends use to start a machine, does not. The `iris` test runs the engine contract suite and the core against a real iris machine: `cargo test --features iris --test iris`.
+
 ### Before a QEMU release exists, or for a QEMU change
 
 Build an archive in a QEMU worktree (`python3 packaging/sgi-package.py`; see

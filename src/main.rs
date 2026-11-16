@@ -4,6 +4,8 @@ use clap::Parser;
 use cli::{Action, NvramAction};
 use origami_core::facade::{connect_install_console, InstallStart};
 use origami_core::{Change, DriveRequest, InstallAddon, InstallInit, Report, Status, Stream};
+use origami_engine::Engine;
+use origami_iris::IrisEngine;
 use origami_machine::{control, graphics, install, shares, Result};
 use origami_qemu::{runtime, QemuEngine};
 use std::collections::BTreeMap;
@@ -68,11 +70,76 @@ fn version_report(rt: &runtime::Runtime) {
     }
 }
 
+/// The engines this executable runs machines on.
+struct Engines {
+    qemu: QemuEngine,
+    iris: IrisEngine,
+}
+
+impl Engines {
+    fn new(rt: &runtime::Runtime) -> Result<Self> {
+        Ok(Self {
+            qemu: QemuEngine::new(rt.clone()),
+            iris: IrisEngine::new(std::env::current_exe()?),
+        })
+    }
+
+    /// The engine the machine in `dir` names; QEMU where the file cannot be
+    /// read, so its own errors speak.
+    fn of(&self, dir: &Path) -> &dyn Engine {
+        match origami_machine::read_machine(dir) {
+            Ok(file) if file.engine.id == origami_iris::ENGINE => &self.iris,
+            _ => &self.qemu,
+        }
+    }
+
+    /// The engine that offers `preset`.
+    fn offering(&self, preset: &str) -> &dyn Engine {
+        let offered = |engine: &dyn Engine| {
+            engine
+                .catalogue()
+                .is_ok_and(|machines| origami_machine::preset(&machines, preset).is_ok())
+        };
+        if offered(&self.iris) {
+            &self.iris
+        } else {
+            &self.qemu
+        }
+    }
+}
+
 /// Apply one edit to the machine in `dir` and print what it says.
-fn change(engine: &QemuEngine, dir: &Path, change: Change) -> Result<()> {
+fn change(engines: &Engines, dir: &Path, change: Change) -> Result<()> {
     let dir = origami_core::directory(dir)?;
-    emit(&origami_core::apply_change(engine, &dir, &change)?);
+    emit(&origami_core::apply_change(
+        engines.of(&dir),
+        &dir,
+        &change,
+    )?);
     Ok(())
+}
+
+/// Host the iris machine in `dir` in this process, then leave without the
+/// exit handlers: tearing down a stopped iris machine can fault.
+#[cfg(feature = "iris")]
+fn serve_iris(
+    dir: &Path,
+    machine_file: Option<&Path>,
+    started_by: &str,
+    foreground: bool,
+    hold: bool,
+) -> Result<()> {
+    use std::io::Write;
+    let exit = origami_iris::runner::serve(dir, machine_file, started_by, foreground, hold)?;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    // SAFETY: _exit takes no pointers.
+    unsafe { libc::_exit(if exit.success() { 0 } else { 1 }) }
+}
+
+#[cfg(not(feature = "iris"))]
+fn serve_iris(_: &Path, _: Option<&Path>, _: &str, _: bool, _: bool) -> Result<()> {
+    Err("this origami was built without iris; rebuild it with --features iris".into())
 }
 
 fn command(action: Action) -> Result<()> {
@@ -81,23 +148,32 @@ fn command(action: Action) -> Result<()> {
         version_report(&rt);
         return Ok(());
     }
-    let engine = QemuEngine::new(rt.clone());
+    let engines = Engines::new(&rt)?;
     match action {
         Action::Version => unreachable!(),
+        // The list is QEMU's. iris's machines are experimental: named, they
+        // show and create like any other.
         Action::Machines { preset, all } => {
-            print!(
-                "{}",
-                origami_core::listing(&engine, preset.as_deref(), all)?
-            );
+            let engine = preset
+                .as_deref()
+                .map_or(&engines.qemu as &dyn Engine, |p| engines.offering(p));
+            print!("{}", origami_core::listing(engine, preset.as_deref(), all)?);
         }
-        Action::Create(args) => emit(&origami_core::create(&engine, &args.spec()?)?),
+        Action::Create(args) => {
+            let spec = args.spec()?;
+            emit(&origami_core::create(
+                engines.offering(&args.preset),
+                &spec,
+            )?)
+        }
         Action::Validate(args) => {
             let dir = origami_core::directory(&args.dir)?;
-            emit(&origami_core::validate(&engine, &dir)?);
+            emit(&origami_core::validate(engines.of(&dir), &dir)?);
         }
         Action::Upgrade { dir, prom, io_prom } => {
             let dir = origami_core::directory(&dir)?;
-            match origami_core::upgrade(&engine, &dir, prom.as_deref(), io_prom.as_deref()) {
+            match origami_core::upgrade(engines.of(&dir), &dir, prom.as_deref(), io_prom.as_deref())
+            {
                 Ok(report) => emit(&report),
                 Err(incomplete) => {
                     emit(&incomplete.report);
@@ -107,7 +183,7 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Show(args) => {
             let dir = origami_core::directory(&args.dir)?;
-            match origami_core::show(&engine, &dir) {
+            match origami_core::show(engines.of(&dir), &dir) {
                 Ok(report) => emit(&report),
                 Err(incomplete) => {
                     emit(&incomplete.report);
@@ -117,8 +193,11 @@ fn command(action: Action) -> Result<()> {
         }
         Action::ShowCommand(args) => {
             let dir = origami_core::directory(&args.machine.dir)?;
-            let loaded = origami_core::open(&engine, &dir)?;
+            let loaded = origami_core::open(engines.of(&dir), &dir)?;
             let (machines, file) = (&loaded.catalogue, &loaded.file);
+            if file.engine.id != origami_machine::model::QEMU_ENGINE {
+                return Err(format!("{} machines have no QEMU command", file.engine.id).into());
+            }
             let offer = loaded.offering()?;
             let display = args.display.resolve(!file.pipe.is_empty())?;
             let exe = rt.qemu();
@@ -138,16 +217,20 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Run(args) => {
             let dir = origami_core::directory(&args.launch.machine.dir)?;
-            match origami_core::apply_first_boot(&engine, &dir) {
+            match origami_core::apply_first_boot(engines.of(&dir), &dir) {
                 Ok(report) => emit(&report),
                 Err(error) => {
                     eprintln!("warning: could not apply the first-boot settings: {error}")
                 }
             }
-            let loaded = origami_core::open(&engine, &dir)?;
+            let loaded = origami_core::open(engines.of(&dir), &dir)?;
             let (machines, file) = (&loaded.catalogue, &loaded.file);
             let offer = loaded.offering()?;
             let display = args.launch.display.resolve(!file.pipe.is_empty())?;
+            let iris = file.engine.id == origami_iris::ENGINE;
+            if iris && !args.launch.qemu_args.is_empty() {
+                return Err("--qemu-arg does not apply to an iris machine".into());
+            }
             match display {
                 runtime::Display::Vnc { port } => {
                     let servers = runtime::vnc_ports(machines, offer, file, port)?;
@@ -183,6 +266,8 @@ fn command(action: Action) -> Result<()> {
                     &start,
                 )?;
                 println!("running: pid {pid}");
+            } else if iris {
+                serve_iris(&dir, None, "cli", true, args.hold)?;
             } else {
                 let exit = origami_host::serve(origami_host::ServeArgs {
                     rt: &rt,
@@ -210,15 +295,27 @@ fn command(action: Action) -> Result<()> {
         Action::Serve(args) => {
             let launch = &args.launch;
             let dir = origami_core::directory(&launch.machine.dir)?;
-            match origami_core::apply_first_boot(&engine, &dir) {
+            if args.machine_file.is_some() {
+                return serve_iris(
+                    &dir,
+                    args.machine_file.as_deref(),
+                    &args.started_by,
+                    false,
+                    args.hold,
+                );
+            }
+            match origami_core::apply_first_boot(engines.of(&dir), &dir) {
                 Ok(report) => emit(&report),
                 Err(error) => {
                     eprintln!("warning: could not apply the first-boot settings: {error}")
                 }
             }
-            let loaded = origami_core::open(&engine, &dir)?;
+            let loaded = origami_core::open(engines.of(&dir), &dir)?;
             let (machines, file) = (&loaded.catalogue, &loaded.file);
             let offer = loaded.offering()?;
+            if file.engine.id == origami_iris::ENGINE {
+                return serve_iris(&dir, None, &args.started_by, false, args.hold);
+            }
             let display = launch.display.resolve(!file.pipe.is_empty())?;
             let exit = origami_host::serve(origami_host::ServeArgs {
                 rt: &rt,
@@ -241,7 +338,7 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Status(args) => {
             let dir = origami_core::directory(&args.dir)?;
-            if let Some(record) = origami_qemu::control::running(&dir)? {
+            if let Some(record) = origami_host::client::running(&dir)? {
                 if origami_host::client::runner_gone(&dir, &record)? {
                     emit(&Report::one(format!(
                         "runner gone, QEMU pid {} still running",
@@ -262,21 +359,21 @@ fn command(action: Action) -> Result<()> {
         Action::Stop(args) => {
             let dir = origami_core::directory(&args.dir)?;
             if args.force {
-                origami_qemu::control::force_stop(&dir)?;
+                origami_host::client::force_stop(&dir)?;
             } else {
                 origami_host::client::stop(&dir)?;
             }
             emit(&Report::one("stopped"));
         }
         Action::Reset(args) => {
-            origami_qemu::control::reset(&origami_core::directory(&args.dir)?)?;
+            origami_host::client::reset(&origami_core::directory(&args.dir)?)?;
             emit(&Report::one("reset"));
         }
         Action::GraphicsSet { dir, graphics } => {
-            change(&engine, &dir, Change::SetGraphics(graphics.request()?))?
+            change(&engines, &dir, Change::SetGraphics(graphics.request()?))?
         }
         Action::DriveCreate { dir, size } => {
-            change(&engine, &dir, Change::CreateDisk { size_mib: size })?
+            change(&engines, &dir, Change::CreateDisk { size_mib: size })?
         }
         Action::DriveAttach {
             dir,
@@ -285,7 +382,7 @@ fn command(action: Action) -> Result<()> {
             target,
             overlay,
         } => change(
-            &engine,
+            &engines,
             &dir,
             Change::AttachDrive(DriveRequest {
                 file,
@@ -294,7 +391,7 @@ fn command(action: Action) -> Result<()> {
                 overlay,
             }),
         )?,
-        Action::DriveDetach { dir, name } => change(&engine, &dir, Change::DetachDrive(name))?,
+        Action::DriveDetach { dir, name } => change(&engines, &dir, Change::DetachDrive(name))?,
         Action::MachineSet {
             dir,
             processor,
@@ -320,18 +417,24 @@ fn command(action: Action) -> Result<()> {
                 }
                 changes.push(Change::SetSettings(named));
             }
-            emit(&origami_core::apply_changes(&engine, &dir, &changes)?);
+            emit(&origami_core::apply_changes(
+                engines.of(&dir),
+                &dir,
+                &changes,
+            )?);
         }
-        Action::ConsoleSet { dir, port } => change(&engine, &dir, Change::SetConsole(port))?,
+        Action::ConsoleSet { dir, port } => change(&engines, &dir, Change::SetConsole(port))?,
         Action::Nvram(args) => {
             let dir = origami_core::directory(&args.dir)?;
             match args.action {
-                None => emit(&origami_core::nvram_read(&engine, &dir, None)?),
-                Some(NvramAction::Get { name }) => {
-                    emit(&origami_core::nvram_read(&engine, &dir, Some(&name))?)
-                }
+                None => emit(&origami_core::nvram_read(engines.of(&dir), &dir, None)?),
+                Some(NvramAction::Get { name }) => emit(&origami_core::nvram_read(
+                    engines.of(&dir),
+                    &dir,
+                    Some(&name),
+                )?),
                 Some(NvramAction::Set { settings }) => emit(&origami_core::apply_change(
-                    &engine,
+                    engines.of(&dir),
                     &dir,
                     &Change::SetNvram(settings),
                 )?),
@@ -346,7 +449,7 @@ fn command(action: Action) -> Result<()> {
             subnet,
             mac,
         } => change(
-            &engine,
+            &engines,
             &dir,
             Change::SetNetwork(cli::network_change(
                 mode,
@@ -372,7 +475,7 @@ fn command(action: Action) -> Result<()> {
                     host_dir: host_dir.ok_or("share needs a host folder")?,
                 }
             };
-            emit(&origami_core::apply_change(&engine, &dir, &edit)?);
+            emit(&origami_core::apply_change(engines.of(&dir), &dir, &edit)?);
         }
         Action::NetworkForwardAdd {
             dir,
@@ -381,7 +484,7 @@ fn command(action: Action) -> Result<()> {
             host_port,
             guest_port,
         } => change(
-            &engine,
+            &engines,
             &dir,
             Change::AddForward(origami_machine::PortForward {
                 name,
@@ -391,7 +494,7 @@ fn command(action: Action) -> Result<()> {
             }),
         )?,
         Action::NetworkForwardRemove { dir, name } => {
-            change(&engine, &dir, Change::RemoveForward(name))?
+            change(&engines, &dir, Change::RemoveForward(name))?
         }
         Action::InstallInit {
             dir,
@@ -412,7 +515,7 @@ fn command(action: Action) -> Result<()> {
                 release: release.as_str().into(),
                 profile: profile.as_str().into(),
             };
-            emit(&origami_core::install_init(&engine, &dir, &init)?);
+            emit(&origami_core::install_init(engines.of(&dir), &dir, &init)?);
         }
         Action::InstallAddon {
             dir,
@@ -432,11 +535,15 @@ fn command(action: Action) -> Result<()> {
                 dist,
                 media_root,
             };
-            emit(&origami_core::install_addon(&engine, &dir, &addon)?);
+            emit(&origami_core::install_addon(
+                engines.of(&dir),
+                &dir,
+                &addon,
+            )?);
         }
         Action::InstallApply { dir } => {
             let dir = origami_core::directory(&dir)?;
-            let loaded = origami_core::open(&engine, &dir)?;
+            let loaded = origami_core::open(engines.of(&dir), &dir)?;
             // The lease turns other viewers read-only until this ends.
             install::apply(
                 &dir,
@@ -450,13 +557,16 @@ fn command(action: Action) -> Result<()> {
         }
         Action::InstallCheck { machine, full } => {
             let dir = origami_core::directory(&machine.dir)?;
-            emit(&origami_core::install_check(&engine, &dir, full, || {
-                rt.instigator().map(Path::to_path_buf)
-            })?);
+            emit(&origami_core::install_check(
+                engines.of(&dir),
+                &dir,
+                full,
+                || rt.instigator().map(Path::to_path_buf),
+            )?);
         }
         Action::InstallServe(args) => {
             let dir = origami_core::directory(&args.dir)?;
-            let loaded = origami_core::open(&engine, &dir)?;
+            let loaded = origami_core::open(engines.of(&dir), &dir)?;
             let status = install::serve(|| Ok(rt.instigator()?.to_path_buf()), &dir, &loaded.file)?;
             if !status.success() {
                 return Err(format!("Instigator exited with {status}").into());

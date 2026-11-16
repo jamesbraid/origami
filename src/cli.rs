@@ -467,6 +467,10 @@ pub struct ServeArgs {
     /// `cli` or `app`, for the run record
     #[arg(long, default_value = "cli")]
     pub started_by: String,
+    /// Run the machine this file describes, not `machine.toml`; an iris
+    /// machine only
+    #[arg(long, value_name = "FILE")]
+    pub machine_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Default, Args)]

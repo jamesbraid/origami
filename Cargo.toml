@@ -16,12 +16,19 @@ test = false
 doctest = false
 
 [workspace]
-members = ["crates/origami-ffi", "crates/origami-engine", "crates/origami-display", "crates/origami-display-producer", "crates/display-conformance", "crates/origami-core", "crates/origami-machine", "crates/origami-qemu", "crates/origami-nfs", "crates/origami-net", "crates/origami-protocol", "crates/origami-host", "crates/origami-render", "crates/origami-gui", "xtask"]
+members = ["crates/origami-ffi", "crates/origami-engine", "crates/origami-display", "crates/origami-display-producer", "crates/display-conformance", "crates/origami-core", "crates/origami-machine", "crates/origami-qemu", "crates/origami-nfs", "crates/origami-net", "crates/origami-protocol", "crates/origami-host", "crates/origami-render", "crates/origami-gui", "crates/origami-iris", "xtask"]
 # origami-gui pulls in Slint and wgpu, which the command-line tool's cargo
 # commands and checks should not build. `-p origami-gui` selects it.
 default-members = [".", "crates/origami-engine", "crates/origami-display", "crates/origami-display-producer", "crates/display-conformance", "crates/origami-core", "crates/origami-machine", "crates/origami-qemu", "crates/origami-nfs", "crates/origami-net", "crates/origami-protocol", "crates/origami-host", "xtask"]
 
+[features]
+# Hosts iris machines in this executable's runner process. Off by default:
+# iris adds a long build, and QEMU machines do not need it.
+iris = ["origami-iris/runner"]
+
 [dependencies]
+origami-iris = { path = "crates/origami-iris" }
+origami-engine = { path = "crates/origami-engine" }
 origami-core = { path = "crates/origami-core" }
 origami-host = { path = "crates/origami-host" }
 origami-machine = { path = "crates/origami-machine" }
@@ -59,6 +66,11 @@ regex = "1"
 signal-hook = "0.3"
 
 [[test]]
+name = "iris"
+path = "tests/iris/main.rs"
+required-features = ["iris"]
+
+[[test]]
 name = "functional"
 path = "tests/functional/main.rs"
 harness = false
@@ -70,3 +82,9 @@ vergen-gitcl = "10"
 # 0.15.0 panics when the stream ends before the QMP greeting, as it does
 # when QEMU fails to start. This fork adds the fix from qapi-rs PR 29.
 qapi = { git = "https://github.com/jamesbraid/qapi-rs", rev = "3c80a7769b39bba4e25f07460b134dc6efb31996" }
+
+# iris's own [patch.crates-io] entries, repeated because Cargo ignores a
+# dependency's patches. Both are directories of the iris repository, found by
+# package name in the git source at the same commit.
+winit = { git = "https://github.com/jamesbraid/iris", rev = "f9d70ad8cdd15b519da4e8678eb753963e4dd4d6" }
+block = { git = "https://github.com/jamesbraid/iris", rev = "f9d70ad8cdd15b519da4e8678eb753963e4dd4d6" }

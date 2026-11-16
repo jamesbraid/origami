@@ -1,0 +1,198 @@
+//! A machine as an iris configuration.
+
+use crate::catalogue::{self, Data};
+use origami_machine::dir::MachineDir;
+use origami_machine::{MachineFile, Offering, Result};
+use std::fmt::Write;
+use std::path::Path;
+
+/// The loopback ports iris serves on. Two iris processes at once need
+/// different ones, and iris's defaults are shared.
+#[derive(Clone, Copy, Debug)]
+pub struct Ports {
+    /// The console line: serial channel B, the PROM's `tty1`.
+    pub console: u16,
+    /// The other serial channel.
+    pub second: u16,
+    pub monitor: u16,
+}
+
+impl Ports {
+    pub fn free() -> Result<Self> {
+        let mut ports = [0u16; 3];
+        for i in 0..ports.len() {
+            loop {
+                let port = origami_machine::control::free_port()?;
+                if !ports[..i].contains(&port) {
+                    ports[i] = port;
+                    break;
+                }
+            }
+        }
+        Ok(Self {
+            console: ports[0],
+            second: ports[1],
+            monitor: ports[2],
+        })
+    }
+}
+
+fn quote(path: &Path) -> String {
+    toml::Value::String(path.display().to_string()).to_string()
+}
+
+/// Refuse what iris cannot run, in the model's words.
+pub fn check(file: &MachineFile) -> Result<()> {
+    if file.network.mode != "user" {
+        return Err(format!(
+            "iris machines take user networking only, not {}",
+            file.network.mode
+        )
+        .into());
+    }
+    if !file.network.forward.is_empty() {
+        return Err("iris machines do not take port forwards yet".into());
+    }
+    if !file.share.is_empty() {
+        return Err("iris machines do not take host shares yet".into());
+    }
+    for drive in &file.drive {
+        if drive.kind == "tape" {
+            return Err(format!("iris machines have no tape drive ({})", drive.name).into());
+        }
+        if drive.bus != 0 {
+            return Err(format!("iris machines have one SCSI bus ({})", drive.name).into());
+        }
+    }
+    if file.machine.console.as_deref().is_some_and(|c| c != "tty1") {
+        return Err("the PROM console of an iris machine is tty1".into());
+    }
+    Ok(())
+}
+
+/// The iris configuration of `file`, which `offering` describes, in `dir`.
+pub fn iris_toml(
+    offering: &Offering,
+    file: &MachineFile,
+    dir: &MachineDir,
+    ports: Ports,
+) -> Result<String> {
+    check(file)?;
+    let Data {
+        profile,
+        cpu,
+        bank_sizes,
+        banks,
+        console,
+        board,
+    } = catalogue::data(offering)?;
+    let memory = file
+        .machine
+        .memory_per_node
+        .strip_suffix("MiB")
+        .ok_or("memory_per_node must use MiB")?
+        .parse::<u32>()?;
+    let mut filled = catalogue::banks_for(memory, &bank_sizes, banks)
+        .ok_or_else(|| format!("{memory} MiB cannot be made from {bank_sizes:?} MiB banks"))?;
+    filled.resize(4, 0);
+    let mut t = String::new();
+    // iris's own PROM runs unless a file is named; the product names none.
+    writeln!(t, "prom = \"(embedded)\"")?;
+    // iris saves an NVRAM file even where the machine has none (the
+    // Indigo2), by default into the working directory.
+    if !offering.storage.iter().any(|item| item.name != "nveeprom") {
+        let spare = dir.path().join("state/iris-nvram.raw");
+        writeln!(t, "nvram = {}", quote(&spare))?;
+    }
+    for item in &offering.storage {
+        // The Indigo2 keeps its settings in an EEPROM; the others in NVRAM.
+        let key = if item.name == "nveeprom" {
+            "nveeprom"
+        } else {
+            "nvram"
+        };
+        let path = origami_machine::stores::state_path(dir.path(), item);
+        writeln!(t, "{key} = {}", quote(&path))?;
+    }
+    writeln!(t, "banks = {filled:?}")?;
+    writeln!(t, "no_audio = true")?;
+    writeln!(t, "monitor_port = {}", ports.monitor)?;
+    let (a, b) = if console == "a" {
+        (ports.console, ports.second)
+    } else {
+        (ports.second, ports.console)
+    };
+    writeln!(t, "serial_port_a = {a}")?;
+    writeln!(t, "serial_port_b = {b}")?;
+    writeln!(t, "\n[machine]\nprofile = \"{profile}\"\ncpu = \"{cpu}\"")?;
+    if let Some(board) = board {
+        // The VPro's raster runs on the CPU threads: no host GPU needed.
+        writeln!(t, "\n[graphics]\nboard = \"{board}\"\nraster = \"cpu\"")?;
+    }
+    writeln!(t, "\n[network]\nmode = \"nat\"")?;
+    let mac = file
+        .identity
+        .as_ref()
+        .map_or(crate::nvram::DEFAULT_MAC, |i| &i.mac);
+    writeln!(t, "mac = \"{mac}\"")?;
+    // A `scsi` table that is present replaces iris's default drives.
+    writeln!(t, "\n[scsi]")?;
+    for drive in &file.drive {
+        let image = dir.resolve(&drive.image);
+        writeln!(t, "\n[scsi.{}]\npath = {}", drive.target, quote(&image))?;
+        if drive.kind == "cdrom" {
+            writeln!(t, "cdrom = true")?;
+        }
+        if drive.overlay {
+            writeln!(t, "overlay = true")?;
+        }
+    }
+    Ok(t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use origami_machine::model::Machine;
+
+    fn indy() -> (Offering, MachineFile) {
+        let catalogue = catalogue::catalogue();
+        let offering = catalogue.offerings[0].clone();
+        let mut machine = Machine::from_offering(&offering, None, None, vec![], Default::default());
+        machine.engine.id = crate::ENGINE.into();
+        (offering, machine.to_file())
+    }
+
+    #[test]
+    fn an_indy_becomes_a_profile_with_banks_and_ports() {
+        let (offering, file) = indy();
+        let ports = Ports {
+            console: 1001,
+            second: 1002,
+            monitor: 1003,
+        };
+        let text = iris_toml(&offering, &file, &MachineDir::new("/m"), ports).unwrap();
+        assert!(text.contains("banks = [128, 0, 0, 0]"), "{text}");
+        assert!(text.contains("serial_port_b = 1001"));
+        assert!(text.contains("profile = \"indy_ip24\""));
+        assert!(
+            text.contains("\n[scsi]\n"),
+            "no drives must not mean iris's default ones"
+        );
+        assert!(text.contains("nvram = \"/m/state/nvram.raw\""));
+        text.parse::<toml::Table>().unwrap();
+    }
+
+    #[test]
+    fn what_iris_cannot_run_is_refused() {
+        let (offering, mut file) = indy();
+        file.network.mode = "tap".into();
+        let ports = Ports {
+            console: 1,
+            second: 2,
+            monitor: 3,
+        };
+        let error = iris_toml(&offering, &file, &MachineDir::new("/m"), ports).unwrap_err();
+        assert!(error.to_string().contains("user networking"), "{error}");
+    }
+}

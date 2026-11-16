@@ -413,7 +413,11 @@ impl CoreInner {
     /// The model of `file` and the index of the first engine that offers it.
     fn model_of(&self, file: &origami_machine::MachineFile) -> CoreResult<(usize, model::Machine)> {
         let mut last = None;
-        for index in 0..self.engines.len() {
+        // The engine the file names goes first: two engines may list the
+        // same product and topology.
+        let mut order: Vec<usize> = (0..self.engines.len()).collect();
+        order.sort_by_key(|&index| self.engines[index].info().id != file.engine.id);
+        for index in order {
             let catalogue = self.catalogue(index)?;
             match model::Machine::from_file(&catalogue, file) {
                 Ok(machine) => return Ok((index, machine)),

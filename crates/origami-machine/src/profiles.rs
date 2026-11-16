@@ -62,6 +62,10 @@ const O2_BOARD: &[(&str, &str)] = &[
 ];
 
 pub const STARTERS: &[Profile] = &[
+    // Only iris runs the Indy and the Indigo2; its Octane2 has its own id.
+    profile("indy", "indy.1", None, None),
+    profile("indigo2", "indigo2.1", None, None),
+    profile("octane2-iris", "octane2.1.iris", None, None),
     profile("origin200-1", "origin200.1.r10000-180mhz-1mb", None, None),
     profile("origin200-2", "origin200.2.r10000-180mhz-1mb", None, None),
     profile(
@@ -358,9 +362,14 @@ mod tests {
         ] {
             assert_eq!(preset(&machines, name).unwrap().id, id, "{name}");
         }
-        // Every preset names an offering the machine list has, and no preset
-        // fits an IP59 board or the Onyx 4.
-        assert_eq!(presets(&machines).len(), STARTERS.len());
+        // Every preset names an offering the machine list has, except the
+        // ones only iris offers, and no preset fits an IP59 board or the
+        // Onyx 4.
+        let iris_only = STARTERS
+            .iter()
+            .filter(|p| matches!(p.offering, "indy.1" | "indigo2.1" | "octane2.1.iris"))
+            .count();
+        assert_eq!(presets(&machines).len(), STARTERS.len() - iris_only);
         for profile in STARTERS {
             assert!(
                 !profile.offering.contains("ip59") && !profile.offering.starts_with("onyx4"),

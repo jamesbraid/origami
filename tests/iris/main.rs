@@ -1,0 +1,156 @@
+//! The iris engine against the engine contract suite, with the real emulator:
+//! each launch starts this build's `origami _serve`, which needs the `iris`
+//! feature.
+
+use origami_engine::contract::{self, Harness};
+use origami_engine::{Control, DisplayRequest, Engine, LaunchPlan, Session, Wake, Wiring};
+use origami_iris::IrisEngine;
+use origami_machine::control::free_port;
+use origami_machine::dir::MachineDir;
+use origami_machine::stores::FirmwareSet;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+struct IrisHarness {
+    engine: IrisEngine,
+    offering: &'static str,
+    root: tempfile::TempDir,
+}
+
+impl Harness for IrisHarness {
+    fn engine(&self) -> &dyn Engine {
+        &self.engine
+    }
+
+    fn root(&self) -> &Path {
+        self.root.path()
+    }
+
+    fn firmware(&self) -> FirmwareSet {
+        let boot_prom = self.root().join("prom.bin");
+        std::fs::write(&boot_prom, [0u8; 16]).unwrap();
+        FirmwareSet {
+            boot_prom,
+            io_prom: None,
+        }
+    }
+
+    fn offering(&self) -> String {
+        self.offering.into()
+    }
+
+    fn wiring(&self, name: &str) -> Wiring {
+        Wiring {
+            display: DisplayRequest::None,
+            console_port: free_port().unwrap(),
+            control_port: free_port().unwrap(),
+            name: name.into(),
+            paused: false,
+            shares: None,
+            once: vec![],
+        }
+    }
+
+    // A fault in iris ends its runner; a signal is the one we can cause.
+    fn launch_crashing(
+        &self,
+        plan: LaunchPlan,
+        wake: Wake,
+    ) -> origami_engine::Result<Arc<dyn Session>> {
+        let session = self.engine.launch(plan, wake)?;
+        let pid = session.status().pid.expect("a running runner has a pid");
+        // SAFETY: kill(2) takes no pointers.
+        assert_eq!(unsafe { libc::kill(pid as libc::pid_t, libc::SIGSEGV) }, 0);
+        Ok(session)
+    }
+
+    fn controls_seen(&self, _: &MachineDir) -> Vec<Control> {
+        unreachable!("the suite does not ask: observes_requests is false")
+    }
+
+    fn media_seen(&self, _: &MachineDir) -> Vec<(String, Option<PathBuf>)> {
+        unreachable!("the suite does not ask: observes_requests is false")
+    }
+
+    fn expected_controls(&self) -> Vec<Control> {
+        vec![Control::Reset, Control::Pause, Control::Resume]
+    }
+
+    fn crashes_by_signal(&self) -> bool {
+        true
+    }
+
+    fn observes_requests(&self) -> bool {
+        false
+    }
+}
+
+fn contract_for(offering: &'static str) {
+    contract::run(&IrisHarness {
+        engine: IrisEngine::new(env!("CARGO_BIN_EXE_origami")),
+        offering,
+        root: tempfile::tempdir().unwrap(),
+    });
+}
+
+#[test]
+fn the_indy_meets_the_contract() {
+    contract_for("indy.1");
+}
+
+#[test]
+fn the_indigo2_meets_the_contract() {
+    contract_for("indigo2.1");
+}
+
+#[test]
+fn the_octane2_meets_the_contract() {
+    contract_for("octane2.1.iris");
+}
+
+/// What a front end does: create a machine through the core, start it, watch
+/// the PROM on the console, stop it.
+#[test]
+fn the_core_creates_starts_and_stops_an_iris_machine() {
+    use origami_core::facade::{
+        Config, Core, CreateRequest, MachineState, OperationState, StopKind,
+    };
+    use std::time::{Duration, Instant};
+
+    let root = tempfile::tempdir().unwrap();
+    let engine = IrisEngine::new(env!("CARGO_BIN_EXE_origami"));
+    let core = Core::new(Config::new(root.path()), vec![Arc::new(engine)], None).unwrap();
+    assert!(core.catalogue().unwrap().iter().any(|o| o.id == "indy.1"));
+    let created = core
+        .create_machine(CreateRequest {
+            name: "indy".into(),
+            offering: "indy.1".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(created.wait(None), OperationState::Succeeded);
+
+    let machine = core.start_machine("indy").unwrap();
+    assert_eq!(machine.view().engine, "iris");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let text = machine.console_read(0, 1 << 16).bytes;
+        if String::from_utf8_lossy(&text).contains("Starting up the system") {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the PROM did not reach its boot message"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    assert_eq!(machine.view().state, MachineState::Running);
+
+    assert_eq!(
+        machine.stop(StopKind::Clean).unwrap().wait(None),
+        OperationState::Succeeded
+    );
+    let view = machine.view();
+    assert_eq!(view.state, MachineState::Exited);
+    assert_eq!(view.exit_code, Some(0));
+}

@@ -1,0 +1,29 @@
+[package]
+name = "origami-iris"
+version = "0.0.0"
+description = "The iris engine: iris machines behind the engine interface, with iris running in the runner process"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+
+[features]
+# Links iris itself, for the runner process (`origami _serve`) that hosts the
+# machine. The engine half, which every front end uses, never needs it.
+runner = ["dep:iris", "dep:origami-host"]
+
+[dependencies]
+origami-engine = { path = "../origami-engine" }
+origami-machine = { path = "../origami-machine" }
+origami-protocol = { path = "../origami-protocol" }
+origami-host = { path = "../origami-host", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+toml = "1"
+# iris at an exact commit of our fork (branch origami/zero-copy of
+# jamesbraid/iris), carried here and not sent upstream.
+iris = { git = "https://github.com/jamesbraid/iris", rev = "f9d70ad8cdd15b519da4e8678eb753963e4dd4d6", default-features = false, features = ["lightning", "tlbvmap", "rexdiag", "embedded-proms"], optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
