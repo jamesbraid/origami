@@ -53,6 +53,39 @@ fn a_machine_runs_in_the_background_and_stops() {
 }
 
 #[test]
+fn reset_resets_the_guest_and_leaves_the_machine_running() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    let machine = create(root, "machine", "origin200-1", &[]);
+    let path = machine.to_str().unwrap();
+    assert!(!fail(root, &["reset", path]).is_empty());
+    let _guard = Running::new(root, &machine);
+    start(root, &machine);
+    assert_eq!(ok(root, &["reset", path]).trim(), "reset");
+    assert!(fake_log(&machine).contains(&"qmp system_reset".to_string()));
+    assert!(ok(root, &["status", path]).starts_with("running"));
+}
+
+/// `stop --force` is for a QEMU that will not quit: it ends the process
+/// without the clean exit a quit gives it.
+#[test]
+fn stop_force_kills_qemu_without_a_clean_exit() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    let machine = create(root, "machine", "origin200-1", &[]);
+    let path = machine.to_str().unwrap();
+    let _guard = Running::new(root, &machine);
+    start(root, &machine);
+    assert_eq!(ok(root, &["stop", "--force", path]).trim(), "stopped");
+    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert!(!fake_log(&machine).contains(&"exit".to_string()));
+    assert!(!machine.join("state/run.json").exists());
+    // It can be started again.
+    start(root, &machine);
+    assert!(ok(root, &["status", path]).starts_with("running"));
+}
+
+#[test]
 fn a_running_machine_cannot_be_started_again() {
     let root = tempfile::tempdir().unwrap();
     let root = root.path();
@@ -224,6 +257,7 @@ fn status_reports_a_machine_whose_qemu_exits_while_it_looks() {
         qmp_port: listener.local_addr().unwrap().port(),
         console_port: 0,
         name: "sgi-exits-while-asked".into(),
+        qemu_pid: 0,
     };
     origami::control::write(&dir, &record).unwrap();
     let qemu = {

@@ -13,6 +13,10 @@ pub struct Record {
     pub qmp_port: u16,
     pub console_port: u16,
     pub name: String,
+    /// QEMU's own process id (`pid` is the runner's). Zero in a record an
+    /// older origami wrote.
+    #[serde(default)]
+    pub qemu_pid: u32,
 }
 
 pub fn free_port() -> Result<u16> {
@@ -165,6 +169,76 @@ pub fn stop(dir: &Path) -> Result<()> {
             );
         }
     }
+    Ok(())
+}
+
+/// End the machine's QEMU at once, without a clean exit. A CHD disk's
+/// changes are not folded back into the image (they stay in its `.diff.chd`),
+/// and the guest gets no chance to sync its disks. For a machine that does
+/// not answer `stop`.
+pub fn force_stop(dir: &Path) -> Result<()> {
+    let record = read(dir)?;
+    // The lock alone does not say QEMU is up: an edit command holds it too.
+    // A live runner (the record's pid) does. The runner reaps QEMU just
+    // before it exits, so a kill landing in that instant could reach a reused
+    // pid; the window is the runner's last microseconds.
+    if !is_locked(dir)? || !process_alive(record.pid) {
+        return Err("the machine is not running".into());
+    }
+    if record.qemu_pid == 0 {
+        return Err("this machine's run record does not name QEMU's process (an older origami started it); use stop".into());
+    }
+    kill(record.qemu_pid)?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while is_locked(dir)? {
+        if Instant::now() >= deadline {
+            return Err("QEMU was killed but its runner has not exited after 30 seconds".into());
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    // SAFETY: signal 0 only checks that the process exists.
+    let r = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    r == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(windows)]
+fn process_alive(_pid: u32) -> bool {
+    true
+}
+
+#[cfg(unix)]
+fn kill(pid: u32) -> Result<()> {
+    // SAFETY: kill(2) takes no pointers; the caller checked the runner lives.
+    if unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) } != 0 {
+        let error = io::Error::last_os_error();
+        // Already gone: the stop has happened.
+        if error.raw_os_error() != Some(libc::ESRCH) {
+            return Err(error.into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn kill(pid: u32) -> Result<()> {
+    let status = std::process::Command::new("taskkill")
+        .args(["/F", "/T", "/PID", &pid.to_string()])
+        .status()?;
+    if !status.success() {
+        return Err(format!("taskkill exited with {status}").into());
+    }
+    Ok(())
+}
+
+/// Reset the guest as its reset button would, leaving QEMU running.
+pub fn reset(dir: &Path) -> Result<()> {
+    let record = read(dir)?;
+    verified_qmp(&record)?.execute(&qmp::system_reset {})?;
     Ok(())
 }
 

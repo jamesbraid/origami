@@ -64,7 +64,9 @@ pub enum Action {
     /// Connect to a background guest's serial console
     Console(MachineArgs),
     /// Stop a background guest
-    Stop(MachineArgs),
+    Stop(StopArgs),
+    /// Reset a running guest, as its reset button would
+    Reset(MachineArgs),
     /// Create and attach a new system disk
     DriveCreate {
         #[arg(value_name = "DIR")]
@@ -231,6 +233,17 @@ pub struct MachineArgs {
     /// Machine directory
     #[arg(value_name = "DIR")]
     pub dir: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct StopArgs {
+    /// Machine directory
+    #[arg(value_name = "DIR")]
+    pub dir: PathBuf,
+    /// Kill QEMU instead of asking it to quit. The guest does not sync its
+    /// disks and a CHD disk's changes stay in its .diff.chd file
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]

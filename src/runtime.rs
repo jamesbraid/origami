@@ -996,17 +996,19 @@ fn run_inner(
         name.clone(),
     ]);
     append_extra_args(&mut args, file, once)?;
-    let record = control::Record {
+    let mut record = control::Record {
         pid: std::process::id(),
         qmp_port,
         console_port,
         name,
+        qemu_pid: 0,
     };
     let mut child = Command::new(qemu)
         .args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
         .spawn()?;
+    record.qemu_pid = child.id();
     let deadline = Instant::now() + qmp_ready_timeout();
     while Instant::now() < deadline {
         if control::verified_qmp(&record).is_ok() {

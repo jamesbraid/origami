@@ -20,6 +20,10 @@
     memory. Otherwise it copies the lines that changed. `origami-gui
     --gpu-info` says which applies, and `ORIGAMI_GUI_ZERO_COPY=0` forces the
     copy.
+  - `origami reset DIR` resets a running guest as its reset button would, and
+    `origami stop --force DIR` kills QEMU at once, with no clean exit: the
+    guest does not sync its disks and a CHD disk's changes stay in its
+    `.diff.chd`. `state/run.json` now records QEMU's own pid as `qemu_pid`.
   - `drive-attach` takes a MAME CHD hard disk image with `--type disk`. A
     compressed CHD takes guest writes in a `.diff.chd` beside it, which is
     folded back into the image when QEMU exits cleanly; `--overlay` keeps the

@@ -310,8 +310,17 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Console(args) => control::console(&directory(&args.dir)?)?,
         Action::Stop(args) => {
-            control::stop(&directory(&args.dir)?)?;
+            let dir = directory(&args.dir)?;
+            if args.force {
+                control::force_stop(&dir)?;
+            } else {
+                control::stop(&dir)?;
+            }
             println!("stopped");
+        }
+        Action::Reset(args) => {
+            control::reset(&directory(&args.dir)?)?;
+            println!("reset");
         }
         Action::GraphicsSet { dir, graphics } => {
             let dir = directory(&dir)?;

@@ -212,6 +212,11 @@ origami stop my-origin
 `console` attaches to the background run's serial console, and `stop` asks
 QEMU to quit and returns once it has exited, which can take minutes while a
 CHD disk folds its changes back into the image. Both need a background run.
+`origami reset my-origin` resets the running guest as its reset button would.
+`origami stop --force my-origin` kills QEMU instead, for one that does not
+answer a quit: the guest gets no chance to sync its disks and a CHD disk's
+changes stay in its `.diff.chd` unfolded. A machine accepts one serial console
+connection at a time, so `console` fails while `origami-gui` has it open.
 During a fold `status` reports the machine as running, and running `stop`
 again keeps waiting for the same exit. Every run appends the serial output to
 `my-origin/logs/serial.log`. A machine runs only once at a time. A second

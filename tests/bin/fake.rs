@@ -12,8 +12,8 @@
 //! - arguments: `qemu-system-mips64` records its argv in `logs/fake-qemu.log`
 //!   in its working directory, which is the machine directory;
 //! - QMP: `-qmp stdio` answers the machine list; `-qmp tcp:` answers
-//!   `query-name`, `query-status`, `cont`, `stop`, `system_powerdown` and
-//!   `quit`;
+//!   `query-name`, `query-status`, `cont`, `stop`, `system_reset`,
+//!   `system_powerdown` and `quit`;
 //! - the console: a `-chardev socket` with `server=on` plays a guest script
 //!   (see below) to each client;
 //! - stream netdevs: a `-netdev stream` client connects to its address and a
@@ -465,6 +465,7 @@ fn qmp_session(stream: TcpStream, state: &Mutex<Run>, name: &str, fold: Duration
                     "singlestep": false,
                 }}));
             }
+            "system_reset" => send(json!({"return": {}})),
             "cont" => {
                 *state.lock().unwrap() = Run::Running;
                 send(json!({"return": {}}));
