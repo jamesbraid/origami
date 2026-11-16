@@ -48,6 +48,31 @@ pub trait Harness {
 
     /// The media changes it was sent for that session, in order.
     fn media_seen(&self, dir: &MachineDir) -> Vec<(String, Option<PathBuf>)>;
+
+    /// The controls the engine must offer. Every engine offers all five
+    /// unless its emulator models fewer.
+    fn expected_controls(&self) -> Vec<Control> {
+        vec![
+            Control::Reset,
+            Control::PowerButton,
+            Control::Nmi,
+            Control::Pause,
+            Control::Resume,
+        ]
+    }
+
+    /// Whether the crash `launch_crashing` causes is a signal, which leaves
+    /// no exit status, rather than a failing exit.
+    fn crashes_by_signal(&self) -> bool {
+        false
+    }
+
+    /// Whether `controls_seen` and `media_seen` can see what the engine's
+    /// program was asked. An engine that runs the real emulator has no log
+    /// to read, and the suite then checks the effects it can see.
+    fn observes_requests(&self) -> bool {
+        true
+    }
 }
 
 /// Run every check.
@@ -405,6 +430,19 @@ pub fn controls_and_media(h: &dyn Harness) {
     let fixture = fixture(h, "controls", true);
     let session = launch(h, &fixture, "controls");
     let offered = h.engine().info().capabilities.controls;
+    for control in [
+        Control::Reset,
+        Control::PowerButton,
+        Control::Nmi,
+        Control::Pause,
+        Control::Resume,
+    ] {
+        assert_eq!(
+            offered.contains(&control),
+            h.expected_controls().contains(&control),
+            "{control:?}"
+        );
+    }
     let mut sent = Vec::new();
     for control in [
         Control::Reset,
@@ -412,7 +450,14 @@ pub fn controls_and_media(h: &dyn Harness) {
         Control::Pause,
         Control::Resume,
     ] {
-        assert!(offered.contains(&control), "{control:?} is not offered");
+        // A control the engine does not offer is refused, never ignored.
+        if !offered.contains(&control) {
+            assert!(
+                session.control(control).is_err(),
+                "{control:?} is not offered but was accepted"
+            );
+            continue;
+        }
         session
             .control(control)
             .unwrap_or_else(|e| panic!("{control:?}: {e}"));
@@ -435,19 +480,26 @@ pub fn controls_and_media(h: &dyn Harness) {
     assert!(session.media("no-such-drive", None).is_err());
 
     // The power button is the guest's own shutdown, so the session ends.
-    session.control(Control::PowerButton).expect("power button");
-    sent.push(Control::PowerButton);
-    wait_until("the shutdown", || exited(session.as_ref()).is_some());
-    assert_eq!(exited(session.as_ref()).unwrap().0, Some(0));
+    if offered.contains(&Control::PowerButton) {
+        session.control(Control::PowerButton).expect("power button");
+        sent.push(Control::PowerButton);
+        wait_until("the shutdown", || exited(session.as_ref()).is_some());
+        assert_eq!(exited(session.as_ref()).unwrap().0, Some(0));
+    } else {
+        assert!(session.control(Control::PowerButton).is_err());
+        session.stop(Stop::Force).unwrap();
+    }
 
-    assert_eq!(h.controls_seen(&fixture.dir), sent);
-    assert_eq!(
-        h.media_seen(&fixture.dir),
-        vec![
-            ("cd".to_string(), Some(iso.clone())),
-            ("cd".to_string(), None)
-        ]
-    );
+    if h.observes_requests() {
+        assert_eq!(h.controls_seen(&fixture.dir), sent);
+        assert_eq!(
+            h.media_seen(&fixture.dir),
+            vec![
+                ("cd".to_string(), Some(iso.clone())),
+                ("cd".to_string(), None)
+            ]
+        );
+    }
 }
 
 pub fn screendump_to_a_path(h: &dyn Harness) {
@@ -467,7 +519,11 @@ pub fn exit_is_reported(h: &dyn Harness) {
         .expect("launch");
     wait_until("the crash", || exited(session.as_ref()).is_some());
     let (code, error) = exited(session.as_ref()).unwrap();
-    assert!(matches!(code, Some(code) if code != 0), "{code:?}");
+    if h.crashes_by_signal() {
+        assert_eq!(code, None);
+    } else {
+        assert!(matches!(code, Some(code) if code != 0), "{code:?}");
+    }
     assert!(
         error.as_deref().is_some_and(|error| !error.is_empty()),
         "no last error: {error:?}"

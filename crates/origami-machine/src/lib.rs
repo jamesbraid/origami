@@ -1107,6 +1107,7 @@ pub fn create_configured(
         let mut machine =
             model::Machine::from_offering(offering, Some(memory_per_node), identity, pipes, inputs);
         machine.firmware = model::FirmwareRecord::of(init.boot_prom, init.io_prom);
+        machine.engine.id = init.stores.engine_id();
         let file = machine.to_file();
         fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
         Ok(())

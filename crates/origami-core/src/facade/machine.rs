@@ -496,6 +496,7 @@ impl MachineInner {
         let facts = session.map(|s| s.status().state);
         let (exit_code, last_error) = match &facts {
             Some(RunState::Exited { code, last_error }) => (*code, last_error.clone()),
+            Some(RunState::Unknown(why)) => (None, Some(why.clone())),
             _ => (None, None),
         };
         let (state, reason) = match (phase, &facts) {
@@ -514,6 +515,11 @@ impl MachineInner {
             (_, Some(RunState::Running)) => {
                 (MachineState::Running, "The machine is running.".to_string())
             }
+            // The engine's program lives; the error says what it did not answer.
+            (_, Some(RunState::Unknown(why))) => (
+                MachineState::Running,
+                format!("The machine's state is unknown: {why}"),
+            ),
             (_, Some(RunState::Prelaunch | RunState::Paused)) => {
                 (MachineState::Paused, "The machine is paused.".to_string())
             }

@@ -103,6 +103,8 @@ pub enum RunState {
     Prelaunch,
     Running,
     Paused,
+    /// The engine's program lives and did not say what state it is in.
+    Unknown(String),
     /// The engine's program is gone.
     Exited {
         /// None when a signal ended it.

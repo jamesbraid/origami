@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 pub struct EngineStores<'a>(pub &'a dyn Engine);
 
 impl StorePreparer for EngineStores<'_> {
+    fn engine_id(&self) -> String {
+        self.0.info().id
+    }
+
     fn firmware(
         &self,
         offering: &Offering,

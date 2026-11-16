@@ -6,6 +6,11 @@ use std::path::{Path, PathBuf};
 
 /// What creating or rebuilding a machine's stores needs from its engine.
 pub trait StorePreparer {
+    /// The id of the engine the machines made with these stores run on.
+    fn engine_id(&self) -> String {
+        crate::model::QEMU_ENGINE.into()
+    }
+
     /// The boot and IO PROM images that create `offering`'s stores: the
     /// files given, else verified downloads of the kinds the offering reads.
     fn firmware(

@@ -21,6 +21,8 @@ pub struct Capabilities {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplayKind {
+    /// No picture leaves the engine; a screen dump is the only view.
+    None,
     /// A display v3 socket.
     Socket,
     /// Frames handed over in the process.

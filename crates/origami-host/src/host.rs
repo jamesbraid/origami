@@ -412,6 +412,7 @@ fn state_name(state: &RunState) -> &'static str {
         RunState::Prelaunch => "prelaunch",
         RunState::Running => "running",
         RunState::Paused => "paused",
+        RunState::Unknown(_) => "unknown",
         RunState::Exited { .. } => "exited",
     }
 }
