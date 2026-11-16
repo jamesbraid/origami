@@ -1,5 +1,5 @@
-use super::engine::Result;
-use super::InputEvent;
+use crate::types::Result;
+use crate::InputEvent;
 
 /// Where an engine sends the guest's input. One per machine, used from one
 /// thread. The QEMU engine's writes binary messages on its display socket;

@@ -14,15 +14,12 @@
 //! implements as binary messages on its display socket).
 
 mod engine;
-mod input;
 pub mod logs;
-mod sink;
-pub mod status;
 pub mod terminal;
 
-pub use engine::{
-    ConsoleKind, ConsoleLink, CursorInfo, Engine, Frame, FrameUpdate, GpuMemory, HeadInfo,
-    ImportedUpdate, MachineId, Power, Result, Wake,
+pub use engine::Engine;
+pub use origami_engine::status;
+pub use origami_engine::{
+    ConsoleKind, ConsoleLink, CursorInfo, Frame, FrameUpdate, GpuMemory, HeadInfo, ImportedUpdate,
+    InputEvent, InputSink, Key, MachineId, PointerButton, Power, Result, Wake,
 };
-pub use input::{InputEvent, Key, PointerButton};
-pub use sink::InputSink;

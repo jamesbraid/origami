@@ -11,6 +11,7 @@ name = "origami-gui"
 path = "src/main.rs"
 
 [dependencies]
+origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }
 bytemuck = "1"
 memmap2 = "0.9"
