@@ -455,7 +455,6 @@ pub fn arguments_with(
         }
         Display::Shm { .. } | Display::None => args.extend(["-display".into(), "none".into()]),
     }
-    args.extend(["-audio".into(), "none".into()]);
     for global in &inputs.globals {
         args.extend(["-global".into(), global.clone()]);
     }
@@ -637,6 +636,8 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, offering: &Offering, drive: &Dr
 pub struct Start {
     /// Start QEMU paused, until a client sends `cont`.
     pub hold: bool,
+    /// Give the guest no sound.
+    pub no_audio: bool,
     /// `cli` or `app`, as `run.json` records it.
     pub started_by: &'static str,
 }
@@ -705,6 +706,9 @@ pub fn start_background_with(
     if start.hold {
         child.arg("--hold");
     }
+    if start.no_audio {
+        child.arg("--no-audio");
+    }
     if !start.started_by.is_empty() {
         child.arg("--started-by").arg(start.started_by);
     }
@@ -764,6 +768,8 @@ pub fn start_background_with(
 pub struct LaunchOptions {
     /// Start QEMU paused (`-S`), until the runner is told to continue.
     pub hold: bool,
+    /// Give the guest no sound. Audio is on unless this is set.
+    pub no_audio: bool,
 }
 
 /// A QEMU the runner has started and found answering QMP. Dropping it
@@ -887,6 +893,11 @@ pub fn launch(
             }
         }
     }
+    let (audio, note) = crate::audio::arguments(&qemu, !options.no_audio);
+    if let Some(note) = note {
+        eprintln!("origami: {note}");
+    }
+    args.extend(audio);
     let qmp_port = run_record::free_port()?;
     let mut engine_console = run_record::free_port()?;
     while engine_console == qmp_port {

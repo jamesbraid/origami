@@ -164,6 +164,7 @@ fn command(action: Action) -> Result<()> {
                 }
                 let start = runtime::Start {
                     hold: args.hold,
+                    no_audio: args.no_audio,
                     started_by: "cli",
                 };
                 let pid = runtime::start_background_with(
@@ -185,7 +186,10 @@ fn command(action: Action) -> Result<()> {
                     once: &args.launch.qemu_args,
                     started_by: "cli",
                     foreground: true,
-                    options: runtime::LaunchOptions { hold: args.hold },
+                    options: runtime::LaunchOptions {
+                        hold: args.hold,
+                        no_audio: args.no_audio,
+                    },
                 })?;
                 if !exit.success() {
                     if let Some(hint) = runtime::network_hint(file) {
@@ -212,7 +216,10 @@ fn command(action: Action) -> Result<()> {
                 once: &launch.qemu_args,
                 started_by: &args.started_by,
                 foreground: false,
-                options: runtime::LaunchOptions { hold: args.hold },
+                options: runtime::LaunchOptions {
+                    hold: args.hold,
+                    no_audio: args.no_audio,
+                },
             })?;
             if !exit.success() {
                 return Err(format!("QEMU exited with {exit}").into());

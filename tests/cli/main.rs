@@ -6,6 +6,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod audio;
 #[cfg(unix)]
 mod broken_pipe;
 mod config_errors;

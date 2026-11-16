@@ -7,6 +7,7 @@ use origami_machine::addressing::Addresses;
 use origami_machine::{MachineFile, Machines, Offering, Result};
 use std::path::Path;
 
+pub mod audio;
 pub mod catalogue;
 pub mod control;
 pub mod engine;

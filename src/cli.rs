@@ -448,6 +448,10 @@ pub struct RunArgs {
     /// socket (an install takes the console first)
     #[arg(long, hide = true)]
     pub hold: bool,
+    /// Give the guest no sound (audio goes to the host's default output
+    /// otherwise)
+    #[arg(long)]
+    pub no_audio: bool,
 }
 
 /// What the background runner process is started with.
@@ -457,6 +461,8 @@ pub struct ServeArgs {
     pub launch: LaunchArgs,
     #[arg(long)]
     pub hold: bool,
+    #[arg(long)]
+    pub no_audio: bool,
     /// `cli` or `app`, for the run record
     #[arg(long, default_value = "cli")]
     pub started_by: String,

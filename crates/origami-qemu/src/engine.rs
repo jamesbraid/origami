@@ -209,6 +209,8 @@ impl Engine for QemuEngine {
             w.shares.as_ref(),
         )?;
         args.splice(0..0, self.rt.data_arguments());
+        // A plan touches no program, so it cannot ask QEMU for a backend.
+        args.extend(["-audio".into(), "none".into()]);
         runtime::background_arguments(
             &mut args,
             &file,
