@@ -157,13 +157,13 @@ impl Runtime {
                 let instigator = if own.is_file() {
                     own
                 } else {
-                    beside.join(binary_name("instigator"))
+                    product_program(beside, "instigator")
                 };
                 (dir, instigator)
             }
             None => (
                 beside.join("..").join("libexec").join("origami"),
-                beside.join(binary_name("instigator")),
+                product_program(beside, "instigator"),
             ),
         };
         let data = dir
@@ -217,6 +217,21 @@ fn binary_name(stem: &str) -> String {
         format!("{stem}.exe")
     } else {
         stem.into()
+    }
+}
+
+/// A product program in the sibling `bin` or beside the executable: an app
+/// named `Origami` cannot share a directory with `origami` on macOS or Windows.
+pub(crate) fn product_program(exe_dir: &Path, stem: &str) -> PathBuf {
+    let name = binary_name(stem);
+    if exe_dir.file_name().is_some_and(|dir| dir == "bin") {
+        return exe_dir.join(name);
+    }
+    let sibling = exe_dir.join("..").join("bin").join(&name);
+    if sibling.is_file() {
+        sibling
+    } else {
+        exe_dir.join(name)
     }
 }
 
@@ -1095,6 +1110,26 @@ mod tests {
         assert_eq!(
             runtime.qemu(),
             selected.join(binary_name("qemu-system-mips64"))
+        );
+    }
+
+    #[test]
+    fn an_app_outside_bin_finds_the_programs_in_the_sibling_bin() {
+        let root = tempfile::tempdir().unwrap();
+        let (app, bin) = (root.path().join("app"), root.path().join("bin"));
+        fs::create_dir_all(&app).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(bin.join(binary_name("origami")), "").unwrap();
+        // The app's own executable would answer for `origami` on a
+        // case-insensitive filesystem.
+        fs::write(app.join(binary_name("Origami")), "").unwrap();
+        assert_eq!(
+            product_program(&app, "origami"),
+            app.join("..").join("bin").join(binary_name("origami"))
+        );
+        assert_eq!(
+            product_program(&app, "instigator"),
+            app.join(binary_name("instigator"))
         );
     }
 

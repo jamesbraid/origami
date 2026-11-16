@@ -96,22 +96,23 @@ impl RunnerEngine {
         *lock(&self.importer) = Some(importer);
     }
 
-    /// The `origami` beside this executable, or the one `ORIGAMI_BIN` names.
+    /// The `origami` beside this executable or in the sibling `bin`, or the one
+    /// `ORIGAMI_BIN` names.
     pub fn locate_runner() -> Result<PathBuf> {
         if let Some(path) = std::env::var_os("ORIGAMI_BIN") {
             return Ok(path.into());
         }
         let exe = std::env::current_exe()?;
-        let name = if cfg!(windows) {
-            "origami.exe"
+        let found =
+            runtime::product_program(exe.parent().ok_or("no executable directory")?, "origami");
+        if found.is_file() {
+            Ok(found)
         } else {
-            "origami"
-        };
-        let beside = exe.parent().ok_or("no executable directory")?.join(name);
-        if beside.is_file() {
-            Ok(beside)
-        } else {
-            Err(format!("no {name} beside {}; set ORIGAMI_BIN", exe.display()).into())
+            Err(format!(
+                "no origami beside {} or in its sibling bin; set ORIGAMI_BIN",
+                exe.display()
+            )
+            .into())
         }
     }
 
