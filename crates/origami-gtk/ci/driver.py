@@ -250,6 +250,12 @@ def wayland_pointer(a):
     a.req("invoke machine.pointer-capture octane2")
     vp("abs 700 350 1280 720")
     vp("click")
+    if os.environ.get("COMPOSITOR") == "cage":
+        # Cage has no pointer constraints: capture falls back to differencing.
+        check("a click captures", a.wait("capture", lambda: a.machine("octane2")["captured"], 5, 0.2) is not None)
+        skip("pointer lock", "cage offers no pointer constraints")
+        a.req("invoke machine.capture octane2")
+        return
     check("a click captures", a.wait("capture", lambda: a.machine("octane2")["captured"], 5, 0.2) is not None, a.machine("octane2"))
     time.sleep(0.5)
     check("the window system's pointer lock is held", a.machine("octane2")["pointer_locked"], a.machine("octane2"))
@@ -417,8 +423,10 @@ def first_light(quick=False):
         if moved == 0:
             check("idle: under 1% of one core over 30 s with a still picture", used < 0.3, {"cpu_s_used": used})
         else:
-            # The guest was still drawing, so this is a per-frame cost.
-            check("busy: under 5 ms of app CPU per presented frame", used / moved < 0.005, {"cpu_s_used": used, "frames": moved})
+            # The guest was still drawing, so judge the cost of a frame: the
+            # plan's floor is 0.5 ms of app CPU per presented frame at p95.
+            p95 = s1["machines"][0]["pump_us"]["p95"]
+            check("busy: app CPU per presented frame p95 within 0.5 ms", p95 <= 500, {"p95_us": p95, "frames": moved})
         st = a.req("stats")
         json.dump(st, open(os.path.join(out, "stats.json"), "w"), indent=1)
         print(json.dumps(st)[:1500])

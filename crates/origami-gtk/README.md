@@ -29,16 +29,23 @@ New Machine in the app.
 
 `ci/linux.sh SCRATCH [scenario...]` builds the images, builds and unit-tests the
 crate, lays out the pinned QEMU runtime and runs the scenarios under Xvfb on
-lavapipe. `ci/run.sh SCRATCH NAME x11|weston|cage gpu=N|none -- SCENARIO`
-runs one session; `gpu=0` passes the first NVIDIA device through (rootless
-Podman needs `--group-add keep-groups`, which `run.sh` adds, for the render
-node).
+lavapipe, then the pointer scenario under sway headless. `ci/run.sh SCRATCH
+NAME x11|weston|cage|sway gpu=N|none -- SCENARIO` runs one session; `gpu=0`
+passes the first NVIDIA device through (rootless Podman needs
+`--group-add keep-groups`, which `run.sh` adds, for the render node).
 
-The `first-light` scenario drives the real app over `--automation` and real
-OS input (XTest under Xvfb, wtype under cage), and checks: the library, Start,
-the first picture against a QMP `screendump` (0 differing pixels), the
-zero-copy counters, typing at the PROM (`hinv`, read back by OCR of the
-emulator's screendump), follow and capture pointer modes, key release on focus
-loss, and idle cost.
+Scenarios drive the real app over `--automation` and real OS input (XTest under
+Xvfb, wtype under cage, a virtual pointer under sway):
+
+- `first-light`: the library, Start, the first picture against a QMP
+  `screendump` (0 differing pixels), the zero-copy counters, typing at the PROM
+  (`hinv`, read back by OCR of the emulator's screendump), follow and capture,
+  key release at focus loss, and idle cost.
+- `pointer`: the same up to the picture, then only the pointer checks.
+- `settings`: edits through the core on a stopped machine, refused while it runs.
+
+Capture takes the window system's pointer lock: Wayland pointer constraints
+with relative pointer (sway), or warp-to-centre on X11. Cage has no pointer
+constraints, so there it falls back to differencing positions.
 
 Not covered yet: weston screenshots, IRIX, CD swap and the Diagnostics window.

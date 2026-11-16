@@ -3,6 +3,7 @@
 # Needs: APP, WORK, ORIGAMI_BIN, ORIGAMI_RUNTIME_DIR, ORIGAMI_CACHE_DIR in the environment.
 set -eu
 OUT=$1; MODE=$2; shift 2
+export COMPOSITOR=$MODE
 mkdir -p "$OUT" "$WORK"
 export XDG_RUNTIME_DIR=$(mktemp -d /tmp/xdg.XXXXXX); chmod 700 "$XDG_RUNTIME_DIR"
 unset WAYLAND_DISPLAY DISPLAY || true
