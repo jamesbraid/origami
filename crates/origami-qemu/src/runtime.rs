@@ -785,7 +785,7 @@ pub struct Launched {
     /// Removable drives: guest name and QEMU block device id.
     pub removable: Vec<(String, String)>,
     pub display: Option<PathBuf>,
-    _lock: fs::File,
+    _lock: run_record::EditLock,
     _share_net: Option<origami_machine::shares::Running>,
 }
 

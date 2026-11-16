@@ -56,9 +56,20 @@ pub fn clear_if_current(dir: &Path, record: &Record) {
     }
 }
 
-/// Hold the returned file for the edit; dropping it releases the lock. A running
-/// machine holds the same lock for its whole life, so no separate liveness probe is needed.
-pub fn lock_for_edit(dir: &Path, action: &str) -> Result<std::fs::File> {
+/// The machine lock, released when dropped.
+pub struct EditLock(fs::File);
+
+impl Drop for EditLock {
+    // Closing alone is not enough: a child forked meanwhile holds the
+    // descriptor, and with it the lock, until it execs.
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+/// Hold the returned lock for the edit. A running machine holds the same lock
+/// for its whole life, so no separate liveness probe is needed.
+pub fn lock_for_edit(dir: &Path, action: &str) -> Result<EditLock> {
     fs::create_dir_all(dir.join("state"))?;
     let file = OpenOptions::new()
         .read(true)
@@ -69,7 +80,7 @@ pub fn lock_for_edit(dir: &Path, action: &str) -> Result<std::fs::File> {
     if file.try_lock().is_err() {
         return Err(format!("stop the machine before {action}").into());
     }
-    Ok(file)
+    Ok(EditLock(file))
 }
 
 pub fn is_locked(dir: &Path) -> Result<bool> {
@@ -86,4 +97,36 @@ pub fn is_locked(dir: &Path) -> Result<bool> {
     }
     file.unlock()?;
     Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A child forked by another thread shares the lock until it execs.
+    #[cfg(unix)]
+    #[test]
+    fn a_child_forked_during_an_edit_does_not_keep_its_lock() {
+        use std::io::{Read, Write};
+        use std::os::unix::process::CommandExt;
+        let root = tempfile::tempdir().unwrap();
+        let lock = lock_for_edit(root.path(), "t").unwrap();
+        let (mut forked, forked_tx) = io::pipe().unwrap();
+        let (go_rx, mut go) = io::pipe().unwrap();
+        let mut command = std::process::Command::new("true");
+        // SAFETY: the hook only reads and writes pipes.
+        unsafe {
+            command.pre_exec(move || {
+                (&forked_tx).write_all(b"x")?;
+                (&go_rx).read_exact(&mut [0])
+            });
+        }
+        let child = std::thread::spawn(move || command.status());
+        forked.read_exact(&mut [0]).unwrap();
+        drop(lock);
+        let again = lock_for_edit(root.path(), "t");
+        go.write_all(b"x").unwrap();
+        assert!(child.join().unwrap().unwrap().success());
+        again.unwrap();
+    }
 }
