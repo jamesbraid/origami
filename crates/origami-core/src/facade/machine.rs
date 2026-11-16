@@ -489,9 +489,14 @@ impl MachineInner {
     }
 
     fn view(&self) -> MachineView {
-        let (phase, session, operation) = {
+        let (phase, session, operation, frames) = {
             let run = self.run.lock().unwrap();
-            (run.phase, run.session.clone(), run.operation)
+            (
+                run.phase,
+                run.session.clone(),
+                run.operation,
+                run.frames.clone(),
+            )
         };
         let facts = session.map(|s| s.status().state);
         let (exit_code, last_error) = match &facts {
@@ -513,7 +518,18 @@ impl MachineInner {
                 "The machine is not running.".to_string(),
             ),
             (_, Some(RunState::Running)) => {
-                (MachineState::Running, "The machine is running.".to_string())
+                let blank = frames
+                    .as_ref()
+                    .filter(|frames| !frames.heads().iter().any(|h| h.active))
+                    .and_then(|frames| frames.why_blank());
+                let reason = match blank {
+                    Some(why) => format!(
+                        "The machine is running, with no picture: {}.",
+                        why.trim_end_matches('.')
+                    ),
+                    None => "The machine is running.".to_string(),
+                };
+                (MachineState::Running, reason)
             }
             // The engine's program lives; the error says what it did not answer.
             (_, Some(RunState::Unknown(why))) => (

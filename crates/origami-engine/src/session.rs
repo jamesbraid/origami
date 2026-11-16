@@ -49,6 +49,12 @@ pub trait FrameSource: Send + Sync {
     /// no wake-ups while hidden and one when shown again if it changed.
     fn set_visible(&self, _visible: bool) {}
 
+    /// Why the source has no picture, for a status line; None when it has one
+    /// or cannot say.
+    fn why_blank(&self) -> Option<String> {
+        None
+    }
+
     /// What the source has moved so far, if it counts.
     fn stats(&self) -> Option<crate::FrameStats> {
         None

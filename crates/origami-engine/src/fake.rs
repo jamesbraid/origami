@@ -101,6 +101,7 @@ fn catalogue() -> Catalogue {
             offering("fake.1", "fake", 1, 1),
             offering("fake.2", "fake", 2, 1),
             offering("fakeview.1", "fakeview", 1, 2),
+            offering("fakeblind.1", "fakeblind", 1, 0),
         ],
     }))
     .expect("the fake catalogue is well formed")
@@ -582,6 +583,14 @@ impl FrameSource for Frames {
 
     fn set_visible(&self, visible: bool) {
         self.visible.store(visible, Ordering::Release);
+    }
+
+    fn why_blank(&self) -> Option<String> {
+        self.heads
+            .lock()
+            .unwrap()
+            .is_empty()
+            .then(|| "the fake display has no head".into())
     }
 
     fn cursor(&self, _head: usize, known_gen: u32) -> Option<CursorInfo> {

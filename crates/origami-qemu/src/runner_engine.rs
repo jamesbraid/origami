@@ -644,6 +644,25 @@ impl FrameSource for Shown {
         Shown::set_visible(self, visible);
     }
 
+    fn why_blank(&self) -> Option<String> {
+        let picture = Shown::heads(self)
+            .into_iter()
+            .find(|h| h.active)
+            .map(|h| (h.width, h.height));
+        if picture.is_some() {
+            return None;
+        }
+        let socket = runtime::display_socket(&self.dir);
+        Some(origami_engine::status::reason(&DisplayFacts {
+            running: true,
+            socket_exists: socket.exists(),
+            socket,
+            link: self.link_facts(),
+            runner_error: None,
+            picture,
+        }))
+    }
+
     fn stats(&self) -> Option<origami_engine::FrameStats> {
         let s = Shown::stats(self);
         Some(origami_engine::FrameStats {

@@ -89,7 +89,7 @@ fn the_library_lists_created_machines_and_the_catalogue_lists_offerings() {
     let offerings = f.core.catalogue().unwrap();
     assert_eq!(
         offerings.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
-        ["fake.1", "fake.2", "fakeview.1"]
+        ["fake.1", "fake.2", "fakeview.1", "fakeblind.1"]
     );
     assert_eq!(offerings[0].engine, "fake");
     assert_eq!(offerings[0].memory_accepted_mib, [64, 128, 256]);
@@ -216,6 +216,22 @@ fn a_created_machine_gets_the_identity_the_cli_gives() {
     let key = f.create("i", "fake.1");
     let file = origami_machine::read_machine(Path::new(&key)).unwrap();
     assert!(file.identity.is_some_and(|i| i.emu_id.is_some()));
+}
+
+#[test]
+fn a_running_machine_with_no_head_says_why_it_shows_nothing() {
+    let f = fixture();
+    let key = f.create("b", "fakeblind.1");
+    let machine = f.core.start_machine(&key).unwrap();
+    let view = machine.view();
+    assert!(view.heads.is_empty());
+    assert!(
+        view.reason.contains("the fake display has no head"),
+        "{}",
+        view.reason
+    );
+    let (shown, _) = f.started("s");
+    assert_eq!(shown.view().reason, "The machine is running.");
 }
 
 #[test]
