@@ -85,6 +85,9 @@ struct HeadSlot {
     /// read saw: the other two things a `WAKE` can be for.
     last_layout: u32,
     last_cursor: u32,
+    /// The `cursor_gen` `arm` already reported, so an unread cursor does
+    /// not report it again.
+    cursor_woken: u32,
     /// The next take must carry the whole picture.
     full: bool,
 }
@@ -360,7 +363,8 @@ impl Display {
     /// last take (the arm-then-recheck the protocol asks for). True when it
     /// did, so the caller need not wait for a wake.
     pub fn arm(&self, head: usize) -> bool {
-        let s = lock(&self.state);
+        let mut guard = lock(&self.state);
+        let s = &mut *guard;
         let Some(c) = s.control.as_ref() else {
             return false;
         };
@@ -372,11 +376,18 @@ impl Display {
         // when it changes, so a change it made first must show here.
         c.arm(head);
         fence(Ordering::SeqCst);
-        s.heads.get(head).is_some_and(|slot| {
-            c.content_gen(head) != slot.last_content
-                || c.layout_gen(head) != slot.last_layout
-                || c.cursor_gen(head) != slot.last_cursor
-        })
+        let Some(slot) = s.heads.get_mut(head) else {
+            return false;
+        };
+        let cursor = c.cursor_gen(head);
+        // A viewer that never reads the cursor must not be woken for it forever.
+        let cursor_news = cursor != slot.last_cursor && cursor != slot.cursor_woken;
+        if cursor_news {
+            slot.cursor_woken = cursor;
+        }
+        cursor_news
+            || c.content_gen(head) != slot.last_content
+            || c.layout_gen(head) != slot.last_layout
     }
 
     /// Arm every head; true when any has already changed.
@@ -898,6 +909,21 @@ mod tests {
         r.block.bump(0);
         assert!(r.d.arm_all(), "changed between the take and the arm");
         assert!(!r.d.arm(7));
+    }
+
+    #[test]
+    fn an_unread_cursor_change_wakes_the_viewer_once() {
+        let r = rig(W, 8);
+        let mut px = Vec::new();
+        frame(&r.d, &mut px);
+        r.block.put(0, R_CURSOR_GEN, 2);
+        assert!(r.d.arm(0));
+        assert!(
+            !r.d.arm(0),
+            "the viewer was told; it need not be told again"
+        );
+        r.block.put(0, R_CURSOR_GEN, 4);
+        assert!(r.d.arm(0), "a newer cursor change is news");
     }
 
     #[test]
