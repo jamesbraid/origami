@@ -128,9 +128,11 @@ fn serve_iris(
     started_by: &str,
     foreground: bool,
     hold: bool,
+    display: bool,
 ) -> Result<()> {
     use std::io::Write;
-    let exit = origami_iris::runner::serve(dir, machine_file, started_by, foreground, hold)?;
+    let exit =
+        origami_iris::runner::serve(dir, machine_file, started_by, foreground, hold, display)?;
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     // SAFETY: _exit takes no pointers.
@@ -138,7 +140,7 @@ fn serve_iris(
 }
 
 #[cfg(not(feature = "iris"))]
-fn serve_iris(_: &Path, _: Option<&Path>, _: &str, _: bool, _: bool) -> Result<()> {
+fn serve_iris(_: &Path, _: Option<&Path>, _: &str, _: bool, _: bool, _: bool) -> Result<()> {
     Err("this origami was built without iris; rebuild it with --features iris".into())
 }
 
@@ -267,7 +269,8 @@ fn command(action: Action) -> Result<()> {
                 )?;
                 println!("running: pid {pid}");
             } else if iris {
-                serve_iris(&dir, None, "cli", true, args.hold)?;
+                let shared = matches!(display, runtime::Display::Shm { .. });
+                serve_iris(&dir, None, "cli", true, args.hold, shared)?;
             } else {
                 let exit = origami_host::serve(origami_host::ServeArgs {
                     rt: &rt,
@@ -296,12 +299,14 @@ fn command(action: Action) -> Result<()> {
             let launch = &args.launch;
             let dir = origami_core::directory(&launch.machine.dir)?;
             if args.machine_file.is_some() {
+                let shared = matches!(launch.display.resolve(false)?, runtime::Display::Shm { .. });
                 return serve_iris(
                     &dir,
                     args.machine_file.as_deref(),
                     &args.started_by,
                     false,
                     args.hold,
+                    shared,
                 );
             }
             match origami_core::apply_first_boot(engines.of(&dir), &dir) {
@@ -314,7 +319,8 @@ fn command(action: Action) -> Result<()> {
             let (machines, file) = (&loaded.catalogue, &loaded.file);
             let offer = loaded.offering()?;
             if file.engine.id == origami_iris::ENGINE {
-                return serve_iris(&dir, None, &args.started_by, false, args.hold);
+                let shared = matches!(launch.display.resolve(false)?, runtime::Display::Shm { .. });
+                return serve_iris(&dir, None, &args.started_by, false, args.hold, shared);
             }
             let display = launch.display.resolve(!file.pipe.is_empty())?;
             let exit = origami_host::serve(origami_host::ServeArgs {

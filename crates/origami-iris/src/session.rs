@@ -11,7 +11,7 @@ use origami_protocol::{Client, Request};
 use serde_json::Value;
 use std::fs::{self, OpenOptions};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -41,6 +41,7 @@ pub struct IrisSession {
     inner: Arc<Inner>,
     record: Record,
     removable: Vec<String>,
+    display: Option<PathBuf>,
     console_taken: AtomicBool,
     client: Mutex<Option<Client>>,
 }
@@ -68,7 +69,8 @@ pub(crate) fn launch(
     command
         .arg("_serve")
         .arg(dir)
-        .args(["--display", "none", "--started-by", "app", "--machine-file"])
+        .args(["--display", if plan.display { "shm" } else { "none" }])
+        .args(["--started-by", "app", "--machine-file"])
         .arg(&machine_file);
     if plan.hold {
         command.arg("--hold");
@@ -116,6 +118,7 @@ pub(crate) fn launch(
         inner: inner.clone(),
         record,
         removable: plan.removable.clone(),
+        display: plan.display.then(|| crate::display_socket(dir)),
         console_taken: AtomicBool::new(false),
         client: Mutex::new(Some(client)),
     });
@@ -239,10 +242,11 @@ impl Session for IrisSession {
         self.id
     }
 
-    // Where the picture goes: the runner will publish its heads here, as
-    // display protocol 4 regions, once iris has a producer for them.
     fn display(&self) -> DisplayEndpoint {
-        DisplayEndpoint::None
+        match &self.display {
+            Some(socket) => DisplayEndpoint::Socket(socket.clone()),
+            None => DisplayEndpoint::None,
+        }
     }
 
     fn consoles(&self) -> Vec<ConsoleInfo> {

@@ -145,6 +145,8 @@ fn the_core_creates_starts_and_stops_an_iris_machine() {
         std::thread::sleep(Duration::from_millis(200));
     }
     assert_eq!(machine.view().state, MachineState::Running);
+    #[cfg(target_os = "linux")]
+    picture_arrives_over_display_protocol_4(root.path());
 
     assert_eq!(
         machine.stop(StopKind::Clean).unwrap().wait(None),
@@ -153,4 +155,46 @@ fn the_core_creates_starts_and_stops_an_iris_machine() {
     let view = machine.view();
     assert_eq!(view.state, MachineState::Exited);
     assert_eq!(view.exit_code, Some(0));
+}
+
+/// The runner serves the PROM's picture on the display protocol 4 socket in
+/// the machine directory under `root`.
+#[cfg(target_os = "linux")]
+fn picture_arrives_over_display_protocol_4(root: &Path) {
+    use origami_display::v4::session::{Event, HelloParams, Session};
+    use std::time::Duration;
+
+    fn find(dir: &Path) -> Option<PathBuf> {
+        for entry in std::fs::read_dir(dir).ok()?.flatten() {
+            let path = entry.path();
+            if path.ends_with("state/display/v4.sock") {
+                return Some(path);
+            }
+            if path.is_dir() {
+                if let Some(found) = find(&path) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    let socket = find(root).expect("the runner serves no display socket");
+    let stream = std::os::unix::net::UnixStream::connect(socket).unwrap();
+    let mut session = Session::connect(stream, &HelloParams::default()).unwrap();
+    session.request(0, false).unwrap();
+    let frame = loop {
+        match session.recv(Some(Duration::from_secs(30))).unwrap() {
+            Some(Event::Frame(frame)) => break frame,
+            Some(_) => {}
+            None => panic!("no picture in 30 seconds"),
+        }
+    };
+    assert_eq!((frame.width, frame.height), (1282, 1024));
+    let row = |y: usize| &frame.pixels()[y * frame.stride as usize..][..16];
+    assert_ne!(
+        row(0),
+        row(1000),
+        "the PROM's gradient is not a flat colour"
+    );
 }

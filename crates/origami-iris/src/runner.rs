@@ -30,6 +30,7 @@ pub fn serve(
     started_by: &str,
     foreground: bool,
     hold: bool,
+    display: bool,
 ) -> Result<Exit> {
     install_panic_exit();
     let file = match machine_file {
@@ -60,10 +61,17 @@ pub fn serve(
         .collect::<Vec<_>>();
     // A guest power-off ends the machine, not this process: the host reports it.
     iris::workstation::set_process_exit_enabled(false);
+    let display = display.then(|| crate::display_socket(dir));
     let name = format!("iris-{}", std::process::id());
     origami_host::host(dir, started_by, foreground, |wake| {
         let machine = build(&text)?;
-        let session = Arc::new(LocalSession::start(machine, removable.clone(), hold, wake));
+        let session = Arc::new(LocalSession::start(
+            machine,
+            removable.clone(),
+            hold,
+            wake,
+            display.as_deref(),
+        )?);
         Ok(Hosted {
             session,
             engine: ENGINE,
@@ -76,6 +84,29 @@ pub fn serve(
             keep: Box::new(lock),
         })
     })
+}
+
+#[cfg(target_os = "linux")]
+type Published = origami_display_producer::Producer;
+#[cfg(not(target_os = "linux"))]
+type Published = std::convert::Infallible;
+
+#[cfg(target_os = "linux")]
+fn publish_display(
+    display: &Arc<dyn GfxDisplay>,
+    machine: &dyn Workstation,
+    path: &Path,
+) -> Result<Published> {
+    Ok(crate::publish::start(
+        display.clone(),
+        machine.get_ps2(),
+        path,
+    )?)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn publish_display(_: &Arc<dyn GfxDisplay>, _: &dyn Workstation, _: &Path) -> Result<Published> {
+    Err("publishing an iris display needs Linux".into())
 }
 
 /// A panic on any iris thread ends the runner at once with its message in
@@ -125,6 +156,8 @@ pub struct LocalSession {
     machine: Mutex<Option<Box<dyn Workstation>>>,
     cpu: Arc<dyn CpuDebug>,
     display: Option<Arc<dyn GfxDisplay>>,
+    /// The display protocol 4 producer, until the machine stops.
+    published: Mutex<Option<Published>>,
     removable: Vec<(String, usize)>,
     /// Held across a transition, so a status read never sees a reset or a
     /// resume half done as a guest power-off.
@@ -138,19 +171,26 @@ impl LocalSession {
         removable: Vec<(String, usize)>,
         hold: bool,
         wake: Wake,
-    ) -> Self {
+        publish: Option<&Path>,
+    ) -> Result<Self> {
         machine.register_system_controller();
         let cpu = machine.get_cpu_debug();
         let display = machine.get_display();
+        let published = match (publish, &display) {
+            (Some(path), Some(display)) => Some(publish_display(display, &*machine, path)?),
+            (Some(_), None) => return Err("this machine has no display to publish".into()),
+            _ => None,
+        };
         machine.start();
         // Start paused after the fact: iris starts the CPU with the machine.
         if hold {
             cpu.stop();
         }
-        Self {
+        Ok(Self {
             machine: Mutex::new(Some(machine)),
             cpu,
             display,
+            published: Mutex::new(published),
             removable,
             phase: Mutex::new(if hold {
                 Phase::Prelaunch
@@ -158,7 +198,7 @@ impl LocalSession {
                 Phase::Running
             }),
             wake,
-        }
+        })
     }
 
     fn machine<R>(&self, f: impl FnOnce(&mut dyn Workstation) -> R) -> Result<R> {
@@ -273,6 +313,13 @@ impl Session for LocalSession {
     }
 
     fn stop(&self, how: Stop) -> Result<()> {
+        // Closes the socket before the machine goes.
+        drop(
+            self.published
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take(),
+        );
         let mut phase = self.phase.lock().unwrap_or_else(|e| e.into_inner());
         if matches!(*phase, Phase::Exited { .. }) {
             return Ok(());

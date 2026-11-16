@@ -4,9 +4,9 @@ use crate::catalogue::{self, catalogue};
 use crate::session::{self, IrisSession};
 use crate::ENGINE;
 use origami_engine::{
-    Capabilities, Catalogue, ConsoleTransport, Control, DiskFormat, DisplayKind, DriveFormats,
-    DriveKind, Engine, EngineInfo, IdentityKind, LaunchPlan, MachineId, Report, Result, Session,
-    Wake, Wiring,
+    Capabilities, Catalogue, ConsoleTransport, Control, DiskFormat, DisplayKind, DisplayRequest,
+    DriveFormats, DriveKind, Engine, EngineInfo, IdentityKind, LaunchPlan, MachineId, Report,
+    Result, Session, Wake, Wiring,
 };
 use origami_machine::dir::MachineDir;
 use origami_machine::model::Machine;
@@ -51,6 +51,9 @@ pub(crate) struct IrisPlan {
     pub hold: bool,
     /// Drives that take media, by guest name.
     pub removable: Vec<String>,
+    /// Publish the picture on a display protocol 4 socket.
+    #[serde(default)]
+    pub display: bool,
 }
 
 impl Engine for IrisEngine {
@@ -64,8 +67,11 @@ impl Engine for IrisEngine {
             id: ENGINE.into(),
             version: None,
             capabilities: Capabilities {
-                // No picture leaves the runner yet; `screendump` is the view.
-                display: DisplayKind::None,
+                display: if cfg!(target_os = "linux") {
+                    DisplayKind::Socket
+                } else {
+                    DisplayKind::None
+                },
                 max_heads: 1,
                 gpu_regions: false,
                 // iris models neither a power button nor an NMI.
@@ -180,6 +186,7 @@ impl Engine for IrisEngine {
                 .filter(|drive| drive.kind == "cdrom")
                 .map(|drive| drive.name.clone())
                 .collect(),
+            display: matches!(w.display, DisplayRequest::Shared { .. }),
         };
         Ok(LaunchPlan::new(
             ENGINE,

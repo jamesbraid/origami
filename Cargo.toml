@@ -45,6 +45,7 @@ dunce = "1"
 libc = "0.2"
 
 [dev-dependencies]
+origami-display = { path = "crates/origami-display" }
 origami-engine = { path = "crates/origami-engine", features = ["fake"] }
 origami-machine = { path = "crates/origami-machine" }
 origami-protocol = { path = "crates/origami-protocol" }

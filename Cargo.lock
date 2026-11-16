@@ -4679,6 +4679,7 @@ dependencies = [
  "libc",
  "libtest-mimic",
  "origami-core",
+ "origami-display",
  "origami-engine",
  "origami-host",
  "origami-iris",
@@ -4833,16 +4834,21 @@ dependencies = [
 name = "origami-iris"
 version = "0.0.0"
 dependencies = [
+ "display-conformance",
  "iris",
  "libc",
+ "origami-display",
+ "origami-display-producer",
  "origami-engine",
  "origami-host",
  "origami-machine",
  "origami-protocol",
+ "origami-qemu",
  "serde",
  "serde_json",
  "tempfile",
  "toml",
+ "winit",
 ]
 
 [[package]]
