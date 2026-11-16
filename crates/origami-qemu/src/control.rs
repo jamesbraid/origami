@@ -2,7 +2,7 @@
 //! and the console.
 
 use origami_machine::console::Console;
-use origami_machine::control::{is_locked, read, Record};
+use origami_machine::control::{clear_if_current, is_locked, read, Record};
 use origami_machine::Result;
 use qapi::qmp;
 use std::fs;
@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 fn connect(record: &Record) -> Result<TcpStream> {
     let address = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, record.qmp_port);
-    let stream = TcpStream::connect_timeout(&address.into(), Duration::from_millis(400))?;
+    let stream = TcpStream::connect_timeout(&address.into(), Duration::from_secs(2))?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
     Ok(stream)
@@ -64,6 +64,9 @@ pub fn running(dir: &Path) -> Result<Option<Record>> {
 /// lives.
 pub fn stop(dir: &Path) -> Result<()> {
     let record = read(dir)?;
+    // No runner holds the lock: QEMU outlived it, so there is no runner to
+    // wait for and no one to remove the record.
+    let runner_gone = record.qemu_pid != 0 && !is_locked(dir)?;
     // QEMU may already have taken a quit and stopped answering QMP while it
     // folds, as when an earlier stop was interrupted. The runner's lock says
     // it is still alive, so keep waiting instead of reporting a dead machine.
@@ -74,6 +77,27 @@ pub fn stop(dir: &Path) -> Result<()> {
             return Err(error);
         }
     }
+    if runner_gone {
+        while qemu_alive(&record) {
+            std::thread::sleep(POLL_INTERVAL);
+        }
+        clear_if_current(dir, &record);
+        return Ok(());
+    }
+    wait_for_exit(dir)
+}
+
+fn qemu_alive(record: &Record) -> bool {
+    if cfg!(unix) && record.qemu_pid != 0 {
+        process_alive(record.qemu_pid)
+    } else {
+        verified_qmp(record).is_ok()
+    }
+}
+
+/// Wait until the machine's runner has exited, saying why the wait is long
+/// when it is. Never gives up and never kills.
+pub fn wait_for_exit(dir: &Path) -> Result<()> {
     let started = Instant::now();
     let log = dir.join("logs/runner.log");
     let log_start = fs::metadata(&log).map_or(0, |meta| meta.len());
@@ -137,7 +161,20 @@ pub fn force_stop(dir: &Path) -> Result<()> {
 fn process_alive(pid: u32) -> bool {
     // SAFETY: signal 0 only checks that the process exists.
     let r = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    r == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    (r == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)) && !zombie(pid)
+}
+
+/// A process that has exited but whose parent has not reaped it, which a
+/// container without an init leaves behind when the runner is killed.
+#[cfg(unix)]
+fn zombie(pid: u32) -> bool {
+    fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|stat| {
+            stat.rsplit_once(") ")
+                .map(|(_, rest)| rest.starts_with('Z'))
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(windows)]
@@ -191,17 +228,31 @@ fn last_line_since(path: &Path, start: u64) -> String {
     last.trim().to_string()
 }
 
-pub fn console(dir: &Path) -> Result<()> {
-    let record = read(dir)?;
-    verified_qmp(&record)?;
-    let address = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, record.console_port);
+/// Copy this process's standard streams to and from QEMU's own console
+/// chardev, for a machine whose runner is gone. Nothing else shares it.
+pub fn console_direct(record: &Record) -> Result<()> {
+    let port = if record.engine_console != 0 {
+        record.engine_console
+    } else {
+        record.console_port
+    };
+    let address = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, port);
     let mut stream = TcpStream::connect(address)?;
     let mut input = stream.try_clone()?;
     std::thread::spawn(move || {
         let _ = io::copy(&mut io::stdin(), &mut input);
     });
-    io::copy(&mut stream, &mut io::stdout())?;
-    Ok(())
+    let mut out = io::stdout();
+    let mut buf = [0u8; 8192];
+    loop {
+        match io::Read::read(&mut stream, &mut buf)? {
+            0 => return Ok(()),
+            n => {
+                io::Write::write_all(&mut out, &buf[..n])?;
+                io::Write::flush(&mut out)?;
+            }
+        }
+    }
 }
 
 /// Connect to the console of the machine running from `dir`.

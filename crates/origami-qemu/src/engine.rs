@@ -279,6 +279,7 @@ impl Engine for QemuEngine {
             console_port: spec.console_port,
             name: spec.name.clone(),
             qemu_pid: child.id(),
+            ..Default::default()
         };
         let deadline = Instant::now() + runtime::qmp_ready_timeout();
         loop {
@@ -303,6 +304,52 @@ impl Engine for QemuEngine {
             }
             std::thread::sleep(Duration::from_millis(100));
         }
+        Ok(self.start_session(
+            child,
+            pump,
+            last_error,
+            record,
+            spec.display,
+            spec.removable,
+            wake,
+        ))
+    }
+}
+
+impl QemuEngine {
+    /// A session over a QEMU the runner started with [`runtime::launch`].
+    /// Its console is the private chardev the runner alone connects to.
+    pub fn adopt(&self, launched: &mut runtime::Launched, wake: Wake) -> Arc<dyn Session> {
+        let record = Record {
+            pid: std::process::id(),
+            qmp_port: launched.qmp_port,
+            console_port: launched.engine_console,
+            name: launched.name.clone(),
+            qemu_pid: launched.pid(),
+            ..Default::default()
+        };
+        self.start_session(
+            launched.take_child(),
+            None,
+            Arc::new(Mutex::new(None)),
+            record,
+            launched.display.clone(),
+            launched.removable.clone(),
+            wake,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_session(
+        &self,
+        child: Child,
+        pump: Option<std::thread::JoinHandle<()>>,
+        last_error: Arc<Mutex<Option<String>>>,
+        record: Record,
+        display: Option<PathBuf>,
+        removable: Vec<(String, String)>,
+        wake: Wake,
+    ) -> Arc<dyn Session> {
         let id = MachineId(self.next_id.fetch_add(1, Ordering::Relaxed));
         let inner = Arc::new(Inner {
             child: Mutex::new(child),
@@ -313,13 +360,12 @@ impl Engine for QemuEngine {
             id,
             inner: inner.clone(),
             record,
-            display: spec.display,
-            removable: spec.removable,
+            display,
+            removable,
             console_taken: AtomicBool::new(false),
         });
         std::thread::spawn(move || monitor(&inner, pump, &last_error, &wake, id));
-        let session: Arc<dyn Session> = session;
-        Ok(session)
+        session
     }
 }
 

@@ -59,7 +59,7 @@ pub enum Action {
     )]
     Run(RunArgs),
     #[command(name = "_serve", hide = true)]
-    Serve(LaunchArgs),
+    Serve(ServeArgs),
     /// Show whether a machine is running
     Status(MachineArgs),
     /// Connect to a background guest's serial console
@@ -444,6 +444,22 @@ pub struct RunArgs {
     /// Run with console and installer control connections
     #[arg(long)]
     pub background: bool,
+    /// Start the guest paused, until a client sends `cont` on the control
+    /// socket (an install takes the console first)
+    #[arg(long, hide = true)]
+    pub hold: bool,
+}
+
+/// What the background runner process is started with.
+#[derive(Debug, Args)]
+pub struct ServeArgs {
+    #[command(flatten)]
+    pub launch: LaunchArgs,
+    #[arg(long)]
+    pub hold: bool,
+    /// `cli` or `app`, for the run record
+    #[arg(long, default_value = "cli")]
+    pub started_by: String,
 }
 
 #[derive(Debug, Default, Args)]

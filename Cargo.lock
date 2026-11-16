@@ -3494,9 +3494,11 @@ dependencies = [
  "libtest-mimic",
  "origami-core",
  "origami-engine",
+ "origami-host",
  "origami-machine",
  "origami-net",
  "origami-nfs",
+ "origami-protocol",
  "origami-qemu",
  "qapi",
  "regex",
@@ -3569,6 +3571,15 @@ dependencies = [
 [[package]]
 name = "origami-host"
 version = "0.0.0"
+dependencies = [
+ "libc",
+ "origami-engine",
+ "origami-machine",
+ "origami-protocol",
+ "origami-qemu",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "origami-machine"

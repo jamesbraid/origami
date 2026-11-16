@@ -258,6 +258,7 @@ fn status_reports_a_machine_whose_qemu_exits_while_it_looks() {
         console_port: 0,
         name: "sgi-exits-while-asked".into(),
         qemu_pid: 0,
+        ..Default::default()
     };
     origami_machine::control::write(&dir, &record).unwrap();
     let qemu = {

@@ -5,16 +5,29 @@ use std::io;
 use std::net::TcpListener;
 use std::path::Path;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Record {
+    /// The runner's process id.
     pub pid: u32,
+    /// QEMU's own QMP endpoint. The runner never holds it open.
     pub qmp_port: u16,
+    /// The runner's raw console port. An older origami's record has QEMU's
+    /// own console here.
     pub console_port: u16,
     pub name: String,
-    /// QEMU's own process id (`pid` is the runner's). Zero in a record an
-    /// older origami wrote.
+    /// QEMU's own process id. Zero in a record an older origami wrote.
     #[serde(default)]
     pub qemu_pid: u32,
+    /// The runner's control socket, loopback TCP. Zero when absent.
+    #[serde(default)]
+    pub control_port: u16,
+    /// QEMU's console chardev, which only the runner connects to. Zero
+    /// when absent.
+    #[serde(default)]
+    pub engine_console: u16,
+    /// `cli` or `app`; empty in a record an older origami wrote.
+    #[serde(default)]
+    pub started_by: String,
 }
 
 pub fn free_port() -> Result<u16> {

@@ -12,7 +12,7 @@ use std::os::unix::fs::FileTypeExt;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,7 +237,7 @@ fn user_network(dir: &Path, file: &MachineFile) -> Result<String> {
 }
 
 /// One fixed suggestion per host-backed mode, shown beside QEMU's own error.
-fn network_hint(file: &MachineFile) -> Option<String> {
+pub fn network_hint(file: &MachineFile) -> Option<String> {
     let endpoint = file.network.endpoint.as_deref().unwrap_or("");
     let interface = file.network.interface.as_deref().unwrap_or("");
     match file.network.mode.as_str() {
@@ -632,9 +632,22 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, offering: &Offering, drive: &Dr
     ]);
 }
 
+/// Who started a runner, and how.
+#[derive(Clone, Debug, Default)]
+pub struct Start {
+    /// Start QEMU paused, until a client sends `cont`.
+    pub hold: bool,
+    /// `cli` or `app`, as `run.json` records it.
+    pub started_by: &'static str,
+}
+
 /// Start the machine in a background runner and return the runner's pid.
 pub fn start_background(dir: &Path, display: Display, once: &[String]) -> Result<u32> {
-    start_background_as(&std::env::current_exe()?, dir, display, once)
+    let start = Start {
+        started_by: "cli",
+        ..Start::default()
+    };
+    start_background_with(&std::env::current_exe()?, dir, display, once, &start)
 }
 
 /// [`start_background`] with the runner `exe`, for a caller that is not the
@@ -645,6 +658,21 @@ pub fn start_background_as(
     dir: &Path,
     display: Display,
     once: &[String],
+) -> Result<u32> {
+    let start = Start {
+        started_by: "app",
+        ..Start::default()
+    };
+    start_background_with(exe, dir, display, once, &start)
+}
+
+/// [`start_background_as`] with the start's other choices.
+pub fn start_background_with(
+    exe: &Path,
+    dir: &Path,
+    display: Display,
+    once: &[String],
+    start: &Start,
 ) -> Result<u32> {
     if run_record::is_locked(dir)? {
         return Err("machine is already running".into());
@@ -673,6 +701,12 @@ pub fn start_background_as(
     }
     if let Display::Shm { gpu: Some(gpu) } = display {
         child.arg("--display-gpu").arg(gpu.hex());
+    }
+    if start.hold {
+        child.arg("--hold");
+    }
+    if !start.started_by.is_empty() {
+        child.arg("--started-by").arg(start.started_by);
     }
     for arg in once {
         child.arg(format!("--qemu-arg={arg}"));
@@ -725,33 +759,47 @@ pub fn start_background_as(
     .into())
 }
 
-pub fn run(
-    rt: &Runtime,
-    machines: &Machines,
-    dir: &Path,
-    file: &MachineFile,
-    offering: &Offering,
-    display: Display,
-    once: &[String],
-) -> Result<ExitStatus> {
-    run_inner(rt, machines, dir, file, offering, display, once, false)
+/// What the runner asks of a launch beyond the machine itself.
+#[derive(Clone, Debug, Default)]
+pub struct LaunchOptions {
+    /// Start QEMU paused (`-S`), until the runner is told to continue.
+    pub hold: bool,
 }
 
-pub fn serve(
-    rt: &Runtime,
-    machines: &Machines,
-    dir: &Path,
-    file: &MachineFile,
-    offering: &Offering,
-    display: Display,
-    once: &[String],
-) -> Result<ExitStatus> {
-    run_inner(rt, machines, dir, file, offering, display, once, true)
+/// A QEMU the runner has started and found answering QMP. Dropping it
+/// releases the machine lock and the share switch, so the owner keeps it
+/// for as long as the guest lives.
+pub struct Launched {
+    child: Option<Child>,
+    pid: u32,
+    pub qmp_port: u16,
+    /// QEMU's console chardev, which only the runner connects to.
+    pub engine_console: u16,
+    pub name: String,
+    /// Removable drives: guest name and QEMU block device id.
+    pub removable: Vec<(String, String)>,
+    pub display: Option<PathBuf>,
+    _lock: fs::File,
+    _share_net: Option<origami_machine::shares::Running>,
 }
 
-// One call site per mode shares this; the arguments are one launch.
+impl Launched {
+    /// QEMU's process id.
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// Hand the process to whoever watches it; once.
+    pub(crate) fn take_child(&mut self) -> Child {
+        self.child.take().expect("the QEMU process is taken once")
+    }
+}
+
+/// Start QEMU for the machine in `dir`, with its console and QMP on private
+/// loopback ports, and return once QMP answers. The caller serves the
+/// machine's console and control sockets and writes the run record.
 #[allow(clippy::too_many_arguments)]
-fn run_inner(
+pub fn launch(
     rt: &Runtime,
     machines: &Machines,
     dir: &Path,
@@ -759,8 +807,8 @@ fn run_inner(
     offering: &Offering,
     display: Display,
     once: &[String],
-    background: bool,
-) -> Result<ExitStatus> {
+    options: &LaunchOptions,
+) -> Result<Launched> {
     let qemu = rt.qemu();
     if !qemu.is_file() {
         return Err(format!("packaged QEMU missing: {}", qemu.display()).into());
@@ -771,11 +819,11 @@ fn run_inner(
     }
     // A machine without its storage is not started, and gains nothing.
     origami_machine::stores::check_state(dir, offering)?;
-    let _lock = run_record::lock_for_edit(dir, "starting it again")?;
+    let lock = run_record::lock_for_edit(dir, "starting it again")?;
     for warning in origami_machine::emu_id::running_twin_warnings(dir, file) {
         eprintln!("warning: {warning}");
     }
-    // The switch runs in this process, which also waits on QEMU, so it
+    // The switch runs in the runner, which also waits on QEMU, so it
     // lives exactly as long as the guest.
     let share_net = origami_machine::shares::start(dir, file)?;
     // A hosted private network is the NIC's own peer; any other switch sits
@@ -839,55 +887,59 @@ fn run_inner(
             }
         }
     }
-    if !background {
-        fs::create_dir_all(dir.join("logs"))?;
-        log_primary_serial(
-            &mut args,
-            "stdio,id=origami-console,logfile=logs/serial.log,logappend=on".into(),
-        )?;
-        append_extra_args(&mut args, file, once)?;
-        let mut child = Command::new(qemu).args(args).current_dir(dir).spawn()?;
-        let status = child.wait()?;
-        if let (false, Some(hint)) = (status.success(), network_hint(file)) {
-            eprintln!("{hint}");
-        }
-        return Ok(status);
-    }
     let qmp_port = run_record::free_port()?;
-    let mut console_port = run_record::free_port()?;
-    while console_port == qmp_port {
-        console_port = run_record::free_port()?;
+    let mut engine_console = run_record::free_port()?;
+    while engine_console == qmp_port {
+        engine_console = run_record::free_port()?;
     }
     let name = format!(
         "sgi-{}-{}",
         std::process::id(),
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     );
-    background_arguments(&mut args, file, once, console_port, qmp_port, &name, false)?;
-    let mut record = run_record::Record {
-        pid: std::process::id(),
+    background_arguments(
+        &mut args,
+        file,
+        once,
+        engine_console,
         qmp_port,
-        console_port,
-        name,
-        qemu_pid: 0,
-    };
+        &name,
+        options.hold,
+    )?;
+    let removable = file
+        .drive
+        .iter()
+        .enumerate()
+        .filter(|(_, drive)| drive.kind == "cdrom")
+        .map(|(index, drive)| (drive.name.clone(), format!("drive{index}")))
+        .collect();
     let mut child = Command::new(qemu)
         .args(args)
         .current_dir(dir)
         .stdin(Stdio::null())
         .spawn()?;
-    record.qemu_pid = child.id();
+    let probe = run_record::Record {
+        pid: std::process::id(),
+        qmp_port,
+        console_port: engine_console,
+        name: name.clone(),
+        qemu_pid: child.id(),
+        ..Default::default()
+    };
     let deadline = Instant::now() + qmp_ready_timeout();
     while Instant::now() < deadline {
-        if control::verified_qmp(&record).is_ok() {
-            if let Err(error) = run_record::write(dir, &record) {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error);
-            }
-            let status = child.wait()?;
-            run_record::clear_if_current(dir, &record);
-            return Ok(status);
+        if control::verified_qmp(&probe).is_ok() {
+            return Ok(Launched {
+                pid: child.id(),
+                child: Some(child),
+                qmp_port,
+                engine_console,
+                name,
+                removable,
+                display: matches!(display, Display::Shm { .. }).then(|| display_socket(dir)),
+                _lock: lock,
+                _share_net: share_net,
+            });
         }
         if let Some(status) = child.try_wait()? {
             let hint = network_hint(file).map_or(String::new(), |hint| format!("\n{hint}"));

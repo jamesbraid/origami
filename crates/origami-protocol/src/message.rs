@@ -317,6 +317,10 @@ pub struct ConsoleData {
     pub live_from: u64,
     /// This connection holds the input lease.
     pub leased: bool,
+    /// The console connection's id. Events about it carry the same id, so a
+    /// client that watches on a second connection can pick its own out.
+    #[serde(default)]
+    pub conn: u64,
 }
 
 /// A line pushed by the server between replies.
@@ -327,6 +331,9 @@ pub enum Event {
     Notice {
         line: String,
         text: String,
+        /// The console connection the notice is about; zero if not stated.
+        #[serde(default)]
+        conn: u64,
     },
     /// This connection's lease ended; `ctrl_u` is set if Ctrl-U was sent to
     /// clear a half-typed line.
@@ -334,6 +341,8 @@ pub enum Event {
         line: String,
         reason: String,
         ctrl_u: bool,
+        #[serde(default)]
+        conn: u64,
     },
     StateChanged {
         state: String,

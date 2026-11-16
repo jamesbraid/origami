@@ -17,7 +17,10 @@
 //!   `screendump` (writes a small PPM to `filename`) and `quit`. The arguments
 //!   of the last three are logged as `qmp-args COMMAND JSON`;
 //! - the console: a `-chardev socket` with `server=on` plays a guest script
-//!   (see below) to each client;
+//!   (see below) to each client, one client at a time as QEMU's chardev
+//!   does, the next waiting in the listen backlog; QMP is single-client
+//!   the same way;
+//! - audio: `-audiodev help` lists the backends (`audio-drivers=a+b` below);
 //! - stream netdevs: a `-netdev stream` client connects to its address and a
 //!   server binds it, and the log says when either happened.
 //!
@@ -30,6 +33,7 @@
 //!   S seconds after it is ready;
 //! - `fold=MS`: after `quit`, QEMU lingers MS milliseconds before it exits,
 //!   as it does while it folds a CHD disk's changes into the image;
+//! - `audio-drivers=a+b`: the backends `-audiodev help` lists;
 //! - `guest=NAME` or `guest-file=PATH`: the guest script, one of the
 //!   built-in ones (`login`, `install-6.5.30-minimal`) or a file;
 //! - `lifetime=S`: exit after S seconds regardless (default 120), so a
@@ -312,6 +316,9 @@ fn qemu(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     let switches = Switches::from_environment();
+    if args.windows(2).any(|pair| pair == ["-audiodev", "help"]) {
+        return audio_drivers(&switches);
+    }
     match parsed.qmp.as_deref() {
         Some("stdio") => return catalogue(),
         Some(value) if value.starts_with("tcp:") => {}
@@ -342,11 +349,25 @@ fn qemu(args: &[String]) -> Result<(), String> {
         .to_owned();
     let listener =
         TcpListener::bind(&qmp_address).map_err(|error| format!("{qmp_address}: {error}"))?;
+    let state = Arc::new(Mutex::new(if parsed.paused {
+        Run::Prelaunch
+    } else {
+        Run::Running
+    }));
     if let Some(console) = parsed.console.clone() {
         let script = guest_script(&switches)?;
         let log = log.clone();
         let listener = bind(&console).map_err(|error| format!("console: {error}"))?;
-        thread::spawn(move || accept_loop(listener, move |stream| play(stream, &script, &log)));
+        let state = state.clone();
+        thread::spawn(move || {
+            accept_loop(listener, move |stream| {
+                // A guest started paused has not run, so has said nothing.
+                while *state.lock().unwrap() == Run::Prelaunch {
+                    thread::sleep(Duration::from_millis(20));
+                }
+                play(stream, &script, &log)
+            })
+        });
     }
     for (id, endpoint) in parsed.netdevs.clone() {
         let log = log.clone();
@@ -360,26 +381,35 @@ fn qemu(args: &[String]) -> Result<(), String> {
         });
     }
     log.line("ready");
-    let state = Arc::new(Mutex::new(if parsed.paused {
-        Run::Prelaunch
-    } else {
-        Run::Running
-    }));
     let name = parsed.name.unwrap_or_default();
     let hang = switches.has("hang");
     let fold = Duration::from_millis(switches.number("fold").unwrap_or(0));
+    // One client at a time, as QEMU's QMP serves: the next connection
+    // completes in the backlog and hears nothing until this one leaves.
     for stream in listener.incoming().flatten() {
-        let (state, name, log) = (state.clone(), name.clone(), log.clone());
-        thread::spawn(move || {
-            if hang {
-                // Accept and say nothing, as QEMU does when it is wedged.
-                let mut sink = [0u8; 256];
-                let mut stream = stream;
-                while stream.read(&mut sink).is_ok_and(|count| count > 0) {}
-            } else {
-                qmp_session(stream, &state, &name, fold, &log);
-            }
-        });
+        if hang {
+            // Accept and say nothing, as QEMU does when it is wedged.
+            let mut sink = [0u8; 256];
+            let mut stream = stream;
+            while stream.read(&mut sink).is_ok_and(|count| count > 0) {}
+        } else {
+            qmp_session(stream, &state, &name, fold, &log);
+        }
+    }
+    Ok(())
+}
+
+/// `-audiodev help`: the backends this QEMU was built with, one per line
+/// after QEMU's heading. `audio-drivers=a+b` in `ORIGAMI_FAKE` changes the
+/// list.
+fn audio_drivers(switches: &Switches) -> Result<(), String> {
+    let list = switches.0.get("audio-drivers").map_or(
+        "none+alsa+oss+pa+pipewire+coreaudio+wasapi+dsound",
+        String::as_str,
+    );
+    println!("Available audio drivers:");
+    for driver in list.split('+').filter(|driver| !driver.is_empty()) {
+        println!("{driver}");
     }
     Ok(())
 }
@@ -562,14 +592,14 @@ fn connect(endpoint: &Endpoint) -> io::Result<Connection> {
     }
 }
 
-/// Serve every client of `listener` with `serve`, one thread each.
+/// Serve the clients of `listener` with `serve`, one at a time as QEMU's
+/// socket chardev does: a second client connects into the backlog and gets
+/// nothing until the first leaves.
 fn accept_loop(listener: Listener, serve: impl Fn(TcpStream) + Send + Sync + 'static) {
-    let serve = Arc::new(serve);
     match listener {
         Listener::Tcp(listener) => {
             for stream in listener.incoming().flatten() {
-                let serve = serve.clone();
-                thread::spawn(move || serve(stream));
+                serve(stream);
             }
         }
         #[cfg(unix)]

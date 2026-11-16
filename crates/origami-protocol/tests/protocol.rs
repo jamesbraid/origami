@@ -125,6 +125,7 @@ fn reply_and_event_wire_shape() {
         line: "a".into(),
         reason: "broken".into(),
         ctrl_u: true,
+        conn: 7,
     };
     let line = ev.to_line();
     assert!(line.starts_with(r#"{"event":"lease-lost""#));
@@ -192,6 +193,7 @@ impl Handler for Echo {
                 start: 5,
                 live_from: 3,
                 leased: false,
+                conn: 1,
             })),
             Request::Cont {} => Outcome::Reply(Reply::data(BootOffsetData { boot_offset: 42 })),
             _ => Outcome::Reply(Reply::ok()),

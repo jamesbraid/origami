@@ -98,6 +98,40 @@ impl Client {
         self.offered.as_ref().is_none_or(|o| o.contains(&verb))
     }
 
+    /// Wait up to `timeout` for the next pushed event. `Ok(None)` is a
+    /// timeout; the connection stays usable. Meant for a connection kept
+    /// only to watch events, not one that also makes calls.
+    pub fn next_event(&mut self, timeout: Duration) -> Result<Option<Event>, ClientError> {
+        if let Some(ev) = self.events.pop_front() {
+            return Ok(Some(ev));
+        }
+        if self.poisoned {
+            return Err(ClientError::Closed);
+        }
+        self.writer
+            .set_read_timeout(Some(timeout.max(Duration::from_millis(1))))
+            .map_err(ClientError::Io)?;
+        loop {
+            let line = match self.reader.read_line() {
+                Ok(Some(l)) => l,
+                Ok(None) => {
+                    self.poisoned = true;
+                    return Err(ClientError::Closed);
+                }
+                Err(FrameError::Io(e)) => match io_err(e) {
+                    ClientError::Timeout => return Ok(None),
+                    other => return Err(other),
+                },
+                Err(e) => return Err(ClientError::Frame(e)),
+            };
+            if let Ok(ev) = serde_json::from_slice::<Event>(&line) {
+                if ev != Event::Unknown {
+                    return Ok(Some(ev));
+                }
+            }
+        }
+    }
+
     /// Events pushed since the last call, oldest first.
     pub fn take_events(&mut self) -> Vec<Event> {
         self.events.drain(..).collect()

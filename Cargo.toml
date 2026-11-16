@@ -23,6 +23,7 @@ default-members = [".", "crates/origami-engine", "crates/origami-display", "crat
 
 [dependencies]
 origami-core = { path = "crates/origami-core" }
+origami-host = { path = "crates/origami-host" }
 origami-machine = { path = "crates/origami-machine" }
 origami-qemu = { path = "crates/origami-qemu" }
 origami-net = { path = "crates/origami-net" }
@@ -39,6 +40,7 @@ libc = "0.2"
 [dev-dependencies]
 origami-engine = { path = "crates/origami-engine", features = ["fake"] }
 origami-machine = { path = "crates/origami-machine" }
+origami-protocol = { path = "crates/origami-protocol" }
 origami-qemu = { path = "crates/origami-qemu" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

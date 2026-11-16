@@ -20,6 +20,7 @@ fn fake_machine(dir: &std::path::Path, fold: Duration) -> std::thread::JoinHandl
         console_port: 0,
         name: NAME.into(),
         qemu_pid: 0,
+        ..Default::default()
     };
     control::write(dir, &record).unwrap();
     std::thread::spawn(move || {
@@ -87,6 +88,7 @@ fn a_second_stop_waits_while_qemu_no_longer_answers() {
             console_port: 0,
             name: NAME.into(),
             qemu_pid: 0,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -116,6 +118,7 @@ fn stop_reports_a_dead_machine_whose_lock_is_free() {
             console_port: 0,
             name: NAME.into(),
             qemu_pid: 0,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -134,6 +137,7 @@ fn force_stop_of_a_machine_that_is_not_running_is_an_error() {
             console_port: 0,
             name: NAME.into(),
             qemu_pid: 1,
+            ..Default::default()
         },
     )
     .unwrap();
@@ -157,6 +161,7 @@ fn force_stop_will_not_guess_at_a_record_that_does_not_name_qemu() {
             console_port: 0,
             name: NAME.into(),
             qemu_pid: 0,
+            ..Default::default()
         },
     )
     .unwrap();

@@ -162,55 +162,88 @@ fn command(action: Action) -> Result<()> {
                 for warning in origami_machine::emu_id::running_twin_warnings(&dir, file) {
                     eprintln!("warning: {warning}");
                 }
-                let pid = runtime::start_background(&dir, display, &args.launch.qemu_args)?;
-                println!("running: pid {pid}");
-            } else {
-                let status = runtime::run(
-                    &rt,
-                    machines,
+                let start = runtime::Start {
+                    hold: args.hold,
+                    started_by: "cli",
+                };
+                let pid = runtime::start_background_with(
+                    &std::env::current_exe()?,
                     &dir,
-                    file,
-                    offer,
                     display,
                     &args.launch.qemu_args,
+                    &start,
                 )?;
-                if !status.success() {
-                    return Err(format!("QEMU exited with {status}").into());
+                println!("running: pid {pid}");
+            } else {
+                let exit = origami_host::serve(origami_host::ServeArgs {
+                    rt: &rt,
+                    machines,
+                    dir: &dir,
+                    file,
+                    offering: offer,
+                    display,
+                    once: &args.launch.qemu_args,
+                    started_by: "cli",
+                    foreground: true,
+                    options: runtime::LaunchOptions { hold: args.hold },
+                })?;
+                if !exit.success() {
+                    if let Some(hint) = runtime::network_hint(file) {
+                        eprintln!("{hint}");
+                    }
+                    return Err(format!("QEMU exited with {exit}").into());
                 }
             }
         }
         Action::Serve(args) => {
-            let dir = origami_core::directory(&args.machine.dir)?;
+            let launch = &args.launch;
+            let dir = origami_core::directory(&launch.machine.dir)?;
             let loaded = origami_core::open(&engine, &dir)?;
             let (machines, file) = (&loaded.catalogue, &loaded.file);
             let offer = loaded.offering()?;
-            let display = args.display.resolve(!file.pipe.is_empty())?;
-            let status =
-                runtime::serve(&rt, machines, &dir, file, offer, display, &args.qemu_args)?;
-            if !status.success() {
-                return Err(format!("QEMU exited with {status}").into());
+            let display = launch.display.resolve(!file.pipe.is_empty())?;
+            let exit = origami_host::serve(origami_host::ServeArgs {
+                rt: &rt,
+                machines,
+                dir: &dir,
+                file,
+                offering: offer,
+                display,
+                once: &launch.qemu_args,
+                started_by: &args.started_by,
+                foreground: false,
+                options: runtime::LaunchOptions { hold: args.hold },
+            })?;
+            if !exit.success() {
+                return Err(format!("QEMU exited with {exit}").into());
             }
         }
         Action::Status(args) => {
             let dir = origami_core::directory(&args.dir)?;
-            let status = if let Some(record) = origami_qemu::control::running(&dir)? {
-                Status::Running { pid: record.pid }
+            if let Some(record) = origami_qemu::control::running(&dir)? {
+                if origami_host::client::runner_gone(&dir, &record)? {
+                    emit(&Report::one(format!(
+                        "runner gone, QEMU pid {} still running",
+                        record.qemu_pid
+                    )));
+                } else {
+                    emit(&Status::Running { pid: record.pid }.report());
+                }
             } else if control::is_locked(&dir)? {
-                Status::Starting
+                emit(&Status::Starting.report());
             } else {
-                Status::Stopped
-            };
-            emit(&status.report());
+                emit(&Status::Stopped.report());
+            }
         }
         Action::Console(args) => {
-            origami_qemu::control::console(&origami_core::directory(&args.dir)?)?
+            origami_host::client::console(&origami_core::directory(&args.dir)?)?
         }
         Action::Stop(args) => {
             let dir = origami_core::directory(&args.dir)?;
             if args.force {
                 origami_qemu::control::force_stop(&dir)?;
             } else {
-                origami_qemu::control::stop(&dir)?;
+                origami_host::client::stop(&dir)?;
             }
             emit(&Report::one("stopped"));
         }

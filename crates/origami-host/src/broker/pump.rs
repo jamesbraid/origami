@@ -100,6 +100,18 @@ impl RawPort {
         addr: impl ToSocketAddrs,
         broker: Arc<Broker<S>>,
     ) -> io::Result<RawPort> {
+        Self::bind_with(addr, broker, || {})
+    }
+
+    /// Like `bind`, calling `attach` for each client after its reader is
+    /// placed at the live tail and before it is served: the runner connects
+    /// to the engine's console there, so the first client misses nothing.
+    pub fn bind_with<S: InputSink>(
+        addr: impl ToSocketAddrs,
+        broker: Arc<Broker<S>>,
+        attach: impl Fn() + Send + Sync + 'static,
+    ) -> io::Result<RawPort> {
+        let attach = Arc::new(attach);
         let listener = TcpListener::bind(addr)?;
         let addr = listener.local_addr()?;
         let stop = Arc::new(AtomicBool::new(false));
@@ -127,11 +139,13 @@ impl RawPort {
                         .insert(id, track);
                     let broker = broker.clone();
                     let live3 = live2.clone();
+                    let attach = attach.clone();
                     let _ = thread::Builder::new()
                         .name("console-conn".into())
                         .spawn(move || {
                             let conn = broker.connect(None);
                             let reader = broker.reader_live();
+                            attach();
                             pump(conn, reader, stream, out, || {
                                 let _ = closer.shutdown(Shutdown::Both);
                             });
