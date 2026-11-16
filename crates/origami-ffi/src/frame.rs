@@ -386,6 +386,32 @@ pub unsafe extern "C" fn origami_fake_advance_frame(
     })
 }
 
+/// Only in builds with the fake engine: the started machine `key` shows an
+/// 8 by 8 white cursor with its hot spot at (`x`, `y`).
+#[cfg(feature = "fake")]
+#[no_mangle]
+pub unsafe extern "C" fn origami_fake_show_cursor(
+    core: *const CoreHandle,
+    key: *const c_char,
+    x: i32,
+    y: i32,
+) -> origami_status {
+    guard(|| {
+        // SAFETY: as above.
+        let core = unsafe { core.as_ref() }
+            .ok_or_else(|| Fail(Status::NullArgument, "core is null".into()))?;
+        // SAFETY: as above.
+        let key = unsafe { text(key, "key")? };
+        let machine = core.core.open_machine(key)?;
+        let session = core
+            .fake
+            .session_in(std::path::Path::new(machine.key()))
+            .ok_or_else(|| Fail(Status::NotRunning, "the machine was never started".into()))?;
+        session.show_cursor(x, y);
+        Ok(())
+    })
+}
+
 /// Only in builds with the fake engine: make a machine named `name` in the
 /// library, as `fake.1`, and write its key into `key_out` (NUL terminated,
 /// truncated to fit; may be NULL).
@@ -589,6 +615,51 @@ pub unsafe extern "C" fn origami_frame_take(
         out.height = update.height;
         out.resized = u32::from(update.resized);
         scratch.pending = None;
+        Ok(())
+    })
+}
+
+/// What the display client has moved since the machine started.
+#[repr(C)]
+pub struct origami_frame_counters {
+    pub size: u32,
+    /// 0 when the engine does not count; the rest is then zero.
+    pub counted: u32,
+    pub frames: u64,
+    /// Lines handed out, copied or imported.
+    pub lines: u64,
+    /// Lines the GPU reads in place, a part of `lines`.
+    pub imported_lines: u64,
+    /// Pixel bytes copied by the CPU: 0 when every picture is imported.
+    pub copied_bytes: u64,
+}
+
+/// Read the display counters, for tests that zero copy holds.
+#[no_mangle]
+pub unsafe extern "C" fn origami_frame_stats(
+    machine: *const origami_machine,
+    out: *mut origami_frame_counters,
+) -> origami_status {
+    guard(|| {
+        // SAFETY: argument contracts are in the header.
+        let m = unsafe { machine_ref(machine)? };
+        // SAFETY: `out` is writable when non-null.
+        let out = unsafe { out.as_mut() }
+            .ok_or_else(|| Fail(Status::NullArgument, "out is null".into()))?;
+        if (out.size as usize) < std::mem::size_of::<origami_frame_counters>() {
+            return fail(Status::InvalidArgument, "out->size is too small");
+        }
+        let size = out.size;
+        let s = m.machine.frame_stats();
+        let n = s.unwrap_or_default();
+        *out = origami_frame_counters {
+            size,
+            counted: u32::from(s.is_some()),
+            frames: n.frames,
+            lines: n.lines,
+            imported_lines: n.imported_lines,
+            copied_bytes: n.copied_bytes,
+        };
         Ok(())
     })
 }
@@ -870,8 +941,7 @@ pub unsafe extern "C" fn origami_input_release_all(
 pub const ORIGAMI_SURFACE_COCOA_VIEW: u32 = 1;
 pub const ORIGAMI_SURFACE_CA_METAL_LAYER: u32 = 2;
 pub const ORIGAMI_SURFACE_WIN32_HWND: u32 = 3;
-/// Not supported: a SwapChainPanel is Direct3D, and the renderer draws with
-/// Vulkan. Give a child window's HWND instead.
+/// Not supported yet: give a child window's HWND instead.
 pub const ORIGAMI_SURFACE_WIN32_SWAPCHAIN_PANEL: u32 = 4;
 pub const ORIGAMI_SURFACE_XLIB_WINDOW: u32 = 5;
 pub const ORIGAMI_SURFACE_XCB_WINDOW: u32 = 6;
@@ -992,6 +1062,42 @@ pub unsafe extern "C" fn origami_view_present(
     })
 }
 
+/// What a view has spent, in wall nanoseconds, since it was attached.
+#[repr(C)]
+pub struct origami_view_counters {
+    pub size: u32,
+    pub reserved: u32,
+    /// Pictures drawn and presented.
+    pub presents: u64,
+    /// Taking the frame from the display client, drawing it into the head
+    /// texture and updating the cursor.
+    pub take_ns: u64,
+    /// Acquiring the window's image and drawing the head into it.
+    pub draw_ns: u64,
+    /// Handing the image to the window system, whose cost is not ours: a
+    /// compositor or X server without direct presentation makes it large.
+    pub present_ns: u64,
+}
+
+/// Read a view's counters.
+#[no_mangle]
+pub unsafe extern "C" fn origami_view_stats(
+    view: *mut origami_view,
+    out: *mut origami_view_counters,
+) -> origami_status {
+    guard(|| {
+        // SAFETY: `out` is writable when non-null.
+        let out = unsafe { out.as_mut() }
+            .ok_or_else(|| Fail(Status::NullArgument, "out is null".into()))?;
+        if (out.size as usize) < std::mem::size_of::<origami_view_counters>() {
+            return fail(Status::InvalidArgument, "out->size is too small");
+        }
+        let size = out.size;
+        *out = present::with(view, |v| Ok(v.stats(size)))?;
+        Ok(())
+    })
+}
+
 /// Destroy the view and let go of the window and the machine. Null is ignored.
 #[no_mangle]
 pub unsafe extern "C" fn origami_view_detach(view: *mut origami_view) {
@@ -1010,7 +1116,9 @@ mod present {
         WaylandWindowHandle, Win32WindowHandle, XcbDisplayHandle, XcbWindowHandle,
         XlibDisplayHandle, XlibWindowHandle,
     };
-    use origami_render::{Compose, Drawn, Gpu, HeadTexture, HostSurface, ScaleMode, View};
+    use origami_render::{
+        cursor_texture, Compose, CursorDraw, Drawn, Gpu, HeadTexture, HostSurface, ScaleMode, View,
+    };
     use std::ptr::NonNull;
 
     pub(super) struct Inner {
@@ -1021,15 +1129,16 @@ mod present {
         compose: Compose,
         texture: Option<HeadTexture>,
         pixels: Vec<u8>,
+        /// The guest cursor's image on the GPU and the generation it holds.
+        cursor_tex: Option<(wgpu::Texture, u32)>,
+        cursor: Option<f::CursorInfo>,
+        take_ns: u64,
         size: (u32, u32),
         scale: f64,
     }
 
     fn gpu() -> Result<Gpu, Fail> {
-        static GPU: OnceLock<Result<Gpu, String>> = OnceLock::new();
-        GPU.get_or_init(Gpu::new)
-            .clone()
-            .map_err(|e| Fail(Status::NoGpu, e))
+        crate::engines::gpu::shared().map_err(|e| Fail(Status::NoGpu, e))
     }
 
     fn pointer(p: *mut c_void, what: &str) -> Result<NonNull<c_void>, Fail> {
@@ -1058,7 +1167,7 @@ mod present {
             ORIGAMI_SURFACE_WIN32_SWAPCHAIN_PANEL => {
                 return fail(
                     Status::Unsupported,
-                    "a SwapChainPanel is Direct3D; give a child window's HWND",
+                    "a SwapChainPanel is not supported yet; give a child window's HWND",
                 );
             }
             ORIGAMI_SURFACE_XLIB_WINDOW => HostSurface {
@@ -1114,6 +1223,9 @@ mod present {
                 view,
                 texture: None,
                 pixels: Vec::new(),
+                cursor_tex: None,
+                cursor: None,
+                take_ns: 0,
                 size: (width, height),
                 scale,
             }),
@@ -1145,10 +1257,65 @@ mod present {
 
         pub(super) fn set_visible(&mut self, visible: bool) -> Result<(), Fail> {
             self.view.set_visible(visible);
+            self.machine.machine.set_visible(visible);
             Ok(())
         }
 
+        /// Read the guest's cursor and keep its image on the GPU.
+        fn refresh_cursor(&mut self) -> Result<(), Fail> {
+            let known = self.cursor_tex.as_ref().map_or(u32::MAX, |t| t.1);
+            let Some(mut info) = self.machine.machine.cursor(self.head as usize, known)? else {
+                self.cursor = None;
+                return Ok(());
+            };
+            if let Some(image) = info.image.take() {
+                let tex = self
+                    .cursor_tex
+                    .take()
+                    .map_or_else(|| cursor_texture(&self.gpu), |t| t.0);
+                self.gpu.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &tex,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &image,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(info.width * 4),
+                        rows_per_image: Some(info.height),
+                    },
+                    wgpu::Extent3d {
+                        width: info.width,
+                        height: info.height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                self.cursor_tex = Some((tex, info.gen));
+            }
+            self.cursor = Some(info);
+            Ok(())
+        }
+
+        pub(super) fn stats(&self, size: u32) -> origami_view_counters {
+            origami_view_counters {
+                size,
+                reserved: 0,
+                presents: self.view.presents,
+                take_ns: self.take_ns,
+                draw_ns: self.view.draw_ns,
+                present_ns: self.view.present_ns,
+            }
+        }
+
         pub(super) fn present(&mut self) -> Result<u32, Fail> {
+            let start = std::time::Instant::now();
+            // Changes pile up in the display while hidden; the first present
+            // after showing takes them.
+            if !self.view.visible() {
+                return Ok(ORIGAMI_DRAWN_SKIPPED);
+            }
             match self
                 .machine
                 .machine
@@ -1172,12 +1339,25 @@ mod present {
                 }
                 None => {}
             }
+            self.refresh_cursor()?;
+            self.take_ns += start.elapsed().as_nanos() as u64;
             let Some(texture) = &self.texture else {
                 return Ok(ORIGAMI_DRAWN_SKIPPED);
             };
+            let draw = match (&self.cursor, &self.cursor_tex) {
+                (Some(c), Some((tex, gen))) if c.on && *gen == c.gen => Some(CursorDraw {
+                    texture: tex,
+                    x: c.x - c.hot_x,
+                    y: c.y - c.hot_y,
+                    width: c.width,
+                    height: c.height,
+                    gen: c.gen,
+                }),
+                _ => None,
+            };
             let drawn = self
                 .view
-                .draw(&self.gpu, texture, ScaleMode::Integer, None)
+                .draw(&self.gpu, texture, ScaleMode::Integer, draw.as_ref())
                 .map_err(|e| Fail(Status::Internal, e))?;
             Ok(match drawn {
                 Drawn::Presented => ORIGAMI_DRAWN_PRESENTED,
@@ -1202,6 +1382,9 @@ mod present {
             unreachable!()
         }
         pub(super) fn present(&mut self) -> Result<u32, Fail> {
+            unreachable!()
+        }
+        pub(super) fn stats(&self, _: u32) -> origami_view_counters {
             unreachable!()
         }
     }

@@ -59,8 +59,7 @@
 
 #define ORIGAMI_SURFACE_WIN32_HWND 3
 
-// Not supported: a SwapChainPanel is Direct3D, and the renderer draws with
-// Vulkan. Give a child window's HWND instead.
+// Not supported yet: give a child window's HWND instead.
 #define ORIGAMI_SURFACE_WIN32_SWAPCHAIN_PANEL 4
 
 #define ORIGAMI_SURFACE_XLIB_WINDOW 5
@@ -228,6 +227,20 @@ typedef struct origami_frame {
   uint64_t bytes_used;
 } origami_frame;
 
+// What the display client has moved since the machine started.
+typedef struct origami_frame_counters {
+  uint32_t size;
+  // 0 when the engine does not count; the rest is then zero.
+  uint32_t counted;
+  uint64_t frames;
+  // Lines handed out, copied or imported.
+  uint64_t lines;
+  // Lines the GPU reads in place, a part of `lines`.
+  uint64_t imported_lines;
+  // Pixel bytes copied by the CPU: 0 when every picture is imported.
+  uint64_t copied_bytes;
+} origami_frame_counters;
+
 // The guest's cursor on a head.
 typedef struct origami_cursor {
   uint32_t size;
@@ -285,6 +298,22 @@ typedef struct origami_surface {
   uint64_t window_id;
   int32_t screen;
 } origami_surface;
+
+// What a view has spent, in wall nanoseconds, since it was attached.
+typedef struct origami_view_counters {
+  uint32_t size;
+  uint32_t reserved;
+  // Pictures drawn and presented.
+  uint64_t presents;
+  // Taking the frame from the display client, drawing it into the head
+  // texture and updating the cursor.
+  uint64_t take_ns;
+  // Acquiring the window's image and drawing the head into it.
+  uint64_t draw_ns;
+  // Handing the image to the window system, whose cost is not ours: a
+  // compositor or X server without direct presentation makes it large.
+  uint64_t present_ns;
+} origami_view_counters;
 
 #define ORIGAMI_OK 0
 
@@ -360,6 +389,15 @@ origami_status origami_fake_advance_frame(const struct origami_core *core, const
 #endif
 
 #if defined(ORIGAMI_FAKE)
+// Only in builds with the fake engine: the started machine `key` shows an
+// 8 by 8 white cursor with its hot spot at (`x`, `y`).
+origami_status origami_fake_show_cursor(const struct origami_core *core,
+                                        const char *key,
+                                        int32_t x,
+                                        int32_t y);
+#endif
+
+#if defined(ORIGAMI_FAKE)
 // Only in builds with the fake engine: make a machine named `name` in the
 // library, as `fake.1`, and write its key into `key_out` (NUL terminated,
 // truncated to fit; may be NULL).
@@ -391,6 +429,10 @@ origami_status origami_frame_take(const struct origami_machine *machine,
                                   struct origami_run *runs,
                                   size_t runs_cap,
                                   struct origami_frame *out);
+
+// Read the display counters, for tests that zero copy holds.
+origami_status origami_frame_stats(const struct origami_machine *machine,
+                                   struct origami_frame_counters *out);
 
 // Read the cursor of `head`. The image (`width * height` 0xAARRGGBB
 // little-endian words) is copied into `image` only when `gen` differs from
@@ -461,6 +503,9 @@ origami_status origami_view_set_visible(struct origami_view *view, uint32_t visi
 // an expose, a resize, or an `ORIGAMI_DRAWN_AGAIN`. `drawn` (may be NULL)
 // gets `ORIGAMI_DRAWN_*`. No pixels pass through the caller.
 origami_status origami_view_present(struct origami_view *view, uint32_t *drawn);
+
+// Read a view's counters.
+origami_status origami_view_stats(struct origami_view *view, struct origami_view_counters *out);
 
 // Destroy the view and let go of the window and the machine. Null is ignored.
 void origami_view_detach(struct origami_view *view);

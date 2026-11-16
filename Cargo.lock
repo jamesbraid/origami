@@ -3673,12 +3673,15 @@ version = "0.0.0"
 dependencies = [
  "libc",
  "origami-core",
+ "origami-display",
  "origami-engine",
+ "origami-machine",
  "origami-qemu",
  "origami-render",
  "tempfile",
  "thiserror 2.0.21",
  "uniffi",
+ "wgpu",
  "windows-sys 0.61.2",
 ]
 
@@ -3767,6 +3770,7 @@ name = "origami-qemu"
 version = "0.0.0"
 dependencies = [
  "libc",
+ "origami-display",
  "origami-engine",
  "origami-machine",
  "qapi",
@@ -3792,6 +3796,7 @@ dependencies = [
  "pollster",
  "raw-window-handle",
  "wgpu",
+ "windows",
  "windows-sys 0.61.2",
 ]
 

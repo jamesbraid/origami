@@ -92,7 +92,7 @@ All functions return `origami_status` (`ORIGAMI_OK` = 0, negative
 - Presenting: `origami_view_attach(machine, head, &surface, w, h, scale, &view)`,
   `_resize`, `_set_scale`, `_set_visible`, `_present`, `_detach`. Surfaces:
   Cocoa `NSView`/`CAMetalLayer`, Win32 `HWND`, X11 (Xlib or XCB), Wayland.
-  A WinUI `SwapChainPanel` is Direct3D and is refused
+  A WinUI `SwapChainPanel` is refused for now
   (`ORIGAMI_ERR_UNSUPPORTED`): give a child window's `HWND`. Detach the view
   before its window goes.
 
@@ -100,9 +100,33 @@ A typical render loop: wait on the wake handle (or post from the callback),
 then `origami_view_present`; or, on the copy path, `origami_frame_take` and
 upload.
 
-Limits today: only engines with in-process frames work (the fake). A QEMU
-machine's display socket and the cursor drawing are not wired yet, so
-`take_frame` reports `Unsupported` for it.
+A QEMU machine runs in the `origami` runner (`ORIGAMI_BIN`, else beside the
+library) and this process attaches to its shared-memory display as a viewer,
+so a machine outlives the app. On first use the core opens the process's one
+GPU and imports the guest's picture into it; `take_frame` then reports
+`Unsupported` ("present it with `origami_view_present`") because the rows are
+in GPU memory. Without a GPU that imports (or with `ORIGAMI_GUI_ZERO_COPY=0`)
+the rows are copied and `origami_frame_take` works.
+
+Per platform, with no CPU copy of the picture:
+
+- Linux: QEMU exports its scanout memory as a Vulkan buffer and the device
+  imports the descriptor. Run on an RTX 4090.
+- Windows: Direct3D 12 opens QEMU's shared-memory section as a heap
+  (`OpenExistingHeapFromFileMapping`). Cross-compiled only, never run.
+- macOS: Metal wraps the shared mapping (`newBufferWithBytesNoCopy`). Not
+  rebuilt or run since the move into the core.
+
+`origami_view_present` also draws the guest's cursor, when the engine does not
+draw it into the picture. `origami_view_set_visible(0)` tells the display
+client too: a hidden machine is sent no wake-ups, and showing it wakes once if
+it changed meanwhile. `origami_frame_stats` (pixel bytes the CPU copied, lines
+imported) and `origami_view_stats` (nanoseconds taking the frame, drawing it,
+and in the window system's present) let tests hold the budgets.
+
+Input goes to QEMU on the display socket as typed events.
+`OrigamiMachine` `control` (reset, power, NMI, pause, resume) and `screendump`
+use QMP; `change_media` is not available on a runner machine.
 
 ## Bindings tests
 

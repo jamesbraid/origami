@@ -21,14 +21,17 @@ fake = ["origami-engine/fake", "origami-core/fake"]
 # QemuEngine as the engine, unless `fake` is on.
 qemu = ["dep:origami-qemu"]
 # The C frame plane's view functions (attach, resize, present).
-render = ["dep:origami-render"]
+render = ["dep:origami-render", "dep:origami-display", "dep:wgpu"]
 
 [dependencies]
 origami-core = { path = "../origami-core" }
+origami-display = { path = "../origami-display", optional = true }
 origami-engine = { path = "../origami-engine" }
 origami-qemu = { path = "../origami-qemu", optional = true }
 origami-render = { path = "../origami-render", optional = true }
 thiserror = "2"
+# The version origami-render pins, for the cursor texture upload.
+wgpu = { version = "30", optional = true }
 uniffi = { version = "0.32.2", features = ["cli"] }
 
 [target.'cfg(unix)'.dependencies]
@@ -38,5 +41,6 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
 
 [dev-dependencies]
+origami-machine = { path = "../origami-machine" }
 origami-engine = { path = "../origami-engine", features = ["fake"] }
 tempfile = "3"

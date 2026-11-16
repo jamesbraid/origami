@@ -46,6 +46,11 @@ pub struct View {
     visible: bool,
     /// Presents since attach, for the host's statistics.
     pub presents: u64,
+    /// Wall nanoseconds in `draw` since attach: acquiring the image,
+    /// encoding and submitting the pass; and handing the image to the
+    /// platform's presentation, which a window system can make slow.
+    pub draw_ns: u64,
+    pub present_ns: u64,
 }
 
 impl View {
@@ -118,6 +123,8 @@ impl View {
             scale,
             visible: true,
             presents: 0,
+            draw_ns: 0,
+            present_ns: 0,
         };
         view.resize(gpu, width, height, scale);
         Ok(view)
@@ -170,16 +177,11 @@ impl View {
         if !self.visible || self.config.width == 0 || self.config.height == 0 {
             return Ok(Drawn::Skipped);
         }
-        let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(f) => f,
-            // Usable now; the swapchain is rebuilt before the next one.
-            wgpu::CurrentSurfaceTexture::Suboptimal(f) => {
-                self.draw_into(gpu, &f, head, mode, cursor);
-                gpu.queue.present(f);
-                self.presents += 1;
-                self.surface.configure(&gpu.device, &self.config);
-                return Ok(Drawn::Presented);
-            }
+        let start = std::time::Instant::now();
+        let (frame, suboptimal) = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(f) => (f, false),
+            // Usable now; the swapchain is rebuilt after it is shown.
+            wgpu::CurrentSurfaceTexture::Suboptimal(f) => (f, true),
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 return Ok(Drawn::Skipped);
             }
@@ -192,8 +194,14 @@ impl View {
             }
         };
         self.draw_into(gpu, &frame, head, mode, cursor);
+        let drawn = start.elapsed();
         gpu.queue.present(frame);
+        self.draw_ns += drawn.as_nanos() as u64;
+        self.present_ns += (start.elapsed() - drawn).as_nanos() as u64;
         self.presents += 1;
+        if suboptimal {
+            self.surface.configure(&gpu.device, &self.config);
+        }
         Ok(Drawn::Presented)
     }
 
