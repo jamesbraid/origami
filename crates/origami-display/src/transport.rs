@@ -410,7 +410,17 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Connect to the socket the product's runtime gave QEMU
 /// (`display-shm-socket`).
 pub fn connect_socket(path: &std::path::Path) -> io::Result<Conn> {
-    sock::connect(path)
+    sock::connect(path, Some(Duration::from_millis(200))).map(|(conn, _)| conn)
+}
+
+/// Ends a blocked read from another thread: the read then fails as if the
+/// peer had closed.
+pub type Interrupt = Box<dyn Fn() + Send + Sync>;
+
+/// [`connect_socket`] with reads that block, so a still screen costs no
+/// wake-ups. Set `stop`, then call the [`Interrupt`] to end the read.
+pub fn connect_socket_blocking(path: &std::path::Path) -> io::Result<(Conn, Interrupt)> {
+    sock::connect(path, None)
 }
 
 #[cfg(unix)]
@@ -473,14 +483,23 @@ mod sock {
         }
     }
 
-    pub fn connect(path: &std::path::Path) -> io::Result<Conn> {
+    pub fn connect(
+        path: &std::path::Path,
+        timeout: Option<Duration>,
+    ) -> io::Result<(Conn, Interrupt)> {
         let s = UnixStream::connect(path)?;
-        s.set_read_timeout(Some(Duration::from_millis(200)))?;
+        s.set_read_timeout(timeout)?;
         let sink = s.try_clone()?;
-        Ok(Conn {
-            source: Box::new(Source(s)),
-            sink: Box::new(sink),
-        })
+        let closer = s.try_clone()?;
+        Ok((
+            Conn {
+                source: Box::new(Source(s)),
+                sink: Box::new(sink),
+            },
+            Box::new(move || {
+                let _ = closer.shutdown(std::net::Shutdown::Both);
+            }),
+        ))
     }
 }
 
@@ -497,14 +516,23 @@ mod sock {
         }
     }
 
-    pub fn connect(path: &std::path::Path) -> io::Result<Conn> {
+    pub fn connect(
+        path: &std::path::Path,
+        timeout: Option<Duration>,
+    ) -> io::Result<(Conn, Interrupt)> {
         let s = uds_windows::UnixStream::connect(path)?;
-        s.set_read_timeout(Some(Duration::from_millis(200)))?;
+        s.set_read_timeout(timeout)?;
         let sink = s.try_clone()?;
-        Ok(Conn {
-            source: Box::new(Source(s)),
-            sink: Box::new(sink),
-        })
+        let closer = s.try_clone()?;
+        Ok((
+            Conn {
+                source: Box::new(Source(s)),
+                sink: Box::new(sink),
+            },
+            Box::new(move || {
+                let _ = closer.shutdown(std::net::Shutdown::Both);
+            }),
+        ))
     }
 }
 
@@ -1313,6 +1341,25 @@ mod tests {
                 .is_some_and(|e| e.contains("unknown message type")),
             "{f:?}"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_interrupt_ends_a_read_that_would_block_forever() {
+        let path = std::env::temp_dir().join(format!("od-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let (mut conn, interrupt) = connect_socket_blocking(&path).unwrap();
+        let (_peer, _) = listener.accept().unwrap();
+        let reader = std::thread::spawn(move || {
+            let mut buf = [0u8; 8];
+            conn.source.read_some(&mut buf, &mut Vec::new())
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!reader.is_finished(), "the read returned with nothing sent");
+        interrupt();
+        assert_eq!(reader.join().unwrap().unwrap(), 0);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

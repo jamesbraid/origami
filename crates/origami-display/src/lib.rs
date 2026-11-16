@@ -21,4 +21,6 @@ pub use display::{Display, Stats, Taken};
 pub use import::Importer;
 pub use region::{Handle, Memory};
 pub use socket_input::SocketInput;
-pub use transport::{connect_socket, run, Conn, Exit, Link, Timing, Uplink};
+pub use transport::{
+    connect_socket, connect_socket_blocking, run, Conn, Exit, Interrupt, Link, Timing, Uplink,
+};

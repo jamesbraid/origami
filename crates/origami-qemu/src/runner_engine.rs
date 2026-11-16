@@ -60,6 +60,8 @@ struct Shown {
     gone: AtomicBool,
     paused: AtomicBool,
     input: Mutex<Option<Sender<InputEvent>>>,
+    /// Ends the display thread's blocked read when the session drops.
+    interrupt: Mutex<Option<origami_display::Interrupt>>,
 }
 
 impl Shown {
@@ -352,6 +354,7 @@ impl Engine for RunnerEngine {
             gone: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             input: Mutex::new(Some(tx)),
+            interrupt: Mutex::new(None),
         });
         let sink = Box::new(origami_display::SocketInput::new(uplink));
         let input = std::thread::Builder::new()
@@ -379,6 +382,9 @@ struct RunnerSession {
 impl Drop for RunnerSession {
     fn drop(&mut self) {
         self.shown.stop.store(true, Ordering::Release);
+        if let Some(interrupt) = lock(&self.shown.interrupt).as_ref() {
+            interrupt();
+        }
         *lock(&self.shown.input) = None;
         for t in lock(&self.threads).drain(..) {
             let _ = t.join();
@@ -629,11 +635,20 @@ struct SocketLink {
     /// Where QEMU listens, as the runtime told it to (`display-shm-socket`).
     socket: PathBuf,
     dir: PathBuf,
+    shown: Arc<Shown>,
 }
 
 impl origami_display::Link for SocketLink {
     fn connect(&mut self) -> std::io::Result<origami_display::Conn> {
-        origami_display::connect_socket(&self.socket)
+        let (conn, interrupt) = origami_display::connect_socket_blocking(&self.socket)?;
+        *lock(&self.shown.interrupt) = Some(interrupt);
+        // A drop that came before the interrupt was stored would wait forever.
+        if self.shown.stop.load(Ordering::Acquire) {
+            if let Some(interrupt) = lock(&self.shown.interrupt).as_ref() {
+                interrupt();
+            }
+        }
+        Ok(conn)
     }
 
     fn alive(&mut self) -> bool {
@@ -647,6 +662,7 @@ fn reader_thread(m: &Arc<Shown>) {
     let mut link = SocketLink {
         socket: runtime::display_socket(&m.dir),
         dir: m.dir.clone(),
+        shown: m.clone(),
     };
     let wake = || {
         if m.display.visible() {
