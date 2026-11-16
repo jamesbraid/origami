@@ -183,11 +183,27 @@ impl std::str::FromStr for GpuUuid {
     }
 }
 
+/// `dir` without Windows' verbatim prefix (`\\?\` or `\\?\UNC\`), so the core and
+/// the runner derive display names and socket paths from one spelling.
+pub fn plain_path(dir: &Path) -> PathBuf {
+    let Some(text) = dir.to_str() else {
+        return dir.to_path_buf();
+    };
+    if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{unc}"))
+    } else {
+        PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(text))
+    }
+}
+
 /// The name a machine run with [`Display::Shm`] gives its display
 /// (`display-shm=NAME`). It comes from the machine directory, so two
-/// directories never share a name.
+/// directories never share a name. Windows' verbatim spelling (`\\?\C:\...`)
+/// hashes like the plain one, because the core and the runner spell a path
+/// differently and must agree.
 pub fn shm_name(dir: &Path) -> String {
-    let digest = Sha256::digest(dir.as_os_str().as_encoded_bytes());
+    let plain = plain_path(dir);
+    let digest = Sha256::digest(plain.as_os_str().as_encoded_bytes());
     let hex: String = digest.iter().take(6).map(|b| format!("{b:02x}")).collect();
     format!("origami-{hex}")
 }
@@ -202,6 +218,7 @@ const SOCKET_PATH_MAX: usize = 100;
 /// `state/display.sock` in the machine directory when that path is short
 /// enough for a socket, else a short name in the system's temporary directory.
 pub fn display_socket(dir: &Path) -> PathBuf {
+    let dir = &plain_path(dir);
     let own = dir.join("state").join("display.sock");
     if own.as_os_str().len() <= SOCKET_PATH_MAX {
         return own;
@@ -1732,6 +1749,36 @@ mod tests {
         assert!(args
             .windows(2)
             .any(|pair| pair == ["-display", "vnc=127.0.0.1:91"]));
+    }
+
+    #[test]
+    fn the_shm_name_ignores_the_windows_verbatim_prefix() {
+        assert_eq!(
+            shm_name(Path::new(r"\\?\C:\Users\a\machines\one")),
+            shm_name(Path::new(r"C:\Users\a\machines\one"))
+        );
+        assert_eq!(
+            shm_name(Path::new(r"\\?\UNC\host\share\one")),
+            shm_name(Path::new(r"\\host\share\one"))
+        );
+        assert_ne!(
+            shm_name(Path::new(r"C:\one")),
+            shm_name(Path::new(r"C:\two"))
+        );
+    }
+
+    #[test]
+    fn the_display_socket_ignores_the_verbatim_prefix_at_the_length_limit() {
+        // 4 bytes shorter plain than verbatim: straddles the short-path limit.
+        let plain = format!(
+            r"C:\{}",
+            "d".repeat(100 - r"C:\".len() - "/state/display.sock".len())
+        );
+        let verbatim = format!(r"\\?\{plain}");
+        assert_eq!(
+            display_socket(Path::new(&plain)),
+            display_socket(Path::new(&verbatim))
+        );
     }
 
     #[test]
