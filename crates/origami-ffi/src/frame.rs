@@ -1064,6 +1064,44 @@ pub unsafe extern "C" fn origami_view_present(
     })
 }
 
+/// Copy what the view last drew (the picture and the guest's cursor, also
+/// when the window was occluded) into `buf` as tight 4-byte pixels (blue,
+/// green, red, unused), top row first, whatever the swapchain's format.
+/// `width`, `height` and `stride` (bytes a row) get the picture's size; each
+/// may be NULL. With `BufferTooSmall` they still say what is needed, so a call
+/// with `cap` 0 sizes the buffer. `NotFound` before the first picture. It
+/// draws again and waits for the GPU: for self-tests, not for every frame.
+#[no_mangle]
+pub unsafe extern "C" fn origami_view_readback(
+    view: *mut origami_view,
+    buf: *mut u8,
+    cap: usize,
+    width: *mut u32,
+    height: *mut u32,
+    stride: *mut u32,
+) -> origami_status {
+    guard(|| {
+        let (w, h, pixels) = present::with(view, |v| v.readback())?;
+        // SAFETY: each out pointer is writable when non-null.
+        unsafe {
+            for (p, v) in [(width, w), (height, h), (stride, w * 4)] {
+                if !p.is_null() {
+                    *p = v;
+                }
+            }
+        }
+        if pixels.len() > cap {
+            return fail(Status::BufferTooSmall, "buf is too small for the picture");
+        }
+        if buf.is_null() {
+            return fail(Status::NullArgument, "buf is null");
+        }
+        // SAFETY: `buf` is writable for `cap >= pixels.len()` bytes.
+        unsafe { std::ptr::copy_nonoverlapping(pixels.as_ptr(), buf, pixels.len()) };
+        Ok(())
+    })
+}
+
 /// What a view has spent, in wall nanoseconds, since it was attached.
 #[repr(C)]
 pub struct origami_view_counters {
@@ -1247,6 +1285,24 @@ mod present {
         body(&mut view.inner.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
+    /// The guest cursor to draw, when it is on and its image is the current one.
+    fn cursor_draw<'a>(
+        cursor: &Option<f::CursorInfo>,
+        tex: &'a Option<(wgpu::Texture, u32)>,
+    ) -> Option<CursorDraw<'a>> {
+        match (cursor, tex) {
+            (Some(c), Some((tex, gen))) if c.on && *gen == c.gen => Some(CursorDraw {
+                texture: tex,
+                x: c.x - c.hot_x,
+                y: c.y - c.hot_y,
+                width: c.width,
+                height: c.height,
+                gen: c.gen,
+            }),
+            _ => None,
+        }
+    }
+
     impl Inner {
         pub(super) fn resize(
             &mut self,
@@ -1314,6 +1370,21 @@ mod present {
             }
         }
 
+        /// Draw the newest picture the view took again, offscreen, and copy it
+        /// out as tight Bgra8 rows: `(width, height, pixels)`.
+        pub(super) fn readback(&self) -> Result<(u32, u32, Vec<u8>), Fail> {
+            let Some(texture) = &self.texture else {
+                return fail(Status::NotFound, "no picture has been drawn yet");
+            };
+            let draw = cursor_draw(&self.cursor, &self.cursor_tex);
+            let (w, h) = self.view.size();
+            let pixels = self
+                .view
+                .readback(&self.gpu, texture, ScaleMode::Integer, draw.as_ref())
+                .map_err(|e| Fail(Status::Internal, e))?;
+            Ok((w, h, pixels))
+        }
+
         pub(super) fn present(&mut self) -> Result<u32, Fail> {
             let start = std::time::Instant::now();
             // Changes pile up in the display while hidden; the first present
@@ -1352,17 +1423,7 @@ mod present {
             let Some(texture) = &self.texture else {
                 return Ok(ORIGAMI_DRAWN_SKIPPED);
             };
-            let draw = match (&self.cursor, &self.cursor_tex) {
-                (Some(c), Some((tex, gen))) if c.on && *gen == c.gen => Some(CursorDraw {
-                    texture: tex,
-                    x: c.x - c.hot_x,
-                    y: c.y - c.hot_y,
-                    width: c.width,
-                    height: c.height,
-                    gen: c.gen,
-                }),
-                _ => None,
-            };
+            let draw = cursor_draw(&self.cursor, &self.cursor_tex);
             // The picture's rows and the window's pass go in one submit.
             let (gpu, compose) = (&self.gpu, &self.compose);
             let mut rows = None;
@@ -1431,6 +1492,9 @@ mod present {
             unreachable!()
         }
         pub(super) fn present(&mut self) -> Result<u32, Fail> {
+            unreachable!()
+        }
+        pub(super) fn readback(&self) -> Result<(u32, u32, Vec<u8>), Fail> {
             unreachable!()
         }
         pub(super) fn stats(&self, _: u32) -> origami_view_counters {

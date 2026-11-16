@@ -22,4 +22,4 @@ pub use device::Gpu;
 pub use head::HeadTexture;
 pub use import::{GpuImporter, ImportedBuffer};
 pub use raw_window_handle;
-pub use view::{Drawn, HostSurface, View};
+pub use view::{render_image, Drawn, HostSurface, View};

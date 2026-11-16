@@ -522,6 +522,20 @@ origami_status origami_view_set_visible(struct origami_view *view, uint32_t visi
 // gets `ORIGAMI_DRAWN_*`. No pixels pass through the caller.
 origami_status origami_view_present(struct origami_view *view, uint32_t *drawn);
 
+// Copy what the view last drew (the picture and the guest's cursor, also
+// when the window was occluded) into `buf` as tight 4-byte pixels (blue,
+// green, red, unused), top row first, whatever the swapchain's format.
+// `width`, `height` and `stride` (bytes a row) get the picture's size; each
+// may be NULL. With `BufferTooSmall` they still say what is needed, so a call
+// with `cap` 0 sizes the buffer. `NotFound` before the first picture. It
+// draws again and waits for the GPU: for self-tests, not for every frame.
+origami_status origami_view_readback(struct origami_view *view,
+                                     uint8_t *buf,
+                                     size_t cap,
+                                     uint32_t *width,
+                                     uint32_t *height,
+                                     uint32_t *stride);
+
 // Read a view's counters.
 origami_status origami_view_stats(struct origami_view *view, struct origami_view_counters *out);
 

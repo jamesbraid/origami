@@ -123,6 +123,9 @@ client too: a hidden machine is sent no wake-ups, and showing it wakes once if
 it changed meanwhile. `origami_frame_stats` (pixel bytes the CPU copied, lines
 imported) and `origami_view_stats` (nanoseconds taking the frame, drawing it,
 and in the window system's present) let tests hold the budgets.
+`origami_view_readback` copies what the view last drew (cursor included, also
+for an occluded window) to the caller as BGRX rows, for self-tests on every
+platform; it waits for the GPU, so keep it off the frame path.
 
 Input goes to QEMU on the display socket as typed events.
 `OrigamiMachine` `control` (reset, power, NMI, pause, resume) and `screendump`

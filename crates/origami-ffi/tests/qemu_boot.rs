@@ -525,6 +525,15 @@ fn an_octane2_boot_reaches_the_window_without_the_cpu_touching_a_pixel() {
     if cursor.on == 0 {
         assert_eq!(differ, 0, "the window is not QEMU's picture");
     }
+    // The readback is what the view drew, so it matches the screendump too.
+    let (rw, rh, got) = rig.readback();
+    let (_, _, want) = screendump(qmp_port, &work.join("prom-readback.ppm"));
+    assert_eq!((rw, rh), (w, h));
+    let differ = differing(&got, &want).len();
+    eprintln!("MEASURE readback vs screendump: {differ} pixels differ");
+    if rig.cursor().on == 0 {
+        assert_eq!(differ, 0, "the readback is not QEMU's picture");
+    }
 
     // The PROM is still running its power-on diagnostics, which ignore the
     // keyboard; it moves on by itself to a screen that does not.

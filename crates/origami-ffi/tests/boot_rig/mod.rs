@@ -8,6 +8,7 @@ use std::ffi::{c_char, c_int, c_uint, c_ulong, c_void};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -239,6 +240,34 @@ impl Rig {
             }
         }
         panic!("the guest never stayed still for a comparison");
+    }
+
+    /// The view's own readback as RGB, to compare with a screendump.
+    pub fn readback(&self) -> Shot {
+        let (mut w, mut h, mut stride) = (0u32, 0u32, 0u32);
+        // SAFETY: a valid view; a zero-size call only reports the size.
+        let status = unsafe {
+            origami_view_readback(self.view, ptr::null_mut(), 0, &mut w, &mut h, &mut stride)
+        };
+        assert_eq!(status, ORIGAMI_ERR_BUFFER_TOO_SMALL, "readback size");
+        assert_eq!(stride, w * 4);
+        let mut bgra = vec![0u8; (stride * h) as usize];
+        // SAFETY: `bgra` is writable for its length.
+        unsafe {
+            ok(
+                origami_view_readback(
+                    self.view,
+                    bgra.as_mut_ptr(),
+                    bgra.len(),
+                    &mut w,
+                    &mut h,
+                    &mut stride,
+                ),
+                "readback",
+            )
+        };
+        let rgb = bgra.chunks(4).flat_map(|p| [p[2], p[1], p[0]]).collect();
+        (w, h, rgb)
     }
 
     pub fn view_stats(&self) -> origami_view_counters {

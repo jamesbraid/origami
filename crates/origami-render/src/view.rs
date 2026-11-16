@@ -178,6 +178,18 @@ impl View {
         (self.config.width, self.config.height)
     }
 
+    /// [`render_image`] at the view's size. Waits for the GPU: for self-tests,
+    /// never the frame path.
+    pub fn readback(
+        &self,
+        gpu: &Gpu,
+        head: &HeadTexture,
+        mode: ScaleMode,
+        cursor: Option<&CursorDraw>,
+    ) -> Result<Vec<u8>, String> {
+        render_image(gpu, head, self.size(), mode, cursor)
+    }
+
     /// Draw `head` into the window and present it. The host calls this when
     /// the head changed, or after a resize, an expose or a [`Drawn::Reconfigured`]:
     /// a swapchain image is not kept between calls, so each call redraws.
@@ -282,6 +294,87 @@ impl View {
         }
         Ok(Drawn::Presented)
     }
+}
+
+/// Draw `head` as a view of `size` would and copy the result to the CPU as
+/// tight Bgra8 rows, whatever format the window's swapchain uses.
+pub fn render_image(
+    gpu: &Gpu,
+    head: &HeadTexture,
+    size: (u32, u32),
+    mode: ScaleMode,
+    cursor: Option<&CursorDraw>,
+) -> Result<Vec<u8>, String> {
+    let (w, h) = size;
+    if w == 0 || h == 0 {
+        return Err("the view has no size".into());
+    }
+    let format = wgpu::TextureFormat::Bgra8Unorm;
+    let extent = wgpu::Extent3d {
+        width: w,
+        height: h,
+        depth_or_array_layers: 1,
+    };
+    let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("readback"),
+        size: extent,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let row = w * 4;
+    let padded = row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: u64::from(padded) * u64::from(h),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut enc = gpu.device.create_command_encoder(&Default::default());
+    Blit::with_format(gpu, format).encode(
+        gpu,
+        &mut enc,
+        &target.create_view(&Default::default()),
+        size,
+        head,
+        mode,
+        cursor,
+    );
+    enc.copy_texture_to_buffer(
+        target.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buf,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded),
+                rows_per_image: None,
+            },
+        },
+        extent,
+    );
+    gpu.queue.submit([enc.finish()]);
+    let (tx, rx) = std::sync::mpsc::channel();
+    buf.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    gpu.device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|e| format!("the GPU did not finish the readback: {e}"))?;
+    rx.recv()
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("cannot map the readback buffer: {e}"))?;
+    let mapped = buf
+        .slice(..)
+        .get_mapped_range()
+        .map_err(|e| format!("cannot read the readback buffer: {e}"))?;
+    let mut out = Vec::with_capacity((row * h) as usize);
+    for line in mapped.chunks(padded as usize) {
+        out.extend_from_slice(&line[..row as usize]);
+    }
+    Ok(out)
 }
 
 /// The surface format to draw into: a non-sRGB one, because the pass writes
@@ -396,6 +489,30 @@ mod tests {
         assert_eq!(&out[out.len() - 4..], &pixel);
         gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
         assert_eq!(gpu.errors.count(), 0);
+    }
+
+    #[test]
+    fn a_readback_returns_the_drawn_picture_with_tight_rows() {
+        let Some(gpu) = gpu() else { return };
+        // 5 pixels is a 20-byte row, so the copy's 256-byte padding is cut.
+        let (w, h) = (5, 3);
+        let update = FrameUpdate {
+            seq: 1,
+            width: w,
+            height: h,
+            runs: vec![(0, h)],
+            resized: false,
+        };
+        let pixels: Vec<u8> = (0..w * h * 4).map(|i| (i % 251) as u8 | 1).collect();
+        let head = HeadTexture::apply(&gpu, None, &update, &pixels);
+        let want = pixels;
+        let got = render_image(&gpu, &head, (w, h), ScaleMode::Integer, None).unwrap();
+        assert_eq!(got.len(), want.len());
+        // The unused byte is whatever the pass writes; compare the colours.
+        for (g, p) in got.chunks(4).zip(want.chunks(4)) {
+            assert_eq!(&g[..3], &p[..3]);
+        }
+        assert!(render_image(&gpu, &head, (0, h), ScaleMode::Integer, None).is_err());
     }
 
     fn read_back(gpu: &Gpu, t: &wgpu::Texture) -> Vec<u8> {
