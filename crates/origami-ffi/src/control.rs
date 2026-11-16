@@ -546,6 +546,19 @@ impl OrigamiCore {
         Ok(())
     }
 
+    /// The input events that reached the engine for the started machine
+    /// `key`, in order, as `{:?}` text such as `Key { key: A, down: true }`.
+    pub fn fake_input(&self, key: String) -> Res<Vec<String>> {
+        let machine = self.core.open_machine(&key)?;
+        let session = self
+            .fake
+            .session_in(std::path::Path::new(machine.key()))
+            .ok_or_else(|| {
+                f::CoreError::new(f::ErrorKind::NotRunning, "the machine was never started")
+            })?;
+        Ok(session.input().iter().map(|e| format!("{e:?}")).collect())
+    }
+
     /// Make the guest print `text` on its console.
     pub fn fake_say(&self, key: String, text: String) -> Res<()> {
         let machine = self.core.open_machine(&key)?;

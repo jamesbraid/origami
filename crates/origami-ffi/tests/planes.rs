@@ -232,6 +232,18 @@ fn input_and_release_all_reach_the_engine_and_bad_arguments_are_refused() {
 }
 
 #[test]
+fn the_fake_engine_reports_the_input_that_reached_it() {
+    let lab = Lab::new(None);
+    assert!(lab.core.fake_input(lab.key.clone()).is_err());
+    let machine = lab.core.start_machine(lab.key.clone()).unwrap();
+    machine.send_key(OrigamiKey::C, true).unwrap();
+    assert_eq!(
+        lab.core.fake_input(lab.key.clone()).unwrap(),
+        ["Key { key: C, down: true }"]
+    );
+}
+
+#[test]
 fn the_control_plane_hands_a_machine_to_the_c_plane() {
     let lab = Lab::new(None);
     let machine = lab.core.start_machine(lab.key.clone()).unwrap();
