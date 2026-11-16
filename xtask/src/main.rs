@@ -10,6 +10,7 @@
 
 mod archive;
 mod lock;
+mod notices;
 
 use archive::Result;
 use lock::{Asset, Lock, Pin, PLATFORMS};
@@ -283,9 +284,11 @@ fn dist(options: &Options) -> Result<()> {
     )?;
     let licenses = stage.join("share/origami/licenses");
     archive::copy_file(&root().join("LICENSE"), &licenses.join("origami.LICENSE"))?;
-    archive::copy_file(
-        &root().join("THIRD_PARTY_NOTICES"),
-        &licenses.join("THIRD_PARTY_NOTICES"),
+    let base = fs::read_to_string(root().join("THIRD_PARTY_NOTICES"))?;
+    fs::create_dir_all(&licenses)?;
+    fs::write(
+        licenses.join("THIRD_PARTY_NOTICES"),
+        notices::cli(&base, notices::triple(platform, None))?,
     )?;
 
     let out = options

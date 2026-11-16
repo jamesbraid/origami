@@ -31,6 +31,7 @@ Changed:
 - Origin 3000, Onyx 3000 and Origin 300: the NUMAlink expansion takes its onboard Ethernet address from the machine's, where they all used 08:00:69:12:34:56.
 - Copied machines: a copied machine directory keeps its emu-id, and `run` warns, but still starts it, while the machine it was copied from is running. The two share a host id and Ethernet address, which clash on a shared network.
 - Archive: the bundled QEMU is built with its chd driver, and the licence notices for MAME's CHD code ship with it.
+- Archive: `THIRD_PARTY_NOTICES` lists every Rust crate `origami` links, generated from `cargo metadata`; it named about two thirds of them.
 - QEMU: updated to 11169497b07, which reports machine list version 3. An older QEMU is refused.
 - machine.toml: `origami upgrade` writes format 5, which names the engine in `[engine]` instead of `[qemu]` and records the firmware images a new machine's stores came from, and keeps the old file as `machine.toml.format4` (`.format1` to `.format3` for older machines). Older Origami versions cannot read format 5. Commands read a format 4 machine as it is, and a command that edits one writes format 5 and keeps the old file. A machine file from a later format is refused.
 
