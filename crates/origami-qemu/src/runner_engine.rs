@@ -13,6 +13,7 @@
 //! scanout memory the GPU imports and the UI draws from it in place;
 //! otherwise regions are plain shared memory and the changed lines are copied.
 
+use crate::{control as qemu_control, runtime, QemuEngine, Runtime, ENGINE};
 use origami_display::{Display, Taken};
 use origami_engine::status::Facts as DisplayFacts;
 use origami_engine::{
@@ -25,7 +26,7 @@ use origami_machine::dir::MachineDir;
 use origami_machine::model::Machine;
 use origami_machine::stores::FirmwareSet;
 use origami_machine::Offering;
-use crate::{control as qemu_control, runtime, QemuEngine, Runtime, ENGINE};
+use qapi::qmp;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -57,7 +58,18 @@ struct Shown {
     stop: AtomicBool,
     /// Set once the machine is gone.
     gone: AtomicBool,
+    paused: AtomicBool,
     input: Mutex<Option<Sender<InputEvent>>>,
+}
+
+impl Shown {
+    fn set_visible(&self, visible: bool) {
+        let was = self.display.visible();
+        self.display.set_visible(visible);
+        if visible && !was && self.display.arm_all() {
+            (self.wake)(self.id);
+        }
+    }
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -181,11 +193,8 @@ impl RunnerEngine {
     /// machine nobody sees. Changes keep accumulating while invisible; the
     /// next frame taken returns them.
     pub fn set_visible(&self, dir: &Path, visible: bool) {
-        let Some(s) = self.shown(dir) else { return };
-        let was = s.display.visible();
-        s.display.set_visible(visible);
-        if visible && !was && s.display.arm_all() {
-            (s.wake)(s.id);
+        if let Some(s) = self.shown(dir) {
+            s.set_visible(visible);
         }
     }
 
@@ -341,6 +350,7 @@ impl Engine for RunnerEngine {
             wake,
             stop: AtomicBool::new(false),
             gone: AtomicBool::new(false),
+            paused: AtomicBool::new(false),
             input: Mutex::new(Some(tx)),
         });
         let sink = Box::new(origami_display::SocketInput::new(uplink));
@@ -376,6 +386,16 @@ impl Drop for RunnerSession {
     }
 }
 
+impl RunnerSession {
+    /// QMP is single-client, so each request connects and disconnects.
+    fn qmp(&self) -> Result<qemu_control::Qmp> {
+        if self.shown.gone.load(Ordering::Acquire) {
+            return Err("the machine has exited".into());
+        }
+        qemu_control::verified_qmp(&machine_control::read(&self.shown.dir)?)
+    }
+}
+
 impl Session for RunnerSession {
     fn id(&self) -> MachineId {
         self.shown.id
@@ -408,12 +428,21 @@ impl Session for RunnerSession {
     }
 
     fn control(&self, c: Control) -> Result<()> {
+        let mut qmp = self.qmp()?;
         match c {
-            Control::Reset => {
-                qemu_control::reset(&self.shown.dir).map_err(|e| e.to_string().into())
+            Control::Reset => qmp.execute(&qmp::system_reset {}).map(drop)?,
+            Control::PowerButton => qmp.execute(&qmp::system_powerdown {}).map(drop)?,
+            Control::Nmi => qmp.execute(&qmp::inject_nmi {}).map(drop)?,
+            Control::Pause => {
+                qmp.execute(&qmp::stop {})?;
+                self.shown.paused.store(true, Ordering::Release);
             }
-            _ => Err("the viewer only resets".into()),
+            Control::Resume => {
+                qmp.execute(&qmp::cont {})?;
+                self.shown.paused.store(false, Ordering::Release);
+            }
         }
+        Ok(())
     }
 
     fn send_input(&self, events: &[InputEvent]) -> Result<()> {
@@ -429,8 +458,14 @@ impl Session for RunnerSession {
         Err("the viewer does not change media".into())
     }
 
-    fn screendump(&self, _head: usize, _path: &Path) -> Result<()> {
-        Err("the viewer does not take screendumps".into())
+    fn screendump(&self, head: usize, path: &Path) -> Result<()> {
+        self.qmp()?.execute(&qmp::screendump {
+            filename: path.display().to_string(),
+            device: None,
+            head: Some(head as i64),
+            format: None,
+        })?;
+        Ok(())
     }
 
     fn stop(&self, how: Stop) -> Result<()> {
@@ -451,6 +486,8 @@ impl Session for RunnerSession {
                 code: None,
                 last_error: None,
             }
+        } else if self.shown.paused.load(Ordering::Acquire) {
+            RunState::Paused
         } else {
             RunState::Running
         };
@@ -492,6 +529,7 @@ impl FrameSource for Shown {
     fn cursor(&self, head: usize, known_gen: u32) -> Option<CursorInfo> {
         self.display.cursor(head, known_gen)
     }
+
 }
 
 /// How much of `serial.log` primes a console that connects to a guest that
