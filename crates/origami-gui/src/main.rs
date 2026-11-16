@@ -144,8 +144,10 @@ fn real_main() -> Result<(), String> {
     if let Some(importer) = origami_render::GpuImporter::new(&gpu) {
         engine.set_importer(importer);
     }
-    let core =
-        Core::new(Config::new("."), vec![engine.clone()], None).map_err(|e| e.to_string())?;
+    let mut config = Config::new(".");
+    // --stop-on-exit must outwait a disk fold: leaving early would kill QEMU in it.
+    config.stop_patience = std::time::Duration::from_secs(24 * 3600);
+    let core = Core::new(config, vec![engine.clone()], None).map_err(|e| e.to_string())?;
     let mut machines = Vec::new();
     for dir in &args.dirs {
         let machine = core

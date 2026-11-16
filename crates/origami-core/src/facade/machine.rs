@@ -17,7 +17,8 @@ use origami_machine::dir::MachineDir;
 use origami_machine::model;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{mpsc, Arc, Mutex, Weak};
+use std::time::Duration;
 
 /// Called from an engine thread when a head has a new picture. It must be
 /// cheap and must not block.
@@ -39,7 +40,8 @@ pub enum MachineState {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StopKind {
-    /// Ask the guest to quit and wait. Can take minutes; never gives up.
+    /// Ask the guest to quit and wait, up to the core's `stop_patience`; then
+    /// the operation fails and the machine is left running.
     Clean,
     /// End the machine at once.
     Force,
@@ -120,6 +122,7 @@ pub(crate) struct Shared {
     pub(crate) slot: Arc<Slot>,
     pub(crate) next_operation: Arc<AtomicU64>,
     pub(crate) ring_bytes: usize,
+    pub(crate) stop_patience: Duration,
 }
 
 pub(crate) struct MachineInner {
@@ -225,7 +228,8 @@ impl Machine {
     }
 
     /// Stop the guest. A clean stop cannot be cancelled and cannot be
-    /// repeated while it runs; a forced one may follow it.
+    /// repeated while it runs; a forced one may follow it. A clean stop that
+    /// outlasts `stop_patience` fails with `Busy` and leaves the machine up.
     pub fn stop(&self, how: StopKind) -> CoreResult<Operation> {
         let inner = &self.inner;
         let session = {
@@ -252,10 +256,10 @@ impl Machine {
             },
             false,
             move |_| {
-                let result = session.stop(match how {
-                    StopKind::Clean => Stop::Clean { timeout: None },
-                    StopKind::Force => Stop::Force,
-                });
+                let result = match how {
+                    StopKind::Clean => stop_within(session, machine.shared.stop_patience),
+                    StopKind::Force => session.stop(Stop::Force).map_err(CoreError::engine),
+                };
                 {
                     let mut run = machine.run.lock().unwrap();
                     if how == StopKind::Clean {
@@ -263,7 +267,7 @@ impl Machine {
                     }
                 }
                 machine.finish_operation();
-                result.map_err(CoreError::engine)?;
+                result?;
                 Ok(None)
             },
         ))
@@ -408,6 +412,32 @@ impl Machine {
             inner.shared.slot.clone(),
             work,
         )
+    }
+}
+
+/// Wait for a clean stop for at most `patience`. The engine's own wait goes on
+/// in the background: QEMU may be folding a disk image and must not be killed.
+fn stop_within(session: Arc<dyn Session>, patience: Duration) -> CoreResult<()> {
+    let (done, result) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("origami-stop".into())
+        .spawn(move || {
+            let _ = done.send(session.stop(Stop::Clean { timeout: None }));
+        })
+        .map_err(|e| CoreError::new(ErrorKind::Internal, e.to_string()))?;
+    match result.recv_timeout(patience) {
+        Ok(result) => result.map_err(CoreError::engine),
+        Err(mpsc::RecvTimeoutError::Disconnected) => Err(CoreError::new(
+            ErrorKind::Internal,
+            "the stop thread ended without an answer",
+        )),
+        Err(mpsc::RecvTimeoutError::Timeout) => Err(CoreError::new(
+            ErrorKind::Busy,
+            format!(
+                "The machine did not power off within {} seconds. The guest may be ignoring the request, or QEMU may still be saving a disk. Wait, or use Force Quit.",
+                patience.as_secs()
+            ),
+        )),
     }
 }
 

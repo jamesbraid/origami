@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -21,6 +22,9 @@ pub struct Config {
     pub root: PathBuf,
     /// How much console output a machine keeps for late readers.
     pub console_ring_bytes: usize,
+    /// How long a clean stop waits for the machine to end before its
+    /// operation fails. The machine is not killed; Force Quit ends it.
+    pub stop_patience: Duration,
 }
 
 impl Config {
@@ -28,6 +32,7 @@ impl Config {
         Self {
             root: root.into(),
             console_ring_bytes: 1 << 20,
+            stop_patience: Duration::from_secs(30),
         }
     }
 }
@@ -331,6 +336,7 @@ impl Core {
                 slot: self.inner.dispatcher.slot(Some(key)),
                 next_operation: self.inner.next_operation.clone(),
                 ring_bytes: self.inner.config.console_ring_bytes,
+                stop_patience: self.inner.config.stop_patience,
             },
         );
         // Two threads may open at once; the first one in wins.

@@ -91,7 +91,7 @@ impl Operation {
     }
 
     /// Ask the work to stop. True when the operation can be cancelled and was
-    /// still running. A clean stop never gives up, so it cannot be.
+    /// still running. A stop cannot be cancelled.
     pub fn cancel(&self) -> bool {
         if !self.inner.cancellable || self.state().is_finished() {
             return false;

@@ -37,6 +37,7 @@ Changed:
 - Archive: `THIRD_PARTY_NOTICES` lists every Rust crate `origami` links, generated from `cargo metadata`; it named about two thirds of them.
 - QEMU: updated to 11169497b07, which reports machine list version 3. An older QEMU is refused.
 - machine.toml: `origami upgrade` writes format 5, which names the engine in `[engine]` instead of `[qemu]` and records the firmware images a new machine's stores came from, and keeps the old file as `machine.toml.format4` (`.format1` to `.format3` for older machines). Older Origami versions cannot read format 5. Commands read a format 4 machine as it is, and a command that edits one writes format 5 and keeps the old file. A machine file from a later format is refused.
+- Power Off: the core's clean stop gives up waiting after `stop_patience` (30 seconds). The operation then fails with a message that offers Force Quit, and the machine stays up instead of the front end waiting forever on a guest or QEMU that does not exit.
 
 ## 0.5.1
 

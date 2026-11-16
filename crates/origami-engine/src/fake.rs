@@ -302,6 +302,7 @@ impl Engine for FakeEngine {
         let console = Arc::new(ConsoleCore::default());
         console.write_out(BANNER);
         let session = Arc::new(FakeSession {
+            ignores_stop: AtomicBool::new(false),
             id: MachineId(self.next_id.fetch_add(1, Ordering::Relaxed)),
             dir: plan.dir().to_path_buf(),
             wake,
@@ -333,6 +334,7 @@ struct Record {
 }
 
 pub struct FakeSession {
+    ignores_stop: AtomicBool,
     id: MachineId,
     dir: PathBuf,
     wake: Wake,
@@ -362,6 +364,12 @@ impl FakeSession {
     pub fn show_cursor(&self, x: i32, y: i32) {
         *self.frames.cursor.lock().unwrap() = Some((x, y));
         (self.wake)(self.id);
+    }
+
+    /// A clean stop is not acted on: it blocks until the session is forced
+    /// or exits, as a guest that ignores the request does.
+    pub fn ignore_clean_stop(&self) {
+        self.ignores_stop.store(true, Ordering::Release);
     }
 
     /// The guest dies with `code`, having said `message` last.
@@ -496,6 +504,11 @@ impl Session for FakeSession {
 
     fn stop(&self, how: Stop) -> Result<()> {
         match how {
+            Stop::Clean { .. } if self.ignores_stop.load(Ordering::Acquire) => {
+                while !matches!(self.record.lock().unwrap().state, RunState::Exited { .. }) {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
             Stop::Clean { .. } => self.exit(Some(0), None),
             Stop::Force => self.exit(None, None),
         }

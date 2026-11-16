@@ -41,10 +41,14 @@ struct Fixture {
 }
 
 fn fixture_with(observer: Option<Arc<dyn Observer>>, ring: usize) -> Fixture {
+    fixture_tuned(observer, |config| config.console_ring_bytes = ring)
+}
+
+fn fixture_tuned(observer: Option<Arc<dyn Observer>>, tune: impl FnOnce(&mut Config)) -> Fixture {
     let root = tempfile::tempdir().unwrap();
     let engine = Arc::new(FakeEngine::new());
     let mut config = Config::new(root.path());
-    config.console_ring_bytes = ring;
+    tune(&mut config);
     let core = Core::new(config, vec![engine.clone()], observer).unwrap();
     Fixture { root, engine, core }
 }
@@ -301,6 +305,35 @@ fn errors_carry_a_kind_a_program_can_branch_on() {
         .find(|m| m.name == "broken")
         .unwrap();
     assert!(broken.problem.is_some());
+}
+
+#[test]
+fn a_power_off_the_guest_ignores_fails_in_bounded_time_and_force_quit_ends_it() {
+    let f = fixture_tuned(None, |config| {
+        config.stop_patience = Duration::from_millis(100)
+    });
+    let (machine, session) = f.started("stuck");
+    session.ignore_clean_stop();
+    let started = std::time::Instant::now();
+    let op = machine.stop(StopKind::Clean).unwrap();
+    assert_eq!(machine.view().state, MachineState::Stopping);
+    let error = match op.wait(Some(WAIT)) {
+        OperationState::Failed(error) => error,
+        other => panic!("{other:?}"),
+    };
+    assert!(
+        started.elapsed() < WAIT,
+        "the stop waited past its patience"
+    );
+    assert_eq!(error.kind, ErrorKind::Busy);
+    assert!(error.message.contains("did not power off"), "{error}");
+    // Still up, so Power Off and Force Quit are offered again.
+    assert_eq!(machine.view().state, MachineState::Running);
+    assert_eq!(
+        machine.stop(StopKind::Force).unwrap().wait(Some(WAIT)),
+        OperationState::Succeeded
+    );
+    assert_eq!(machine.view().state, MachineState::Exited);
 }
 
 #[test]
