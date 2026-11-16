@@ -36,9 +36,9 @@ jobs:
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --component clippy,rustfmt --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Lint
-        run: cargo clippy --locked -p origami-gui --all-targets -- -D warnings
+        run: cargo clippy --locked -p origami-render -p origami-gui --all-targets -- -D warnings
       - name: Test (the boot test stays ignored)
-        run: cargo test --locked -p origami-gui
+        run: cargo test --locked -p origami-render -p origami-gui
 
   windows-check:
     if: github.server_url != 'https://github.com'

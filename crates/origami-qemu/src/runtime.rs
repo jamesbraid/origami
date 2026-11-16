@@ -294,20 +294,7 @@ pub fn check_extra_args(extra: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// `arg` quoted so a shell reads it back as one word.
-pub fn shell_quote(arg: &str) -> String {
-    let plain = !arg.is_empty()
-        && arg
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c));
-    if plain {
-        arg.into()
-    } else if cfg!(windows) {
-        format!("\"{}\"", arg.replace('"', "\\\""))
-    } else {
-        format!("'{}'", arg.replace('\'', "'\\''"))
-    }
-}
+pub use origami_machine::shell_quote;
 
 pub fn arguments(
     machines: &Machines,

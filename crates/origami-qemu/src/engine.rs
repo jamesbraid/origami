@@ -157,6 +157,18 @@ impl Engine for QemuEngine {
         }
     }
 
+    fn preflight_create(&self) -> Result<()> {
+        let tool = self.rt.machine_init();
+        if !tool.is_file() {
+            return Err(format!("packaged machine init tool missing: {}", tool.display()).into());
+        }
+        Ok(())
+    }
+
+    fn check_options(&self, m: &Machine) -> Result<()> {
+        runtime::check_extra_args(&m.to_file().qemu.extra_args)
+    }
+
     fn prepare_stores(&self, o: &Offering, proms: &FirmwareSet, state: &Path) -> Result<()> {
         let staged = self.rt.stage_boot_prom(o, &proms.boot_prom)?;
         let boot_prom = staged.as_ref().map_or(proms.boot_prom.as_path(), |p| p);

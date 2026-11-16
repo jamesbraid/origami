@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use origami_core::{FirmwareRequest, GraphicsRequest, IdentityRequest, MachineSpec, NetworkChange};
 use origami_qemu::runtime::{Display, GpuUuid};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -278,6 +279,27 @@ pub struct CreateArgs {
     pub options: CreateOptions,
 }
 
+impl CreateArgs {
+    /// The machine this command line describes.
+    pub fn spec(&self) -> Result<MachineSpec, String> {
+        let options = &self.options;
+        let mut spec = MachineSpec::new(&self.dir, &self.preset);
+        spec.processor = options.processor.clone();
+        spec.memory_per_node_mib = options.memory_per_node;
+        spec.graphics = options.graphics.request()?;
+        spec.settings = options.hardware.inputs()?;
+        spec.identity = IdentityRequest {
+            mac: options.mac.clone(),
+            emu_id: options.emu_id,
+        };
+        spec.firmware = FirmwareRequest {
+            boot_prom: options.prom.clone(),
+            io_prom: options.io_prom.clone(),
+        };
+        Ok(spec)
+    }
+}
+
 #[derive(Debug, Default, Args)]
 pub struct CreateOptions {
     /// Local boot PROM instead of a download
@@ -329,7 +351,16 @@ pub struct GraphicsArgs {
 }
 
 impl GraphicsArgs {
-    pub fn settings(&self) -> Result<BTreeMap<String, String>, String> {
+    pub fn request(&self) -> Result<GraphicsRequest, String> {
+        Ok(GraphicsRequest {
+            product: self.graphics.clone(),
+            slot: self.graphics_slot.clone(),
+            pipes: self.graphics_pipes,
+            settings: self.settings()?,
+        })
+    }
+
+    fn settings(&self) -> Result<BTreeMap<String, String>, String> {
         let mut settings = BTreeMap::new();
         for (key, value) in &self.graphics_settings {
             if settings.insert(key.clone(), value.clone()).is_some() {
@@ -449,12 +480,12 @@ pub enum DriveKind {
     Cdrom,
     Tape,
 }
-impl DriveKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Disk => "disk",
-            Self::Cdrom => "cdrom",
-            Self::Tape => "tape",
+impl From<DriveKind> for origami_core::DriveKind {
+    fn from(kind: DriveKind) -> Self {
+        match kind {
+            DriveKind::Disk => Self::Disk,
+            DriveKind::Cdrom => Self::Cdrom,
+            DriveKind::Tape => Self::Tape,
         }
     }
 }
@@ -466,16 +497,49 @@ pub enum NetworkMode {
     Tap,
     Vmnet,
 }
-impl NetworkMode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::None => "none",
-            Self::Private => "private",
-            Self::Tap => "tap",
-            Self::Vmnet => "vmnet",
+impl From<NetworkMode> for origami_core::NetworkMode {
+    fn from(mode: NetworkMode) -> Self {
+        match mode {
+            NetworkMode::User => Self::User,
+            NetworkMode::None => Self::None,
+            NetworkMode::Private => Self::Private,
+            NetworkMode::Tap => Self::Tap,
+            NetworkMode::Vmnet => Self::Vmnet,
         }
     }
+}
+
+/// The network change `network-set` asks for, once its options agree with
+/// the mode.
+pub fn network_change(
+    mode: NetworkMode,
+    endpoint: Option<String>,
+    interface: Option<String>,
+    share_address: Option<String>,
+    subnet: Option<String>,
+    mac: Option<String>,
+) -> Result<NetworkChange, String> {
+    use NetworkMode::{Private, Tap, User, Vmnet};
+    if subnet.is_some() && !matches!(mode, User | Private) {
+        return Err("--subnet requires --mode user or private".into());
+    }
+    if endpoint.is_some() && !matches!(mode, Private | Vmnet) {
+        return Err("--endpoint requires --mode private or vmnet".into());
+    }
+    if interface.is_some() && mode != Tap {
+        return Err("--interface requires --mode tap".into());
+    }
+    if mac.is_some() && !matches!(mode, Private | Tap | Vmnet) {
+        return Err("--mac requires --mode private, tap or vmnet".into());
+    }
+    Ok(NetworkChange {
+        mode: mode.into(),
+        endpoint,
+        interface,
+        share_address,
+        subnet,
+        mac,
+    })
 }
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Protocol {

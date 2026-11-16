@@ -1,14 +1,11 @@
 mod cli;
-mod commands;
 
 use clap::Parser;
-use cli::{Action, DriveKind, NetworkMode, NvramAction};
-use commands::{machines, validate};
-use origami_machine::{addressing, control, graphics, install, listing, nvram, serial, shares};
-use origami_machine::{read_machine, Drive, Network, PortForward, Result};
-use origami_qemu::runtime;
-use std::fs;
-use std::path::{Path, PathBuf};
+use cli::{Action, NvramAction};
+use origami_core::{Change, DriveRequest, InstallAddon, InstallInit, Report, Status, Stream};
+use origami_machine::{control, graphics, install, shares, Result};
+use origami_qemu::{runtime, QemuEngine};
+use std::path::Path;
 use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
@@ -37,10 +34,14 @@ fn main() -> ExitCode {
     }
 }
 
-fn directory(path: &Path) -> Result<PathBuf> {
-    dunce::canonicalize(path).map_err(|error| {
-        format!("cannot open machine directory '{}': {error}. Use the directory you created with origami create", path.display()).into()
-    })
+/// Print what an operation had to say, warnings on the error stream.
+fn emit(report: &Report) {
+    for (stream, text) in report.rendered() {
+        match stream {
+            Stream::Out => println!("{text}"),
+            Stream::Err => eprintln!("{text}"),
+        }
+    }
 }
 
 fn version_report(rt: &runtime::Runtime) {
@@ -64,177 +65,67 @@ fn version_report(rt: &runtime::Runtime) {
     }
 }
 
+/// Apply one edit to the machine in `dir` and print what it says.
+fn change(engine: &QemuEngine, dir: &Path, change: Change) -> Result<()> {
+    let dir = origami_core::directory(dir)?;
+    emit(&origami_core::apply_change(engine, &dir, &change)?);
+    Ok(())
+}
+
 fn command(action: Action) -> Result<()> {
     let rt = runtime::Runtime::locate()?;
     if matches!(action, Action::Version) {
         version_report(&rt);
         return Ok(());
     }
+    let engine = QemuEngine::new(rt.clone());
     match action {
         Action::Version => unreachable!(),
         Action::Machines { preset, all } => {
-            let machines = machines(&rt)?;
-            let text = match (preset, all) {
-                (Some(preset), _) => listing::detail(&machines, &preset)?,
-                (None, true) => listing::all(&machines)?,
-                (None, false) => listing::table(&machines)?,
-            };
-            print!("{text}");
+            print!(
+                "{}",
+                origami_core::listing(&engine, preset.as_deref(), all)?
+            );
         }
-        Action::Create(args) => commands::create_machine(&rt, &machines(&rt)?, &args)?,
+        Action::Create(args) => emit(&origami_core::create(&engine, &args.spec()?)?),
         Action::Validate(args) => {
-            let dir = directory(&args.dir)?;
-            let file = read_machine(&dir)?;
-            let machines = machines(&rt)?;
-            let offer = validate(&rt, &machines, &dir, &file)?;
-            let warnings = origami_machine::mac::duplicate_warnings(&machines, &dir, &file)
-                .into_iter()
-                .chain(origami_machine::emu_id::duplicate_warnings(&dir, &file))
-                .chain(origami_machine::emu_id::unconfigured_warnings(&file));
-            for warning in warnings {
-                eprintln!("warning: {warning}");
-            }
-            match &file.machine.processor {
-                Some(processor) => println!(
-                    "valid: {} ({} CPUs, {processor})",
-                    offer.topology, offer.cpus
-                ),
-                None => println!("valid: {} ({} CPUs)", offer.topology, offer.cpus),
-            }
+            let dir = origami_core::directory(&args.dir)?;
+            emit(&origami_core::validate(&engine, &dir)?);
         }
         Action::Upgrade { dir, prom, io_prom } => {
-            let dir = directory(&dir)?;
-            let machines = machines(&rt)?;
-            let upgraded = origami_machine::migrate::upgrade(
-                &rt,
-                &dir,
-                &machines,
-                prom.as_deref(),
-                io_prom.as_deref(),
-            )?;
-            // A machine made before emu-ids gets one, and keeps its MAC.
-            let emu_id = match origami_machine::emu_id::add_to_machine(&dir, &machines) {
-                Ok(emu_id) => emu_id,
-                Err(error) => {
-                    // machine.toml is already rewritten; do not lose what it says.
-                    for note in upgraded.iter().flatten() {
-                        println!("note: {note}");
-                    }
-                    return Err(error);
+            let dir = origami_core::directory(&dir)?;
+            match origami_core::upgrade(&engine, &dir, prom.as_deref(), io_prom.as_deref()) {
+                Ok(report) => emit(&report),
+                Err(incomplete) => {
+                    emit(&incomplete.report);
+                    return Err(incomplete.error);
                 }
-            };
-            if upgraded.is_none() && emu_id.is_none() {
-                println!("{} is current; it needs no upgrade", dir.display());
-            } else {
-                println!("upgraded {}", dir.display());
-            }
-            for note in upgraded.into_iter().flatten() {
-                if origami_machine::migrate::is_bookkeeping(&note) {
-                    println!("note: {note}");
-                } else {
-                    println!("note: {note}; the guest sees this at its next boot");
-                }
-            }
-            for note in emu_id.into_iter().flatten() {
-                println!("note: {note}");
             }
         }
         Action::Show(args) => {
-            let dir = directory(&args.dir)?;
-            let file = read_machine(&dir)?;
-            let machines = machines(&rt)?;
-            let offer = validate(&rt, &machines, &dir, &file)?;
-            println!(
-                "{}: {} CPUs, {} nodes, {} per node",
-                file.machine.model, offer.cpus, offer.nodes, file.machine.memory_per_node,
-            );
-            for line in graphics::show_lines(&machines, &offer.topology, &file.pipe) {
-                println!("{line}");
-            }
-            match &file.machine.processor {
-                Some(id) => println!("processor: {} ({id})", offer.processor),
-                None => println!("processor: {}", offer.processor),
-            }
-            println!("state: {}", dir.join("state").display());
-            let console = file.machine.console.as_deref();
-            println!(
-                "console: {}",
-                console.map_or_else(|| serial::default_console(offer), Ok)?
-            );
-            match offer.default_network() {
-                Some(adapter) => println!(
-                    "network: {} ({}{})",
-                    file.network.mode,
-                    adapter
-                        .interface
-                        .as_deref()
-                        .map_or_else(String::new, |name| format!("{name}, ")),
-                    adapter.chip()
-                ),
-                None => println!("network: {}", file.network.mode),
-            }
-            if matches!(file.network.mode.as_str(), "user" | "private") {
-                println!("subnet: {}", addressing::Addresses::of(&file)?.cidr());
-            }
-            if !file.qemu.extra_args.is_empty() {
-                println!(
-                    "qemu extra-args (unsupported): {}",
-                    file.qemu
-                        .extra_args
-                        .iter()
-                        .map(|arg| runtime::shell_quote(arg))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                );
-            }
-            for share in &file.share {
-                println!("share {}: {}", share.name, share.path.display());
-                if let Ok(lines) = shares::mount_lines(&file, share) {
-                    println!("  {}", lines[1]);
+            let dir = origami_core::directory(&args.dir)?;
+            match origami_core::show(&engine, &dir) {
+                Ok(report) => emit(&report),
+                Err(incomplete) => {
+                    emit(&incomplete.report);
+                    return Err(incomplete.error);
                 }
-            }
-            for forward in &file.network.forward {
-                let status = if file.network.mode == "user" {
-                    ""
-                } else {
-                    " (inactive until user networking)"
-                };
-                println!(
-                    "forward {}: {} 127.0.0.1:{} -> guest:{}{}",
-                    forward.name, forward.protocol, forward.host_port, forward.guest_port, status
-                );
-            }
-            if let Some(identity) = &file.identity {
-                println!("identity MAC: {}", identity.mac);
-                if let Some(emu_id) = identity.emu_id {
-                    println!("emu-id: {emu_id}");
-                }
-            }
-            for drive in &file.drive {
-                println!(
-                    "{}: {} at {}:{} ({})",
-                    drive.name,
-                    drive.kind,
-                    offer.scsi_bus_name(drive.bus),
-                    drive.target,
-                    drive.image
-                );
             }
         }
         Action::ShowCommand(args) => {
-            let dir = directory(&args.machine.dir)?;
-            let file = read_machine(&dir)?;
-            let machines = machines(&rt)?;
-            let offer = validate(&rt, &machines, &dir, &file)?;
+            let dir = origami_core::directory(&args.machine.dir)?;
+            let loaded = origami_core::open(&engine, &dir)?;
+            let (machines, file) = (&loaded.catalogue, &loaded.file);
+            let offer = loaded.offering()?;
             let display = args.display.resolve(!file.pipe.is_empty())?;
             let exe = rt.qemu();
             let ports = (!file.share.is_empty() && file.network.mode != "private")
                 .then(shares::Ports::placeholder);
             let arguments =
-                runtime::arguments_with(&machines, &dir, &file, offer, display, ports.as_ref())?;
+                runtime::arguments_with(machines, &dir, file, offer, display, ports.as_ref())?;
             let mut arguments = arguments;
             arguments.splice(0..0, rt.data_arguments());
-            runtime::append_extra_args(&mut arguments, &file, &args.qemu_args)?;
+            runtime::append_extra_args(&mut arguments, file, &args.qemu_args)?;
             // One line, runnable as printed: one shell word per argument.
             print!("{}", runtime::shell_quote(&exe.display().to_string()));
             for arg in arguments {
@@ -243,14 +134,14 @@ fn command(action: Action) -> Result<()> {
             println!();
         }
         Action::Run(args) => {
-            let dir = directory(&args.launch.machine.dir)?;
-            let file = read_machine(&dir)?;
-            let machines = machines(&rt)?;
-            let offer = validate(&rt, &machines, &dir, &file)?;
+            let dir = origami_core::directory(&args.launch.machine.dir)?;
+            let loaded = origami_core::open(&engine, &dir)?;
+            let (machines, file) = (&loaded.catalogue, &loaded.file);
+            let offer = loaded.offering()?;
             let display = args.launch.display.resolve(!file.pipe.is_empty())?;
             match display {
                 runtime::Display::Vnc { port } => {
-                    let servers = runtime::vnc_ports(&machines, offer, &file, port)?;
+                    let servers = runtime::vnc_ports(machines, offer, file, port)?;
                     if servers.len() > 1 {
                         for (head, port) in servers {
                             println!("vnc 127.0.0.1:{port}: {} head {}", head.slot, head.head);
@@ -258,7 +149,7 @@ fn command(action: Action) -> Result<()> {
                     }
                 }
                 runtime::Display::Local => {
-                    let heads = graphics::heads(&machines, &offer.topology, &file.pipe);
+                    let heads = graphics::heads(machines, &offer.topology, &file.pipe);
                     if heads.len() > 1 {
                         println!("{} windows, one for each head", heads.len());
                     }
@@ -267,7 +158,7 @@ fn command(action: Action) -> Result<()> {
             }
             if args.background {
                 // The runner process warns into its log; say it here too.
-                for warning in origami_machine::emu_id::running_twin_warnings(&dir, &file) {
+                for warning in origami_machine::emu_id::running_twin_warnings(&dir, file) {
                     eprintln!("warning: {warning}");
                 }
                 let pid = runtime::start_background(&dir, display, &args.launch.qemu_args)?;
@@ -275,9 +166,9 @@ fn command(action: Action) -> Result<()> {
             } else {
                 let status = runtime::run(
                     &rt,
-                    &machines,
+                    machines,
                     &dir,
-                    &file,
+                    file,
                     offer,
                     display,
                     &args.launch.qemu_args,
@@ -288,48 +179,49 @@ fn command(action: Action) -> Result<()> {
             }
         }
         Action::Serve(args) => {
-            let dir = directory(&args.machine.dir)?;
-            let file = read_machine(&dir)?;
-            let machines = machines(&rt)?;
-            let offer = validate(&rt, &machines, &dir, &file)?;
+            let dir = origami_core::directory(&args.machine.dir)?;
+            let loaded = origami_core::open(&engine, &dir)?;
+            let (machines, file) = (&loaded.catalogue, &loaded.file);
+            let offer = loaded.offering()?;
             let display = args.display.resolve(!file.pipe.is_empty())?;
             let status =
-                runtime::serve(&rt, &machines, &dir, &file, offer, display, &args.qemu_args)?;
+                runtime::serve(&rt, machines, &dir, file, offer, display, &args.qemu_args)?;
             if !status.success() {
                 return Err(format!("QEMU exited with {status}").into());
             }
         }
         Action::Status(args) => {
-            let dir = directory(&args.dir)?;
-            if let Some(record) = origami_qemu::control::running(&dir)? {
-                println!("running: pid {}", record.pid);
+            let dir = origami_core::directory(&args.dir)?;
+            let status = if let Some(record) = origami_qemu::control::running(&dir)? {
+                Status::Running { pid: record.pid }
             } else if control::is_locked(&dir)? {
-                println!("running: foreground or starting");
+                Status::Starting
             } else {
-                println!("stopped");
-            }
+                Status::Stopped
+            };
+            emit(&status.report());
         }
-        Action::Console(args) => origami_qemu::control::console(&directory(&args.dir)?)?,
+        Action::Console(args) => {
+            origami_qemu::control::console(&origami_core::directory(&args.dir)?)?
+        }
         Action::Stop(args) => {
-            let dir = directory(&args.dir)?;
+            let dir = origami_core::directory(&args.dir)?;
             if args.force {
                 origami_qemu::control::force_stop(&dir)?;
             } else {
                 origami_qemu::control::stop(&dir)?;
             }
-            println!("stopped");
+            emit(&Report::one("stopped"));
         }
         Action::Reset(args) => {
-            origami_qemu::control::reset(&directory(&args.dir)?)?;
-            println!("reset");
+            origami_qemu::control::reset(&origami_core::directory(&args.dir)?)?;
+            emit(&Report::one("reset"));
         }
         Action::GraphicsSet { dir, graphics } => {
-            let dir = directory(&dir)?;
-            commands::set_graphics(&rt, &machines(&rt)?, &dir, &graphics)?
+            change(&engine, &dir, Change::SetGraphics(graphics.request()?))?
         }
         Action::DriveCreate { dir, size } => {
-            let dir = directory(&dir)?;
-            commands::create_disk(&rt, &machines(&rt)?, &dir, size)?
+            change(&engine, &dir, Change::CreateDisk { size_mib: size })?
         }
         Action::DriveAttach {
             dir,
@@ -337,87 +229,30 @@ fn command(action: Action) -> Result<()> {
             kind,
             target,
             overlay,
-        } => {
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "changing drives")?;
-            let path = dunce::canonicalize(&file)?;
-            let mut file = read_machine(&dir)?;
-            file.drive.push(Drive {
-                name: format!("{}{target}", kind.as_str()),
-                kind: kind.as_str().into(),
-                bus: 0,
+        } => change(
+            &engine,
+            &dir,
+            Change::AttachDrive(DriveRequest {
+                file,
+                kind: kind.into(),
                 target,
-                image: path.display().to_string(),
-                read_only: kind == DriveKind::Cdrom,
                 overlay,
-            });
-            validate(&rt, &machines(&rt)?, &dir, &file)?;
-            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
-            println!("attached {}", path.display());
-        }
-        Action::DriveDetach { dir, name } => {
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "detaching a drive")?;
-            let mut file = read_machine(&dir)?;
-            let matches: Vec<_> = file
-                .drive
-                .iter()
-                .enumerate()
-                .filter(|(_, drive)| drive.name == name)
-                .map(|(index, _)| index)
-                .collect();
-            if matches.len() != 1 {
-                return Err(
-                    format!("expected one drive named {name}, found {}", matches.len()).into(),
-                );
-            }
-            file.drive.remove(matches[0]);
-            validate(&rt, &machines(&rt)?, &dir, &file)?;
-            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
-            println!("detached {name}");
-        }
-        Action::ConsoleSet { dir, port } => {
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "changing its console")?;
-            let mut file = read_machine(&dir)?;
-            file.machine.console = port;
-            let machines = machines(&rt)?;
-            let offer = validate(&rt, &machines, &dir, &file)?;
-            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
-            let console = file.machine.console.as_deref();
-            println!(
-                "console: {}",
-                console.map_or_else(|| serial::default_console(offer), Ok)?
-            );
-        }
+            }),
+        )?,
+        Action::DriveDetach { dir, name } => change(&engine, &dir, Change::DetachDrive(name))?,
+        Action::ConsoleSet { dir, port } => change(&engine, &dir, Change::SetConsole(port))?,
         Action::Nvram(args) => {
-            let dir = directory(&args.dir)?;
-            let _lock = control::lock_for_edit(&dir, "reading or changing its NVRAM")?;
-            let file = read_machine(&dir)?;
-            let machines = machines(&rt)?;
-            let offer = validate(&rt, &machines, &dir, &file)?;
-            let mut store = nvram::open(&dir, offer)?;
+            let dir = origami_core::directory(&args.dir)?;
             match args.action {
-                None => {
-                    for (name, value) in store.variables() {
-                        println!("{name}={value}");
-                    }
-                }
+                None => emit(&origami_core::nvram_read(&engine, &dir, None)?),
                 Some(NvramAction::Get { name }) => {
-                    let (name, value) = store.get(&name)?;
-                    println!("{name}={value}");
+                    emit(&origami_core::nvram_read(&engine, &dir, Some(&name))?)
                 }
-                Some(NvramAction::Set { settings }) => {
-                    // Every setting is checked before the store is written.
-                    let mut names = Vec::new();
-                    for (name, value) in &settings {
-                        names.push(store.set(name, value)?);
-                    }
-                    nvram::save(&dir, &store)?;
-                    for name in names {
-                        println!("{name}={}", store.get(name)?.1);
-                    }
-                }
+                Some(NvramAction::Set { settings }) => emit(&origami_core::apply_change(
+                    &engine,
+                    &dir,
+                    &Change::SetNvram(settings),
+                )?),
             }
         }
         Action::NetworkSet {
@@ -428,108 +263,34 @@ fn command(action: Action) -> Result<()> {
             share_address,
             subnet,
             mac,
-        } => {
-            use NetworkMode::{Private, Tap, User, Vmnet};
-            if subnet.is_some() && !matches!(mode, User | Private) {
-                return Err("--subnet requires --mode user or private".into());
-            }
-            if endpoint.is_some() && !matches!(mode, Private | Vmnet) {
-                return Err("--endpoint requires --mode private or vmnet".into());
-            }
-            if interface.is_some() && mode != Tap {
-                return Err("--interface requires --mode tap".into());
-            }
-            if mac.is_some() && !matches!(mode, Private | Tap | Vmnet) {
-                return Err("--mac requires --mode private, tap or vmnet".into());
-            }
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "changing its network")?;
-            let mut file = read_machine(&dir)?;
-            let old_subnet = addressing::Addresses::of(&file)?;
-            file.network = Network {
-                mode: mode.as_str().into(),
+        } => change(
+            &engine,
+            &dir,
+            Change::SetNetwork(cli::network_change(
+                mode,
                 endpoint,
                 interface,
-                forward: file.network.forward.clone(),
                 share_address,
-                subnet: subnet.or_else(|| file.network.subnet.clone()),
-            };
-            let machines = machines(&rt)?;
-            // Held until machine.toml is written, so no other mint rescans
-            // the siblings before this emu-id is on disk.
-            let _emu_ids = origami_machine::emu_id::lock(&dir)?;
-            // User and none networking run without one; the rest need it.
-            let assigned = if matches!(mode, Private | Tap | Vmnet) {
-                origami_machine::ensure_machine_mac(&machines, &dir, &mut file, mac.as_deref())?
-            } else {
-                origami_machine::set_machine_mac(&machines, &dir, &mut file, mac.as_deref())?;
-                None
-            };
-            validate(&rt, &machines, &dir, &file)?;
-            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
-            if let Some(mac) = assigned {
-                println!("assigned MAC {mac}");
-            }
-            println!("network: {}", mode.as_str());
-            if matches!(mode, User | Private) {
-                let subnet = addressing::Addresses::of(&file)?;
-                println!("subnet: {}", subnet.cidr());
-                if subnet != old_subnet {
-                    println!(
-                        "A guest that booted on {} keeps its old address until, as root in IRIX, \
-                         you run rm /var/adm/proclaim.lease_info* /etc/resolv.conf and restart it.",
-                        old_subnet.cidr()
-                    );
-                }
-            }
-            if mode != NetworkMode::User && !file.network.forward.is_empty() {
-                println!("forwards inactive in {} mode", mode.as_str());
-            }
-        }
+                subnet,
+                mac,
+            )?),
+        )?,
         Action::Share {
             dir,
             name,
             host_dir,
             remove,
         } => {
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "changing its shares")?;
-            let mut file = read_machine(&dir)?;
-            if remove {
-                let count = file.share.len();
-                file.share.retain(|share| share.name != name);
-                if file.share.len() == count {
-                    return Err(format!("unknown share: {name}").into());
-                }
-                validate(&rt, &machines(&rt)?, &dir, &file)?;
-                fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
-                println!("share removed: {name}");
+            let dir = origami_core::directory(&dir)?;
+            let edit = if remove {
+                Change::RemoveShare(name)
             } else {
-                let host_dir = host_dir.ok_or("share needs a host folder")?;
-                let path = std::path::absolute(&host_dir)?;
-                if !path.is_dir() {
-                    return Err(format!("{} is not a directory", host_dir.display()).into());
+                Change::AddShare {
+                    name,
+                    host_dir: host_dir.ok_or("share needs a host folder")?,
                 }
-                shares::check_name(&name)?;
-                if file.share.iter().any(|share| share.name == name) {
-                    return Err(format!(
-                        "share {name} exists; remove it first: origami share {} {name} --remove",
-                        dir.display()
-                    )
-                    .into());
-                }
-                file.share.push(origami_machine::Share {
-                    name: name.clone(),
-                    path,
-                });
-                validate(&rt, &machines(&rt)?, &dir, &file)?;
-                fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
-                let share = file.share.last().expect("share just added");
-                println!("share added: {name}");
-                for line in shares::mount_lines(&file, share)? {
-                    println!("{line}");
-                }
-            }
+            };
+            emit(&origami_core::apply_change(&engine, &dir, &edit)?);
         }
         Action::NetworkForwardAdd {
             dir,
@@ -537,32 +298,18 @@ fn command(action: Action) -> Result<()> {
             protocol,
             host_port,
             guest_port,
-        } => {
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "changing its network")?;
-            let mut file = read_machine(&dir)?;
-            file.network.forward.push(PortForward {
-                name: name.clone(),
+        } => change(
+            &engine,
+            &dir,
+            Change::AddForward(origami_machine::PortForward {
+                name,
                 protocol: protocol.as_str().into(),
                 host_port,
                 guest_port,
-            });
-            validate(&rt, &machines(&rt)?, &dir, &file)?;
-            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
-            println!("forward added: {name}");
-        }
+            }),
+        )?,
         Action::NetworkForwardRemove { dir, name } => {
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "changing its network")?;
-            let mut file = read_machine(&dir)?;
-            let count = file.network.forward.len();
-            file.network.forward.retain(|forward| forward.name != name);
-            if file.network.forward.len() == count {
-                return Err(format!("unknown forward: {name}").into());
-            }
-            validate(&rt, &machines(&rt)?, &dir, &file)?;
-            fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
-            println!("forward removed: {name}");
+            change(&engine, &dir, Change::RemoveForward(name))?
         }
         Action::InstallInit {
             dir,
@@ -576,37 +323,14 @@ fn command(action: Action) -> Result<()> {
                     format!("--profile {old} is now --profile {}", profile.as_str()).into(),
                 );
             }
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "changing its network")?;
-            let mut file = read_machine(&dir)?;
-            origami_qemu::runtime::check_extra_args(&file.qemu.extra_args)?;
-            let initialised = if let Some(root) = media_root {
-                install::init_profile(
-                    &*machines(&rt)?,
-                    &dir,
-                    &root,
-                    mac.as_deref(),
-                    &mut file,
-                    release.as_str(),
-                    profile.as_str(),
-                )?
-            } else {
-                install::init_remote_profile(
-                    &*machines(&rt)?,
-                    &dir,
-                    mac.as_deref(),
-                    &mut file,
-                    release.as_str(),
-                    profile.as_str(),
-                )?
+            let dir = origami_core::directory(&dir)?;
+            let init = InstallInit {
+                media_root,
+                mac,
+                release: release.as_str().into(),
+                profile: profile.as_str().into(),
             };
-            if let Some(mac) = &initialised.assigned_mac {
-                println!("assigned MAC {mac}");
-            }
-            println!("created {}", initialised.manifest.display());
-            if install::needs_rad4_driver(&file) {
-                println!("configured add-on rad4 for the RAD4 graphics");
-            }
+            emit(&origami_core::install_init(&engine, &dir, &init)?);
         }
         Action::InstallAddon {
             dir,
@@ -617,46 +341,37 @@ fn command(action: Action) -> Result<()> {
             dist,
             media_root,
         } => {
-            let dir = directory(&dir)?;
-            let _lock = control::lock_for_edit(&dir, "changing its install add-ons")?;
-            let file = read_machine(&dir)?;
-            validate(&rt, &machines(&rt)?, &dir, &file)?;
-            let path = match source {
-                Some(source) => install::add_addon(
-                    &dir,
-                    &name,
-                    &source,
-                    base.as_deref(),
-                    dist.as_deref(),
-                    &selections,
-                )?,
-                None => install::add_known_addon(&dir, &name, media_root.as_deref())?,
+            let dir = origami_core::directory(&dir)?;
+            let addon = InstallAddon {
+                name,
+                source,
+                install: selections,
+                base,
+                dist,
+                media_root,
             };
-            println!("configured add-on {name} in {}", path.display());
+            emit(&origami_core::install_addon(&engine, &dir, &addon)?);
         }
         Action::InstallApply { dir } => {
-            let dir = directory(&dir)?;
-            let file = read_machine(&dir)?;
-            validate(&rt, &machines(&rt)?, &dir, &file)?;
+            let dir = origami_core::directory(&dir)?;
+            let loaded = origami_core::open(&engine, &dir)?;
             install::apply(
                 &dir,
-                &file,
+                &loaded.file,
                 &origami_qemu::connect_console,
                 &mut std::io::stdout(),
             )?;
         }
         Action::InstallCheck { machine, full } => {
-            let dir = directory(&machine.dir)?;
-            let file = read_machine(&dir)?;
-            validate(&rt, &machines(&rt)?, &dir, &file)?;
-            install::check(rt.instigator()?, &dir, &file, full)?;
-            println!("install media validated");
+            let dir = origami_core::directory(&machine.dir)?;
+            emit(&origami_core::install_check(&engine, &dir, full, || {
+                rt.instigator().map(Path::to_path_buf)
+            })?);
         }
         Action::InstallServe(args) => {
-            let dir = directory(&args.dir)?;
-            let file = read_machine(&dir)?;
-            validate(&rt, &machines(&rt)?, &dir, &file)?;
-            let status = install::serve(rt.instigator()?, &dir, &file)?;
+            let dir = origami_core::directory(&args.dir)?;
+            let loaded = origami_core::open(&engine, &dir)?;
+            let status = install::serve(|| Ok(rt.instigator()?.to_path_buf()), &dir, &loaded.file)?;
             if !status.success() {
                 return Err(format!("Instigator exited with {status}").into());
             }

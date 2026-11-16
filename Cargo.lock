@@ -3492,6 +3492,7 @@ dependencies = [
  "getrandom 0.4.3",
  "libc",
  "libtest-mimic",
+ "origami-core",
  "origami-engine",
  "origami-machine",
  "origami-net",
@@ -3508,6 +3509,19 @@ dependencies = [
  "ureq",
  "url",
  "vergen-gitcl",
+]
+
+[[package]]
+name = "origami-core"
+version = "0.0.0"
+dependencies = [
+ "dunce",
+ "origami-engine",
+ "origami-machine",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]

@@ -492,6 +492,21 @@ pub struct Drive {
     pub overlay: bool,
 }
 
+/// `arg` quoted so a shell reads it back as one word.
+pub fn shell_quote(arg: &str) -> String {
+    let plain = !arg.is_empty()
+        && arg
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c));
+    if plain {
+        arg.into()
+    } else if cfg!(windows) {
+        format!("\"{}\"", arg.replace('"', "\\\""))
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
+    }
+}
+
 /// Whether `path` names a MAME CHD image.
 pub fn is_chd(path: &Path) -> bool {
     path.extension()

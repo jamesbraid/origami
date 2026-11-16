@@ -558,7 +558,12 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
 /// Runs Instigator's check on the generated configuration. Remote media are
 /// only probed for reachability unless `full` asks Instigator to read and
 /// assemble them as install-serve does.
-pub fn check(instigator: &Path, dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
+pub fn check(
+    instigator: impl FnOnce() -> Result<PathBuf>,
+    dir: &Path,
+    file: &MachineFile,
+    full: bool,
+) -> Result<()> {
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
     config.write_addon_files()?;
@@ -568,7 +573,7 @@ pub fn check(instigator: &Path, dir: &Path, file: &MachineFile, full: bool) -> R
         args.push("--full");
     }
     args.push("-");
-    let mut child = Command::new(instigator)
+    let mut child = Command::new(instigator()?)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -590,7 +595,11 @@ pub fn check(instigator: &Path, dir: &Path, file: &MachineFile, full: bool) -> R
     Ok(())
 }
 
-pub fn serve(instigator: &Path, dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
+pub fn serve(
+    instigator: impl FnOnce() -> Result<PathBuf>,
+    dir: &Path,
+    file: &MachineFile,
+) -> Result<ExitStatus> {
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
     let install_dir = dir.join("install");
@@ -603,7 +612,7 @@ pub fn serve(instigator: &Path, dir: &Path, file: &MachineFile) -> Result<ExitSt
         .endpoint
         .as_deref()
         .ok_or("private network needs endpoint")?;
-    let mut command = Command::new(instigator);
+    let mut command = Command::new(instigator()?);
     command.arg("serve");
     if let Some(address) = tcp_endpoint(endpoint)? {
         command.arg("--network-tcp").arg(address.to_string());

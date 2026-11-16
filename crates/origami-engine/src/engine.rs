@@ -45,6 +45,18 @@ pub trait Engine: Send + Sync {
     /// Reads the machine directory, never writes it.
     fn validate(&self, m: &Machine, dir: &MachineDir) -> Report;
 
+    /// Refuse a create this engine cannot finish, before it downloads
+    /// anything. Reads nothing of the machine.
+    fn preflight_create(&self) -> Result<()> {
+        Ok(())
+    }
+
+    /// Refuse engine options in `m` that would cut the product off from the
+    /// machine, without the rest of [`Engine::validate`].
+    fn check_options(&self, _m: &Machine) -> Result<()> {
+        Ok(())
+    }
+
     /// Write every store of `o` into the directory `state`, which this call
     /// creates, or none of them.
     fn prepare_stores(&self, o: &Offering, proms: &FirmwareSet, state: &Path) -> Result<()>;
