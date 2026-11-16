@@ -3,12 +3,11 @@
 //! `REGION`, `REGION_GONE` and `WAKE`, send input on the same socket, and
 //! connect again when the connection drops while the machine is alive.
 
-use super::control::Control;
-use super::display::Display;
-use super::proto::*;
-use super::region::Handle;
+use crate::control::Control;
+use crate::display::Display;
+use crate::proto::*;
+use crate::region::Handle;
 use std::io::{self, Write};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -401,22 +400,10 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 // ---- The real socket ------------------------------------------------------
 
-/// The real link: the socket the product's runtime gave QEMU, the machine's
-/// liveness from the product's own QMP check.
-pub struct SocketLink {
-    /// Where QEMU listens, as the runtime told it to (`display-shm-socket`).
-    pub socket: PathBuf,
-    pub dir: PathBuf,
-}
-
-impl Link for SocketLink {
-    fn connect(&mut self) -> io::Result<Conn> {
-        sock::connect(&self.socket)
-    }
-
-    fn alive(&mut self) -> bool {
-        origami_machine::control::running(&self.dir).is_ok_and(|r| r.is_some())
-    }
+/// Connect to the socket the product's runtime gave QEMU
+/// (`display-shm-socket`).
+pub fn connect_socket(path: &std::path::Path) -> io::Result<Conn> {
+    sock::connect(path)
 }
 
 #[cfg(unix)]
@@ -516,10 +503,10 @@ mod sock {
 
 #[cfg(test)]
 mod tests {
-    use super::super::display::Taken;
-    use super::super::region::testing::{fill_lines, Block, Heap};
-    use super::super::region::Memory;
     use super::*;
+    use crate::display::Taken;
+    use crate::region::testing::{fill_lines, Block, Heap};
+    use crate::region::Memory;
     use std::collections::VecDeque;
     use std::sync::atomic::AtomicU32;
 
@@ -693,13 +680,13 @@ mod tests {
 
     struct Held;
 
-    impl crate::core::GpuMemory for Held {
+    impl origami_engine::GpuMemory for Held {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
     }
 
-    impl super::super::import::Importer for FakeImporter {
+    impl crate::import::Importer for FakeImporter {
         fn caps(&self) -> u32 {
             CAP_VULKAN
         }
@@ -717,20 +704,20 @@ mod tests {
             &self,
             r: &Region,
             _handle: Handle,
-        ) -> io::Result<Arc<dyn crate::core::GpuMemory>> {
+        ) -> io::Result<Arc<dyn origami_engine::GpuMemory>> {
             lock(&self.imported).push((r.id, r.memory_type, r.alloc_size));
             self.import
                 .clone()
-                .map(|_| Arc::new(Held) as Arc<dyn crate::core::GpuMemory>)
+                .map(|_| Arc::new(Held) as Arc<dyn origami_engine::GpuMemory>)
                 .map_err(io::Error::other)
         }
         fn wrap(
             &self,
             _r: &Region,
             _m: &Arc<dyn Memory>,
-        ) -> Option<Arc<dyn crate::core::GpuMemory>> {
+        ) -> Option<Arc<dyn origami_engine::GpuMemory>> {
             self.wrap
-                .then(|| Arc::new(Held) as Arc<dyn crate::core::GpuMemory>)
+                .then(|| Arc::new(Held) as Arc<dyn origami_engine::GpuMemory>)
         }
         fn name(&self) -> &'static str {
             "fake import"
@@ -1197,7 +1184,7 @@ mod tests {
 
     #[test]
     fn the_link_facts_say_which_stage_the_display_reached() {
-        use crate::core::status::{stage, Facts, Reason};
+        use origami_engine::status::{stage, Facts, Reason};
         let facts_of = |d: &Display| Facts {
             running: true,
             socket_exists: true,

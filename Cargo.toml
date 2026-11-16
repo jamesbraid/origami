@@ -16,10 +16,10 @@ test = false
 doctest = false
 
 [workspace]
-members = ["crates/origami-engine", "crates/origami-machine", "crates/origami-nfs", "crates/origami-net", "crates/origami-gui", "xtask"]
+members = ["crates/origami-engine", "crates/origami-display", "crates/origami-machine", "crates/origami-nfs", "crates/origami-net", "crates/origami-gui", "xtask"]
 # origami-gui pulls in Slint and wgpu, which the command-line tool's cargo
 # commands and checks should not build. `-p origami-gui` selects it.
-default-members = [".", "crates/origami-engine", "crates/origami-machine", "crates/origami-nfs", "crates/origami-net", "xtask"]
+default-members = [".", "crates/origami-engine", "crates/origami-display", "crates/origami-machine", "crates/origami-nfs", "crates/origami-net", "xtask"]
 
 [dependencies]
 origami-machine = { path = "crates/origami-machine" }

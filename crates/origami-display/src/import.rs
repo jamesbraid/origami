@@ -2,9 +2,9 @@
 //! know a graphics API: it hands each region QEMU passes to an [`Importer`]
 //! and keeps what comes back beside the region's mapping.
 
-use super::proto::Region;
-use super::region::{Handle, Memory};
-use crate::core::GpuMemory;
+use crate::proto::Region;
+use crate::region::{Handle, Memory};
+use origami_engine::GpuMemory;
 use std::io;
 use std::sync::Arc;
 

@@ -7,24 +7,15 @@
 //! allocate scanout memory the GPU imports and the UI draws from it in place;
 //! otherwise regions are plain shared memory and the changed lines are copied.
 //! Both sit behind boundaries meant to be replaced: the frame source
-//! ([`display::Display`], behind [`Engine::take_frame`]) and the input sink
+//! ([`origami_display::Display`], behind [`Engine::take_frame`]) and the input sink
 //! ([`crate::core::InputSink`]).
-
-mod control;
-mod display;
-mod import;
-mod input;
-mod proto;
-mod region;
-mod socket_input;
-mod transport;
 
 use crate::core::status::Facts;
 use crate::core::{
     ConsoleKind, ConsoleLink, CursorInfo, Engine, Frame, HeadInfo, InputEvent, InputSink,
     MachineId, Power, Result, Wake,
 };
-use display::{Display, Taken};
+use origami_display::{Display, Taken};
 use origami_machine::{control as machine_control, runtime};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -33,16 +24,14 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-pub use display::Stats;
-pub use import::Importer;
-pub use proto::Region;
+pub use origami_display::proto::Region;
 #[cfg(target_os = "macos")]
-pub use proto::CAP_METAL;
+pub use origami_display::proto::CAP_METAL;
 #[cfg(any(target_os = "linux", windows))]
-pub use proto::CAP_VULKAN;
+pub use origami_display::proto::CAP_VULKAN;
 #[cfg(any(target_os = "linux", windows))]
-pub use proto::REGION_DEDICATED;
-pub use region::{Handle, Memory};
+pub use origami_display::proto::REGION_DEDICATED;
+pub use origami_display::{Handle, Importer, Memory, Stats};
 
 pub struct QemuEngine {
     /// The `origami` executable that runs machines in the background.
@@ -69,7 +58,7 @@ struct Machine {
     id: MachineId,
     dir: PathBuf,
     display: Display,
-    uplink: transport::Uplink,
+    uplink: origami_display::Uplink,
     stop: AtomicBool,
     /// Set once the display's machine is gone.
     gone: AtomicBool,
@@ -283,7 +272,7 @@ impl Engine for QemuEngine {
         *lock(&machine.input) = Some(tx);
         let input = {
             let m = machine.clone();
-            let sink = Box::new(socket_input::SocketInput::new(m.uplink.clone()));
+            let sink = Box::new(origami_display::SocketInput::new(m.uplink.clone()));
             std::thread::Builder::new()
                 .name("display-input".into())
                 .spawn(move || input_worker(sink, rx))?
@@ -634,10 +623,28 @@ fn serial_log_tail(path: &Path, len: u64) -> Option<Vec<u8>> {
     Some(buf)
 }
 
+/// The real link: the socket the product's runtime gave QEMU, the machine's
+/// liveness from the product's own QMP check.
+struct SocketLink {
+    /// Where QEMU listens, as the runtime told it to (`display-shm-socket`).
+    socket: PathBuf,
+    dir: PathBuf,
+}
+
+impl origami_display::Link for SocketLink {
+    fn connect(&mut self) -> std::io::Result<origami_display::Conn> {
+        origami_display::connect_socket(&self.socket)
+    }
+
+    fn alive(&mut self) -> bool {
+        machine_control::running(&self.dir).is_ok_and(|r| r.is_some())
+    }
+}
+
 /// The display thread: keep the connection, wake the UI when something moves,
 /// and pick the machine up again if it is started again after it ended.
 fn reader_thread(m: &Arc<Machine>) {
-    let mut link = transport::SocketLink {
+    let mut link = SocketLink {
         socket: runtime::display_socket(&m.dir),
         dir: m.dir.clone(),
     };
@@ -647,27 +654,27 @@ fn reader_thread(m: &Arc<Machine>) {
         }
     };
     loop {
-        let exit = transport::run(
+        let exit = origami_display::run(
             &mut link,
             &m.display,
             &m.uplink,
             &m.stop,
-            transport::Timing::default(),
+            origami_display::Timing::default(),
             &wake,
         );
-        if exit == transport::Exit::NeverCame {
+        if exit == origami_display::Exit::NeverCame {
             eprintln!(
                 "origami-gui: no shared-memory display from {} after 300 s",
                 m.dir.display()
             );
         }
-        if exit == transport::Exit::Stopped {
+        if exit == origami_display::Exit::Stopped {
             return;
         }
         m.gone.store(true, Ordering::Release);
         // The UI shows the state even for a machine nobody is looking at.
         m.shared.wake(m.id);
-        while !m.stop.load(Ordering::Acquire) && !transport::Link::alive(&mut link) {
+        while !m.stop.load(Ordering::Acquire) && !origami_display::Link::alive(&mut link) {
             std::thread::sleep(Duration::from_secs(2));
         }
         if m.stop.load(Ordering::Acquire) {

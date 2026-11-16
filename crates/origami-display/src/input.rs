@@ -1,8 +1,8 @@
 //! Typed input events as version 3 `INPUT` messages: Linux evdev key codes,
 //! QAPI `InputButton` numbers, relative motion and absolute positions.
 
-use super::proto::{Input, InputKind};
-use crate::core::{InputEvent, Key, PointerButton};
+use crate::proto::{Input, InputKind};
+use origami_engine::{InputEvent, Key, PointerButton};
 
 /// The Linux evdev key code (`input-event-codes.h`) for a key.
 pub fn evdev(key: Key) -> u32 {

@@ -2,9 +2,9 @@
 //! written to the connection the transport holds. A batch is one write, so
 //! QEMU applies it as one guest report.
 
-use super::input;
-use super::transport::Uplink;
-use crate::core::{InputEvent, InputSink, Result};
+use crate::input;
+use crate::transport::Uplink;
+use origami_engine::{InputEvent, InputSink, Result};
 
 pub struct SocketInput {
     uplink: Uplink,
@@ -46,9 +46,9 @@ impl InputSink for SocketInput {
 
 #[cfg(test)]
 mod tests {
-    use super::super::proto::{message_type, MSG_INPUT};
     use super::*;
-    use crate::core::{Key, PointerButton};
+    use crate::proto::{message_type, MSG_INPUT};
+    use origami_engine::{Key, PointerButton};
     use std::io::Write;
     use std::sync::{Arc, Mutex};
 

@@ -7,18 +7,15 @@
 //! a x8r8g8b8 frame QEMU has already resolved. Where the region is memory the
 //! GPU imported, the changed lines are only named and the UI draws them from
 //! it; where it is plain shared memory, they are copied out of the mapping for
-//! the UI to upload. It sits behind [`Engine::take_frame`] and
-//! [`Engine::cursor`]; a shader for each model's own family replaces it.
-//!
-//! [`Engine::take_frame`]: crate::core::Engine::take_frame
-//! [`Engine::cursor`]: crate::core::Engine::cursor
+//! the UI to upload. It sits behind an engine's `take_frame` and `cursor`;
+//! a shader for each model's own family replaces it.
 
-use super::control::{Control, ControlError, Layout, Plane};
-use super::import::Importer;
-use super::proto::*;
-use super::region::Memory;
-use crate::core::status::LinkFacts;
-use crate::core::{CursorInfo, FrameUpdate, GpuMemory, HeadInfo, ImportedUpdate};
+use crate::control::{Control, ControlError, Layout, Plane};
+use crate::import::Importer;
+use crate::proto::*;
+use crate::region::Memory;
+use origami_engine::status::LinkFacts;
+use origami_engine::{CursorInfo, FrameUpdate, GpuMemory, HeadInfo, ImportedUpdate};
 use std::collections::HashMap;
 use std::sync::atomic::{fence, AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -176,7 +173,7 @@ impl State {
             || p.format != FMT_X8R8G8B8
             || p.width != l.width
             || p.height != l.height
-            || p.stride % 4 != 0
+            || !p.stride.is_multiple_of(4)
             || (p.stride as u64) < u64::from(l.width) * 4
         {
             return false;
@@ -579,8 +576,8 @@ impl Display {
 
 #[cfg(test)]
 mod tests {
-    use super::super::region::testing::{fill_lines, Block, Heap};
     use super::*;
+    use crate::region::testing::{fill_lines, Block, Heap};
 
     const W: u32 = 16;
     const STRIDE: u32 = 80; // wider than the picture, as a model may pad

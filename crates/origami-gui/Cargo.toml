@@ -11,10 +11,10 @@ name = "origami-gui"
 path = "src/main.rs"
 
 [dependencies]
+origami-display = { path = "../origami-display" }
 origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }
 bytemuck = "1"
-memmap2 = "0.9"
 # A pinned master commit until Slint 1.19 ships (its femtovg 0.28 carries the
 # pipeline-cache fix 1.18's femtovg 0.27 lacks).
 slint = { git = "https://github.com/slint-ui/slint", rev = "3b68276e2fb5cfd965bdbfc7e78be0a91ebf1e26", default-features = false, features = ["std", "backend-winit", "renderer-femtovg-wgpu", "unstable-wgpu-30", "unstable-winit-030", "compat-1-2"] }
@@ -48,7 +48,6 @@ objc2-metal = { version = "0.3", default-features = false, features = ["std", "b
 # QEMU's display socket is AF_UNIX on Windows too, and its segment a named
 # file mapping.
 [target.'cfg(windows)'.dependencies]
-uds_windows = "1"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Memory"] }
 
 [build-dependencies]

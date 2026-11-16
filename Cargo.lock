@@ -3509,6 +3509,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "origami-display"
+version = "0.0.0"
+dependencies = [
+ "libc",
+ "memmap2",
+ "origami-engine",
+ "uds_windows",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "origami-engine"
 version = "0.0.0"
 
@@ -3522,8 +3533,8 @@ dependencies = [
  "bytemuck",
  "fontdue",
  "libc",
- "memmap2",
  "objc2-metal 0.3.2",
+ "origami-display",
  "origami-engine",
  "origami-machine",
  "pollster",
@@ -3531,7 +3542,6 @@ dependencies = [
  "slint",
  "slint-build",
  "tempfile",
- "uds_windows",
  "vt100",
  "wgpu",
  "windows-sys 0.61.2",

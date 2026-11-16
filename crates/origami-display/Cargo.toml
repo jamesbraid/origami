@@ -1,0 +1,20 @@
+[package]
+name = "origami-display"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+
+[dependencies]
+origami-engine = { path = "../origami-engine" }
+memmap2 = "0.9"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# QEMU's display socket is AF_UNIX on Windows too, and its segment a named
+# file mapping.
+[target.'cfg(windows)'.dependencies]
+uds_windows = "1"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Memory"] }

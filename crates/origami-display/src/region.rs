@@ -11,6 +11,7 @@ use std::sync::Arc;
 /// # Safety
 /// `base` must point at `len` bytes, aligned to 8, valid for as long as the
 /// value lives.
+#[allow(clippy::len_without_is_empty)]
 pub unsafe trait Memory: Send + Sync {
     fn base(&self) -> *mut u8;
     fn len(&self) -> usize;
@@ -77,7 +78,8 @@ mod windows {
     }
 
     // SAFETY: a shared view, valid until dropped, touched only through
-    // atomics and raw copies.
+    // atomics and raw copies. Another process writes this memory under the
+    // display protocol's sequence rules, so Send and Sync rest on that protocol.
     unsafe impl Send for View {}
     unsafe impl Sync for View {}
     unsafe impl Memory for View {
@@ -141,8 +143,8 @@ mod windows {
 /// the protocol the way QEMU does.
 #[cfg(test)]
 pub mod testing {
-    use super::super::proto::*;
     use super::*;
+    use crate::proto::*;
     use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
     pub struct Heap {
@@ -157,13 +159,13 @@ pub mod testing {
         }
 
         pub fn u32_at(&self, off: usize) -> &AtomicU32 {
-            assert!(off % 4 == 0 && off + 4 <= self.len());
+            assert!(off.is_multiple_of(4) && off + 4 <= self.len());
             // SAFETY: in bounds and aligned; the Vec never moves.
             unsafe { &*(self.base().add(off) as *const AtomicU32) }
         }
 
         pub fn u64_at(&self, off: usize) -> &AtomicU64 {
-            assert!(off % 8 == 0 && off + 8 <= self.len());
+            assert!(off.is_multiple_of(8) && off + 8 <= self.len());
             // SAFETY: as above.
             unsafe { &*(self.base().add(off) as *const AtomicU64) }
         }

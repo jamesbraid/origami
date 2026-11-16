@@ -2,8 +2,8 @@
 //! shows, which lines changed and where the guest's cursor is. QEMU writes
 //! everything but `armed` and `dirty`, so every field is read as untrusted.
 
-use super::proto::*;
-use super::region::Memory;
+use crate::proto::*;
+use crate::region::Memory;
 use std::fmt;
 use std::sync::atomic::{fence, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -104,7 +104,7 @@ impl Control {
     }
 
     fn atom32(&self, off: usize) -> &AtomicU32 {
-        debug_assert!(off % 4 == 0 && off + 4 <= self.mem.len());
+        debug_assert!(off.is_multiple_of(4) && off + 4 <= self.mem.len());
         // SAFETY: in bounds (the block is CONTROL_BYTES long and every offset
         // used is inside it) and aligned; another process stores to it, which
         // atomics permit.
@@ -112,7 +112,7 @@ impl Control {
     }
 
     fn atom64(&self, off: usize) -> &AtomicU64 {
-        debug_assert!(off % 8 == 0 && off + 8 <= self.mem.len());
+        debug_assert!(off.is_multiple_of(8) && off + 8 <= self.mem.len());
         // SAFETY: as above.
         unsafe { &*(self.mem.base().add(off) as *const AtomicU64) }
     }
@@ -233,8 +233,8 @@ impl Control {
 
 #[cfg(test)]
 mod tests {
-    use super::super::region::testing::Block;
     use super::*;
+    use crate::region::testing::Block;
 
     fn control(b: &Block) -> Control {
         Control::new(b.mem.clone()).unwrap()
@@ -258,7 +258,7 @@ mod tests {
             Control::new(b.mem.clone()),
             Err(ControlError::Layout(_))
         ));
-        let small: Arc<dyn Memory> = super::super::region::testing::Heap::new(4096);
+        let small: Arc<dyn Memory> = crate::region::testing::Heap::new(4096);
         assert!(matches!(Control::new(small), Err(ControlError::Layout(_))));
     }
 
@@ -324,7 +324,7 @@ mod tests {
                 let mut n = 0u32;
                 while !stop.load(Ordering::Relaxed) {
                     n += 1;
-                    if n % 2 == 0 {
+                    if n.is_multiple_of(2) {
                         b.set_layout(0, 8, 4, 1, 0, 32, 0);
                     } else {
                         b.set_layout(0, 16, 8, 2, 256, 64, 0);
