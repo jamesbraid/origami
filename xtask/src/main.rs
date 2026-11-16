@@ -5,9 +5,11 @@
 //! cargo xtask runtime [--platform P] [--qemu-archive FILE]
 //! cargo xtask test    [--qemu-archive FILE]
 //! cargo xtask dist    [--qemu-archive FILE] [--out DIR]
+//! cargo xtask dist --app [--prebuild DIR | --prebuilt DIR] [--target TRIPLE]
 //! cargo xtask bump    qemu|instigator TAG
 //! ```
 
+mod app;
 mod archive;
 mod lock;
 mod notices;
@@ -20,10 +22,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .to_path_buf()
+    // A cross-built xtask.exe runs where its build path does not exist.
+    let built = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    if built.join("runtime.lock").is_file() {
+        built.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap()
+    }
 }
 
 fn target_dir() -> PathBuf {
@@ -45,6 +50,10 @@ struct Options {
     platform: Option<String>,
     qemu_archive: Option<PathBuf>,
     out: Option<PathBuf>,
+    app: bool,
+    target: Option<String>,
+    prebuild: Option<PathBuf>,
+    prebuilt: Option<PathBuf>,
     positional: Vec<String>,
 }
 
@@ -61,6 +70,10 @@ fn parse(args: &[String]) -> Result<Options> {
             "--platform" => options.platform = Some(value("--platform")?),
             "--qemu-archive" => options.qemu_archive = Some(value("--qemu-archive")?.into()),
             "--out" => options.out = Some(value("--out")?.into()),
+            "--app" => options.app = true,
+            "--target" => options.target = Some(value("--target")?),
+            "--prebuild" => options.prebuild = Some(value("--prebuild")?.into()),
+            "--prebuilt" => options.prebuilt = Some(value("--prebuilt")?.into()),
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}").into()),
             _ => options.positional.push(arg.clone()),
         }
@@ -191,8 +204,14 @@ fn runtime(platform: &str, qemu_archive: Option<&Path>) -> Result<PathBuf> {
 fn native(options: &Options) -> Result<&'static str> {
     let host = lock::host_platform()?;
     if let Some(platform) = &options.platform {
-        if platform != host {
+        let cross = options.app
+            && platform == "windows-x86_64"
+            && (options.target.is_some() || options.prebuilt.is_some());
+        if platform != host && !cross {
             return Err(format!("this task builds for {host}, not {platform}").into());
+        }
+        if let Some(known) = PLATFORMS.iter().find(|p| **p == platform) {
+            return Ok(known);
         }
     }
     Ok(host)
@@ -262,14 +281,29 @@ fn describe() -> String {
 
 fn dist(options: &Options) -> Result<()> {
     let platform = native(options)?;
+    if let Some(dir) = &options.prebuild {
+        return app::prebuild(platform, dir, options.target.as_deref());
+    }
     let tree = runtime(platform, options.qemu_archive.as_deref())?;
-    run(cargo(&[
-        "build",
-        "--release",
-        "--locked",
-        "--bin",
-        "origami",
-    ]))?;
+    let prebuilt = options.prebuilt.as_deref();
+    let release = match &options.target {
+        Some(target) => target_dir().join(target).join("release"),
+        None => target_dir().join("release"),
+    };
+    let name = exe("origami", platform);
+    let built = match prebuilt {
+        Some(dir) => dir.join(&name),
+        None => {
+            run(cargo(&[
+                "build",
+                "--release",
+                "--locked",
+                "--bin",
+                "origami",
+            ]))?;
+            release.join(&name)
+        }
+    };
     let version = describe();
     let top = format!("origami-{version}");
     let stage = target_dir().join("dist").join(platform).join("tree");
@@ -277,25 +311,37 @@ fn dist(options: &Options) -> Result<()> {
         fs::remove_dir_all(&stage)?;
     }
     archive::copy_tree(&tree, &stage)?;
-    let name = exe("origami", platform);
-    archive::copy_file(
-        &target_dir().join("release").join(&name),
-        &stage.join("bin").join(&name),
-    )?;
+    archive::copy_file(&built, &stage.join("bin").join(&name))?;
     let licenses = stage.join("share/origami/licenses");
     archive::copy_file(&root().join("LICENSE"), &licenses.join("origami.LICENSE"))?;
-    let base = fs::read_to_string(root().join("THIRD_PARTY_NOTICES"))?;
+    // A cross-built package has no cargo where it is assembled; its notices
+    // were generated with the Rust parts.
+    let notices = match prebuilt {
+        Some(dir) => fs::read_to_string(dir.join("THIRD_PARTY_NOTICES"))?,
+        None => {
+            let base = fs::read_to_string(root().join("THIRD_PARTY_NOTICES"))?;
+            notices::cli(&base, notices::triple(platform, options.target.as_deref()))?
+        }
+    };
     fs::create_dir_all(&licenses)?;
-    fs::write(
-        licenses.join("THIRD_PARTY_NOTICES"),
-        notices::cli(&base, notices::triple(platform, None))?,
-    )?;
+    fs::write(licenses.join("THIRD_PARTY_NOTICES"), notices)?;
 
     let out = options
         .out
         .clone()
         .unwrap_or_else(|| target_dir().join("dist"));
     fs::create_dir_all(&out)?;
+    if options.app {
+        return app::dist(
+            &app::Product {
+                platform,
+                version: &version,
+                stage: &stage,
+                out: &out,
+            },
+            options,
+        );
+    }
     let file = out.join(format!(
         "{top}-{platform}.{}",
         lock::archive_extension(platform)

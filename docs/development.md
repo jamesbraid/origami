@@ -78,6 +78,26 @@ cargo xtask dist --qemu-archive /path/to/sgi-origami-<version>-linux-x86_64.tar.
 `--qemu-archive` works with `runtime`, `test` and `dist`, and replaces the
 QEMU pin for that run.
 
+### App packages
+
+`cargo xtask dist --app` adds the native app to the same tree and writes
+`origami-<version>-<platform>-app.tar.gz` (`.zip` on Windows and macOS) with
+its `.sha256`. It needs the app in the checkout: `crates/origami-gtk` on Linux
+(GTK 4.14 and libadwaita 1.6 come from the host), `apps/macos` on macOS (the
+archive holds `Origami.app` with the tools beside its executable, ad hoc
+signed) and `apps/windows` on Windows. The Windows app is `Origami.exe`,
+which cannot share a directory with `origami.exe`, so it lives in `app/` and
+finds the tools in the sibling `bin`. Release packages carry no Slint.
+`cargo test -p xtask -- --ignored` checks the notices; it fetches every
+dependency, including git ones, so the default test run skips it.
+
+The Windows runner has no compiler. Build the Rust parts elsewhere with
+`cargo xtask dist --app --platform windows-x86_64 --target x86_64-pc-windows-gnu
+--prebuild DIR` (needs `uniffi-bindgen-cs`, pinned in
+`crates/origami-ffi/bindings/csharp/gen.sh`), then run the cross-built
+`DIR/xtask.exe dist --app --prebuilt DIR` on Windows, where `dotnet publish`
+builds the app. `.github/workflows/package-windows.yml` does both.
+
 ### Instigator's install configurations
 
 The install recipes embed the five YAML files in `resources/instigator/configs`

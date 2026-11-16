@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Origami
+Comment=Run SGI MIPS machines in an emulator
+Exec=origami-gtk
+Icon=fans.irix.Origami
+Terminal=false
+Categories=System;Emulator;
+StartupWMClass=fans.irix.Origami
