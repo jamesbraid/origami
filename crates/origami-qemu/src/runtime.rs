@@ -97,7 +97,7 @@ const QMP_READY_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// `QMP_READY_TIMEOUT`, or the seconds in ORIGAMI_QMP_TIMEOUT, which the tests
 /// of a QEMU that never answers set so they do not wait two minutes.
-fn qmp_ready_timeout() -> Duration {
+pub(crate) fn qmp_ready_timeout() -> Duration {
     std::env::var("ORIGAMI_QMP_TIMEOUT")
         .ok()
         .and_then(|seconds| seconds.parse().ok())
@@ -875,17 +875,7 @@ fn run_inner(
         std::process::id(),
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     );
-    log_primary_serial(
-        &mut args,
-        format!("socket,id=origami-console,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
-    )?;
-    args.extend([
-        "-qmp".into(),
-        format!("tcp:127.0.0.1:{qmp_port},server=on,wait=off"),
-        "-name".into(),
-        name.clone(),
-    ]);
-    append_extra_args(&mut args, file, once)?;
+    background_arguments(&mut args, file, once, console_port, qmp_port, &name, false)?;
     let mut record = run_record::Record {
         pid: std::process::id(),
         qmp_port,
@@ -920,6 +910,34 @@ fn run_inner(
     child.kill()?;
     child.wait()?;
     Err("QEMU did not open its QMP control endpoint".into())
+}
+
+/// The options a background run adds to [`arguments_with`]: the console and
+/// QMP endpoints on loopback ports, the process name, `-S` for a start
+/// paused, and the unsupported options last.
+pub(crate) fn background_arguments(
+    args: &mut Vec<String>,
+    file: &MachineFile,
+    once: &[String],
+    console_port: u16,
+    qmp_port: u16,
+    name: &str,
+    paused: bool,
+) -> Result<()> {
+    log_primary_serial(
+        args,
+        format!("socket,id=origami-console,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
+    )?;
+    args.extend([
+        "-qmp".into(),
+        format!("tcp:127.0.0.1:{qmp_port},server=on,wait=off"),
+        "-name".into(),
+        name.into(),
+    ]);
+    if paused {
+        args.push("-S".into());
+    }
+    append_extra_args(args, file, once)
 }
 
 /// The last few lines written to the runner log since `start`, which hold

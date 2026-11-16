@@ -1,0 +1,530 @@
+//! [`QemuEngine`]: QEMU behind the product's engine interface.
+
+use crate::control::{verified_qmp, Qmp};
+use crate::runtime::{self, Display, GpuUuid, Runtime};
+use crate::ENGINE;
+use origami_engine::{
+    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, DiskFormat,
+    DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats, DriveKind, Engine, EngineInfo,
+    Facts, IdentityKind, LaunchPlan, MachineId, Report, Result, RunState, Session, Stop, Wake,
+    Wiring,
+};
+use origami_machine::control::Record;
+use origami_machine::dir::MachineDir;
+use origami_machine::model::Machine;
+use origami_machine::stores::{FirmwareSet, StorePreparer};
+use origami_machine::Offering;
+use qapi::qmp;
+use serde::{Deserialize, Serialize};
+use std::io::{BufRead, BufReader};
+use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
+
+/// The only console name a QEMU session has: the primary serial line.
+pub const CONSOLE: &str = "console";
+
+/// Display v3 carries up to this many heads.
+const MAX_HEADS: u32 = 8;
+
+/// How often the monitor looks at the QEMU process.
+const POLL: Duration = Duration::from_millis(25);
+
+pub struct QemuEngine {
+    rt: Runtime,
+    catalogue: Mutex<Option<Arc<Catalogue>>>,
+    next_id: AtomicU32,
+}
+
+impl QemuEngine {
+    /// An engine that asks the runtime's QEMU for its machine list when
+    /// first needed.
+    pub fn new(rt: Runtime) -> Self {
+        Self {
+            rt,
+            catalogue: Mutex::new(None),
+            next_id: AtomicU32::new(1),
+        }
+    }
+
+    /// An engine with a machine list the caller already has.
+    pub fn with_catalogue(rt: Runtime, catalogue: Arc<Catalogue>) -> Self {
+        let engine = Self::new(rt);
+        *engine.catalogue.lock().unwrap() = Some(catalogue);
+        engine
+    }
+
+    pub fn runtime(&self) -> &Runtime {
+        &self.rt
+    }
+}
+
+/// What a QEMU launch needs, as the plan's payload.
+#[derive(Debug, Serialize, Deserialize)]
+struct QemuPlan {
+    program: PathBuf,
+    args: Vec<String>,
+    keymap: PathBuf,
+    qmp_port: u16,
+    console_port: u16,
+    name: String,
+    /// The display v3 socket, when the plan has one.
+    display: Option<PathBuf>,
+    /// The drives that take media: guest name and QEMU block device id.
+    removable: Vec<(String, String)>,
+}
+
+fn display_of(request: DisplayRequest) -> Display {
+    match request {
+        DisplayRequest::Window => Display::Local,
+        DisplayRequest::Vnc { port } => Display::Vnc { port },
+        DisplayRequest::Shared { gpu } => Display::Shm {
+            gpu: gpu.map(GpuUuid),
+        },
+        DisplayRequest::None => Display::None,
+    }
+}
+
+impl Engine for QemuEngine {
+    fn info(&self) -> EngineInfo {
+        let formats = |kind, formats: &[DiskFormat], preferred| DriveFormats {
+            kind,
+            formats: formats.to_vec(),
+            preferred,
+        };
+        EngineInfo {
+            id: ENGINE.into(),
+            version: None,
+            capabilities: Capabilities {
+                display: DisplayKind::Socket,
+                max_heads: MAX_HEADS,
+                gpu_regions: true,
+                controls: vec![
+                    Control::Reset,
+                    Control::PowerButton,
+                    Control::Nmi,
+                    Control::Pause,
+                    Control::Resume,
+                ],
+                disk_formats: vec![
+                    formats(
+                        DriveKind::Disk,
+                        &[DiskFormat::Raw, DiskFormat::Qcow2, DiskFormat::Chd],
+                        DiskFormat::Qcow2,
+                    ),
+                    formats(DriveKind::Cdrom, &[DiskFormat::Raw], DiskFormat::Raw),
+                    formats(DriveKind::Tape, &[DiskFormat::Raw], DiskFormat::Raw),
+                ],
+                console: ConsoleTransport::RawTcp,
+                identity: IdentityKind::Qemu,
+                attach: false,
+                audio: vec!["octane".into(), "octane2".into(), "o2".into()],
+            },
+        }
+    }
+
+    fn catalogue(&self) -> Result<Arc<Catalogue>> {
+        let mut cached = self.catalogue.lock().unwrap();
+        if let Some(catalogue) = &*cached {
+            return Ok(catalogue.clone());
+        }
+        let catalogue = Arc::new(crate::machines(&self.rt)?);
+        *cached = Some(catalogue.clone());
+        Ok(catalogue)
+    }
+
+    fn firmware(
+        &self,
+        offering: &Offering,
+        boot_prom: Option<&Path>,
+        io_prom: Option<&Path>,
+    ) -> Result<FirmwareSet> {
+        let (boot_prom, io_prom) = self.rt.firmware(offering, boot_prom, io_prom)?;
+        Ok(FirmwareSet { boot_prom, io_prom })
+    }
+
+    fn validate(&self, m: &Machine, dir: &MachineDir) -> Report {
+        let catalogue = match self.catalogue() {
+            Ok(catalogue) => catalogue,
+            Err(error) => return Report::error(error.to_string()),
+        };
+        match crate::validate(&catalogue, dir.path(), &m.to_file()) {
+            Ok(_) => Report::default(),
+            Err(error) => Report::error(error.to_string()),
+        }
+    }
+
+    fn prepare_stores(&self, o: &Offering, proms: &FirmwareSet, state: &Path) -> Result<()> {
+        let staged = self.rt.stage_boot_prom(o, &proms.boot_prom)?;
+        let boot_prom = staged.as_ref().map_or(proms.boot_prom.as_path(), |p| p);
+        self.rt
+            .create_stores(o, boot_prom, proms.io_prom.as_deref(), state)
+    }
+
+    fn create_disk(&self, stem: &Path, size_mib: u64) -> Result<PathBuf> {
+        let mut name = stem.as_os_str().to_owned();
+        name.push(".");
+        name.push(DiskFormat::Qcow2.extension());
+        let path = PathBuf::from(name);
+        if path.exists() {
+            return Err(format!("disk exists: {}", path.display()).into());
+        }
+        let output = Command::new(self.rt.qemu_img())
+            .args(["create", "-f", "qcow2"])
+            .arg(&path)
+            .arg(format!("{size_mib}M"))
+            .output()?;
+        if !output.status.success() {
+            return Err(format!("qemu-img: {}", String::from_utf8_lossy(&output.stderr)).into());
+        }
+        Ok(path)
+    }
+
+    fn plan(&self, m: &Machine, dir: &MachineDir, w: &Wiring) -> Result<LaunchPlan> {
+        let catalogue = self.catalogue()?;
+        let file = m.to_file();
+        let offering = origami_machine::offering(&catalogue, &file.machine)?;
+        let display = display_of(w.display);
+        let mut args = runtime::arguments_with(
+            &catalogue,
+            dir.path(),
+            &file,
+            offering,
+            display,
+            w.shares.as_ref(),
+        )?;
+        args.splice(0..0, self.rt.data_arguments());
+        runtime::background_arguments(
+            &mut args,
+            &file,
+            &w.once,
+            w.console_port,
+            w.control_port,
+            &w.name,
+            w.paused,
+        )?;
+        let removable = file
+            .drive
+            .iter()
+            .enumerate()
+            .filter(|(_, drive)| drive.kind == "cdrom")
+            .map(|(index, drive)| (drive.name.clone(), format!("drive{index}")))
+            .collect();
+        let plan = QemuPlan {
+            program: self.rt.qemu(),
+            args,
+            keymap: self.rt.data().join("keymaps/en-us"),
+            qmp_port: w.control_port,
+            console_port: w.console_port,
+            name: w.name.clone(),
+            display: matches!(display, Display::Shm { .. })
+                .then(|| runtime::display_socket(dir.path())),
+            removable,
+        };
+        Ok(LaunchPlan::new(
+            ENGINE,
+            dir.path().to_path_buf(),
+            serde_json::to_value(plan)?,
+        ))
+    }
+
+    fn launch(&self, plan: LaunchPlan, wake: Wake) -> Result<Arc<dyn Session>> {
+        if plan.engine() != ENGINE {
+            return Err(format!("a {} plan is not a QEMU plan", plan.engine()).into());
+        }
+        let spec: QemuPlan = serde_json::from_value(plan.payload().clone())?;
+        if !spec.program.is_file() {
+            return Err(format!("packaged QEMU missing: {}", spec.program.display()).into());
+        }
+        if !spec.keymap.is_file() {
+            return Err(format!("packaged QEMU keymap missing: {}", spec.keymap.display()).into());
+        }
+        std::fs::create_dir_all(plan.dir().join("logs"))?;
+        let mut child = Command::new(&spec.program)
+            .args(&spec.args)
+            .current_dir(plan.dir())
+            .stdin(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let last_error = Arc::new(Mutex::new(None));
+        let pump = child.stderr.take().map(|stderr| {
+            let last_error = last_error.clone();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stderr).lines().map_while(|line| line.ok()) {
+                    eprintln!("{line}");
+                    if !line.trim().is_empty() {
+                        *last_error.lock().unwrap() = Some(line);
+                    }
+                }
+            })
+        });
+        let record = Record {
+            pid: std::process::id(),
+            qmp_port: spec.qmp_port,
+            console_port: spec.console_port,
+            name: spec.name.clone(),
+            qemu_pid: child.id(),
+        };
+        let deadline = Instant::now() + runtime::qmp_ready_timeout();
+        loop {
+            if verified_qmp(&record).is_ok() {
+                break;
+            }
+            if let Some(status) = child.try_wait()? {
+                if let Some(pump) = pump {
+                    let _ = pump.join();
+                }
+                let detail = last_error
+                    .lock()
+                    .unwrap()
+                    .as_deref()
+                    .map_or(String::new(), |line| format!(": {line}"));
+                return Err(format!("QEMU exited before QMP was ready ({status}){detail}").into());
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("QEMU did not open its QMP control endpoint".into());
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let id = MachineId(self.next_id.fetch_add(1, Ordering::Relaxed));
+        let inner = Arc::new(Inner {
+            child: Mutex::new(child),
+            exit: Mutex::new(None),
+            exited: Condvar::new(),
+        });
+        let session = Arc::new(QemuSession {
+            id,
+            inner: inner.clone(),
+            record,
+            display: spec.display,
+            removable: spec.removable,
+            console_taken: AtomicBool::new(false),
+        });
+        std::thread::spawn(move || monitor(&inner, pump, &last_error, &wake, id));
+        let session: Arc<dyn Session> = session;
+        Ok(session)
+    }
+}
+
+struct Exit {
+    code: Option<i32>,
+    last_error: Option<String>,
+}
+
+struct Inner {
+    child: Mutex<Child>,
+    exit: Mutex<Option<Exit>>,
+    exited: Condvar,
+}
+
+/// Watch the QEMU process until it exits, record how, and say so.
+fn monitor(
+    inner: &Inner,
+    pump: Option<std::thread::JoinHandle<()>>,
+    last_error: &Mutex<Option<String>>,
+    wake: &Wake,
+    id: MachineId,
+) {
+    let status = loop {
+        match inner.child.lock().unwrap().try_wait() {
+            Ok(None) => {}
+            Ok(Some(status)) => break Some(status),
+            Err(_) => break None,
+        }
+        std::thread::sleep(POLL);
+    };
+    // The error output ends when the process does; join it for the last line.
+    if let Some(pump) = pump {
+        let _ = pump.join();
+    }
+    let success = status.is_some_and(|status| status.success());
+    let exit = Exit {
+        code: status.and_then(|status| status.code()),
+        last_error: last_error.lock().unwrap().take().filter(|_| !success),
+    };
+    *inner.exit.lock().unwrap() = Some(exit);
+    inner.exited.notify_all();
+    wake(id);
+}
+
+struct QemuSession {
+    id: MachineId,
+    inner: Arc<Inner>,
+    record: Record,
+    display: Option<PathBuf>,
+    removable: Vec<(String, String)>,
+    console_taken: AtomicBool,
+}
+
+impl QemuSession {
+    fn exited(&self) -> bool {
+        self.inner.exit.lock().unwrap().is_some()
+    }
+
+    /// QMP is single-client, so each request connects and disconnects.
+    fn qmp(&self) -> Result<Qmp> {
+        if self.exited() {
+            return Err("the machine has exited".into());
+        }
+        verified_qmp(&self.record)
+    }
+
+    /// Wait for the exit up to `timeout`; true when it happened.
+    fn wait_exit(&self, timeout: Option<Duration>) -> bool {
+        let deadline = timeout.map(|timeout| Instant::now() + timeout);
+        let mut exit = self.inner.exit.lock().unwrap();
+        while exit.is_none() {
+            let wait = match deadline {
+                None => Duration::from_secs(3600),
+                Some(deadline) => match deadline.checked_duration_since(Instant::now()) {
+                    Some(left) => left,
+                    None => return false,
+                },
+            };
+            exit = self.inner.exited.wait_timeout(exit, wait).unwrap().0;
+        }
+        true
+    }
+}
+
+impl Session for QemuSession {
+    fn id(&self) -> MachineId {
+        self.id
+    }
+
+    fn display(&self) -> DisplayEndpoint {
+        match &self.display {
+            Some(socket) => DisplayEndpoint::Socket(socket.clone()),
+            None => DisplayEndpoint::None,
+        }
+    }
+
+    fn consoles(&self) -> Vec<ConsoleInfo> {
+        vec![ConsoleInfo {
+            name: CONSOLE.into(),
+            primary: true,
+        }]
+    }
+
+    fn open_console(&self, name: &str) -> Result<Box<dyn ConsoleIo>> {
+        if name != CONSOLE {
+            return Err(format!("no console named {name}").into());
+        }
+        if self.console_taken.swap(true, Ordering::SeqCst) {
+            return Err("the console is already open".into());
+        }
+        let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, self.record.console_port);
+        match TcpStream::connect_timeout(&address.into(), Duration::from_secs(5)) {
+            Ok(stream) => Ok(Box::new(stream)),
+            Err(error) => {
+                self.console_taken.store(false, Ordering::SeqCst);
+                Err(error.into())
+            }
+        }
+    }
+
+    fn control(&self, c: Control) -> Result<()> {
+        let mut qmp = self.qmp()?;
+        match c {
+            Control::Reset => qmp.execute(&qmp::system_reset {})?,
+            Control::PowerButton => qmp.execute(&qmp::system_powerdown {})?,
+            Control::Nmi => qmp.execute(&qmp::inject_nmi {})?,
+            Control::Pause => qmp.execute(&qmp::stop {})?,
+            Control::Resume => qmp.execute(&qmp::cont {})?,
+        };
+        Ok(())
+    }
+
+    // The drives have block names (`drive0`) and no qdev ids, so `device`.
+    #[allow(deprecated)]
+    fn media(&self, drive: &str, image: Option<&Path>) -> Result<()> {
+        let Some((_, device)) = self.removable.iter().find(|(name, _)| name == drive) else {
+            return Err(format!("{drive} is not a removable drive of this machine").into());
+        };
+        let mut qmp = self.qmp()?;
+        match image {
+            Some(image) => qmp.execute(&qmp::blockdev_change_medium {
+                device: Some(device.clone()),
+                id: None,
+                filename: image.display().to_string(),
+                format: None,
+                force: None,
+                read_only_mode: None,
+            })?,
+            None => qmp.execute(&qmp::eject {
+                device: Some(device.clone()),
+                id: None,
+                force: None,
+            })?,
+        };
+        Ok(())
+    }
+
+    fn screendump(&self, head: usize, path: &Path) -> Result<()> {
+        self.qmp()?.execute(&qmp::screendump {
+            filename: path.display().to_string(),
+            device: None,
+            head: Some(head as i64),
+            format: None,
+        })?;
+        Ok(())
+    }
+
+    fn stop(&self, how: Stop) -> Result<()> {
+        match how {
+            Stop::Clean { timeout } => {
+                // QEMU may already have taken a quit and stopped answering
+                // while it folds a CHD disk; then only the wait is left.
+                if let Ok(mut qmp) = self.qmp() {
+                    let _ = qmp.write_command(&qmp::quit {});
+                }
+                if self.wait_exit(timeout) {
+                    Ok(())
+                } else {
+                    Err("QEMU is still exiting; it was not killed".into())
+                }
+            }
+            Stop::Force => {
+                let _ = self.inner.child.lock().unwrap().kill();
+                if self.wait_exit(Some(Duration::from_secs(30))) {
+                    Ok(())
+                } else {
+                    Err("QEMU was killed but has not exited after 30 seconds".into())
+                }
+            }
+        }
+    }
+
+    fn status(&self) -> Facts {
+        if let Some(exit) = &*self.inner.exit.lock().unwrap() {
+            return Facts {
+                state: RunState::Exited {
+                    code: exit.code,
+                    last_error: exit.last_error.clone(),
+                },
+                pid: None,
+            };
+        }
+        let state = self
+            .qmp()
+            .and_then(|mut qmp| Ok(qmp.execute(&qmp::query_status {})?))
+            .map_or(RunState::Running, |info| {
+                if matches!(info.status, qmp::RunState::prelaunch) {
+                    RunState::Prelaunch
+                } else if info.running {
+                    RunState::Running
+                } else {
+                    RunState::Paused
+                }
+            });
+        Facts {
+            state,
+            pid: Some(self.record.qemu_pid),
+        }
+    }
+}

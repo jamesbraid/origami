@@ -22,6 +22,7 @@ members = ["crates/origami-engine", "crates/origami-display", "crates/origami-ma
 default-members = [".", "crates/origami-engine", "crates/origami-display", "crates/origami-machine", "crates/origami-qemu", "crates/origami-nfs", "crates/origami-net", "xtask"]
 
 [dependencies]
+origami-engine = { path = "crates/origami-engine" }
 origami-machine = { path = "crates/origami-machine" }
 origami-qemu = { path = "crates/origami-qemu" }
 origami-net = { path = "crates/origami-net" }
@@ -36,6 +37,7 @@ dunce = "1"
 libc = "0.2"
 
 [dev-dependencies]
+origami-engine = { path = "crates/origami-engine", features = ["fake"] }
 origami-machine = { path = "crates/origami-machine" }
 origami-qemu = { path = "crates/origami-qemu" }
 serde = { version = "1", features = ["derive"] }

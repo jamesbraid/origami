@@ -63,3 +63,10 @@ pub fn check_state(dir: &Path, offering: &Offering) -> Result<()> {
     }
     Ok(())
 }
+
+/// The firmware images that create a machine's stores.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FirmwareSet {
+    pub boot_prom: PathBuf,
+    pub io_prom: Option<PathBuf>,
+}

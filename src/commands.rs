@@ -1,15 +1,42 @@
 use crate::cli::{CreateArgs, GraphicsArgs};
-use origami_machine::stores::StorePreparer;
+use origami_engine::{Engine, EngineStores};
+use origami_machine::dir::MachineDir;
+use origami_machine::model::Machine;
 use origami_machine::{control, graphics};
 use origami_machine::{
-    preset, read_machine, validate_create_inputs, Drive, MachineInit, Machines, Result,
+    preset, read_machine, validate_create_inputs, Drive, MachineFile, MachineInit, Machines,
+    Offering, Result,
 };
-use origami_qemu::{runtime, validate};
+use origami_qemu::{runtime, QemuEngine};
 use std::fs;
 use std::path::Path;
-use std::process::Command;
+use std::sync::Arc;
 
-pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateArgs) -> Result<()> {
+/// QEMU's machine list, through the engine interface.
+pub fn machines(rt: &runtime::Runtime) -> Result<Arc<Machines>> {
+    QemuEngine::new(rt.clone()).catalogue()
+}
+
+/// Check `file` through the engine interface and return its offering.
+pub fn validate<'a>(
+    rt: &runtime::Runtime,
+    machines: &'a Arc<Machines>,
+    dir: &Path,
+    file: &MachineFile,
+) -> Result<&'a Offering> {
+    let engine = QemuEngine::with_catalogue(rt.clone(), machines.clone());
+    let machine = Machine::from_file(machines, file)?;
+    engine
+        .validate(&machine, &MachineDir::new(dir))
+        .into_result()?;
+    origami_machine::offering(machines, &file.machine)
+}
+
+pub fn create_machine(
+    rt: &runtime::Runtime,
+    machines: &Arc<Machines>,
+    args: &CreateArgs,
+) -> Result<()> {
     let options = &args.options;
     let preset_offer = preset(machines, &args.preset)?;
     let offer = match &options.processor {
@@ -59,8 +86,8 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
     if !tool.is_file() {
         return Err(format!("packaged machine init tool missing: {}", tool.display()).into());
     }
-    let (prom, io_prom) =
-        rt.firmware(offer, options.prom.as_deref(), options.io_prom.as_deref())?;
+    let engine = QemuEngine::with_catalogue(rt.clone(), machines.clone());
+    let firmware = engine.firmware(offer, options.prom.as_deref(), options.io_prom.as_deref())?;
     // Held until machine.toml is written, so a second create rescans the
     // siblings only after this emu-id is on disk.
     let _emu_ids = origami_machine::emu_id::lock(&args.dir)?;
@@ -82,9 +109,9 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
         &args.dir,
         offer,
         &MachineInit {
-            stores: rt,
-            boot_prom: &prom,
-            io_prom: io_prom.as_deref(),
+            stores: &EngineStores(&engine),
+            boot_prom: &firmware.boot_prom,
+            io_prom: firmware.io_prom.as_deref(),
         },
         options.memory_per_node,
         mac.map(|mac| origami_machine::Identity::new(&mac, Some(emu_id))),
@@ -109,10 +136,15 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
 
 /// Change the graphics of the stopped machine in `dir`, where every slot
 /// and setting the change touches may change between boots.
-pub fn set_graphics(machines: &Machines, dir: &Path, args: &GraphicsArgs) -> Result<()> {
+pub fn set_graphics(
+    rt: &runtime::Runtime,
+    machines: &Arc<Machines>,
+    dir: &Path,
+    args: &GraphicsArgs,
+) -> Result<()> {
     let _lock = control::lock_for_edit(dir, "changing its graphics")?;
     let mut file = read_machine(dir)?;
-    let offer = validate(machines, dir, &file)?;
+    let offer = validate(rt, machines, dir, &file)?;
     if args.graphics.is_none() {
         return Err("name the graphics with --graphics PRODUCT or --graphics none".into());
     }
@@ -139,7 +171,7 @@ pub fn set_graphics(machines: &Machines, dir: &Path, args: &GraphicsArgs) -> Res
     }
     graphics::check_change(machines, &offer.topology, &file.pipe, &pipes)?;
     file.pipe = pipes;
-    validate(machines, dir, &file)?;
+    validate(rt, machines, dir, &file)?;
     fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
     println!("graphics changed; the guest sees them at its next boot");
     Ok(())
@@ -147,13 +179,13 @@ pub fn set_graphics(machines: &Machines, dir: &Path, args: &GraphicsArgs) -> Res
 
 pub fn create_disk(
     rt: &runtime::Runtime,
-    machines: &Machines,
+    machines: &Arc<Machines>,
     dir: &Path,
     size: u64,
 ) -> Result<()> {
     let _lock = control::lock_for_edit(dir, "changing drives")?;
     let mut file = read_machine(dir)?;
-    let offer = validate(machines, dir, &file)?;
+    let offer = validate(rt, machines, dir, &file)?;
     if file.drive.iter().any(|d| d.name == "system") {
         return Err("system disk already attached".into());
     }
@@ -167,24 +199,14 @@ pub fn create_disk(
     if !offer.scsi_bus(0).is_some_and(|s| s.targets.contains(&1)) {
         return Err("this machine has no system disk target".into());
     }
-    let path = dir.join("drives/system.qcow2");
-    if path.exists() {
-        return Err(format!("disk exists: {}", path.display()).into());
-    }
-    let output = Command::new(rt.qemu_img())
-        .args(["create", "-f", "qcow2"])
-        .arg(&path)
-        .arg(format!("{size}M"))
-        .output()?;
-    if !output.status.success() {
-        return Err(format!("qemu-img: {}", String::from_utf8_lossy(&output.stderr)).into());
-    }
+    let engine = QemuEngine::with_catalogue(rt.clone(), machines.clone());
+    let path = engine.create_disk(&dir.join("drives/system"), size)?;
     file.drive.push(Drive {
         name: "system".into(),
         kind: "disk".into(),
         bus: 0,
         target: 1,
-        image: "drives/system.qcow2".into(),
+        image: format!("drives/{}", path.file_name().unwrap().to_string_lossy()),
         read_only: false,
         overlay: false,
     });

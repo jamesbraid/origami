@@ -9,12 +9,14 @@ pub mod addressing;
 pub mod assets;
 pub mod console;
 pub mod control;
+pub mod dir;
 pub mod emu_id;
 pub mod graphics;
 pub mod install;
 pub mod listing;
 pub mod mac;
 pub mod migrate;
+pub mod model;
 pub mod nvram;
 pub mod profiles;
 pub mod serial;
@@ -346,7 +348,7 @@ pub struct MachineFile {
 }
 
 /// Raw QEMU options, unsupported: they are neither validated nor migrated.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Qemu {
     /// Appended verbatim after every option the CLI generates.
@@ -362,7 +364,7 @@ impl Qemu {
 
 /// Identity QEMU builds into the machine's own records. An SN1 machine's L1
 /// serves `mac` to its firmware and gives it to the IOC3.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Identity {
     pub mac: String,
@@ -393,7 +395,7 @@ pub fn sha256_file(path: &Path) -> Result<String> {
     Ok(sha256_hex(&fs::read(path)?))
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Network {
     #[serde(default = "default_network_mode")]
@@ -416,14 +418,14 @@ pub struct Network {
 }
 
 /// A host folder the guest mounts as `ADDRESS:/name`.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Share {
     pub name: String,
     pub path: PathBuf,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PortForward {
     pub name: String,
@@ -449,7 +451,7 @@ impl Default for Network {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Machine {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -473,7 +475,7 @@ pub struct Machine {
     pub console: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Drive {
     pub name: String,
@@ -962,27 +964,9 @@ pub fn create_configured(
         }
         init.stores
             .create_stores(offering, boot_prom, init.io_prom, &dir.join("state"))?;
-        let file = MachineFile {
-            format: MACHINE_FORMAT,
-            machine: Machine {
-                topology: Some(offering.topology.clone()),
-                population: offering.cpus_per_node.clone(),
-                inputs,
-                model: offering.product.clone(),
-                nodes: offering.nodes,
-                cpus_per_node: offering.cpus_per_node[0],
-                processor: profiles::selects_processor(offering)
-                    .then(|| offering.processor.id.clone()),
-                memory_per_node: format!("{memory_per_node}MiB"),
-                console: None,
-            },
-            identity,
-            network: Network::default(),
-            pipe: pipes,
-            drive: vec![],
-            share: vec![],
-            qemu: Default::default(),
-        };
+        let file =
+            model::Machine::from_offering(offering, Some(memory_per_node), identity, pipes, inputs)
+                .to_file();
         fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
         Ok(())
     })();

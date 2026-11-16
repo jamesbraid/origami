@@ -13,7 +13,9 @@
 //!   in its working directory, which is the machine directory;
 //! - QMP: `-qmp stdio` answers the machine list; `-qmp tcp:` answers
 //!   `query-name`, `query-status`, `cont`, `stop`, `system_reset`,
-//!   `system_powerdown` and `quit`;
+//!   `system_powerdown`, `inject-nmi`, `blockdev-change-medium`, `eject`,
+//!   `screendump` (writes a small PPM to `filename`) and `quit`. The arguments
+//!   of the last three are logged as `qmp-args COMMAND JSON`;
 //! - the console: a `-chardev socket` with `server=on` plays a guest script
 //!   (see below) to each client;
 //! - stream netdevs: a `-netdev stream` client connects to its address and a
@@ -24,7 +26,8 @@
 //! - `exit-early`: QEMU exits with status 1 before opening anything;
 //! - `no-qmp`: QEMU stays alive and never opens QMP;
 //! - `hang`: QEMU opens QMP, accepts clients and never answers;
-//! - `crash-after=S`: QEMU exits with status 70 S seconds after it is ready;
+//! - `crash-after=S`: QEMU says so on standard error and exits with status 70
+//!   S seconds after it is ready;
 //! - `fold=MS`: after `quit`, QEMU lingers MS milliseconds before it exits,
 //!   as it does while it folds a CHD disk's changes into the image;
 //! - `guest=NAME` or `guest-file=PATH`: the guest script, one of the
@@ -352,6 +355,7 @@ fn qemu(args: &[String]) -> Result<(), String> {
     if let Some(seconds) = switches.number("crash-after") {
         thread::spawn(move || {
             thread::sleep(Duration::from_secs(seconds));
+            eprintln!("qemu-system-mips64: crashing, as asked");
             std::process::exit(70);
         });
     }
@@ -435,6 +439,12 @@ fn greeting() -> Value {
     json!({"QMP": {"version": {"qemu": {"major": 0, "minor": 0, "micro": 0}, "package": ""}, "capabilities": []}})
 }
 
+fn command_arguments(line: &str) -> Value {
+    serde_json::from_str::<Value>(line)
+        .map(|value| value["arguments"].clone())
+        .unwrap_or(Value::Null)
+}
+
 fn command_name(line: &str) -> String {
     serde_json::from_str::<Value>(line)
         .ok()
@@ -465,7 +475,28 @@ fn qmp_session(stream: TcpStream, state: &Mutex<Run>, name: &str, fold: Duration
                     "singlestep": false,
                 }}));
             }
-            "system_reset" => send(json!({"return": {}})),
+            "system_reset" | "inject-nmi" => send(json!({"return": {}})),
+            "blockdev-change-medium" | "eject" => {
+                log.line(format!("qmp-args {command} {}", command_arguments(&line)));
+                send(json!({"return": {}}));
+            }
+            "screendump" => {
+                let arguments = command_arguments(&line);
+                log.line(format!("qmp-args {command} {arguments}"));
+                match arguments["filename"].as_str() {
+                    Some(path) => match fs::write(path, b"P6\n1 1\n255\n\0\0\0") {
+                        Ok(()) => send(json!({"return": {}})),
+                        Err(error) => send(json!({"error": {
+                            "class": "GenericError",
+                            "desc": format!("{path}: {error}"),
+                        }})),
+                    },
+                    None => send(json!({"error": {
+                        "class": "GenericError",
+                        "desc": "screendump needs a filename",
+                    }})),
+                }
+            }
             "cont" => {
                 *state.lock().unwrap() = Run::Running;
                 send(json!({"return": {}}));

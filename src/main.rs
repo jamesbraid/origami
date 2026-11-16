@@ -3,9 +3,10 @@ mod commands;
 
 use clap::Parser;
 use cli::{Action, DriveKind, NetworkMode, NvramAction};
+use commands::{machines, validate};
 use origami_machine::{addressing, control, graphics, install, listing, nvram, serial, shares};
 use origami_machine::{read_machine, Drive, Network, PortForward, Result};
-use origami_qemu::{machines, runtime, validate};
+use origami_qemu::runtime;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -85,7 +86,7 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
             let machines = machines(&rt)?;
-            let offer = validate(&machines, &dir, &file)?;
+            let offer = validate(&rt, &machines, &dir, &file)?;
             let warnings = origami_machine::mac::duplicate_warnings(&machines, &dir, &file)
                 .into_iter()
                 .chain(origami_machine::emu_id::duplicate_warnings(&dir, &file))
@@ -142,7 +143,7 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
             let machines = machines(&rt)?;
-            let offer = validate(&machines, &dir, &file)?;
+            let offer = validate(&rt, &machines, &dir, &file)?;
             println!(
                 "{}: {} CPUs, {} nodes, {} per node",
                 file.machine.model, offer.cpus, offer.nodes, file.machine.memory_per_node,
@@ -224,7 +225,7 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&args.machine.dir)?;
             let file = read_machine(&dir)?;
             let machines = machines(&rt)?;
-            let offer = validate(&machines, &dir, &file)?;
+            let offer = validate(&rt, &machines, &dir, &file)?;
             let display = args.display.resolve(!file.pipe.is_empty())?;
             let exe = rt.qemu();
             let ports = (!file.share.is_empty() && file.network.mode != "private")
@@ -245,7 +246,7 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&args.launch.machine.dir)?;
             let file = read_machine(&dir)?;
             let machines = machines(&rt)?;
-            let offer = validate(&machines, &dir, &file)?;
+            let offer = validate(&rt, &machines, &dir, &file)?;
             let display = args.launch.display.resolve(!file.pipe.is_empty())?;
             match display {
                 runtime::Display::Vnc { port } => {
@@ -290,7 +291,7 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&args.machine.dir)?;
             let file = read_machine(&dir)?;
             let machines = machines(&rt)?;
-            let offer = validate(&machines, &dir, &file)?;
+            let offer = validate(&rt, &machines, &dir, &file)?;
             let display = args.display.resolve(!file.pipe.is_empty())?;
             let status =
                 runtime::serve(&rt, &machines, &dir, &file, offer, display, &args.qemu_args)?;
@@ -324,7 +325,7 @@ fn command(action: Action) -> Result<()> {
         }
         Action::GraphicsSet { dir, graphics } => {
             let dir = directory(&dir)?;
-            commands::set_graphics(&machines(&rt)?, &dir, &graphics)?
+            commands::set_graphics(&rt, &machines(&rt)?, &dir, &graphics)?
         }
         Action::DriveCreate { dir, size } => {
             let dir = directory(&dir)?;
@@ -350,7 +351,7 @@ fn command(action: Action) -> Result<()> {
                 read_only: kind == DriveKind::Cdrom,
                 overlay,
             });
-            validate(&machines(&rt)?, &dir, &file)?;
+            validate(&rt, &machines(&rt)?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("attached {}", path.display());
         }
@@ -371,7 +372,7 @@ fn command(action: Action) -> Result<()> {
                 );
             }
             file.drive.remove(matches[0]);
-            validate(&machines(&rt)?, &dir, &file)?;
+            validate(&rt, &machines(&rt)?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("detached {name}");
         }
@@ -381,7 +382,7 @@ fn command(action: Action) -> Result<()> {
             let mut file = read_machine(&dir)?;
             file.machine.console = port;
             let machines = machines(&rt)?;
-            let offer = validate(&machines, &dir, &file)?;
+            let offer = validate(&rt, &machines, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             let console = file.machine.console.as_deref();
             println!(
@@ -394,7 +395,7 @@ fn command(action: Action) -> Result<()> {
             let _lock = control::lock_for_edit(&dir, "reading or changing its NVRAM")?;
             let file = read_machine(&dir)?;
             let machines = machines(&rt)?;
-            let offer = validate(&machines, &dir, &file)?;
+            let offer = validate(&rt, &machines, &dir, &file)?;
             let mut store = nvram::open(&dir, offer)?;
             match args.action {
                 None => {
@@ -464,7 +465,7 @@ fn command(action: Action) -> Result<()> {
                 origami_machine::set_machine_mac(&machines, &dir, &mut file, mac.as_deref())?;
                 None
             };
-            validate(&machines, &dir, &file)?;
+            validate(&rt, &machines, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             if let Some(mac) = assigned {
                 println!("assigned MAC {mac}");
@@ -500,7 +501,7 @@ fn command(action: Action) -> Result<()> {
                 if file.share.len() == count {
                     return Err(format!("unknown share: {name}").into());
                 }
-                validate(&machines(&rt)?, &dir, &file)?;
+                validate(&rt, &machines(&rt)?, &dir, &file)?;
                 fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
                 println!("share removed: {name}");
             } else {
@@ -521,7 +522,7 @@ fn command(action: Action) -> Result<()> {
                     name: name.clone(),
                     path,
                 });
-                validate(&machines(&rt)?, &dir, &file)?;
+                validate(&rt, &machines(&rt)?, &dir, &file)?;
                 fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
                 let share = file.share.last().expect("share just added");
                 println!("share added: {name}");
@@ -546,7 +547,7 @@ fn command(action: Action) -> Result<()> {
                 host_port,
                 guest_port,
             });
-            validate(&machines(&rt)?, &dir, &file)?;
+            validate(&rt, &machines(&rt)?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("forward added: {name}");
         }
@@ -559,7 +560,7 @@ fn command(action: Action) -> Result<()> {
             if file.network.forward.len() == count {
                 return Err(format!("unknown forward: {name}").into());
             }
-            validate(&machines(&rt)?, &dir, &file)?;
+            validate(&rt, &machines(&rt)?, &dir, &file)?;
             fs::write(dir.join("machine.toml"), toml::to_string_pretty(&file)?)?;
             println!("forward removed: {name}");
         }
@@ -581,7 +582,7 @@ fn command(action: Action) -> Result<()> {
             origami_qemu::runtime::check_extra_args(&file.qemu.extra_args)?;
             let initialised = if let Some(root) = media_root {
                 install::init_profile(
-                    &machines(&rt)?,
+                    &*machines(&rt)?,
                     &dir,
                     &root,
                     mac.as_deref(),
@@ -591,7 +592,7 @@ fn command(action: Action) -> Result<()> {
                 )?
             } else {
                 install::init_remote_profile(
-                    &machines(&rt)?,
+                    &*machines(&rt)?,
                     &dir,
                     mac.as_deref(),
                     &mut file,
@@ -619,7 +620,7 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing its install add-ons")?;
             let file = read_machine(&dir)?;
-            validate(&machines(&rt)?, &dir, &file)?;
+            validate(&rt, &machines(&rt)?, &dir, &file)?;
             let path = match source {
                 Some(source) => install::add_addon(
                     &dir,
@@ -636,7 +637,7 @@ fn command(action: Action) -> Result<()> {
         Action::InstallApply { dir } => {
             let dir = directory(&dir)?;
             let file = read_machine(&dir)?;
-            validate(&machines(&rt)?, &dir, &file)?;
+            validate(&rt, &machines(&rt)?, &dir, &file)?;
             install::apply(
                 &dir,
                 &file,
@@ -647,14 +648,14 @@ fn command(action: Action) -> Result<()> {
         Action::InstallCheck { machine, full } => {
             let dir = directory(&machine.dir)?;
             let file = read_machine(&dir)?;
-            validate(&machines(&rt)?, &dir, &file)?;
+            validate(&rt, &machines(&rt)?, &dir, &file)?;
             install::check(rt.instigator()?, &dir, &file, full)?;
             println!("install media validated");
         }
         Action::InstallServe(args) => {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
-            validate(&machines(&rt)?, &dir, &file)?;
+            validate(&rt, &machines(&rt)?, &dir, &file)?;
             let status = install::serve(rt.instigator()?, &dir, &file)?;
             if !status.success() {
                 return Err(format!("Instigator exited with {status}").into());

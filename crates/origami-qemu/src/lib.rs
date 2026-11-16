@@ -9,6 +9,7 @@ use std::path::Path;
 
 pub mod catalogue;
 pub mod control;
+pub mod engine;
 pub mod graphics;
 pub mod init;
 #[cfg(test)]
@@ -22,6 +23,7 @@ pub const ENGINE: &str = "qemu";
 
 pub use catalogue::{offering_data, OfferingData};
 pub use control::connect_console;
+pub use engine::QemuEngine;
 pub use init::InitTool;
 pub use runtime::Runtime;
 
