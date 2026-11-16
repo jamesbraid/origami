@@ -325,7 +325,7 @@ fn the_console_reaches_the_guest() {
     let machine = create(root, "machine", "origin200-1", &[]);
     let _guard = Running::new(root, &machine);
     start(root, &machine);
-    let mut console = origami_machine::console::Console::connect(&machine).unwrap();
+    let mut console = origami_qemu::connect_console(&machine).unwrap();
     let mut seen = Vec::new();
     let timeout = Duration::from_secs(10);
     console

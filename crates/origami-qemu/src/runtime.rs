@@ -1,9 +1,11 @@
-use crate::{
-    addressing::Addresses, control, qemu_path_option, resolve, tcp_endpoint, Drive, MachineFile,
-    Machines, Offering, Result, StorageItem,
+use crate::catalogue::{offering_data, OfferingData};
+use crate::{control, qemu_path_option};
+use origami_machine::addressing::{dhcp_hostname, Addresses};
+use origami_machine::stores::state_path;
+use origami_machine::{
+    control as run_record, resolve, tcp_endpoint, Drive, MachineFile, Machines, Offering, Result,
 };
 use sha2::{Digest, Sha256};
-use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -110,8 +112,8 @@ pub fn vnc_ports(
     offering: &Offering,
     file: &MachineFile,
     port: u16,
-) -> Result<Vec<(crate::graphics::Head, u16)>> {
-    let heads = crate::graphics::heads(machines, &offering.topology, &file.pipe);
+) -> Result<Vec<(origami_machine::graphics::Head, u16)>> {
+    let heads = origami_machine::graphics::heads(machines, &offering.topology, &file.pipe);
     let last = u32::from(port) + heads.len().saturating_sub(1) as u32;
     if last > u32::from(u16::MAX) {
         return Err(format!(
@@ -218,122 +220,8 @@ fn binary_name(stem: &str) -> String {
     }
 }
 
-/// The init tool's command line for a new machine whose storage goes in
-/// `state`. The tool refuses an image the machine does not read and a
-/// missing one it needs, before it creates anything.
-pub fn init_arguments(
-    offering: &Offering,
-    boot_prom: &Path,
-    io_prom: Option<&Path>,
-    state: &Path,
-) -> Vec<OsString> {
-    let mut args: Vec<OsString> = vec![
-        "--machine".into(),
-        offering.machine_options.clone().into(),
-        "--boot-prom".into(),
-        boot_prom.into(),
-    ];
-    if let Some(io_prom) = io_prom {
-        args.extend(["--io-prom".into(), io_prom.into()]);
-    }
-    args.push(state.into());
-    args
-}
-
-/// Run QEMU's init tool, which writes every storage file or nothing.
-pub fn create_state(tool: &Path, arguments: &[OsString]) -> Result<()> {
-    let output = Command::new(tool)
-        .args(arguments)
-        .output()
-        .map_err(|error| format!("cannot run {}: {error}", tool.display()))?;
-    if !output.status.success() {
-        return Err(format!(
-            "{} failed ({}): {}",
-            tool.display(),
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        )
-        .into());
-    }
-    Ok(())
-}
-
-/// The serial lines a console can use, as (-serial index, chardev name,
-/// whether it is the primary console). The machine list gives the lines in
-/// -serial order, node 0 first; lines of other nodes are not offered.
-fn console_ports(offering: &Offering) -> impl Iterator<Item = (usize, &str, bool)> {
-    offering
-        .consoles
-        .iter()
-        .enumerate()
-        .take_while(|(_, line)| line.node == 0)
-        .filter(|(_, line)| matches!(line.kind.as_str(), "console" | "second-port"))
-        .filter_map(|(index, line)| {
-            let name = line.argument.strip_prefix("-serial chardev:")?;
-            Some((index, name, line.kind == "console"))
-        })
-}
-
-/// The machine's default console: the machine list's line of kind console.
-pub fn default_console(offering: &Offering) -> Result<&str> {
-    console_ports(offering)
-        .find(|(_, _, primary)| *primary)
-        .map(|(_, name, _)| name)
-        .ok_or_else(|| format!("{} lists no node 0 console", offering.topology).into())
-}
-
-/// The -serial index of a console port, by default the machine list's.
-pub fn console_line(offering: &Offering, port: Option<&str>) -> Result<usize> {
-    let port = match port {
-        Some(port) => port,
-        None => default_console(offering)?,
-    };
-    console_ports(offering)
-        .find(|(_, name, _)| *name == port)
-        .map(|(index, _, _)| index)
-        .ok_or_else(|| {
-            let names: Vec<_> = console_ports(offering).map(|(_, name, _)| name).collect();
-            format!(
-                "{} has no {port} console; choose {}",
-                offering.topology,
-                names.join(" or ")
-            )
-            .into()
-        })
-}
-
-fn state_path(dir: &Path, item: &StorageItem) -> PathBuf {
-    dir.join("state").join(format!("{}.raw", item.name))
-}
-
-/// Origami never rebuilds missing storage: a flash file holds the guest's
-/// own PROM updates and settings, which the original images cannot restore.
-pub fn check_state(dir: &Path, offering: &Offering) -> Result<()> {
-    for item in &offering.storage {
-        let path = state_path(dir, item);
-        if !path.is_file() {
-            // A pipe's flash holds nothing a new one cannot start with.
-            if item.initial == "kona-flash" {
-                return Err(format!(
-                    "missing machine state {}. Add it with origami upgrade {}",
-                    path.display(),
-                    dir.display()
-                )
-                .into());
-            }
-            return Err(format!(
-                "missing machine state {}. Restore it from a backup, or create a new machine \
-                 with origami create and attach this machine's disks",
-                path.display()
-            )
-            .into());
-        }
-    }
-    Ok(())
-}
-
 fn user_network(dir: &Path, file: &MachineFile) -> Result<String> {
-    let mut option = Addresses::of(file)?.user_netdev();
+    let mut option = crate::user_netdev(&Addresses::of(file)?);
     // DHCP offers the directory name as the guest's hostname when it is a
     // valid one; IRIX keeps its own name otherwise.
     if let Some(name) = dhcp_hostname(dir) {
@@ -346,18 +234,6 @@ fn user_network(dir: &Path, file: &MachineFile) -> Result<String> {
         ));
     }
     Ok(option)
-}
-
-/// The machine directory's name, when a DHCP server can offer it as the
-/// guest's hostname.
-pub(crate) fn dhcp_hostname(dir: &Path) -> Option<&str> {
-    let name = dir.file_name()?.to_str()?;
-    (!name.is_empty()
-        && name.len() <= 63
-        && !name.starts_with('-')
-        && !name.ends_with('-')
-        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
-    .then_some(name)
 }
 
 /// One fixed suggestion per host-backed mode, shown beside QEMU's own error.
@@ -451,9 +327,10 @@ pub fn arguments_with(
     file: &MachineFile,
     offering: &Offering,
     display: Display,
-    shares: Option<&crate::shares::Ports>,
+    shares: Option<&origami_machine::shares::Ports>,
 ) -> Result<Vec<String>> {
-    let mut machine = offering.machine_options.clone();
+    let data = offering_data(offering)?;
+    let mut machine = data.machine_options.clone();
     // The Octane and O2 machines have one CPU board and no population property.
     if !matches!(offering.product.as_str(), "octane" | "octane2" | "o2") {
         let population = offering
@@ -464,17 +341,21 @@ pub fn arguments_with(
             .join(":");
         machine.push_str(&format!(",population={population}"));
     }
-    crate::settings::validate(machines, offering, &file.machine.inputs)?;
+    origami_machine::settings::validate(machines, offering, &file.machine.inputs)?;
     let inputs = crate::settings::render(machines, offering, &file.machine.inputs)?;
     machine.push_str(&inputs.machine);
-    let cpu = format!("{}{}", offering.cpu, inputs.cpu);
+    let cpu = format!("{}{}", data.cpu, inputs.cpu);
     if let Some(identity) = &file.identity {
-        machine.push_str(&format!(",{}={}", offering.mac_property(), identity.mac));
+        machine.push_str(&format!(
+            ",{}={}",
+            data.mac_property(offering),
+            identity.mac
+        ));
         if let Some(emu_id) = identity.emu_id {
             machine.push_str(&format!(",emu-id={emu_id}"));
         }
     }
-    if offering.needs_debug_leds_off {
+    if data.needs_debug_leds_off {
         machine.push_str(",debug-leds=off");
     }
     if let Display::Shm { gpu } = display {
@@ -508,7 +389,7 @@ pub fn arguments_with(
     // The O2 starts its PROM from the flash store but still wants the image
     // named, with its geometry. The store is the whole array and is a regular
     // file of the right size, so it stands for the image.
-    if offering.launch_recipe.as_deref() == Some("ip32") {
+    if data.launch_recipe.as_deref() == Some("ip32") {
         let flash = offering
             .storage
             .iter()
@@ -539,7 +420,7 @@ pub fn arguments_with(
         "-accel".into(),
         if counted_clock.is_some() {
             "tcg,thread=single"
-        } else if offering.smp > 1 {
+        } else if offering.cpus > 1 {
             "tcg,thread=multi"
         } else {
             "tcg"
@@ -550,7 +431,7 @@ pub fn arguments_with(
         "-cpu".into(),
         cpu,
         "-smp".into(),
-        offering.smp.to_string(),
+        offering.cpus.to_string(),
         "-m".into(),
         (memory * offering.nodes).to_string(),
     ];
@@ -599,7 +480,7 @@ pub fn arguments_with(
     // one plugged in later keeps ID -1, which X never opens. So they are
     // present from power-on on every run. A relative mouse: IRIX reads a
     // tablet's absolute coordinates as signed relative motion.
-    if crate::profiles::usb_input_only(offering) {
+    if origami_machine::profiles::usb_input_only(offering) {
         args.extend([
             "-device".into(),
             "usb-kbd,bus=usb-bus.0".into(),
@@ -612,7 +493,7 @@ pub fn arguments_with(
     }
     // Lines before the console get no backend, so each device can tell it
     // has none. Later lines are left off.
-    for _ in 0..console_line(offering, file.machine.console.as_deref())? {
+    for _ in 0..origami_machine::serial::console_line(offering, file.machine.console.as_deref())? {
         args.extend(["-serial".into(), "none".into()]);
     }
     args.extend(["-serial".into(), "stdio".into()]);
@@ -670,13 +551,16 @@ pub fn arguments_with(
             // connection; the NIC talks to the switch alone.
             args.extend(["-netdev".into(), backend]);
             args.extend(crate::shares::netdev_arguments(ports));
-            args.extend(["-net".into(), nic_option(offering, file, "share-guest")]);
+            args.extend([
+                "-net".into(),
+                nic_option(offering, &data, file, "share-guest"),
+            ]);
         }
         (Some(backend), None) => args.extend([
             "-netdev".into(),
             backend,
             "-net".into(),
-            nic_option(offering, file, "net0"),
+            nic_option(offering, &data, file, "net0"),
         ]),
         (None, _) => args.extend(["-nic".into(), "none".into()]),
     }
@@ -687,15 +571,21 @@ pub fn arguments_with(
 /// Its address is the machine's mac= unless the machine list says the
 /// adapter takes its own. A model-less NIC binds the first onboard one, for
 /// a QEMU whose machine list does not name the model.
-fn nic_option(offering: &Offering, file: &MachineFile, netdev: &str) -> String {
+fn nic_option(
+    offering: &Offering,
+    data: &OfferingData,
+    file: &MachineFile,
+    netdev: &str,
+) -> String {
     let adapter = offering.default_network();
+    let nic = data.default_nic(offering);
     let mut option = "nic".to_string();
-    if let Some(model) = adapter.and_then(|adapter| adapter.nic_model.as_deref()) {
+    if let Some(model) = nic.and_then(|nic| nic.model.as_deref()) {
         option.push_str(&format!(",model={model}"));
     }
     option.push_str(&format!(",netdev={netdev}"));
-    if let (Some(adapter), Some(identity)) = (adapter, &file.identity) {
-        if let (Some(mac), Some(name)) = (&adapter.mac, &adapter.nic_mac_option) {
+    if let (Some(adapter), Some(nic), Some(identity)) = (adapter, nic, &file.identity) {
+        if let (Some(mac), Some(name)) = (&adapter.mac, &nic.mac_option) {
             if !mac.derived {
                 option.push_str(&format!(",{name}={}", identity.mac));
             }
@@ -708,7 +598,7 @@ fn add_drive(args: &mut Vec<String>, dir: &Path, offering: &Offering, drive: &Dr
     let path = resolve(dir, &drive.image);
     let format = if path.extension().is_some_and(|ext| ext == "qcow2") {
         "qcow2"
-    } else if crate::is_chd(&path) {
+    } else if origami_machine::is_chd(&path) {
         "chd"
     } else {
         "raw"
@@ -768,7 +658,7 @@ pub fn start_background_as(
     display: Display,
     once: &[String],
 ) -> Result<u32> {
-    if control::is_locked(dir)? {
+    if run_record::is_locked(dir)? {
         return Err("machine is already running".into());
     }
     fs::create_dir_all(dir.join("logs"))?;
@@ -825,7 +715,7 @@ pub fn start_background_as(
     // The runner process waits qmp_ready_timeout() for QEMU, so wait a little longer.
     let deadline = Instant::now() + qmp_ready_timeout() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if let Ok(record) = control::read(dir) {
+        if let Ok(record) = run_record::read(dir) {
             if record.pid == child.id() && control::verified_qmp(&record).is_ok() {
                 return Ok(record.pid);
             }
@@ -892,14 +782,14 @@ fn run_inner(
         return Err(format!("packaged QEMU keymap missing: {}", keymap.display()).into());
     }
     // A machine without its storage is not started, and gains nothing.
-    check_state(dir, offering)?;
-    let _lock = control::lock_for_edit(dir, "starting it again")?;
-    for warning in crate::emu_id::running_twin_warnings(dir, file) {
+    origami_machine::stores::check_state(dir, offering)?;
+    let _lock = run_record::lock_for_edit(dir, "starting it again")?;
+    for warning in origami_machine::emu_id::running_twin_warnings(dir, file) {
         eprintln!("warning: {warning}");
     }
     // The switch runs in this process, which also waits on QEMU, so it
     // lives exactly as long as the guest.
-    let share_net = crate::shares::start(dir, file)?;
+    let share_net = origami_machine::shares::start(dir, file)?;
     // A hosted private network is the NIC's own peer; any other switch sits
     // beside the machine's network.
     let hosted = share_net.as_ref().and_then(|net| net.hosted_endpoint());
@@ -975,10 +865,10 @@ fn run_inner(
         }
         return Ok(status);
     }
-    let qmp_port = control::free_port()?;
-    let mut console_port = control::free_port()?;
+    let qmp_port = run_record::free_port()?;
+    let mut console_port = run_record::free_port()?;
     while console_port == qmp_port {
-        console_port = control::free_port()?;
+        console_port = run_record::free_port()?;
     }
     let name = format!(
         "sgi-{}-{}",
@@ -996,7 +886,7 @@ fn run_inner(
         name.clone(),
     ]);
     append_extra_args(&mut args, file, once)?;
-    let mut record = control::Record {
+    let mut record = run_record::Record {
         pid: std::process::id(),
         qmp_port,
         console_port,
@@ -1012,13 +902,13 @@ fn run_inner(
     let deadline = Instant::now() + qmp_ready_timeout();
     while Instant::now() < deadline {
         if control::verified_qmp(&record).is_ok() {
-            if let Err(error) = control::write(dir, &record) {
+            if let Err(error) = run_record::write(dir, &record) {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(error);
             }
             let status = child.wait()?;
-            control::clear_if_current(dir, &record);
+            run_record::clear_if_current(dir, &record);
             return Ok(status);
         }
         if let Some(status) = child.try_wait()? {
@@ -1059,11 +949,12 @@ fn log_primary_serial(args: &mut Vec<String>, chardev: String) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{preset, Machine, Network, PortForward};
+    use crate::test_machines;
+    use origami_machine::{preset, Machine, Network, PortForward};
 
     fn machine(offering: &Offering) -> MachineFile {
         MachineFile {
-            format: crate::MACHINE_FORMAT,
+            format: origami_machine::MACHINE_FORMAT,
             machine: Machine {
                 topology: None,
                 population: vec![],
@@ -1153,14 +1044,14 @@ mod tests {
 
     #[test]
     fn local_graphics_uses_sdl_and_rad4() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(offer);
-        file.pipe = crate::graphics::select(
+        file.pipe = origami_machine::graphics::select(
             &machines,
             &offer.topology,
             offer.nodes,
-            &crate::graphics::Request {
+            &origami_machine::graphics::Request {
                 product: Some("rad4"),
                 ..Default::default()
             },
@@ -1185,11 +1076,12 @@ mod tests {
 
     #[test]
     fn the_o2_launch_counts_instructions_and_names_its_flash_image() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let launch = |name: &str| {
             let offer = preset(&machines, name).unwrap();
             let mut file = machine(offer);
-            file.machine.inputs = crate::profiles::preset_inputs(name, Default::default());
+            file.machine.inputs =
+                origami_machine::profiles::preset_inputs(name, Default::default());
             file.drive.push(Drive {
                 name: "disk1".into(),
                 kind: "disk".into(),
@@ -1239,7 +1131,7 @@ mod tests {
 
     #[test]
     fn a_pipe_adds_the_machine_properties_it_needs() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin2000-8").unwrap();
         let machine_option = |file: &MachineFile| {
             let args =
@@ -1248,11 +1140,11 @@ mod tests {
         };
         let mut file = machine(offer);
         assert!(!machine_option(&file).contains("baseio-preset"));
-        file.pipe = crate::graphics::select(
+        file.pipe = origami_machine::graphics::select(
             &machines,
             &offer.topology,
             offer.nodes,
-            &crate::graphics::Request {
+            &origami_machine::graphics::Request {
                 product: Some("si"),
                 ..Default::default()
             },
@@ -1263,7 +1155,7 @@ mod tests {
 
     #[test]
     fn only_usb_input_machines_get_a_usb_keyboard_and_mouse() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let devices = |name: &str| {
             let offer = preset(&machines, name).unwrap();
             let args = arguments(
@@ -1291,7 +1183,7 @@ mod tests {
 
     #[test]
     fn extra_args_come_last_machine_toml_before_command_line() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offering = preset(&machines, "fuel-1").unwrap();
         let mut file = machine(offering);
         file.qemu.extra_args = vec!["-global".into(), "bcm570x.mac=08:00:69:12:34:56".into()];
@@ -1318,11 +1210,11 @@ mod tests {
 
     #[test]
     fn a_fibre_channel_loop_disk_gets_port_names() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let device_for = |name: &str, target: u32| {
             let offering = preset(&machines, name).unwrap();
             let mut file = machine(offering);
-            file.drive.push(crate::Drive {
+            file.drive.push(origami_machine::Drive {
                 name: "system".into(),
                 kind: "disk".into(),
                 bus: 0,
@@ -1358,11 +1250,11 @@ mod tests {
 
     #[test]
     fn a_chd_disk_is_opened_with_the_chd_driver() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offering = preset(&machines, "fuel-1").unwrap();
         let drive_option = |overlay: bool| {
             let mut file = machine(offering);
-            file.drive.push(crate::Drive {
+            file.drive.push(origami_machine::Drive {
                 name: "disk1".into(),
                 kind: "disk".into(),
                 bus: 0,
@@ -1419,7 +1311,7 @@ mod tests {
 
     #[test]
     fn console_line_follows_the_machine_list_and_choice() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let serial = |args: &[String]| -> Vec<String> {
             args.windows(2)
                 .filter(|p| p[0] == "-serial")
@@ -1428,11 +1320,6 @@ mod tests {
         };
         // Fuel's machine list entry gives l1 (its console), then IOC3 ports A and B.
         let fuel = preset(&machines, "fuel-1").unwrap();
-        assert_eq!(default_console(fuel).unwrap(), "l1");
-        assert_eq!(
-            console_ports(fuel).collect::<Vec<_>>(),
-            [(0, "l1", true), (1, "ioc3_a", false), (2, "ioc3_b", false)]
-        );
         let mut file = machine(fuel);
         let args = arguments(&machines, Path::new("/machine"), &file, fuel, Display::None).unwrap();
         assert_eq!(serial(&args), ["stdio"]);
@@ -1452,16 +1339,12 @@ mod tests {
 
         // Only node 0 lines of console kinds are offered.
         let mut origin2000 = preset(&machines, "origin2000-8").unwrap().clone();
-        origin2000.consoles.push(crate::Console {
+        origin2000.consoles.push(origami_machine::Console {
             kind: "second-port".into(),
             node: 1,
-            argument: "-serial chardev:node1_ioc3_a".into(),
+            name: Some("node1_ioc3_a".into()),
         });
         let origin2000 = &origin2000;
-        assert_eq!(
-            console_ports(origin2000).collect::<Vec<_>>(),
-            [(0, "ioc3_a", true), (1, "ioc3_b", false)]
-        );
         let mut file = machine(origin2000);
         let args = arguments(
             &machines,
@@ -1487,7 +1370,7 @@ mod tests {
 
     #[test]
     fn foreground_serial_keeps_console_and_logs_output() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
         let mut args = arguments(
             &machines,
@@ -1514,7 +1397,7 @@ mod tests {
 
     #[test]
     fn vnc_port_maps_to_qemu_display_offset() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
         let display = Display::Vnc { port: 5991 };
         let args = arguments(
@@ -1532,7 +1415,7 @@ mod tests {
 
     #[test]
     fn the_shm_display_names_the_segment_after_the_machine_directory() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "octane2-vpro").unwrap();
         let dir = Path::new("/machines/one");
         let shm = Display::Shm { gpu: None };
@@ -1558,7 +1441,7 @@ mod tests {
 
     #[test]
     fn the_shm_display_names_the_viewers_gpu_when_it_has_one() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "octane2-vpro").unwrap();
         let uuid: GpuUuid = "00112233445566778899aabbccddeeff".parse().unwrap();
         assert_eq!(uuid.0[0], 0x00);
@@ -1618,14 +1501,14 @@ mod tests {
 
     #[test]
     fn vnc_serves_each_head_of_each_pipe_on_its_own_port() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "onyx3400-infinite-reality").unwrap();
         let mut file = machine(offer);
-        file.pipe = crate::graphics::select(
+        file.pipe = origami_machine::graphics::select(
             &machines,
             &offer.topology,
             offer.nodes,
-            &crate::graphics::Request {
+            &origami_machine::graphics::Request {
                 pipes: Some(2),
                 ..Default::default()
             },
@@ -1681,7 +1564,7 @@ mod tests {
         // One pipe of one head keeps the single server and its plain device.
         let octane = preset(&machines, "octane-impact").unwrap();
         let mut file = machine(octane);
-        file.pipe = crate::graphics::select(
+        file.pipe = origami_machine::graphics::select(
             &machines,
             &octane.topology,
             octane.nodes,
@@ -1707,7 +1590,7 @@ mod tests {
 
     #[test]
     fn user_network_forwards_bind_only_to_loopback() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let rules = vec![
             PortForward {
                 name: "ssh".into(),
@@ -1739,7 +1622,7 @@ mod tests {
         let origin2000 = preset(&machines, "origin2000-8").unwrap();
         let mut file = machine(origin2000);
         file.network.forward = rules;
-        file.identity = Some(crate::Identity {
+        file.identity = Some(origami_machine::Identity {
             mac: "08:00:69:12:34:56".into(),
             emu_id: None,
         });
@@ -1756,16 +1639,20 @@ mod tests {
 
     #[test]
     fn every_network_mode_binds_the_machine_lists_default_nic() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let nic = |name: &str, mode: &str| {
             let mut offer = preset(&machines, name).unwrap().clone();
             // A machine list naming no model: bind the first onboard NIC.
             if name == "origin2000-8" {
-                offer.networks.iter_mut().for_each(|n| n.nic_model = None);
+                let mut data = offering_data(&offer).unwrap();
+                data.nics.iter_mut().for_each(|n| n.model = None);
+                offer
+                    .engine
+                    .insert(crate::ENGINE.into(), serde_json::to_value(data).unwrap());
             }
             let offer = &offer;
             let mut file = machine(offer);
-            file.identity = Some(crate::Identity {
+            file.identity = Some(origami_machine::Identity {
                 mac: "08:00:69:12:34:56".into(),
                 emu_id: None,
             });
@@ -1805,10 +1692,10 @@ mod tests {
 
     #[test]
     fn identity_mac_is_a_machine_property() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin2000-8").unwrap();
         let mut file = machine(offer);
-        file.identity = Some(crate::Identity {
+        file.identity = Some(origami_machine::Identity {
             mac: "02:00:5d:aa:bb:cc".into(),
             emu_id: None,
         });
@@ -1829,7 +1716,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn private_network_uses_qemu_stream_client() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(offer);
         file.network = Network {
@@ -1840,7 +1727,7 @@ mod tests {
             share_address: None,
             subnet: None,
         };
-        file.identity = Some(crate::Identity {
+        file.identity = Some(origami_machine::Identity {
             mac: "08:00:69:12:34:56".into(),
             emu_id: None,
         });
@@ -1867,7 +1754,7 @@ mod tests {
 
     #[test]
     fn private_tcp_network_uses_loopback_stream_client() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(offer);
         file.network = Network {
@@ -1878,7 +1765,7 @@ mod tests {
             share_address: None,
             subnet: None,
         };
-        file.identity = Some(crate::Identity {
+        file.identity = Some(origami_machine::Identity {
             mac: "08:00:69:12:34:56".into(),
             emu_id: None,
         });
@@ -1899,17 +1786,17 @@ mod tests {
 
     #[test]
     fn shares_put_the_machines_network_and_the_nic_on_either_side_of_the_switch() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
         let file = machine(offer);
         let dir = Path::new("/machine");
-        let args = |ports: Option<&crate::shares::Ports>| {
+        let args = |ports: Option<&origami_machine::shares::Ports>| {
             arguments_with(&machines, dir, &file, offer, Display::None, ports).unwrap()
         };
         let plain = args(None);
-        let ports = crate::shares::Ports {
-            guest: "addr.type=inet,addr.host=127.0.0.1,addr.port=40001".into(),
-            network: "addr.type=unix,addr.path=/run/user/1/a,,b/net.sock".into(),
+        let ports = origami_machine::shares::Ports {
+            guest: origami_machine::shares::Listen::Tcp("40001".into()),
+            network: origami_machine::shares::Listen::Unix("/run/user/1/a,b/net.sock".into()),
         };
         let wired = args(Some(&ports));
         // The user network stays as it was, now behind a hub port.
@@ -1939,10 +1826,10 @@ mod tests {
 
     #[test]
     fn host_networks_attach_the_ioc3_to_a_tap_or_socket_vmnet() {
-        let machines = crate::test_machines();
+        let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
         let mut file = machine(offer);
-        file.identity = Some(crate::Identity {
+        file.identity = Some(origami_machine::Identity {
             mac: "08:00:69:12:34:56".into(),
             emu_id: None,
         });
@@ -1969,7 +1856,7 @@ mod tests {
         };
         assert_eq!(netdev(&file), expected);
         assert_eq!(
-            crate::validate_network(&file).is_ok(),
+            origami_machine::validate_network(&file).is_ok(),
             !cfg!(target_os = "macos")
         );
         assert!(network_hint(&file).unwrap().contains("TAP,lab"));
@@ -1988,7 +1875,7 @@ mod tests {
              addr.path=/opt/homebrew/var/run/socket_vmnet,reconnect-ms=1000"
         );
         assert_eq!(
-            crate::validate_network(&file).is_ok(),
+            origami_machine::validate_network(&file).is_ok(),
             cfg!(target_os = "macos")
         );
         assert!(network_hint(&file).unwrap().contains("socket_vmnet"));
@@ -1996,13 +1883,17 @@ mod tests {
         file.identity = None;
         for mode in ["tap", "vmnet"] {
             file.network.mode = mode.into();
-            let error = crate::validate_network(&file).unwrap_err().to_string();
+            let error = origami_machine::validate_network(&file)
+                .unwrap_err()
+                .to_string();
             assert!(error.contains(mode), "{error}");
         }
         file.network.interface = None;
         file.network.mode = "tap".into();
         if !cfg!(target_os = "macos") {
-            let error = crate::validate_network(&file).unwrap_err().to_string();
+            let error = origami_machine::validate_network(&file)
+                .unwrap_err()
+                .to_string();
             assert!(error.contains("--interface"), "{error}");
         }
     }

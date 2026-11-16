@@ -14,6 +14,7 @@ path = "src/main.rs"
 origami-display = { path = "../origami-display" }
 origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }
+origami-qemu = { path = "../origami-qemu" }
 bytemuck = "1"
 # A pinned master commit until Slint 1.19 ships (its femtovg 0.28 carries the
 # pipeline-cache fix 1.18's femtovg 0.27 lacks).

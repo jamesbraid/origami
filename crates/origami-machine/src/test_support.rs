@@ -1,85 +1,46 @@
-//! Shell-script stand-ins for the init tool, for the unit tests, which
-//! cannot reach the fake runtime binary (Cargo builds it for integration
-//! tests only). The component tests in `tests/cli` use that binary.
+//! Stand-in stores for the unit tests, which cannot reach an engine.
 
+use crate::stores::StorePreparer;
+use crate::{Offering, Result};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
-/// Write a QEMU that answers `query-sgi-machines` from the test machine list
-/// and an init tool that creates zero-filled storage for each of its
-/// offerings and records its arguments in `qemu-sgi-machine-init.args`.
-/// Returns the directory to select with `ORIGAMI_RUNTIME_DIR`.
-pub fn fake_runtime(root: &Path) -> PathBuf {
-    let runtime = root.join("runtime");
-    if runtime.join("qemu-system-mips64").exists() {
-        return runtime;
+/// Creates zero-filled storage for each of an offering's stores, or fails.
+pub struct ZeroStores {
+    pub fail: bool,
+}
+
+impl StorePreparer for ZeroStores {
+    fn firmware(
+        &self,
+        _: &Offering,
+        boot_prom: Option<&Path>,
+        io_prom: Option<&Path>,
+    ) -> Result<(PathBuf, Option<PathBuf>)> {
+        Ok((
+            boot_prom.ok_or("no boot PROM given")?.into(),
+            io_prom.map(Into::into),
+        ))
     }
-    fs::create_dir_all(&runtime).unwrap();
-    let fixture =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/sgi-machines.json");
-    script(
-        &runtime.join("qemu-system-mips64"),
-        &format!(
-            r#"case " $* " in *" -qmp stdio "*) ;; *) exit 9 ;; esac
-printf '{{"QMP": {{"version": {{"qemu": {{"major": 0, "minor": 0, "micro": 0}}, "package": ""}}, "capabilities": []}}}}\n'
-while IFS= read -r line; do
-    case "$line" in
-    *qmp_capabilities*) printf '{{"return": {{}}}}\n' ;;
-    *query-sgi-machines*) printf '{{"return": '; tr -d '\n' < '{}'; printf '}}\n' ;;
-    *quit*) printf '{{"return": {{}}}}\n'; exit 0 ;;
-    esac
-done"#,
-            fixture.display()
-        ),
-    );
-    let mut tool =
-        String::from("printf '%s\\n' \"$@\" > \"$0.args\"\nfor dir; do :; done\ncase \"$2\" in\n");
-    let offerings: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(&fixture).unwrap()).unwrap();
-    for offering in offerings["offerings"].as_array().unwrap() {
-        tool.push_str(&format!(
-            "'{}') items='",
-            offering["machine-options"].as_str().unwrap()
-        ));
-        for item in offering["storage"].as_array().unwrap() {
-            tool.push_str(&format!(
-                " {}:{}",
-                item["name"].as_str().unwrap(),
-                item["size"]
-            ));
+
+    fn stage_boot_prom(&self, _: &Offering, _: &Path) -> Result<Option<tempfile::TempPath>> {
+        Ok(None)
+    }
+
+    fn create_stores(
+        &self,
+        offering: &Offering,
+        _: &Path,
+        _: Option<&Path>,
+        state: &Path,
+    ) -> Result<()> {
+        if self.fail {
+            return Err("the init tool failed".into());
         }
-        tool.push_str("' ;;\n");
+        fs::create_dir(state)?;
+        for item in &offering.storage {
+            fs::File::create(state.join(format!("{}.raw", item.name)))?.set_len(item.size)?;
+        }
+        Ok(())
     }
-    tool.push_str(
-        r#"*) exit 9 ;;
-esac
-mkdir "$dir" || exit 1
-for item in $items; do
-    dd if=/dev/zero of="$dir/${item%%:*}.raw" bs=1 count=0 seek="${item#*:}" 2>/dev/null || exit 1
-done"#,
-    );
-    script(&runtime.join("qemu-sgi-machine-init"), &tool);
-    runtime
-}
-
-/// The fake init tool under `root`.
-pub fn init_tool(root: &Path) -> PathBuf {
-    fake_runtime(root).join("qemu-sgi-machine-init")
-}
-
-/// Write an executable script without this process ever holding it open
-/// for writing. A child forked meanwhile by another test thread would
-/// inherit such a descriptor, and running the script would then fail with
-/// "Text file busy" until that child calls exec.
-fn script(path: &Path, body: &str) {
-    let mut writer = Command::new("sh")
-        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
-        .arg(path)
-        .stdin(Stdio::piped())
-        .spawn()
-        .unwrap();
-    writeln!(writer.stdin.take().unwrap(), "#!/bin/sh\n{body}").unwrap();
-    assert!(writer.wait().unwrap().success());
 }

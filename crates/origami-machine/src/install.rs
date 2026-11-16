@@ -1,5 +1,5 @@
 use crate::console::Console;
-use crate::{addressing::Addresses, resolve, runtime, tcp_endpoint, MachineFile, Machines, Result};
+use crate::{addressing::Addresses, resolve, tcp_endpoint, MachineFile, Machines, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -542,7 +542,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
     // The miniroot offers the BOOTP name as its default hostname, and the
     // installed system keeps it, so the machine is named after its directory
     // from first boot. Instigator allows 40 characters.
-    if let Some(name) = crate::runtime::dhcp_hostname(dir).filter(|name| name.len() <= 40) {
+    if let Some(name) = crate::addressing::dhcp_hostname(dir).filter(|name| name.len() <= 40) {
         client["hostname"] = json!(name);
     }
     document["server_ip"] = json!(subnet.host().to_string());
@@ -558,7 +558,7 @@ pub fn config(dir: &Path, file: &MachineFile, media: &InstallMedia) -> Result<In
 /// Runs Instigator's check on the generated configuration. Remote media are
 /// only probed for reachability unless `full` asks Instigator to read and
 /// assemble them as install-serve does.
-pub fn check(rt: &runtime::Runtime, dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
+pub fn check(instigator: &Path, dir: &Path, file: &MachineFile, full: bool) -> Result<()> {
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
     config.write_addon_files()?;
@@ -568,7 +568,7 @@ pub fn check(rt: &runtime::Runtime, dir: &Path, file: &MachineFile, full: bool) 
         args.push("--full");
     }
     args.push("-");
-    let mut child = Command::new(rt.instigator()?)
+    let mut child = Command::new(instigator)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -590,7 +590,7 @@ pub fn check(rt: &runtime::Runtime, dir: &Path, file: &MachineFile, full: bool) 
     Ok(())
 }
 
-pub fn serve(rt: &runtime::Runtime, dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
+pub fn serve(instigator: &Path, dir: &Path, file: &MachineFile) -> Result<ExitStatus> {
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
     let install_dir = dir.join("install");
@@ -603,7 +603,7 @@ pub fn serve(rt: &runtime::Runtime, dir: &Path, file: &MachineFile) -> Result<Ex
         .endpoint
         .as_deref()
         .ok_or("private network needs endpoint")?;
-    let mut command = Command::new(rt.instigator()?);
+    let mut command = Command::new(instigator);
     command.arg("serve");
     if let Some(address) = tcp_endpoint(endpoint)? {
         command.arg("--network-tcp").arg(address.to_string());
@@ -896,13 +896,18 @@ fn check_quit(output: &str) -> Result<()> {
 
 /// Drive the guest's installer over its console, echoing the console to
 /// `out`.
-pub fn apply(dir: &Path, file: &MachineFile, out: &mut dyn Write) -> Result<()> {
+pub fn apply(
+    dir: &Path,
+    file: &MachineFile,
+    connect: &dyn Fn(&Path) -> Result<Console>,
+    out: &mut dyn Write,
+) -> Result<()> {
     if file.network.mode != "private" {
         return Err("package installation requires private installation networking".into());
     }
     let media = read_media(dir)?;
     let (command, passes) = install_script(&media, Addresses::of(file)?.host());
-    let mut console = Console::connect(dir)?;
+    let mut console = connect(dir)?;
     writeln!(out, "Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.")?;
     console.command("", INSTALL_PROMPT, Duration::from_secs(30), out)?;
     console.send(command)?;
@@ -1601,9 +1606,9 @@ mod tests {
         let machine = root.join("machine");
         let machines = crate::test_machines();
         let offer = crate::preset(&machines, "origin200-1").unwrap();
-        let tool = crate::test_support::init_tool(&root);
+        let stores = crate::test_support::ZeroStores { fail: false };
         let init = crate::MachineInit {
-            tool: &tool,
+            stores: &stores,
             boot_prom: &prom,
             io_prom: None,
         };
@@ -1662,9 +1667,9 @@ mod tests {
         fs::write(&prom, vec![0; 1048576]).unwrap();
         let machines = crate::test_machines();
         let offer = crate::preset(&machines, "origin200-1").unwrap();
-        let tool = crate::test_support::init_tool(root.path());
+        let stores = crate::test_support::ZeroStores { fail: false };
         let init = crate::MachineInit {
-            tool: &tool,
+            stores: &stores,
             boot_prom: &prom,
             io_prom: None,
         };
@@ -1708,9 +1713,9 @@ mod tests {
         let machines = crate::test_machines();
         let offer = crate::preset(&machines, "origin200-1").unwrap();
         let dir = root.join("machine");
-        let tool = crate::test_support::init_tool(&root);
+        let stores = crate::test_support::ZeroStores { fail: false };
         let init = crate::MachineInit {
-            tool: &tool,
+            stores: &stores,
             boot_prom: &prom,
             io_prom: None,
         };
@@ -1796,9 +1801,9 @@ mod tests {
         fs::write(&prom, [0u8; 1]).unwrap();
         let machines = crate::test_machines();
         let offer = crate::preset(&machines, "origin200-1").unwrap();
-        let tool = crate::test_support::init_tool(root);
+        let stores = crate::test_support::ZeroStores { fail: false };
         let init = crate::MachineInit {
-            tool: &tool,
+            stores: &stores,
             boot_prom: &prom,
             io_prom: None,
         };

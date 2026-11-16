@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use origami_machine::runtime::{Display, GpuUuid};
+use origami_qemu::runtime::{Display, GpuUuid};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 

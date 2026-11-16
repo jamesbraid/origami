@@ -1,8 +1,10 @@
 use crate::cli::{CreateArgs, GraphicsArgs};
-use origami_machine::{control, graphics, runtime};
+use origami_machine::stores::StorePreparer;
+use origami_machine::{control, graphics};
 use origami_machine::{
-    preset, read_machine, validate, validate_create_inputs, Drive, MachineInit, Machines, Result,
+    preset, read_machine, validate_create_inputs, Drive, MachineInit, Machines, Result,
 };
+use origami_qemu::{runtime, validate};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -58,7 +60,7 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
         return Err(format!("packaged machine init tool missing: {}", tool.display()).into());
     }
     let (prom, io_prom) =
-        origami_machine::firmware(offer, options.prom.as_deref(), options.io_prom.as_deref())?;
+        rt.firmware(offer, options.prom.as_deref(), options.io_prom.as_deref())?;
     // Held until machine.toml is written, so a second create rescans the
     // siblings only after this emu-id is on disk.
     let _emu_ids = origami_machine::emu_id::lock(&args.dir)?;
@@ -80,7 +82,7 @@ pub fn create_machine(rt: &runtime::Runtime, machines: &Machines, args: &CreateA
         &args.dir,
         offer,
         &MachineInit {
-            tool: &tool,
+            stores: rt,
             boot_prom: &prom,
             io_prom: io_prom.as_deref(),
         },

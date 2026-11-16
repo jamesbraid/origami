@@ -16,7 +16,8 @@ use crate::core::{
     MachineId, Power, Result, Wake,
 };
 use origami_display::{Display, Taken};
-use origami_machine::{control as machine_control, runtime};
+use origami_machine::control as machine_control;
+use origami_qemu::{control as qemu_control, runtime};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -232,7 +233,7 @@ impl Engine for QemuEngine {
             return Ok(m.id);
         }
         let importer = lock(&self.importer).clone();
-        if machine_control::running(&dir)
+        if qemu_control::running(&dir)
             .map_err(|e| e.to_string())?
             .is_none()
         {
@@ -303,7 +304,7 @@ impl Engine for QemuEngine {
         if let Some(t) = lock(&m.input_thread).take() {
             let _ = t.join();
         }
-        let result = machine_control::stop(&m.dir).map_err(|e| e.to_string().into());
+        let result = qemu_control::stop(&m.dir).map_err(|e| e.to_string().into());
         for t in lock(&m.threads).drain(..) {
             let _ = t.join();
         }
@@ -468,11 +469,9 @@ impl Engine for QemuEngine {
                 }
                 self.launch(&m.dir)
             }
-            Power::Stop => machine_control::stop(&m.dir).map_err(|e| e.to_string().into()),
-            Power::ForceStop => {
-                machine_control::force_stop(&m.dir).map_err(|e| e.to_string().into())
-            }
-            Power::Reset => machine_control::reset(&m.dir).map_err(|e| e.to_string().into()),
+            Power::Stop => qemu_control::stop(&m.dir).map_err(|e| e.to_string().into()),
+            Power::ForceStop => qemu_control::force_stop(&m.dir).map_err(|e| e.to_string().into()),
+            Power::Reset => qemu_control::reset(&m.dir).map_err(|e| e.to_string().into()),
         }
     }
 
@@ -543,7 +542,7 @@ fn runner_alive(dir: &Path) -> bool {
 fn console_thread(m: &Arc<Machine>) {
     let mut primed = false;
     while !m.stop.load(Ordering::Acquire) {
-        let console = origami_machine::console::Console::connect(&m.dir).and_then(|c| {
+        let console = origami_qemu::connect_console(&m.dir).and_then(|c| {
             let w = c.try_clone_stream()?;
             Ok((c, w))
         });
@@ -637,7 +636,7 @@ impl origami_display::Link for SocketLink {
     }
 
     fn alive(&mut self) -> bool {
-        machine_control::running(&self.dir).is_ok_and(|r| r.is_some())
+        qemu_control::running(&self.dir).is_ok_and(|r| r.is_some())
     }
 }
 

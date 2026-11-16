@@ -30,24 +30,6 @@ pub struct MachineProperties {
     pub reason: String,
 }
 
-/// The `-M` properties `topology` needs once it has a pipe.
-pub fn machine_properties<'a>(
-    machines: &'a Machines,
-    topology: &str,
-    pipes: &[Pipe],
-) -> &'a [Property] {
-    if pipes.is_empty() {
-        return &[];
-    }
-    machines
-        .topologies
-        .iter()
-        .find(|t| t.name == topology)
-        .and_then(|t| t.graphics.as_ref())
-        .and_then(|g| g.machine_properties.as_ref())
-        .map_or(&[], |m| m.properties.as_slice())
-}
-
 #[derive(Clone, Debug, Deserialize)]
 pub struct Slot {
     pub name: String,
@@ -170,7 +152,7 @@ pub fn slots(graphics: &Graphics, nodes: u32) -> impl Iterator<Item = &Slot> {
 }
 
 impl Slot {
-    fn offer(&self, product: &str) -> Option<(&Family, &Product)> {
+    pub fn offer(&self, product: &str) -> Option<(&Family, &Product)> {
         self.families.iter().find_map(|family| {
             family
                 .products
@@ -566,52 +548,6 @@ pub fn validate(machines: &Machines, topology: &str, nodes: u32, pipes: &[Pipe])
     Ok(())
 }
 
-/// The graphics arguments for `pipes`: one `-device` each, or `-vga none`
-/// for a machine with no pipe whose topology would fit a default one.
-pub fn arguments(machines: &Machines, topology: &str, pipes: &[Pipe]) -> Result<Vec<String>> {
-    let Some(graphics) = record(machines, topology) else {
-        return Ok(vec![]);
-    };
-    if pipes.is_empty() {
-        return Ok(if graphics.slots.iter().any(|s| s.default.is_some()) {
-            vec!["-vga".into(), "none".into()]
-        } else {
-            vec![]
-        });
-    }
-    let mut args = vec![];
-    for pipe in pipes {
-        let (slot, family, product) = graphics
-            .slots
-            .iter()
-            .find(|s| s.name == pipe.slot)
-            .and_then(|slot| slot.offer(&pipe.product).map(|(f, p)| (slot, f, p)))
-            .ok_or_else(|| {
-                format!(
-                    "{topology} does not offer {} in {}",
-                    pipe.product, pipe.slot
-                )
-            })?;
-        let mut device = family.device.clone();
-        for property in &slot.placement {
-            device.push_str(&format!(",{}={}", property.name, property.value));
-        }
-        device.push_str(&format!(",product={}", pipe.product));
-        for setting in &product.settings {
-            if let Some(value) = pipe.settings.get(&setting.name) {
-                device.push_str(&format!(",{}={value}", setting.name));
-            }
-        }
-        // A pipe with several heads is named, so the display arguments can
-        // pick one of them.
-        if channels(machines, topology, pipe) > 1 {
-            device.push_str(&format!(",id={}", pipe.slot));
-        }
-        args.extend(["-device".into(), device]);
-    }
-    Ok(args)
-}
-
 /// A display a machine shows: head `head` of the pipe in `slot`. Each head
 /// is a console of its own in QEMU, so a window or a VNC server shows one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -635,7 +571,7 @@ pub fn heads(machines: &Machines, topology: &str, pipes: &[Pipe]) -> Vec<Head> {
         .collect()
 }
 
-fn channels(machines: &Machines, topology: &str, pipe: &Pipe) -> u32 {
+pub fn channels(machines: &Machines, topology: &str, pipe: &Pipe) -> u32 {
     let setting = record(machines, topology)
         .and_then(|g| g.slots.iter().find(|s| s.name == pipe.slot))
         .and_then(|s| s.offer(&pipe.product))
@@ -872,17 +808,9 @@ mod tests {
     fn selection_takes_the_catalogue_default_and_quotes_its_refusals() {
         let machines = crate::test_machines();
         let select = |topology: &str, nodes, r: Request<'_>| select(&machines, topology, nodes, &r);
-        let args = |topology: &str, pipes: &[Pipe]| arguments(&machines, topology, pipes).unwrap();
 
         let pipes = select("onyx2-deskside", 2, request(None, None, &[])).unwrap();
-        assert_eq!(
-            args("onyx2-deskside", &pipes),
-            [
-                "-device",
-                "sgi-kona,slot=io4,product=ir2,geometry=ge14-4,rm-type=rm7,rm-count=2,\
-                 texture-mb=64,display=dg5-8,id=io4"
-            ]
-        );
+        assert_eq!(pipes[0].product, "ir2");
         let pipes = select(
             "onyx2-deskside",
             2,
@@ -897,18 +825,11 @@ mod tests {
         assert_eq!(pipes[0].settings["geometry"], "ge14-4");
 
         let pipes = select("octane", 1, request(Some("none"), None, &[])).unwrap();
-        assert_eq!(args("octane", &pipes), ["-vga", "none"]);
-        assert!(args("origin200", &[]).is_empty());
+        assert!(pipes.is_empty());
         let pipes = select("origin200", 1, request(Some("rad4"), None, &[])).unwrap();
-        assert_eq!(
-            args("origin200", &pipes),
-            ["-device", "psitech-rad4,bus=pci,addr=5,product=rad4"]
-        );
+        assert_eq!(pipes[0].product, "rad4");
         let pipes = select("origin2000-rack", 4, request(Some("si"), Some("io3"), &[])).unwrap();
-        assert_eq!(
-            args("origin2000-rack", &pipes),
-            ["-device", "sgi-mgras,slot=io3,product=si"]
-        );
+        assert_eq!(pipes[0].slot, "io3");
 
         for (topology, r, expected) in [
             (
@@ -983,9 +904,6 @@ mod tests {
         );
         // Every pipe is the first one's product with its settings.
         assert!(pipes.iter().all(|p| p.settings == pipes[0].settings));
-        let args = arguments(&machines, "onyx3400-ir", &pipes).unwrap();
-        assert_eq!(args.len(), 8);
-        assert!(args[7].starts_with("sgi-kona,slot=gbrick1-pipe1-pipe,product=ir3,"));
         assert_eq!(pipes_of("onyx3400-ir", 4, 1).unwrap().len(), 1);
 
         // An Onyx2 rack's second pipe sits on its second node board.

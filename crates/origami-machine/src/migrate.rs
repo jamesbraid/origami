@@ -5,7 +5,8 @@
 //! pipes the catalogue describes. A current machine gains the flash store
 //! each InfiniteReality pipe slot has had since QEMU gave it one.
 
-use crate::{resolve, runtime, MachineFile, MachineInit, Machines, Offering, Result, StorageItem};
+use crate::stores::StorePreparer;
+use crate::{resolve, MachineFile, MachineInit, Machines, Offering, Result, StorageItem};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -23,7 +24,7 @@ pub fn format(text: &str) -> Option<i64> {
 /// already current, which is left untouched. On failure machine.toml is
 /// unchanged.
 pub fn upgrade(
-    rt: &runtime::Runtime,
+    stores: &dyn StorePreparer,
     dir: &Path,
     machines: &Machines,
     prom: Option<&Path>,
@@ -36,11 +37,11 @@ pub fn upgrade(
         .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
     let format = format(&text);
     let result = match format {
-        Some(1) => from_format1(rt, dir, machines, &text, prom, io_prom),
-        Some(2) => from_format2(rt, dir, machines, &text, prom, io_prom),
-        Some(3) => from_format3(rt, dir, machines, &text, prom, io_prom),
+        Some(1) => from_format1(stores, dir, machines, &text, prom, io_prom),
+        Some(2) => from_format2(stores, dir, machines, &text, prom, io_prom),
+        Some(3) => from_format3(stores, dir, machines, &text, prom, io_prom),
         Some(current) if current == i64::from(crate::MACHINE_FORMAT) => {
-            return from_current(rt, dir, machines, &text, prom, io_prom).map_err(|error| {
+            return from_current(stores, dir, machines, &text, prom, io_prom).map_err(|error| {
                 format!(
                     "cannot upgrade {}: {error}; its machine.toml is unchanged",
                     dir.display()
@@ -64,7 +65,7 @@ pub fn upgrade(
 /// the machine already has replace the fresh ones. The old files stay where
 /// they are.
 fn from_format1(
-    rt: &runtime::Runtime,
+    stores: &dyn StorePreparer,
     dir: &Path,
     machines: &Machines,
     text: &str,
@@ -74,9 +75,9 @@ fn from_format1(
     let (file, own_prom, notes) = convert(dir, machines, text)?;
     let offering = crate::offering(machines, &file.machine)?;
     // Format 1 kept no IO PROM.
-    let (prom, io_prom) = crate::firmware(offering, Some(prom.unwrap_or(&own_prom)), io_prom)?;
+    let (prom, io_prom) = stores.firmware(offering, Some(prom.unwrap_or(&own_prom)), io_prom)?;
     let init = MachineInit {
-        tool: &rt.machine_init(),
+        stores,
         boot_prom: &prom,
         io_prom: io_prom.as_deref(),
     };
@@ -89,7 +90,7 @@ fn from_format1(
 /// so a fresh file is the one create would have made. Any other missing
 /// file holds guest state that cannot be rebuilt.
 fn from_format2(
-    rt: &runtime::Runtime,
+    stores: &dyn StorePreparer,
     dir: &Path,
     machines: &Machines,
     text: &str,
@@ -124,10 +125,9 @@ fn from_format2(
     if !missing.is_empty() {
         // The init tool reads the machine's PROMs before it writes anything,
         // although these files do not depend on them.
-        let (prom, io_prom) = crate::firmware(offering, prom, io_prom)?;
+        let (prom, io_prom) = stores.firmware(offering, prom, io_prom)?;
         let result = (|| -> Result<()> {
-            let arguments = runtime::init_arguments(offering, &prom, io_prom.as_deref(), &staging);
-            runtime::create_state(&rt.machine_init(), &arguments)?;
+            stores.create_stores(offering, &prom, io_prom.as_deref(), &staging)?;
             for item in &missing {
                 fs::rename(raw(&staging, item), raw(&state, item))?;
             }
@@ -151,7 +151,7 @@ pub fn is_bookkeeping(note: &str) -> bool {
 /// pipe gets the flash store it lacks. Returns None when the machine needs
 /// neither.
 fn from_current(
-    rt: &runtime::Runtime,
+    stores: &dyn StorePreparer,
     dir: &Path,
     machines: &Machines,
     text: &str,
@@ -191,7 +191,7 @@ fn from_current(
         crate::settings::validate(machines, offering, &file.machine.inputs)?;
         notes.extend(renamed.iter().cloned());
     }
-    notes.extend(add_pipe_flash(rt, dir, machines, &file, prom, io_prom)?.unwrap_or_default());
+    notes.extend(add_pipe_flash(stores, dir, machines, &file, prom, io_prom)?.unwrap_or_default());
     if renamed.is_empty() && converted.is_none() {
         return Ok((!notes.is_empty()).then_some(notes));
     }
@@ -298,7 +298,7 @@ const PIPE_FLASH: &str = "kona-flash";
 /// made before the store existed never could. Returns None when the machine
 /// has every one.
 fn add_pipe_flash(
-    rt: &runtime::Runtime,
+    stores: &dyn StorePreparer,
     dir: &Path,
     machines: &Machines,
     file: &MachineFile,
@@ -321,10 +321,9 @@ fn add_pipe_flash(
     let _ = fs::remove_dir_all(&staging);
     // The init tool reads the machine's PROMs before it writes anything,
     // although these files do not depend on them.
-    let (prom, io_prom) = crate::firmware(offering, prom, io_prom)?;
+    let (prom, io_prom) = stores.firmware(offering, prom, io_prom)?;
     let result = (|| -> Result<()> {
-        let arguments = runtime::init_arguments(offering, &prom, io_prom.as_deref(), &staging);
-        runtime::create_state(&rt.machine_init(), &arguments)?;
+        stores.create_stores(offering, &prom, io_prom.as_deref(), &staging)?;
         for item in &missing {
             fs::rename(raw(&staging, item), raw(&state, item))?;
         }
@@ -347,7 +346,7 @@ fn add_pipe_flash(
 
 /// Store each format 3 graphics value as the pipes it now is.
 fn from_format3(
-    rt: &runtime::Runtime,
+    stores: &dyn StorePreparer,
     dir: &Path,
     machines: &Machines,
     text: &str,
@@ -359,7 +358,7 @@ fn from_format3(
     let file: MachineFile = toml::Value::Table(table).try_into()?;
     let offering = crate::offering(machines, &file.machine)?;
     crate::graphics::validate(machines, &offering.topology, offering.nodes, &file.pipe)?;
-    notes.extend(add_pipe_flash(rt, dir, machines, &file, prom, io_prom)?.unwrap_or_default());
+    notes.extend(add_pipe_flash(stores, dir, machines, &file, prom, io_prom)?.unwrap_or_default());
     replace_file(dir, &file)?;
     Ok(notes)
 }
@@ -762,8 +761,8 @@ fn install(
     // Left by an interrupted upgrade.
     let _ = fs::remove_dir_all(&staging);
     let result = (|| -> Result<()> {
-        let arguments = runtime::init_arguments(offering, init.boot_prom, init.io_prom, &staging);
-        runtime::create_state(init.tool, &arguments)?;
+        init.stores
+            .create_stores(offering, init.boot_prom, init.io_prom, &staging)?;
         let mut moves = vec![];
         for item in &offering.storage {
             let (fresh, target) = (raw(&staging, &item.name), raw(&state, &item.name));

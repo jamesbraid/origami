@@ -146,7 +146,7 @@ pub fn table(machines: &Machines) -> Result<String> {
         rows.push((
             name,
             machine_name(&offering.topology),
-            offering.smp.to_string(),
+            offering.cpus.to_string(),
             graphics,
         ));
     }
@@ -284,7 +284,7 @@ fn detail_of(machines: &Machines, name: &str, offering: &Offering) -> Result<Str
     let mut header = format!(
         "{name}: {}, {}, {} MiB per node, ",
         machine_name(&offering.topology),
-        plural(offering.smp, "CPU"),
+        plural(offering.cpus, "CPU"),
         crate::profiles::default_memory(offering)
     );
     match pipes.as_slice() {

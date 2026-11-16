@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::fs;
 use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
@@ -13,13 +14,13 @@ pub mod graphics;
 pub mod install;
 pub mod listing;
 pub mod mac;
-pub mod machines;
 pub mod migrate;
 pub mod nvram;
 pub mod profiles;
-pub mod runtime;
+pub mod serial;
 pub mod settings;
 pub mod shares;
+pub mod stores;
 
 /// The error every fallible call here returns. It is `Send + Sync`, so it
 /// crosses threads and the facade's event queue; strings, I/O, TOML and JSON
@@ -36,7 +37,8 @@ pub const MACHINE_FORMAT: u32 = 4;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Machines {
-    /// The catalogue's schema version; this Origami reads [`MACHINES_VERSION`].
+    /// The catalogue's schema version, as the engine that supplied it
+    /// numbers it.
     #[serde(default)]
     pub version: u32,
     pub offerings: Vec<Offering>,
@@ -46,10 +48,6 @@ pub struct Machines {
     #[serde(rename = "setting-definitions", default)]
     pub setting_definitions: Vec<settings::Definition>,
 }
-
-/// The machine list version this Origami reads. Version 3 names every
-/// topology uniquely and gives every offering an id and its settings.
-pub const MACHINES_VERSION: u32 = 3;
 
 /// A topology in the machine list, read for the processor modules and
 /// graphics pipes it offers.
@@ -86,28 +84,25 @@ pub struct Offering {
     pub product: String,
     pub topology: String,
     pub nodes: u32,
-    pub smp: u32,
+    /// The CPUs the offering starts with, in all.
+    #[serde(alias = "smp")]
+    pub cpus: u32,
     #[serde(rename = "cpus-per-node")]
     pub cpus_per_node: Vec<u32>,
-    #[serde(rename = "default-cpu-model")]
-    pub cpu: String,
     /// What the guest's host id derives from: `text`, `module`, `address`
     /// or `o2`. Every offering accepts the identity properties.
     #[serde(rename = "hostid-source")]
     pub hostid_source: String,
     pub processor: Processor,
+    /// Whether the offering fits a processor module other than its
+    /// topology's default, which a machine then stores.
+    #[serde(rename = "selects-processor", default)]
+    pub selects_processor: bool,
     #[serde(rename = "memory-per-node-mib")]
     pub memory: Memory,
-    /// The `-M` value selecting this product, topology and node count.
-    #[serde(rename = "machine-options")]
-    pub machine_options: String,
-    #[serde(rename = "init-inputs")]
-    pub init_inputs: Vec<InitInput>,
     pub storage: Vec<StorageItem>,
     #[serde(rename = "scsi-adapters")]
     pub scsi_adapters: Vec<ScsiAdapter>,
-    #[serde(rename = "needs-debug-leds-off", default)]
-    pub needs_debug_leds_off: bool,
     /// The machine inputs a launch may give with `--set`, each defined in
     /// the machine list's `setting-definitions`.
     #[serde(default)]
@@ -115,24 +110,27 @@ pub struct Offering {
     /// Settings that go together.
     #[serde(rename = "setting-groups", default)]
     pub setting_groups: Vec<settings::Group>,
-    /// Serial lines in -serial order; the line of kind `console` is the
+    /// Serial lines in launch order; the line of kind `console` is the
     /// primary console.
     pub consoles: Vec<Console>,
     /// The onboard Ethernets.
     #[serde(default)]
     pub networks: Vec<NetworkAdapter>,
-    /// Launch preparation the machine needs beyond its options, such as
-    /// `ip32`; absent from a machine with none.
-    #[serde(rename = "launch-recipe", default)]
-    pub launch_recipe: Option<String>,
-    /// The boot PROM as the launch hands it to QEMU, for a machine that
-    /// takes it as a machine option.
+    /// The size of the boot PROM's flash array, for a machine that takes the
+    /// PROM as a machine option.
     #[serde(default)]
     pub firmware: Option<Firmware>,
-    /// How the guest's time runs; absent from a QEMU whose machine list
+    /// How the guest's time runs; absent from an engine whose machine list
     /// does not say.
     #[serde(default)]
     pub clock: Option<Clock>,
+    /// The engines that run this offering.
+    #[serde(default)]
+    pub engines: Vec<String>,
+    /// What each engine needs to run the offering, keyed by engine id. Only
+    /// that engine's adapter reads its value.
+    #[serde(default)]
+    pub engine: BTreeMap<String, serde_json::Value>,
 }
 
 /// The boot PROM's place in the machine's flash.
@@ -158,24 +156,24 @@ pub struct Clock {
 impl Offering {
     /// The onboard Ethernet a launch binds and the PROM netboots from.
     pub fn default_network(&self) -> Option<&NetworkAdapter> {
+        self.default_network_index()
+            .map(|index| &self.networks[index])
+    }
+
+    /// The position of [`Offering::default_network`] in `networks`.
+    pub fn default_network_index(&self) -> Option<usize> {
         self.networks
             .iter()
-            .find(|adapter| adapter.default)
-            .or(self.networks.first())
+            .position(|adapter| adapter.default)
+            .or((!self.networks.is_empty()).then_some(0))
     }
 }
 
-/// An onboard Ethernet, with what a launch needs to bind it.
+/// An onboard Ethernet.
 #[derive(Clone, Debug, Deserialize)]
 pub struct NetworkAdapter {
     /// The chip, such as `bcm5701-ethernet`.
     pub kind: String,
-    /// The `-net nic` model that binds it.
-    #[serde(rename = "nic-model", default)]
-    pub nic_model: Option<String>,
-    /// The `-net nic` option naming its address.
-    #[serde(rename = "nic-mac-option", default)]
-    pub nic_mac_option: Option<String>,
     /// The guest's name for it, such as `tg0`.
     #[serde(default)]
     pub interface: Option<String>,
@@ -199,12 +197,9 @@ impl NetworkAdapter {
 #[derive(Clone, Debug, Deserialize)]
 pub struct AdapterMac {
     /// True when it follows the machine's identity address; false when the
-    /// `-net nic` sets it.
+    /// adapter takes an address of its own.
     #[serde(default)]
     pub derived: bool,
-    /// The `-M` property that sets the identity address, when `derived`.
-    #[serde(rename = "machine-property", default)]
-    pub machine_property: Option<String>,
     /// What this NIC's address adds to the identity address, when `derived`.
     #[serde(default)]
     pub offset: u32,
@@ -220,14 +215,6 @@ pub struct AdapterMac {
 pub(crate) const SGI_OUI: &str = "08:00:69";
 
 impl Offering {
-    /// The `-M` property that sets the machine's identity address.
-    pub fn mac_property(&self) -> &str {
-        self.default_network()
-            .and_then(|adapter| adapter.mac.as_ref())
-            .and_then(|mac| mac.machine_property.as_deref())
-            .unwrap_or("mac")
-    }
-
     /// The prefix the machine's addresses must start with: the one the
     /// machine list says its PROM needs, else the one its default address
     /// has, else SGI's own.
@@ -285,12 +272,15 @@ impl std::fmt::Display for Processor {
     }
 }
 
-/// A serial line the machine offers, named by the chardev its argument uses.
+/// A serial line the machine offers.
 #[derive(Clone, Debug, Deserialize)]
 pub struct Console {
     pub kind: String,
     pub node: u32,
-    pub argument: String,
+    /// The name a console choice uses, such as `ioc3_a`; absent for a line
+    /// the machine list does not name.
+    #[serde(default)]
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -299,17 +289,7 @@ pub struct Memory {
     pub default: u32,
 }
 
-/// A firmware image that creating a machine's storage reads. Its name is
-/// also the init tool's option for that image.
-#[derive(Clone, Debug, Deserialize)]
-pub struct InitInput {
-    pub name: String,
-    pub kind: String,
-    pub required: bool,
-}
-
-/// One writable store of a machine, named as QEMU names its file, block
-/// node and machine property.
+/// One writable store of a machine, named as its file under `state/`.
 #[derive(Clone, Debug, Deserialize)]
 pub struct StorageItem {
     pub name: String,
@@ -553,11 +533,6 @@ pub fn check_chd(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The machine list of the QEMU that launches guests.
-pub fn machines(runtime: &runtime::Runtime) -> Result<Machines> {
-    machines::load(&runtime.qemu())
-}
-
 pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
     profiles::presets(machines)
 }
@@ -765,7 +740,7 @@ fn check_memory(offering: &Offering, memory: u32) -> Result<()> {
 
 /// Check the network choice against what this host's QEMU can run. Tap
 /// names the host interface in `interface`; private and vmnet use `endpoint`.
-pub(crate) fn validate_network(file: &MachineFile) -> Result<()> {
+pub fn validate_network(file: &MachineFile) -> Result<()> {
     let mode = file.network.mode.as_str();
     addressing::Addresses::of(file)?;
     match mode {
@@ -811,6 +786,8 @@ pub(crate) fn validate_network(file: &MachineFile) -> Result<()> {
     Ok(())
 }
 
+/// Check `file` against the rules every engine shares. The engine's own
+/// checks, such as its extra arguments, are its adapter's to run.
 pub fn validate<'a>(
     machines: &'a Machines,
     dir: &Path,
@@ -829,9 +806,8 @@ pub fn validate<'a>(
     check_memory(offering, memory)?;
     graphics::validate(machines, &offering.topology, offering.nodes, &file.pipe)?;
     settings::validate(machines, offering, &file.machine.inputs)?;
-    runtime::console_line(offering, file.machine.console.as_deref())?;
+    serial::console_line(offering, file.machine.console.as_deref())?;
     validate_network(file)?;
-    runtime::check_extra_args(&file.qemu.extra_args)?;
     shares::validate(file)?;
     let mut names = std::collections::HashSet::new();
     let mut host_ports = std::collections::HashSet::new();
@@ -861,7 +837,7 @@ pub fn validate<'a>(
             .into());
         }
     }
-    runtime::check_state(dir, offering)?;
+    stores::check_state(dir, offering)?;
     if let Some(identity) = &file.identity {
         if !valid_mac(&identity.mac) {
             return Err("identity MAC must contain six hexadecimal bytes".into());
@@ -932,10 +908,6 @@ pub fn resolve(dir: &Path, value: &str) -> PathBuf {
     }
 }
 
-pub fn qemu_path_option(path: &Path) -> String {
-    path.display().to_string().replace(',', ",,")
-}
-
 pub fn validate_create_inputs(
     dir: &Path,
     offering: &Offering,
@@ -960,81 +932,12 @@ pub fn validate_create_inputs(
     Ok(())
 }
 
-/// What creates a new machine's storage: QEMU's init tool and the original
-/// firmware images it reads.
+/// What creates a new machine's storage: the engine that makes the files
+/// and the original firmware images it reads.
 pub struct MachineInit<'a> {
-    pub tool: &'a Path,
+    pub stores: &'a dyn stores::StorePreparer,
     pub boot_prom: &'a Path,
     pub io_prom: Option<&'a Path>,
-}
-
-/// The boot and IO PROM images that create `offering`'s storage: the files
-/// given, else verified downloads of the kinds its machine list entry reads.
-pub fn firmware(
-    offering: &Offering,
-    boot_prom: Option<&Path>,
-    io_prom: Option<&Path>,
-) -> Result<(PathBuf, Option<PathBuf>)> {
-    let image = |name: &str, given: Option<&Path>, option: &str| -> Result<Option<PathBuf>> {
-        if let Some(path) = given {
-            return Ok(Some(path.into()));
-        }
-        let Some(input) = offering
-            .init_inputs
-            .iter()
-            .find(|input| input.name == name && input.required)
-        else {
-            return Ok(None);
-        };
-        assets::acquire(&input.kind)
-            .map(Some)
-            .map_err(|error| format!("{error}; supply {option} FILE").into())
-    };
-    let boot_prom = image("boot-prom", boot_prom, "--prom")?
-        .ok_or_else(|| format!("{} reads no boot PROM", offering.topology))?;
-    Ok((boot_prom, image("io-prom", io_prom, "--io-prom")?))
-}
-
-/// The 256-byte update header that opens an O2 PROM media image, which the
-/// flash does not hold. It starts with the bytes `PROM`.
-const O2_UPDATE_HEADER: usize = 256;
-
-/// The O2's init tool takes its boot PROM as the flash array's own bytes,
-/// but the published image is the media file: an update header, then the
-/// code, ending short of the 512 KiB part. The board holds the code from
-/// the start of the flash, and erased flash reads 0xFF, which is also the
-/// pad byte the machine's `rom-image` loading uses. So the tool gets a copy
-/// without the header, padded. Other machines' images are decoded by the
-/// tool and pass through.
-fn flash_image_boot_prom(
-    offering: &Offering,
-    boot_prom: &Path,
-) -> Result<Option<tempfile::TempPath>> {
-    let raw = offering
-        .init_inputs
-        .iter()
-        .any(|input| input.name == "boot-prom" && input.kind == "ip32-prom");
-    let Some(flash) = offering
-        .storage
-        .iter()
-        .find(|item| raw && item.initial == "boot-prom")
-    else {
-        return Ok(None);
-    };
-    let mut image = fs::read(boot_prom)
-        .map_err(|error| format!("cannot read PROM image {}: {error}", boot_prom.display()))?;
-    if image.starts_with(b"PROM") && image.len() > O2_UPDATE_HEADER {
-        image.drain(..O2_UPDATE_HEADER);
-    }
-    if image.len() as u64 > flash.size {
-        // The tool names the size it wants.
-        return Ok(None);
-    }
-    image.resize(flash.size as usize, 0xff);
-    let mut file = tempfile::NamedTempFile::new()?;
-    std::io::Write::write_all(&mut file, &image)?;
-    // Close the write handle so the init tool can open the file on Windows.
-    Ok(Some(file.into_temp_path()))
 }
 
 pub fn create_configured(
@@ -1047,9 +950,8 @@ pub fn create_configured(
     inputs: std::collections::BTreeMap<String, String>,
 ) -> Result<()> {
     let memory_per_node = memory_per_node.unwrap_or(profiles::default_memory(offering));
-    let padded = flash_image_boot_prom(offering, init.boot_prom)?;
+    let padded = init.stores.stage_boot_prom(offering, init.boot_prom)?;
     let boot_prom = padded.as_ref().map_or(init.boot_prom, |file| file.as_ref());
-    let arguments = runtime::init_arguments(offering, boot_prom, init.io_prom, &dir.join("state"));
     if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         fs::create_dir_all(parent)?;
     }
@@ -1058,7 +960,8 @@ pub fn create_configured(
         for name in ["drives", "logs"] {
             fs::create_dir(dir.join(name))?;
         }
-        runtime::create_state(init.tool, &arguments)?;
+        init.stores
+            .create_stores(offering, boot_prom, init.io_prom, &dir.join("state"))?;
         let file = MachineFile {
             format: MACHINE_FORMAT,
             machine: Machine {
@@ -1090,15 +993,41 @@ pub fn create_configured(
 }
 
 /// A hand-trimmed excerpt of a `query-sgi-machines` reply: one offering of
-/// each kind the unit tests exercise. The product build's product-state test
-/// reads the real machine list.
+/// each kind the unit tests exercise. The neutral types read what they share
+/// with the reply directly; the QEMU adapter's translation also fills in the
+/// console names and the processor choice, which this does the short way.
+/// The product build's product-state test reads the real machine list.
 #[cfg(test)]
 pub(crate) fn test_machines() -> Machines {
-    serde_json::from_str(include_str!("../../../tests/fixtures/sgi-machines.json")).unwrap()
+    let wire: serde_json::Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/sgi-machines.json")).unwrap();
+    let mut machines: Machines = serde_json::from_value(wire.clone()).unwrap();
+    for (offering, record) in machines
+        .offerings
+        .iter_mut()
+        .zip(wire["offerings"].as_array().unwrap())
+    {
+        offering.selects_processor = record["machine-options"]
+            .as_str()
+            .unwrap()
+            .split(',')
+            .any(|option| option.starts_with("processor="));
+        for (console, line) in offering
+            .consoles
+            .iter_mut()
+            .zip(record["consoles"].as_array().unwrap())
+        {
+            console.name = line["argument"]
+                .as_str()
+                .and_then(|argument| argument.strip_prefix("-serial chardev:"))
+                .map(str::to_string);
+        }
+    }
+    machines
 }
 
-/// The stand-in init tool the unit tests use.
-#[cfg(all(test, unix))]
+/// The stand-in stores the unit tests use.
+#[cfg(test)]
 pub(crate) mod test_support;
 
 #[cfg(test)]
@@ -1152,33 +1081,6 @@ mod tests {
         assert_eq!(octane.scsi_bus_name(1), "scsi.1");
     }
 
-    #[test]
-    fn the_o2_flash_image_drops_the_media_header_and_pads_with_ff() {
-        let machines = test_machines();
-        let o2 = preset(&machines, "o2").unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let media = dir.path().join("media.image");
-        let mut bytes = b"PROM".to_vec();
-        bytes.resize(O2_UPDATE_HEADER, 0);
-        bytes.extend_from_slice(&[1, 2, 3]);
-        fs::write(&media, &bytes).unwrap();
-        let padded = flash_image_boot_prom(o2, &media).unwrap().unwrap();
-        let flash = fs::read(&padded).unwrap();
-        assert_eq!(flash.len(), 512 * 1024);
-        assert_eq!(flash[..3], [1, 2, 3]);
-        assert!(flash[3..].iter().all(|&byte| byte == 0xff));
-        // An image without the header is only padded.
-        fs::write(&media, [9u8, 8]).unwrap();
-        let flash = fs::read(flash_image_boot_prom(o2, &media).unwrap().unwrap()).unwrap();
-        assert_eq!(flash[..2], [9, 8]);
-        // One that overfills the flash is left for the init tool to refuse.
-        fs::write(&media, vec![0u8; 512 * 1024 + 1]).unwrap();
-        assert!(flash_image_boot_prom(o2, &media).unwrap().is_none());
-        // Other machines' images pass through.
-        let fuel = preset(&machines, "fuel-1").unwrap();
-        assert!(flash_image_boot_prom(fuel, &media).unwrap().is_none());
-    }
-
     #[cfg(unix)]
     #[test]
     fn create_accepts_listed_memory_and_rejects_unsupported_memory() {
@@ -1196,9 +1098,9 @@ mod tests {
         fs::write(&prom, [0u8; 1]).unwrap();
         let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
-        let tool = test_support::init_tool(&root);
+        let stores = test_support::ZeroStores { fail: false };
         let init = MachineInit {
-            tool: &tool,
+            stores: &stores,
             boot_prom: &prom,
             io_prom: None,
         };
@@ -1230,9 +1132,9 @@ mod tests {
         .unwrap();
         let file = read_machine(&default_size).unwrap();
         assert_eq!(file.machine.memory_per_node, "256MiB");
-        let missing_tool = root.join("absent-tool");
+        let failing = test_support::ZeroStores { fail: true };
         let broken = MachineInit {
-            tool: &missing_tool,
+            stores: &failing,
             ..init
         };
         let interrupted = root.join("new/parents/machine");
@@ -1263,17 +1165,14 @@ mod tests {
     }
 
     #[test]
-    fn the_machine_list_gives_the_mac_prefix_and_property() {
+    fn the_machine_list_gives_the_mac_prefix() {
         let machines = test_machines();
         let mut offer = preset(&machines, "onyx350").unwrap().clone();
         assert_eq!(offer.mac_prefix(), "08:00:69");
-        assert_eq!(offer.mac_property(), "mac");
         // A required prefix wins over the default address's.
         let mac = offer.networks[0].mac.as_mut().unwrap();
         mac.required_prefix = Some("08:00:6a".into());
-        mac.machine_property = Some("identity-mac".into());
         assert_eq!(offer.mac_prefix(), "08:00:6a");
-        assert_eq!(offer.mac_property(), "identity-mac");
         assert!(check_mac(&offer, "08:00:69:00:00:01").is_err());
         check_mac(&offer, "08:00:6A:00:00:01").unwrap();
         // NICs that take their own addresses, as on the Origin 300 NUMAlink
@@ -1281,7 +1180,6 @@ mod tests {
         let mac = offer.networks[0].mac.as_mut().unwrap();
         *mac = AdapterMac {
             derived: false,
-            machine_property: None,
             offset: 0,
             default_address: None,
             required_prefix: None,
@@ -1362,10 +1260,10 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
-        let tool = test_support::init_tool(&root);
+        let stores = test_support::ZeroStores { fail: false };
         let prom = root.join("prom.img");
         let init = MachineInit {
-            tool: &tool,
+            stores: &stores,
             boot_prom: &prom,
             io_prom: None,
         };
@@ -1430,10 +1328,10 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let machines = test_machines();
         let offer = preset(&machines, "origin200-1").unwrap();
-        let tool = test_support::init_tool(root.path());
+        let stores = test_support::ZeroStores { fail: false };
         let prom = root.path().join("prom.img");
         let init = MachineInit {
-            tool: &tool,
+            stores: &stores,
             boot_prom: &prom,
             io_prom: None,
         };

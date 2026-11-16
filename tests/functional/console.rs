@@ -21,8 +21,7 @@ pub struct Console {
 
 impl Console {
     pub fn connect(machine: &Path, log: &Path) -> Result<Self, String> {
-        let inner = origami_machine::console::Console::connect(machine)
-            .map_err(|e| format!("console: {e}"))?;
+        let inner = origami_qemu::connect_console(machine).map_err(|e| format!("console: {e}"))?;
         let log = File::options()
             .create(true)
             .append(true)

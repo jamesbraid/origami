@@ -1,6 +1,7 @@
 //! `origami stop` returns when the machine has exited, not when it was asked to.
 
 use origami_machine::control::{self, Record};
+use origami_qemu::control as qemu_control;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
@@ -51,7 +52,7 @@ fn stop_waits_for_a_slow_exit() {
     let fold = Duration::from_millis(2500);
     let machine = fake_machine(root.path(), fold);
     let started = Instant::now();
-    control::stop(root.path()).unwrap();
+    qemu_control::stop(root.path()).unwrap();
     let returned = Instant::now();
     let released = machine.join().unwrap();
     assert!(
@@ -66,7 +67,7 @@ fn stop_waits_for_a_slow_exit() {
 #[test]
 fn stop_of_a_machine_that_is_not_running_is_an_error() {
     let root = tempfile::tempdir().unwrap();
-    assert!(control::stop(root.path()).is_err());
+    assert!(qemu_control::stop(root.path()).is_err());
 }
 
 /// A stop that was interrupted leaves QEMU folding with its QMP endpoint no
@@ -95,7 +96,7 @@ fn a_second_stop_waits_while_qemu_no_longer_answers() {
         drop(lock);
     });
     let started = Instant::now();
-    control::stop(root.path()).unwrap();
+    qemu_control::stop(root.path()).unwrap();
     assert!(started.elapsed() >= fold, "stop returned during the fold");
     release.join().unwrap();
 }
@@ -118,7 +119,7 @@ fn stop_reports_a_dead_machine_whose_lock_is_free() {
         },
     )
     .unwrap();
-    assert!(control::stop(root.path()).is_err());
+    assert!(qemu_control::stop(root.path()).is_err());
 }
 
 #[test]
@@ -138,7 +139,9 @@ fn force_stop_of_a_machine_that_is_not_running_is_an_error() {
     .unwrap();
     // The machine lock is free: nothing runs, so nothing is killed, whatever
     // pid the record names.
-    let error = control::force_stop(root.path()).unwrap_err().to_string();
+    let error = qemu_control::force_stop(root.path())
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("not running"), "{error}");
 }
 
@@ -157,6 +160,8 @@ fn force_stop_will_not_guess_at_a_record_that_does_not_name_qemu() {
         },
     )
     .unwrap();
-    let error = control::force_stop(root.path()).unwrap_err().to_string();
+    let error = qemu_control::force_stop(root.path())
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("older origami"), "{error}");
 }

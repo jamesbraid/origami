@@ -43,8 +43,8 @@ fn runtime() -> PathBuf {
 /// The real machine list.
 fn machines() -> origami_machine::Machines {
     runtime();
-    let runtime = origami_machine::runtime::Runtime::locate().expect("the origami test executable");
-    origami_machine::machines(&runtime).unwrap()
+    let runtime = origami_qemu::Runtime::locate().expect("the origami test executable");
+    origami_qemu::machines(&runtime).unwrap()
 }
 
 fn origami(root: &Path, args: &[&OsStr]) -> Output {
@@ -85,7 +85,7 @@ fn start_and_stop(root: &Path, machine: &Path) -> Result<(), String> {
     let _guard = support::Running::new(root, machine);
     let record = origami_machine::control::read(machine).map_err(|error| error.to_string())?;
     let mut qmp =
-        origami_machine::control::verified_qmp(&record).map_err(|error| error.to_string())?;
+        origami_qemu::control::verified_qmp(&record).map_err(|error| error.to_string())?;
     let status = qmp
         .execute(&qmp::query_status {})
         .map_err(|error| error.to_string())?;
@@ -132,7 +132,7 @@ fn create(
 ) -> Result<PathBuf, String> {
     let machine = root.join(name);
     let mut args: Vec<OsString> = vec!["--preset".into(), preset.into()];
-    for input in &offering.init_inputs {
+    for input in &origami_qemu::offering_data(offering).unwrap().init_inputs {
         let image = root.join(format!("{name}-{}.bin", input.name));
         synthetic_image(&image, &input.kind);
         let option = if input.name == "boot-prom" {
@@ -227,7 +227,7 @@ fn every_preset_creates_reopens_and_starts_paused() {
     // Only presets create machines, so an offering with no preset, such as
     // the O2 whose PROM has no download, needs none.
     for (_, offering) in origami_machine::presets(&machines) {
-        for input in &offering.init_inputs {
+        for input in &origami_qemu::offering_data(offering).unwrap().init_inputs {
             if manifest.get(&input.kind).is_err() {
                 failures.push(format!("{}: no {} download", offering.topology, input.kind));
             }
@@ -503,7 +503,7 @@ fn machines_with_the_051_topology_names_upgrade_and_start() {
         let offering = origami_machine::preset(&machines, preset).unwrap();
         let machine = root.join(preset);
         let mut args: Vec<OsString> = vec!["--preset".into(), preset.into()];
-        for input in &offering.init_inputs {
+        for input in &origami_qemu::offering_data(offering).unwrap().init_inputs {
             let image = root.join(format!("{preset}-{}.bin", input.name));
             synthetic_image(&image, &input.kind);
             args.extend(["--prom".into(), image.into()]);

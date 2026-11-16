@@ -94,16 +94,18 @@ impl Addresses {
     pub fn guest(&self) -> Ipv4Addr {
         self.at(65)
     }
+}
 
-    /// The `-netdev user` options that set the network up.
-    pub fn user_netdev(&self) -> String {
-        format!(
-            "user,id=net0,net={},host={},dhcpstart={}",
-            self.cidr(),
-            self.host(),
-            self.guest()
-        )
-    }
+/// The machine directory's name, when a DHCP server can offer it as the
+/// guest's hostname.
+pub fn dhcp_hostname(dir: &std::path::Path) -> Option<&str> {
+    let name = dir.file_name()?.to_str()?;
+    (!name.is_empty()
+        && name.len() <= 63
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+    .then_some(name)
 }
 
 #[cfg(test)]
@@ -119,10 +121,6 @@ mod tests {
             ["10.98.0.2", "10.98.0.3", "10.98.0.4", "10.98.0.65"]
         );
         assert_eq!(a.cidr(), DEFAULT_SUBNET);
-        assert_eq!(
-            a.user_netdev(),
-            "user,id=net0,net=10.98.0.0/24,host=10.98.0.2,dhcpstart=10.98.0.65"
-        );
     }
 
     #[test]
@@ -142,7 +140,6 @@ mod tests {
                 assert_eq!(u32::from(ip) & mask, u32::from(a.at(0)), "{text} {ip}");
             }
             assert_eq!(u32::from(a.dns()), u32::from(a.host()) + 1);
-            assert!(a.user_netdev().contains(&format!("net={text},host={host}")));
         }
     }
 

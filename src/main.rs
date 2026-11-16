@@ -3,9 +3,9 @@ mod commands;
 
 use clap::Parser;
 use cli::{Action, DriveKind, NetworkMode, NvramAction};
-use origami_machine::runtime;
-use origami_machine::{addressing, control, graphics, install, listing, nvram, shares};
-use origami_machine::{machines, read_machine, validate, Drive, Network, PortForward, Result};
+use origami_machine::{addressing, control, graphics, install, listing, nvram, serial, shares};
+use origami_machine::{read_machine, Drive, Network, PortForward, Result};
+use origami_qemu::{machines, runtime, validate};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -96,9 +96,9 @@ fn command(action: Action) -> Result<()> {
             match &file.machine.processor {
                 Some(processor) => println!(
                     "valid: {} ({} CPUs, {processor})",
-                    offer.topology, offer.smp
+                    offer.topology, offer.cpus
                 ),
-                None => println!("valid: {} ({} CPUs)", offer.topology, offer.smp),
+                None => println!("valid: {} ({} CPUs)", offer.topology, offer.cpus),
             }
         }
         Action::Upgrade { dir, prom, io_prom } => {
@@ -145,7 +145,7 @@ fn command(action: Action) -> Result<()> {
             let offer = validate(&machines, &dir, &file)?;
             println!(
                 "{}: {} CPUs, {} nodes, {} per node",
-                file.machine.model, offer.smp, offer.nodes, file.machine.memory_per_node,
+                file.machine.model, offer.cpus, offer.nodes, file.machine.memory_per_node,
             );
             for line in graphics::show_lines(&machines, &offer.topology, &file.pipe) {
                 println!("{line}");
@@ -158,7 +158,7 @@ fn command(action: Action) -> Result<()> {
             let console = file.machine.console.as_deref();
             println!(
                 "console: {}",
-                console.map_or_else(|| runtime::default_console(offer), Ok)?
+                console.map_or_else(|| serial::default_console(offer), Ok)?
             );
             match offer.default_network() {
                 Some(adapter) => println!(
@@ -300,7 +300,7 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Status(args) => {
             let dir = directory(&args.dir)?;
-            if let Some(record) = control::running(&dir)? {
+            if let Some(record) = origami_qemu::control::running(&dir)? {
                 println!("running: pid {}", record.pid);
             } else if control::is_locked(&dir)? {
                 println!("running: foreground or starting");
@@ -308,18 +308,18 @@ fn command(action: Action) -> Result<()> {
                 println!("stopped");
             }
         }
-        Action::Console(args) => control::console(&directory(&args.dir)?)?,
+        Action::Console(args) => origami_qemu::control::console(&directory(&args.dir)?)?,
         Action::Stop(args) => {
             let dir = directory(&args.dir)?;
             if args.force {
-                control::force_stop(&dir)?;
+                origami_qemu::control::force_stop(&dir)?;
             } else {
-                control::stop(&dir)?;
+                origami_qemu::control::stop(&dir)?;
             }
             println!("stopped");
         }
         Action::Reset(args) => {
-            control::reset(&directory(&args.dir)?)?;
+            origami_qemu::control::reset(&directory(&args.dir)?)?;
             println!("reset");
         }
         Action::GraphicsSet { dir, graphics } => {
@@ -386,7 +386,7 @@ fn command(action: Action) -> Result<()> {
             let console = file.machine.console.as_deref();
             println!(
                 "console: {}",
-                console.map_or_else(|| runtime::default_console(offer), Ok)?
+                console.map_or_else(|| serial::default_console(offer), Ok)?
             );
         }
         Action::Nvram(args) => {
@@ -578,6 +578,7 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&dir)?;
             let _lock = control::lock_for_edit(&dir, "changing its network")?;
             let mut file = read_machine(&dir)?;
+            origami_qemu::runtime::check_extra_args(&file.qemu.extra_args)?;
             let initialised = if let Some(root) = media_root {
                 install::init_profile(
                     &machines(&rt)?,
@@ -636,20 +637,25 @@ fn command(action: Action) -> Result<()> {
             let dir = directory(&dir)?;
             let file = read_machine(&dir)?;
             validate(&machines(&rt)?, &dir, &file)?;
-            install::apply(&dir, &file, &mut std::io::stdout())?;
+            install::apply(
+                &dir,
+                &file,
+                &origami_qemu::connect_console,
+                &mut std::io::stdout(),
+            )?;
         }
         Action::InstallCheck { machine, full } => {
             let dir = directory(&machine.dir)?;
             let file = read_machine(&dir)?;
             validate(&machines(&rt)?, &dir, &file)?;
-            install::check(&rt, &dir, &file, full)?;
+            install::check(rt.instigator()?, &dir, &file, full)?;
             println!("install media validated");
         }
         Action::InstallServe(args) => {
             let dir = directory(&args.dir)?;
             let file = read_machine(&dir)?;
             validate(&machines(&rt)?, &dir, &file)?;
-            let status = install::serve(&rt, &dir, &file)?;
+            let status = install::serve(rt.instigator()?, &dir, &file)?;
             if !status.success() {
                 return Err(format!("Instigator exited with {status}").into());
             }

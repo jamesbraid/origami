@@ -8,7 +8,6 @@
 use crate::{control, Result};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
-use std::path::Path;
 use std::time::{Duration, Instant};
 
 /// How much output `wait_for` keeps to look for the prompt in.
@@ -19,20 +18,8 @@ pub struct Console {
 }
 
 impl Console {
-    /// Connect to the console of the machine running from `dir`.
-    pub fn connect(dir: &Path) -> Result<Self> {
-        let record = control::read(dir).map_err(|error| {
-            if error
-                .downcast_ref::<io::Error>()
-                .is_some_and(|error| error.kind() == io::ErrorKind::NotFound)
-            {
-                "install commands require a background run; start with origami run DIR --background"
-                    .into()
-            } else {
-                error
-            }
-        })?;
-        control::verified_qmp(&record)?;
+    /// Connect to the console port the run record names.
+    pub fn open(record: &control::Record) -> Result<Self> {
         let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, record.console_port);
         let stream = TcpStream::connect_timeout(&address.into(), Duration::from_secs(5))?;
         stream.set_read_timeout(Some(Duration::from_secs(1)))?;

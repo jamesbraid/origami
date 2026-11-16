@@ -34,53 +34,38 @@ pub struct Address {
     pub mac: [u8; 6],
 }
 
-/// Where the switch listens, as the `addr.` options QEMU's stream netdev
-/// takes: loopback TCP, or a Unix socket where the platform has them.
+/// Where one end of the switch listens: loopback TCP, whose port may be a
+/// placeholder, or a Unix socket where the platform has them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Listen {
+    Tcp(String),
+    Unix(PathBuf),
+}
+
+/// Where the switch listens.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ports {
     /// The guest NIC's stream.
-    pub guest: String,
+    pub guest: Listen,
     /// The machine's network, behind a hub.
-    pub network: String,
+    pub network: Listen,
 }
 
 impl Ports {
     /// Stand-ins for `show-command`, which starts no switch.
     pub fn placeholder() -> Ports {
         Ports {
-            guest: tcp_options("<guest-port>"),
-            network: tcp_options("<network-port>"),
+            guest: Listen::Tcp("<guest-port>".into()),
+            network: Listen::Tcp("<network-port>".into()),
         }
     }
 }
 
-fn tcp_options(port: &str) -> String {
-    format!("addr.type=inet,addr.host=127.0.0.1,addr.port={port}")
-}
-
-fn options(endpoint: &Endpoint) -> String {
+fn listen(endpoint: &Endpoint) -> Listen {
     match endpoint {
-        Endpoint::Tcp(addr) => tcp_options(&addr.port().to_string()),
-        Endpoint::Unix(path) => {
-            format!("addr.type=unix,addr.path={}", crate::qemu_path_option(path))
-        }
+        Endpoint::Tcp(addr) => Listen::Tcp(addr.port().to_string()),
+        Endpoint::Unix(path) => Listen::Unix(path.clone()),
     }
-}
-
-/// The QEMU options that put the machine's network (`net0`) and the guest
-/// NIC (`share-guest`) on either side of the switch.
-pub fn netdev_arguments(ports: &Ports) -> Vec<String> {
-    let stream =
-        |id: &str, addr: &str| format!("stream,id={id},{addr},server=off,reconnect-ms=1000");
-    [
-        "hubport,id=share-hub-net,hubid=1,netdev=net0".to_string(),
-        stream("share-net", &ports.network),
-        "hubport,id=share-hub-link,hubid=1,netdev=share-net".to_string(),
-        stream("share-guest", &ports.guest),
-    ]
-    .into_iter()
-    .flat_map(|option| ["-netdev".to_string(), option])
-    .collect()
 }
 
 /// Where the stack lives for this machine's network mode.
@@ -205,8 +190,8 @@ impl Running {
     /// The ports for the hub wiring around the machine's own network.
     pub fn ports(&self) -> Ports {
         Ports {
-            guest: options(self.switch.guest_endpoint()),
-            network: options(self.switch.network_endpoint()),
+            guest: listen(self.switch.guest_endpoint()),
+            network: listen(self.switch.network_endpoint()),
         }
     }
 
@@ -256,7 +241,7 @@ pub fn start(dir: &Path, file: &MachineFile) -> Result<Option<Running>> {
             client: Client {
                 mac,
                 ip: Addresses::of(file)?.guest(),
-                hostname: crate::runtime::dhcp_hostname(dir).map(str::to_string),
+                hostname: crate::addressing::dhcp_hostname(dir).map(str::to_string),
             },
             dhcp: true,
             server_id: None,
