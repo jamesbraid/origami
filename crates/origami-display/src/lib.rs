@@ -11,7 +11,7 @@
 mod control;
 mod display;
 mod import;
-mod input;
+pub mod input;
 pub mod proto;
 mod region;
 mod socket_input;
