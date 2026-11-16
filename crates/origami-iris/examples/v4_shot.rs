@@ -39,7 +39,7 @@ fn main() {
             let (w, h, st) = (f.width as usize, f.height as usize, f.stride as usize);
             let mut ppm = format!("P6\n{w} {h}\n255\n").into_bytes();
             for y in 0..h {
-                for px in f.pixels()[y * st..y * st + w * 4].chunks_exact(4) {
+                for px in f.pixels()[y * st..y * st + w * 4].as_chunks::<4>().0 {
                     ppm.extend_from_slice(&px[..3]);
                 }
             }
