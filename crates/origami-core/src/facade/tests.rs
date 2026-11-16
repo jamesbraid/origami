@@ -427,6 +427,11 @@ fn the_command_table_names_each_command_and_when_it_applies() {
         "machine.start",
         "machine.stop",
         "machine.reset",
+        "machine.force-quit",
+        "machine.eject-cd",
+        "window.console",
+        "window.diagnostics",
+        "machine.settings",
         "machine.pause",
         "machine.resume",
         "machine.release-keys",
@@ -450,8 +455,38 @@ fn the_command_table_names_each_command_and_when_it_applies() {
     assert!(!by("machine.pause")
         .enabled_when
         .holds(Some(MachineState::Paused)));
-    assert!(commands.iter().all(|c| c.shortcuts.len() == 3));
     assert_eq!(by("app.quit").shortcuts[0].accelerator, "Cmd+Q");
+}
+
+#[test]
+fn the_command_shortcuts_match_the_design() {
+    let f = fixture();
+    let commands = f.core.commands();
+    let keys = |id: &str| -> Vec<&str> {
+        let c = commands.iter().find(|c| c.id == id).unwrap();
+        c.shortcuts.iter().map(|s| s.accelerator.as_str()).collect()
+    };
+    assert_eq!(
+        keys("machine.start"),
+        ["Cmd+R", "Ctrl+Shift+R", "Ctrl+Shift+R"]
+    );
+    assert_eq!(
+        keys("machine.stop"),
+        ["Alt+Cmd+P", "Ctrl+Shift+P", "Ctrl+Shift+P"]
+    );
+    assert_eq!(
+        commands
+            .iter()
+            .find(|c| c.id == "machine.stop")
+            .unwrap()
+            .title,
+        "Power Off"
+    );
+    assert!(keys("machine.reset").is_empty());
+    assert!(keys("machine.force-quit").is_empty());
+    assert_eq!(keys("window.console")[1], "Ctrl+Shift+O");
+    // Screenshot would collide with Power Off, so it is Mac-only.
+    assert_eq!(keys("machine.screenshot"), ["Cmd+Shift+3"]);
 }
 
 #[test]
