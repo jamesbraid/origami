@@ -13,7 +13,10 @@ the commit ID. Builds without Git metadata report `unknown`.
 
 Create an annotated `vX.Y.Z` tag on the product commit to select a release.
 That commit also selects the QEMU and Instigator pins, and its `CHANGELOG.md`
-needs an `## X.Y.Z` section, which becomes the release notes. Build from the tag,
+needs an `## X.Y.Z - YYYY-MM-DD` section, which becomes the release notes.
+Rename `## Unreleased` and open a fresh one above it. The section opens with
+a one-sentence summary, then Breaking, Features, Changed and Fixes, leaving
+out empty ones. Build from the tag,
 run the tests, then package those binaries. Rebuild after adding or changing
 a tag so the embedded version matches the archive version.
 Cargo's `0.0.0` is a package placeholder. The Git tag owns the release version.

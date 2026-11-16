@@ -47,8 +47,9 @@ jobs:
             esac
           done
           (cd assets && sha256sum -- *.tar.gz *.zip > SHA256SUMS && sha256sum --check SHA256SUMS)
-          # The section under "## <version>", up to the next "## ".
-          awk -v v="$version" '$0 == "## " v {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
+          # The section under "## <version> - <date>" (or a bare "## <version>"
+          # for releases before dated headings), up to the next "## ".
+          awk -v v="$version" '$0 == "## " v || index($0, "## " v " - ") == 1 {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
           if ! grep -q '[^[:space:]]' notes.md; then
             echo "CHANGELOG.md has no ## $version section" >&2
             exit 1

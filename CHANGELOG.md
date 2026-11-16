@@ -2,68 +2,29 @@
 
 ## Unreleased
 
-- New:
-  - `drive-attach` takes a MAME CHD hard disk image with `--type disk`. A
-    compressed CHD takes guest writes in a `.diff.chd` beside it, which is
-    folded back into the image when QEMU exits cleanly; `--overlay` keeps the
-    diff instead. CD-ROM and tape CHDs are refused. Never use one CHD with
-    iris and origami at the same time. The bundled QEMU is built with its chd
-    driver, and the licence notices for MAME's CHD code ship with it.
-  - Every machine gets an emu-id at `create`, the lowest free one from 1 to
-    2999 among the machines beside it. QEMU builds the guest's system serial,
-    host id and Ethernet address from it. It is recorded in `machine.toml` as
-    `[identity] emu-id` and passed to QEMU as `emu-id=N`. `create --emu-id N`
-    picks one from 1 to 2999; 3000 to 4095 are reserved for harness and CI
-    machines. Concurrent creates in one directory never take the same emu-id.
-    `show` prints it and `validate` warns when a neighbouring machine has the
-    same one, or has emu-id 0 on tap or vmnet networking. A copied machine
-    directory keeps its emu-id, and `run` warns, but still starts it, while
-    the machine it was copied from is running: the two share a host id and
-    Ethernet address, which clash on a network they share.
-  - A new machine's MAC derives from its emu-id (42 gives
-    `08:00:69:e1:02:a0`, host id `69e102a0` on an Octane, Octane2, Origin 200
-    or Fuel) unless `--mac` is given. A machine that first gets a MAC from
-    `network-set` or `install-init` gets an emu-id the same way.
-  - O2 support. The `o2` preset creates an R10000 O2 (IP32) with its published
-    4.18 PROM, which `create` strips of its update header and pads to the 512 KiB
-    flash. The preset supplies the four board inputs QEMU requires (a password
-    clear input of 1 and an unprotected, unlocked ROM part); `--set` changes
-    them. A run counts instructions with the virtual-time clock, as QEMU's
-    machine list asks. Disks attach with `drive-attach --target`. `origami
-    nvram` does not support the O2 yet, so a new O2's PROM keeps its console on
-    the graphics head. The IRIX 6.5.30 login appears about five minutes after
-    start.
-- Changed:
-  - `stop` now waits until QEMU has exited and prints `stopped`, instead of
-    returning once the quit is requested. A CHD disk folds its diff into the
-    image during that exit, which takes minutes for a large image.
-  - `origami upgrade` adds an emu-id to a machine that has none and keeps its
-    MAC. On an Octane, Octane2, Fuel or Origin 200 the host id comes from the
-    station address, so it stays unmarked. On the others, the IP35 machines,
-    Origin 2000 and Onyx2, it comes from a system serial that the emu-id sets,
-    so the guest sees a new host id; `upgrade` says so and how to keep the
-    old one.
-  - Presets `tezro-vpro` and `onyx350-vpro` are now `tezro` and `onyx350`.
-  - New Origin 200 machines get 256 MiB per node, up from 64 MiB; the
-    `origin200-impact` GigaChannel preset had 128 MiB. Existing machines keep
-    their size, and `--memory-per-node` still picks another.
-  - `--set` takes the inputs the preset lists as settings, each checked for
-    its kind of value. A list takes a slot, as in `--set chassis-eeprom.0=FILE`.
-    `origami machines PRESET` lists them. A CPU input is `prid` or `fpu-id`
-    instead of one name for each CPU part. `l2-controller`, which binds the
-    Origin 3200 and Onyx 3200 rack L2 links to a companion process, is listed
-    but refused: the CLI starts no such process.
-  - `--processor` also picks the clock of an Origin 3200, 3400 or Onyx 3000.
-  - `origami upgrade` moves a machine made by 0.5.1 to QEMU's topology names,
-    one for each node board: `tezro-tower-multi` is `tezro-ip53`,
-    `onyx350-compat` is `onyx350-ip53`, and the Origin 3000 clock topologies
-    are processor modules. State is kept. An Onyx 4 host made by 0.5.1 cannot
-    be upgraded: QEMU now builds it only on the IP59 node board.
-  - The Origin 3000, Onyx 3000 and Origin 300 NUMAlink expansion take their
-    onboard Ethernet address from the machine's, where they all used
-    08:00:69:12:34:56.
-- QEMU updated to 11169497b07, which reports machine list version 3. An older
-  QEMU is refused.
+The O2 runs, machines get stable identities, and disks can be MAME CHD images.
+
+Breaking:
+- Presets: `tezro-vpro` and `onyx350-vpro` are now `tezro` and `onyx350`. Migration: use the new names.
+- origami upgrade: machines made by 0.5.1 must be upgraded to QEMU's topology names (`tezro-tower-multi` is `tezro-ip53`, `onyx350-compat` is `onyx350-ip53`, and the Origin 3000 clock topologies are processor modules). State is kept. Migration: run `origami upgrade` on each machine made by 0.5.1.
+- Onyx 4: a host made by 0.5.1 cannot be upgraded, because QEMU now builds it only on the IP59 node board.
+
+Features:
+- O2: the `o2` preset creates an R10000 O2 (IP32) with its published 4.18 PROM, which `create` strips of its update header and pads to the 512 KiB flash. The preset supplies the four board inputs QEMU requires (a password clear input of 1 and an unprotected, unlocked ROM part), and `--set` changes them. A run counts instructions with the virtual-time clock, as QEMU's machine list asks. Disks attach with `drive-attach --target`. `origami nvram` does not support the O2 yet, so a new O2's PROM keeps its console on the graphics head. The IRIX 6.5.30 login appears about five minutes after start.
+- emu-id: every machine gets one at `create`, the lowest free number from 1 to 2999 among the machines beside it, and QEMU builds the guest's system serial, host id and Ethernet address from it. It is recorded in `machine.toml` as `[identity] emu-id` and passed to QEMU as `emu-id=N`. Concurrent creates in one directory never take the same one. `create --emu-id N` picks one from 1 to 2999; 3000 to 4095 are reserved for harness and CI machines. `show` prints it and `validate` warns when a neighbouring machine has the same one, or has emu-id 0 on tap or vmnet networking.
+- Ethernet: a new machine's MAC derives from its emu-id unless `--mac` is given (42 gives `08:00:69:e1:02:a0`, and host id `69e102a0` on an Octane, Octane2, Origin 200 or Fuel). A machine that first gets a MAC from `network-set` or `install-init` gets an emu-id the same way.
+- CHD disks: `drive-attach --type disk` takes a MAME CHD hard disk image. A compressed CHD takes guest writes in a `.diff.chd` beside it, folded back into the image when QEMU exits cleanly; `--overlay` keeps the diff instead. CD-ROM and tape CHDs are refused. Never use one CHD with iris and origami at the same time.
+- Settings: `--set` takes the inputs the preset lists as settings, each checked for its kind of value. A list takes a slot, as in `--set chassis-eeprom.0=FILE`. `origami machines PRESET` lists them. A CPU input is `prid` or `fpu-id` instead of one name for each CPU part. `l2-controller` is listed but refused: the CLI starts no such process.
+- CPU clock: `--processor` also picks the clock of an Origin 3200, 3400 or Onyx 3000.
+
+Changed:
+- stop: waits until QEMU has exited and prints `stopped`, instead of returning once the quit is requested. A CHD disk folds its diff into the image during that exit, which takes minutes for a large image.
+- origami upgrade: adds an emu-id to a machine that has none and keeps its MAC. On an Octane, Octane2, Fuel or Origin 200 the host id comes from the station address and stays the same. On the IP35 machines, Origin 2000 and Onyx2 it comes from a system serial that the emu-id sets, so the guest sees a new host id; `upgrade` says so and how to keep the old one.
+- Origin 200: new machines get 256 MiB per node, up from 64 MiB (the `origin200-impact` GigaChannel preset had 128 MiB). Existing machines keep their size, and `--memory-per-node` still picks another.
+- Origin 3000, Onyx 3000 and Origin 300: the NUMAlink expansion takes its onboard Ethernet address from the machine's, where they all used 08:00:69:12:34:56.
+- Copied machines: a copied machine directory keeps its emu-id, and `run` warns, but still starts it, while the machine it was copied from is running. The two share a host id and Ethernet address, which clash on a shared network.
+- Archive: the bundled QEMU is built with its chd driver, and the licence notices for MAME's CHD code ship with it.
+- QEMU: updated to 11169497b07, which reports machine list version 3. An older QEMU is refused.
 
 ## 0.5.1
 
