@@ -16,11 +16,14 @@ use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 #[derive(Clone, Copy, Debug)]
 pub struct HostSurface {
     /// The display connection, where the platform has one the surface needs
-    /// (Wayland, X11). `None` for Cocoa (`CAMetalLayer`'s `NSView`) and Win32.
+    /// (Wayland, X11). wgpu refuses a surface without one, so Cocoa and
+    /// Win32 give their empty display handles.
     pub display: Option<RawDisplayHandle>,
     /// The window: an `NSView` or `CAMetalLayer` pointer, an `HWND`, an X11
     /// window or a `wl_surface`.
     pub window: RawWindowHandle,
+    /// `window` is an AppKit pointer that is a `CAMetalLayer`, not an `NSView`.
+    pub metal_layer: bool,
 }
 
 /// How a [`View::draw`] ended.
@@ -68,14 +71,18 @@ impl View {
         scale: f64,
     ) -> Result<View, String> {
         // SAFETY: the caller's promise above.
-        let surface = unsafe {
-            gpu.instance
-                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
-                    raw_display_handle: host.display,
-                    raw_window_handle: host.window,
-                })
-        }
-        .map_err(|e| format!("cannot create a surface: {e}"))?;
+        let target = match host.window {
+            #[cfg(target_vendor = "apple")]
+            RawWindowHandle::AppKit(h) if host.metal_layer => {
+                wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(h.ns_view.as_ptr())
+            }
+            window => wgpu::SurfaceTargetUnsafe::RawHandle {
+                raw_display_handle: host.display,
+                raw_window_handle: window,
+            },
+        };
+        let surface = unsafe { gpu.instance.create_surface_unsafe(target) }
+            .map_err(|e| format!("cannot create a surface: {e}"))?;
         View::from_surface(gpu, surface, width, height, scale)
     }
 
@@ -288,6 +295,7 @@ mod tests {
         let host = HostSurface {
             display: Some(RawDisplayHandle::Web(WebDisplayHandle::new())),
             window: RawWindowHandle::Web(WebWindowHandle::new(1)),
+            metal_layer: false,
         };
         // SAFETY: the handle names nothing; the backends refuse it before
         // touching it.

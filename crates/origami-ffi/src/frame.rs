@@ -1110,9 +1110,9 @@ pub unsafe extern "C" fn origami_view_detach(view: *mut origami_view) {
 mod present {
     use super::*;
     use origami_render::raw_window_handle::{
-        AppKitWindowHandle, RawDisplayHandle, RawWindowHandle, WaylandDisplayHandle,
-        WaylandWindowHandle, Win32WindowHandle, XcbDisplayHandle, XcbWindowHandle,
-        XlibDisplayHandle, XlibWindowHandle,
+        AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle,
+        WaylandDisplayHandle, WaylandWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
+        XcbDisplayHandle, XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
     };
     use origami_render::{
         cursor_texture, Compose, CursorDraw, Drawn, Gpu, HeadTexture, HostSurface, ScaleMode, View,
@@ -1149,17 +1149,19 @@ mod present {
         }
         Ok(match s.kind {
             ORIGAMI_SURFACE_COCOA_VIEW | ORIGAMI_SURFACE_CA_METAL_LAYER => HostSurface {
-                display: None,
+                display: Some(RawDisplayHandle::AppKit(AppKitDisplayHandle::new())),
                 window: RawWindowHandle::AppKit(AppKitWindowHandle::new(pointer(
                     s.window, "window",
                 )?)),
+                metal_layer: s.kind == ORIGAMI_SURFACE_CA_METAL_LAYER,
             },
             ORIGAMI_SURFACE_WIN32_HWND => {
                 let hwnd = std::num::NonZeroIsize::new(s.window as isize)
                     .ok_or_else(|| Fail(Status::NullArgument, "window is null".into()))?;
                 HostSurface {
-                    display: None,
+                    display: Some(RawDisplayHandle::Windows(WindowsDisplayHandle::new())),
                     window: RawWindowHandle::Win32(Win32WindowHandle::new(hwnd)),
+                    metal_layer: false,
                 }
             }
             ORIGAMI_SURFACE_WIN32_SWAPCHAIN_PANEL => {
@@ -1176,6 +1178,7 @@ mod present {
                 window: RawWindowHandle::Xlib(XlibWindowHandle::new(
                     s.window_id as std::ffi::c_ulong,
                 )),
+                metal_layer: false,
             },
             ORIGAMI_SURFACE_XCB_WINDOW => HostSurface {
                 display: Some(RawDisplayHandle::Xcb(XcbDisplayHandle::new(
@@ -1186,6 +1189,7 @@ mod present {
                     std::num::NonZeroU32::new(s.window_id as u32)
                         .ok_or_else(|| Fail(Status::NullArgument, "window_id is 0".into()))?,
                 )),
+                metal_layer: false,
             },
             ORIGAMI_SURFACE_WAYLAND_SURFACE => HostSurface {
                 display: Some(RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
@@ -1194,6 +1198,7 @@ mod present {
                 window: RawWindowHandle::Wayland(WaylandWindowHandle::new(pointer(
                     s.window, "window",
                 )?)),
+                metal_layer: false,
             },
             _ => return fail(Status::InvalidArgument, "unknown surface kind"),
         })
@@ -1377,6 +1382,34 @@ mod present {
                 Drawn::Skipped => ORIGAMI_DRAWN_SKIPPED,
                 Drawn::Reconfigured => ORIGAMI_DRAWN_AGAIN,
             })
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn surface(kind: u32) -> origami_surface {
+            origami_surface {
+                size: std::mem::size_of::<origami_surface>() as u32,
+                kind,
+                window: std::ptr::dangling_mut::<c_void>(),
+                display: std::ptr::null_mut(),
+                window_id: 0,
+                screen: 0,
+            }
+        }
+
+        // wgpu refuses a surface with no display handle on any platform.
+        #[test]
+        fn cocoa_and_win32_surfaces_carry_a_display_handle() {
+            for kind in [ORIGAMI_SURFACE_COCOA_VIEW, ORIGAMI_SURFACE_WIN32_HWND] {
+                let host = host(&surface(kind)).ok().unwrap();
+                assert!(host.display.is_some(), "kind {kind}");
+                assert!(!host.metal_layer);
+            }
+            let layer = host(&surface(ORIGAMI_SURFACE_CA_METAL_LAYER)).ok().unwrap();
+            assert!(layer.display.is_some() && layer.metal_layer);
         }
     }
 }
