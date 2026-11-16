@@ -217,6 +217,24 @@ because the driver pins host memory for writing) and Metal no-copy on macOS
 `crates/origami-ffi/tests/qemu_boot.rs` boots an Octane2 and an IRIX desktop
 through the C frame plane on either; its header lists the variables.
 
+With the `iris` feature the ffi crate also hosts iris machines: the runner
+(an `origami` built with `iris`) serves protocol 4, and the frame plane attaches
+over the socket like a viewer, so a machine's pictures and input reach
+`origami_view_present` as QEMU's do. iris's producer publishes only on a real
+change; the login caret's blink still wakes a viewer about twice a second. iris
+composes the whole board whenever a viewer waits, which costs iris's own thread
+and is not measured here.
+
+`crates/origami-ffi/tests/iris_boot.rs` boots an Indy from the published IRIX 5.3
+disk (`irix-images/find --machine indy --release 5.3`). It is ignored by default
+and needs a Vulkan device, an X server (Xvfb is enough), ImageMagick's `import`
+and these variables: `ORIGAMI_BIN`, an `origami` built with `iris`;
+`ORIGAMI_GUI_TEST_DIR`, a directory for the machine; `ORIGAMI_TEST_DISK`, the
+disk, which is copied so its writes stay in a diff beside the copy; and
+optionally `ORIGAMI_TEST_DISK_SHA256`. Run it with `cargo test -p origami-ffi
+--release --features iris --test iris_boot -- --ignored --nocapture`; the
+numbers it prints start with `MEASURE`.
+
 ## Licenses and dependency sources
 
 The Origami CLI, Instigator and original Origami additions to QEMU use

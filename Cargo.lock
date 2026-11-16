@@ -4758,6 +4758,7 @@ dependencies = [
  "origami-engine",
  "origami-iris",
  "origami-machine",
+ "origami-protocol",
  "origami-qemu",
  "origami-render",
  "tempfile",
