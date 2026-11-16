@@ -1,16 +1,18 @@
 //! A machine's serial console, logs, status and controls: everything in the
 //! window besides the picture. Part of [`super`], whose state it works on.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use slint::ComponentHandle;
 
 use super::Ui;
-use crate::core::logs::{is_error_line, Follower};
+use crate::core::logs::{self, is_error_line, Follower, LogSelection};
 use crate::core::status::{self, Facts, Reason};
 use crate::core::terminal::Terminal;
-use crate::core::{ConsoleKind, ConsoleLink, Power};
+use crate::core::{ConsoleKind, ConsoleLink, Key, Power};
+use crate::pointer::{AbsThrottle, PointerMode, RelAccum};
 use crate::termkeys::{self, KeyAction, Mods};
 use crate::textgrid::{self, Cell, Painter};
 
@@ -56,6 +58,18 @@ const LOG_BUDGET: usize = 4 << 20;
 const MIN_ROWS: u16 = 24;
 const MIN_COLS: u16 = 80;
 
+/// Where a log pane's entries sit in the text view's grid.
+#[derive(Clone, Copy)]
+struct PaneLayout {
+    /// The header's row, with the entries' rows below it, `count` rows in all.
+    first: u16,
+    count: u16,
+    /// The entries the rows show: `start..end`, the last possibly the line
+    /// still being written.
+    start: usize,
+    end: usize,
+}
+
 /// What a machine has besides its picture.
 pub struct Extra {
     pub view: View,
@@ -73,6 +87,28 @@ pub struct Extra {
     pub pointer: (f32, f32),
     pub wheel_fraction: f32,
     pub selecting: bool,
+    /// The drag over a log, kept as entries and characters so it stays on
+    /// its text while the view scrolls.
+    pub log_sel: Option<LogSelection>,
+    /// Copy a merged line with its repeat count.
+    pub copy_counts: bool,
+    /// How the pointer reaches the guest, and whether the host pointer is
+    /// captured now (and how: "locked" or "confined").
+    pub mode: PointerMode,
+    pub captured: bool,
+    pub grab: &'static str,
+    /// Buttons whose release is the end of the click that captured.
+    pub swallow: [bool; 3],
+    /// Buttons the guest believes are down.
+    pub held_buttons: [bool; 3],
+    /// How many times each log has been emptied and read again, so a
+    /// selection of the old lines can be dropped.
+    pub log_clears: [u64; 2],
+    /// Keys the guest believes are down.
+    pub held: HashSet<Key>,
+    pub rel: RelAccum,
+    pub abs: AbsThrottle,
+    pub abs_timer: slint::Timer,
     pub busy: String,
     pub busy_actions: u32,
     pub notice: String,
@@ -105,6 +141,18 @@ impl Extra {
             pointer: (0.0, 0.0),
             wheel_fraction: 0.0,
             selecting: false,
+            log_sel: None,
+            copy_counts: false,
+            mode: PointerMode::Capture,
+            captured: false,
+            grab: "",
+            swallow: [false; 3],
+            held_buttons: [false; 3],
+            log_clears: [0; 2],
+            held: HashSet::new(),
+            rel: RelAccum::default(),
+            abs: AbsThrottle::default(),
+            abs_timer: slint::Timer::default(),
             busy: String::new(),
             busy_actions: 0,
             notice: String::new(),
@@ -188,6 +236,7 @@ impl Ui {
         if self.machines[mi].x.view == v {
             return;
         }
+        self.release_all(mi);
         self.machines[mi].x.view = v;
         self.machines[mi].x.text_dirty = true;
         if v == View::Logs {
@@ -262,30 +311,53 @@ impl Ui {
         )
     }
 
+    /// Where each log pane's entries sit in a grid of `rows`: its header row,
+    /// the rows below it, and the entries those rows show.
+    fn log_panes(&self, mi: usize, rows: u16) -> [PaneLayout; 2] {
+        let x = &self.machines[mi].x;
+        let top = rows / 2;
+        let pane = |f: &Follower, first: u16, count: u16, scroll: usize| {
+            let body = count.saturating_sub(1) as usize;
+            let total = f.lines.len() + usize::from(f.pending().is_some());
+            let end = total.saturating_sub(scroll.min(total.saturating_sub(1)));
+            PaneLayout {
+                first,
+                count,
+                start: end.saturating_sub(body),
+                end,
+            }
+        };
+        [
+            pane(&x.runner, 0, top, x.log_scroll[0]),
+            pane(&x.serial_log, top, rows - top, x.log_scroll[1]),
+        ]
+    }
+
     /// The logs: runner.log above, serial.log below, each with a header and
     /// the lines at the end of it unless scrolled back.
     fn paint_logs(&mut self, mi: usize, w: u32, h: u32) -> Vec<u8> {
-        let x = &self.machines[mi].x;
         let (rows, cols) = self.painter.grid_for(w, h);
-        let top = rows / 2;
-        let panes: [(&str, &Follower, u16, u16, usize); 2] = [
-            ("runner.log", &x.runner, 0, top, x.log_scroll[0]),
-            (
-                "serial.log",
-                &x.serial_log,
-                top,
-                rows - top,
-                x.log_scroll[1],
-            ),
+        let layout = self.log_panes(mi, rows);
+        let x = &self.machines[mi].x;
+        let panes: [(&str, &Follower, usize); 2] = [
+            ("runner.log", &x.runner, 0),
+            ("serial.log", &x.serial_log, 1),
         ];
         // The text of each row, drawn after the grid is laid out.
         let mut grid: Vec<Vec<Cell>> = (0..rows)
             .map(|_| vec![Cell::plain(' '); cols as usize])
             .collect();
-        for (name, f, first, count, scroll) in panes {
+        for (name, f, idx) in panes {
+            let PaneLayout {
+                first,
+                count,
+                start,
+                end,
+            } = layout[idx];
             if count == 0 {
                 continue;
             }
+            let scroll = x.log_scroll[idx];
             let head = format!(
                 " {name}: {} lines written, {} shown after merging repeats{}{}",
                 f.lines.raw_lines(),
@@ -314,11 +386,7 @@ impl Ui {
                 [0x2b, 0x45, 0x66],
                 true,
             );
-            let body = count.saturating_sub(1) as usize;
             let pending = f.pending();
-            let total = f.lines.len() + usize::from(pending.is_some());
-            let end = total.saturating_sub(scroll.min(total.saturating_sub(1)));
-            let start = end.saturating_sub(body);
             for (j, e) in (start..end).enumerate() {
                 let row = &mut grid[first as usize + 1 + j];
                 let (text, n, error) = match f.lines.get(e) {
@@ -345,6 +413,14 @@ impl Ui {
                     textgrid::DEFAULT_FG
                 };
                 put(row, 0, &shown, fg, textgrid::DEFAULT_BG, false);
+                if let (Some(sel), true) = (x.log_sel, e < f.lines.len()) {
+                    let number = f.lines.first_number() + e as u64;
+                    for (c, cell) in row.iter_mut().enumerate().take(shown.chars().count()) {
+                        if sel.covers(idx, number, c) {
+                            std::mem::swap(&mut cell.fg, &mut cell.bg);
+                        }
+                    }
+                }
                 if !suffix.is_empty() {
                     let at = cols as usize - suffix.chars().count();
                     put(
@@ -360,6 +436,83 @@ impl Ui {
         }
         self.painter
             .paint(w, h, rows, cols, |r, c| grid[r as usize][c as usize], None)
+    }
+
+    /// The place in a log under view position (`px`, `py`) of the text view.
+    /// With `pane` named, a position outside that pane is the nearest one in
+    /// it, which is what a drag that leaves it wants.
+    fn log_pos(
+        &self,
+        mi: usize,
+        px: f32,
+        py: f32,
+        pane: Option<usize>,
+    ) -> Option<(usize, logs::LogPos)> {
+        let x = &self.machines[mi].x;
+        let (cw, ch) = self.painter.cell_size();
+        let (rows, cols) = self.painter.grid_for(x.text_area.0, x.text_area.1);
+        if rows == 0 || cols == 0 {
+            return None;
+        }
+        let row = ((py.max(0.0) as u32) / ch).min(u32::from(rows) - 1) as u16;
+        let col = ((px.max(0.0) as u32) / cw).min(u32::from(cols) - 1) as usize;
+        let layout = self.log_panes(mi, rows);
+        let idx = pane.unwrap_or(usize::from(row >= rows / 2));
+        let lay = layout[idx];
+        if lay.count < 2 || lay.end == lay.start {
+            return None;
+        }
+        let f = if idx == 0 { &x.runner } else { &x.serial_log };
+        let body_first = lay.first + 1;
+        let row = row.clamp(body_first, lay.first + lay.count - 1);
+        // The partial line being written is not an entry yet.
+        let entry = (lay.start + usize::from(row - body_first))
+            .min(lay.end - 1)
+            .min(f.lines.len().checked_sub(1)?);
+        let chars = f.lines.get(entry)?.text.chars().count();
+        Some((
+            idx,
+            (
+                f.lines.first_number() + entry as u64,
+                col.min(chars.saturating_sub(1)),
+            ),
+        ))
+    }
+
+    /// Select every entry of the log the pointer is over.
+    pub fn select_all_log(&mut self, mi: usize) {
+        let pane = self.log_pane(mi);
+        let f = if pane == 0 {
+            &self.machines[mi].x.runner
+        } else {
+            &self.machines[mi].x.serial_log
+        };
+        self.machines[mi].x.log_sel = LogSelection::all(pane, &f.lines);
+        self.mark_text(mi);
+        self.render_text(mi);
+    }
+
+    pub fn toggle_copy_counts(&mut self, mi: usize) {
+        let x = &mut self.machines[mi].x;
+        x.copy_counts = !x.copy_counts;
+        self.push(mi);
+    }
+
+    fn copy_text(&mut self, mi: usize, text: Option<String>) {
+        let Some(text) = text else {
+            self.machines[mi].x.notice = "nothing selected; drag over the text first".into();
+            self.push(mi);
+            return;
+        };
+        let result = self
+            .clipboard()
+            .and_then(|c| c.set_text(text.clone()).map_err(|e| e.to_string()));
+        self.machines[mi].x.notice = match result {
+            Ok(()) => format!("copied {} characters", text.chars().count()),
+            Err(e) => format!("copy failed: {e}"),
+        };
+        self.copied = Some(text);
+        self.push(mi);
     }
 
     /// A key pressed in a window's text view.
@@ -394,6 +547,15 @@ impl Ui {
                 let pane = self.log_pane(mi);
                 let page = self.log_page(mi) as isize;
                 let c = text.chars().next().unwrap_or('\0');
+                // A log is not typed into, so Ctrl+C is copy here, and Ctrl+A
+                // (Command on a Mac) selects the log under the pointer.
+                if mods.command || mods.ctrl {
+                    match c.to_ascii_lowercase() {
+                        'c' | '\u{3}' => return self.copy_selection(mi),
+                        'a' | '\u{1}' => return self.select_all_log(mi),
+                        _ => {}
+                    }
+                }
                 let delta = if c == char::from(K::PageUp) {
                     page
                 } else if c == char::from(K::PageDown) {
@@ -465,20 +627,20 @@ impl Ui {
     }
 
     pub fn copy_selection(&mut self, mi: usize) {
-        let Some(text) = self.machines[mi].x.term.selected_text() else {
-            self.machines[mi].x.notice = "nothing selected; drag over the text first".into();
-            self.push(mi);
-            return;
+        let x = &self.machines[mi].x;
+        let text = match (x.view, x.log_sel) {
+            (View::Logs, Some(sel)) => {
+                let f = if sel.pane == 0 {
+                    &x.runner
+                } else {
+                    &x.serial_log
+                };
+                logs::selected_text(&f.lines, &sel, x.copy_counts)
+            }
+            (View::Logs, None) => None,
+            _ => x.term.selected_text(),
         };
-        let result = self
-            .clipboard()
-            .and_then(|c| c.set_text(text.clone()).map_err(|e| e.to_string()));
-        self.machines[mi].x.notice = match result {
-            Ok(()) => format!("copied {} characters", text.chars().count()),
-            Err(e) => format!("copy failed: {e}"),
-        };
-        self.copied = Some(text);
-        self.push(mi);
+        self.copy_text(mi, text);
     }
 
     pub fn paste(&mut self, mi: usize) {
@@ -517,13 +679,30 @@ impl Ui {
             return;
         };
         self.machines[mi].x.pointer = (x, y);
-        if self.machines[mi].x.view == View::Serial {
-            let cell = self.cell_at(mi, x, y);
-            let t = &mut self.machines[mi].x;
-            t.term.select_from(cell);
-            t.selecting = true;
-            self.mark_text(mi);
-            self.render_text(mi);
+        match self.machines[mi].x.view {
+            View::Serial => {
+                let cell = self.cell_at(mi, x, y);
+                let t = &mut self.machines[mi].x;
+                t.term.select_from(cell);
+                t.selecting = true;
+                self.mark_text(mi);
+                self.render_text(mi);
+            }
+            View::Logs => {
+                let sel = self
+                    .log_pos(mi, x, y, None)
+                    .map(|(pane, pos)| LogSelection {
+                        pane,
+                        anchor: pos,
+                        head: pos,
+                    });
+                let t = &mut self.machines[mi].x;
+                t.log_sel = sel;
+                t.selecting = sel.is_some();
+                self.mark_text(mi);
+                self.render_text(mi);
+            }
+            View::Display => {}
         }
     }
 
@@ -533,8 +712,16 @@ impl Ui {
         };
         self.machines[mi].x.pointer = (x, y);
         if self.machines[mi].x.selecting {
-            let cell = self.cell_at(mi, x, y);
-            self.machines[mi].x.term.select_to(cell);
+            if self.machines[mi].x.view == View::Logs {
+                if let Some(sel) = self.machines[mi].x.log_sel {
+                    if let Some((_, pos)) = self.log_pos(mi, x, y, Some(sel.pane)) {
+                        self.machines[mi].x.log_sel = Some(LogSelection { head: pos, ..sel });
+                    }
+                }
+            } else {
+                let cell = self.cell_at(mi, x, y);
+                self.machines[mi].x.term.select_to(cell);
+            }
             self.mark_text(mi);
             self.render_text(mi);
         }
@@ -612,6 +799,16 @@ impl Ui {
         if all || x.view == View::Logs {
             changed |= x.serial_log.poll(LOG_BUDGET);
         }
+        // A log read again from its start numbers its entries afresh.
+        for (idx, f) in [&x.runner, &x.serial_log].into_iter().enumerate() {
+            if f.lines.clears() != x.log_clears[idx] {
+                x.log_clears[idx] = f.lines.clears();
+                if x.log_sel.is_some_and(|s| s.pane == idx) {
+                    x.log_sel = None;
+                    x.text_dirty = true;
+                }
+            }
+        }
         if changed && x.view == View::Logs {
             // Following the end: new lines move what a scrolled view shows
             // only when it is at the end.
@@ -635,6 +832,9 @@ impl Ui {
         let was = x.was_running;
         x.was_running = running;
         x.facts = facts;
+        if !running && (x.captured || !x.held.is_empty()) {
+            self.release_all(mi);
+        }
         if was && !running {
             // A stopped machine takes the console setting again.
             self.read_console_kind(mi);
@@ -708,7 +908,14 @@ impl Ui {
             _ => status::reason(&m.x.facts),
         };
         let text = match m.x.view {
-            View::Display => format!("{picture} | {}", self.zero_copy_text(mi)),
+            View::Display => {
+                let hint = if matches!(status::stage(&m.x.facts), Reason::Showing) {
+                    format!("{} | ", self.pointer_hint(mi))
+                } else {
+                    String::new()
+                };
+                format!("{hint}{picture} | {}", self.zero_copy_text(mi))
+            }
             View::Serial => {
                 let link = match &m.x.console {
                     ConsoleLink::Connected => "connected".to_string(),
@@ -903,6 +1110,14 @@ impl Ui {
                         "serial_scrolled": m.x.term.scrolled(),
                         "serial_history": m.x.term.history(),
                         "selection": m.x.term.selected_text(),
+                        "log_selection": m.x.log_sel.and_then(|s| {
+                            let f = if s.pane == 0 { &m.x.runner } else { &m.x.serial_log };
+                            logs::selected_text(&f.lines, &s, false)
+                        }),
+                        "pointer_mode": if m.x.mode == PointerMode::Absolute { "absolute" } else { "capture" },
+                        "captured": m.x.captured,
+                        "grab": m.x.grab,
+                        "copy_counts": m.x.copy_counts,
                         "copied": self.copied,
                         "runner_log": lines(&m.x.runner),
                         "serial_log": lines(&m.x.serial_log),

@@ -4,6 +4,7 @@
 mod core;
 mod gfx;
 mod keymap;
+mod pointer;
 mod qemu;
 mod termkeys;
 mod textgrid;
@@ -32,6 +33,11 @@ options:
                         under each machine (the Debug button toggles it)
   --view NAME           the view each tab starts in: display (the default),
                         serial or logs
+  --pointer MODE        how the mouse reaches the guest: capture (the default;
+                        click the picture to capture it, Ctrl+Alt, or
+                        Ctrl+Option on a Mac, to release it) or absolute
+                        (follow the pointer's place in the picture; the
+                        Absolute button toggles it)
   --stats-file PATH     write counters and each machine's views as JSON to
                         PATH twice a second
   --popout-cycles N     pop the first machine out and dock it N times, then quit
@@ -52,6 +58,7 @@ struct Args {
     gpu_info: bool,
     debug: bool,
     view: ui::View,
+    pointer: pointer::PointerMode,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -63,6 +70,7 @@ fn parse_args() -> Result<Args, String> {
         gpu_info: false,
         debug: false,
         view: ui::View::Display,
+        pointer: pointer::PointerMode::Capture,
     };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -80,6 +88,13 @@ fn parse_args() -> Result<Args, String> {
                     Some("serial") => ui::View::Serial,
                     Some("logs") => ui::View::Logs,
                     _ => return Err("--view needs display, serial or logs".into()),
+                }
+            }
+            "--pointer" => {
+                a.pointer = match it.next().as_deref() {
+                    Some("capture") => pointer::PointerMode::Capture,
+                    Some("absolute") => pointer::PointerMode::Absolute,
+                    _ => return Err("--pointer needs capture or absolute".into()),
                 }
             }
             "--stats-file" => {
@@ -145,6 +160,7 @@ fn real_main() -> Result<(), String> {
 
     slint::BackendSelector::new()
         .backend_name("winit".into())
+        .with_winit_custom_application_handler(ui::RawPointer)
         .renderer_name("femtovg-wgpu".into())
         .require_wgpu_30(slint::wgpu_30::WGPUConfiguration::Manual {
             instance: gpu.instance.clone(),
@@ -161,6 +177,7 @@ fn real_main() -> Result<(), String> {
         machines.clone(),
         args.debug,
         args.view,
+        args.pointer,
     );
 
     let write_stats = {

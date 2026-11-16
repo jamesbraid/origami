@@ -7,12 +7,15 @@ export struct TabInfo { name: string, popped: bool }
 // drawn over it: status and controls live in the toolbar.
 component MachineView inherits Rectangle {
     in property <image> img;
-    in property <bool> guest-cursor;
+    // Hide the host cursor: it is captured, or the guest draws the cursor
+    // the user is following.
+    in property <bool> hide-cursor;
     callback key-event(string, bool);
     callback moved(float, float);
     callback button-event(int, bool);
     callback wheel(int);
     callback pointer-left();
+    callback focus-lost();
     callback view-size(int, int);
     background: #101010;
     border-width: 2px;
@@ -32,12 +35,13 @@ component MachineView inherits Rectangle {
     fs := FocusScope {
         key-pressed(e) => { root.key-event(e.text, true); accept }
         key-released(e) => { root.key-event(e.text, false); accept }
+        // Key releases stop coming when the keyboard goes elsewhere.
+        changed has-focus => { if !self.has-focus { root.focus-lost(); } }
     }
     // `moved` fires only while a button is down, and a guest wants hover
     // motion, so follow the pointer position itself.
     ta := TouchArea {
-        // The guest's cursor, when it shows one, is drawn into the picture.
-        mouse-cursor: root.guest-cursor ? MouseCursor.none : MouseCursor.default;
+        mouse-cursor: root.hide-cursor ? MouseCursor.none : MouseCursor.default;
         pointer-event(e) => {
             if e.kind == PointerEventKind.down {
                 fs.focus();
@@ -157,7 +161,9 @@ export component Shell inherits Window {
     in property <bool> popped;      // the machine shown here lives in its own window
     in property <string> label;
     in property <image> img;
-    in property <bool> guest-cursor;
+    in property <bool> hide-cursor;
+    in property <bool> absolute;    // follow the pointer in the picture instead of capturing it
+    in property <bool> copy-counts; // a copied log line carries its repeat count
     in property <int> scale-mode;   // 0 fit, 1 integer
     in property <int> head-count;
     in property <int> head-sel;
@@ -182,6 +188,8 @@ export component Shell inherits Window {
         { name: "console-serial", x: b-con-serial.absolute-position.x + b-con-serial.width / 2, y: b-con-serial.absolute-position.y + b-con-serial.height / 2 },
         { name: "console-graphics", x: b-con-graphics.absolute-position.x + b-con-graphics.width / 2, y: b-con-graphics.absolute-position.y + b-con-graphics.height / 2 },
         { name: "debug", x: b-debug.absolute-position.x + b-debug.width / 2, y: b-debug.absolute-position.y + b-debug.height / 2 },
+        { name: "absolute", x: b-abs.absolute-position.x + b-abs.width / 2, y: b-abs.absolute-position.y + b-abs.height / 2 },
+        { name: "counts", x: b-counts.absolute-position.x + b-counts.width / 2, y: b-counts.absolute-position.y + b-counts.height / 2 },
         { name: "copy", x: b-copy.absolute-position.x + b-copy.width / 2, y: b-copy.absolute-position.y + b-copy.height / 2 },
         { name: "paste", x: b-paste.absolute-position.x + b-paste.width / 2, y: b-paste.absolute-position.y + b-paste.height / 2 },
     ];
@@ -198,6 +206,8 @@ export component Shell inherits Window {
     callback text-origin(float, float);
     callback copy();
     callback paste();
+    callback toggle-absolute();
+    callback toggle-copy-counts();
     callback tab-selected(int);
     callback pop-out();
     callback about();
@@ -209,6 +219,7 @@ export component Shell inherits Window {
     callback button-event(int, bool);
     callback wheel(int);
     callback pointer-left();
+    callback focus-lost();
     callback view-size(int, int);
 
     title: root.win-title;
@@ -267,7 +278,9 @@ export component Shell inherits Window {
             b-con-graphics := Btn { text: "Graphics"; on: root.console-kind == 1; enabled: !root.running && root.busy == ""; tap => { root.set-console(1); } }
             Rectangle { width: 10px; }
             b-debug := Btn { text: "Debug"; on: root.debug; tap => { root.toggle-debug(); } }
-            b-copy := Btn { text: "Copy"; enabled: root.view == 1; tap => { root.copy(); } }
+            b-abs := Btn { text: "Absolute"; on: root.absolute; enabled: root.view == 0; tap => { root.toggle-absolute(); } }
+            b-counts := Btn { text: "Counts"; on: root.copy-counts; enabled: root.view == 2; tap => { root.toggle-copy-counts(); } }
+            b-copy := Btn { text: "Copy"; enabled: root.view != 0; tap => { root.copy(); } }
             b-paste := Btn { text: "Paste"; enabled: root.view == 1; tap => { root.paste(); } }
             Text { text: root.busy != "" ? root.busy : root.notice; color: root.busy != "" ? #e5c07b : #a0a0a0; font-size: 12px; vertical-alignment: center; }
             Rectangle { }
@@ -286,12 +299,13 @@ export component Shell inherits Window {
         if !(root.popped && root.is-main) && root.view == 0: MachineView {
             vertical-stretch: 1;
             img: root.img;
-            guest-cursor: root.guest-cursor;
+            hide-cursor: root.hide-cursor;
             key-event(t, d) => { root.key-event(t, d); }
             moved(x, y) => { root.moved(x, y); }
             button-event(b, d) => { root.button-event(b, d); }
             wheel(n) => { root.wheel(n); }
             pointer-left => { root.pointer-left(); }
+            focus-lost => { root.focus-lost(); }
             view-size(w, h) => { root.view-size(w, h); }
         }
         if !(root.popped && root.is-main) && root.view != 0: CellView {

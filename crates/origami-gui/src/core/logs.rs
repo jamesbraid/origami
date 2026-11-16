@@ -40,6 +40,8 @@ pub struct Collapsed {
     raw: u64,
     /// Entries dropped off the front for want of room.
     dropped: u64,
+    /// Times the lines were cleared.
+    clears: u64,
 }
 
 impl Collapsed {
@@ -49,6 +51,7 @@ impl Collapsed {
             max: max.max(1),
             raw: 0,
             dropped: 0,
+            clears: 0,
         }
     }
 
@@ -79,6 +82,12 @@ impl Collapsed {
         self.lines.clear();
         self.raw = 0;
         self.dropped = 0;
+        self.clears += 1;
+    }
+
+    /// How many times the lines have been cleared, which renumbers them.
+    pub fn clears(&self) -> u64 {
+        self.clears
     }
 
     pub fn len(&self) -> usize {
@@ -87,6 +96,18 @@ impl Collapsed {
 
     pub fn get(&self, i: usize) -> Option<&Line> {
         self.lines.get(i)
+    }
+
+    /// The entry numbered `n` counting from the first one ever kept, which
+    /// stays the same entry as older ones fall off the front.
+    pub fn get_numbered(&self, n: u64) -> Option<&Line> {
+        self.lines
+            .get(usize::try_from(n.checked_sub(self.dropped)?).ok()?)
+    }
+
+    /// The number of the first entry held.
+    pub fn first_number(&self) -> u64 {
+        self.dropped
     }
 
     /// Lines written, counting every repeat.
@@ -98,6 +119,79 @@ impl Collapsed {
     pub fn last_where(&self, pred: impl Fn(&str) -> bool) -> Option<&Line> {
         self.lines.iter().rev().find(|l| pred(&l.text))
     }
+}
+
+/// A place in a log: an entry's number (see [`Collapsed::get_numbered`]) and
+/// a character of its text.
+pub type LogPos = (u64, usize);
+
+/// A drag over the text of one log, from where it began to where it is now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogSelection {
+    /// 0 for the runner log, 1 for the serial log.
+    pub pane: usize,
+    pub anchor: LogPos,
+    pub head: LogPos,
+}
+
+impl LogSelection {
+    /// The selection, first place before last, both included. None for a
+    /// click that selected nothing.
+    pub fn range(&self) -> Option<(LogPos, LogPos)> {
+        let (a, b) = (self.anchor, self.head);
+        if a == b {
+            return None;
+        }
+        Some(if a <= b { (a, b) } else { (b, a) })
+    }
+
+    /// Whether character `col` of entry `entry` is selected.
+    pub fn covers(&self, pane: usize, entry: u64, col: usize) -> bool {
+        pane == self.pane
+            && self
+                .range()
+                .is_some_and(|(a, b)| (entry, col) >= a && (entry, col) <= b)
+    }
+
+    /// Every entry held, for select all. The head is one past the last
+    /// character so a log of one character is not a click.
+    pub fn all(pane: usize, lines: &Collapsed) -> Option<LogSelection> {
+        let last = lines.len().checked_sub(1)?;
+        let first = lines.first_number();
+        let end = lines.get(last)?.text.chars().count();
+        Some(LogSelection {
+            pane,
+            anchor: (first, 0),
+            head: (first + last as u64, end),
+        })
+    }
+}
+
+/// The selected text, a line for each entry. A run of repeats is one entry,
+/// so it is copied once; with `with_counts` an entry written more than once
+/// ends with ` (xN)` when its end is inside the selection.
+pub fn selected_text(lines: &Collapsed, sel: &LogSelection, with_counts: bool) -> Option<String> {
+    let ((e0, c0), (e1, c1)) = sel.range()?;
+    let mut out: Vec<String> = Vec::new();
+    for e in e0..=e1 {
+        let Some(line) = lines.get_numbered(e) else {
+            continue;
+        };
+        let chars: Vec<char> = line.text.chars().collect();
+        let from = if e == e0 { c0 } else { 0 };
+        let to = if e == e1 { c1 + 1 } else { usize::MAX };
+        let mut text: String = chars
+            .iter()
+            .skip(from)
+            .take(to.saturating_sub(from))
+            .collect();
+        if with_counts && line.count > 1 && to >= chars.len() {
+            text.push_str(&format!(" (x{})", line.count));
+        }
+        out.push(text);
+    }
+    let text = out.join("\n");
+    (!text.trim().is_empty()).then_some(text)
 }
 
 /// Merge the repeats in `lines`, for a caller that has them all at once.
@@ -434,5 +528,75 @@ mod tests {
         f.poll(1 << 20);
         assert_eq!(f.lines.get(0).unwrap().text, "100%");
         assert_eq!(f.pending().as_deref(), Some("login: "));
+    }
+
+    #[test]
+    fn a_selection_copies_the_text_of_its_entries_and_optionally_their_counts() {
+        let mut c = Collapsed::new(100);
+        for l in ["alpha", "beta", "beta", "beta", "gamma delta"] {
+            c.push(l);
+        }
+        let all = LogSelection::all(1, &c).unwrap();
+        assert_eq!(
+            selected_text(&c, &all, false).as_deref(),
+            Some("alpha\nbeta\ngamma delta")
+        );
+        assert_eq!(
+            selected_text(&c, &all, true).as_deref(),
+            Some("alpha\nbeta (x3)\ngamma delta")
+        );
+        // A drag from inside the first line to inside the last, either way round.
+        for (anchor, head) in [((0, 2), (2, 4)), ((2, 4), (0, 2))] {
+            let sel = LogSelection {
+                pane: 0,
+                anchor,
+                head,
+            };
+            assert_eq!(
+                selected_text(&c, &sel, true).as_deref(),
+                Some("pha\nbeta (x3)\ngamma")
+            );
+            assert!(sel.covers(0, 1, 0));
+            assert!(!sel.covers(1, 1, 0), "another pane");
+            assert!(!sel.covers(0, 0, 1));
+            assert!(sel.covers(0, 2, 4));
+            assert!(!sel.covers(0, 2, 5));
+        }
+        // A cut inside the repeated line is only that text, with no count.
+        let part = LogSelection {
+            pane: 0,
+            anchor: (1, 1),
+            head: (1, 2),
+        };
+        assert_eq!(selected_text(&c, &part, true).as_deref(), Some("et"));
+        // A click selects nothing.
+        let click = LogSelection {
+            pane: 0,
+            anchor: (1, 1),
+            head: (1, 1),
+        };
+        assert_eq!(selected_text(&c, &click, true), None);
+        assert_eq!(LogSelection::all(0, &Collapsed::new(3)), None);
+    }
+
+    #[test]
+    fn entries_keep_their_numbers_as_old_ones_fall_off() {
+        let mut c = Collapsed::new(2);
+        for l in ["one", "two", "three"] {
+            c.push(l);
+        }
+        assert_eq!(c.first_number(), 1);
+        assert_eq!(c.get_numbered(0), None);
+        assert_eq!(c.get_numbered(2).map(|l| l.text.as_str()), Some("three"));
+        // A selection that began on a line now gone copies what is left.
+        let sel = LogSelection {
+            pane: 0,
+            anchor: (0, 0),
+            head: (2, 4),
+        };
+        assert_eq!(
+            selected_text(&c, &sel, false).as_deref(),
+            Some("two\nthree")
+        );
     }
 }

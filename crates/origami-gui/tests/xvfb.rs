@@ -16,6 +16,8 @@
 //! - ORIGAMI_BIN: the `origami` executable
 //! - ORIGAMI_GUI_TEST_DIR: an empty or new directory for machines and
 //!   evidence (screenshots are left in each test's `out` directory)
+//! - ORIGAMI_GUI_TEST_GUI (optional): another `origami-gui` to run in place of
+//!   the one this build made, to compare a change against the one before it
 //! - ORIGAMI_GUI_TEST_IRIX_DISK (the IRIX tests only): the published
 //!   `octane-games-be780408.chd` (SHA-256 below), which the test boots with an
 //!   overlay and so leaves a `.diff.chd` beside, removed at the start and end
@@ -233,7 +235,10 @@ impl Rig {
                 .expect("openbox"),
         );
         std::thread::sleep(Duration::from_secs(1));
-        let gui = PathBuf::from(env!("CARGO_BIN_EXE_origami-gui"));
+        let gui = std::env::var_os("ORIGAMI_GUI_TEST_GUI").map_or_else(
+            || PathBuf::from(env!("CARGO_BIN_EXE_origami-gui")),
+            PathBuf::from,
+        );
         let info = run_ok(Command::new(&gui).arg("--gpu-info"));
         eprintln!("{info}");
         let gpu = info
@@ -298,6 +303,10 @@ impl Rig {
             .env("DISPLAY", &self.display)
             .env("ORIGAMI_BIN", &self.origami)
             .env("RUST_BACKTRACE", "1")
+            .env(
+                "ORIGAMI_GUI_TRACE_CURSOR",
+                self.out.join(format!("cursor-{tag}.txt")),
+            )
             .arg("--stats-file")
             .arg(&stats)
             .args(extra)
@@ -758,9 +767,137 @@ fn irix_cursor_follows_the_host_pointer() {
     let before = rig.out.join("irix-before.png");
     screenshot(&display, &before);
 
+    // Captured, which is how the GUI starts: the status offers the capture, a
+    // click takes the pointer, and raw motion at an ordinary speed moves the
+    // guest's arrow smoothly the way it was moved, without the guest's cursor
+    // ever turning back.
+    let m = machine_state(&s).expect("the viewer's state");
+    assert_eq!(m["pointer_mode"], "capture");
+    assert_eq!(m["captured"], false);
+    assert!(
+        text_of(&m, "status").contains("click the picture to capture the pointer"),
+        "{}",
+        text_of(&m, "status")
+    );
+    key(&display, &["mousemove", "900", "640", "click", "1"]);
+    let m = wait_state(
+        "the pointer to be captured",
+        Duration::from_secs(20),
+        &mut gui,
+        &log,
+        &s,
+        |m| m["captured"] == true,
+    );
+    assert!(
+        text_of(&m, "status").contains("press Ctrl+Alt to release"),
+        "{}",
+        text_of(&m, "status")
+    );
+    // The click that captured went no further than the viewer.
+    assert_eq!(counter(&s, "input_errors"), 0);
+    let trace = rig.out.join("cursor-irix.txt");
+    // To the left edge first, so there is room to go right.
+    let mut chain: Vec<String> = Vec::new();
+    for _ in 0..100 {
+        chain.extend(["mousemove_relative", "--", "-8", "0", "sleep", "0.008"].map(String::from));
+    }
+    key(
+        &display,
+        &chain.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    let start_at = cursor_trace(&trace).len();
+    let start = cursor_trace(&trace)
+        .last()
+        .copied()
+        .expect("the guest's cursor");
+    // 100 steps of 6 counts every 8 ms is 750 counts a second, to the right.
+    let mut chain: Vec<String> = Vec::new();
+    for _ in 0..100 {
+        chain.extend(["mousemove_relative", "--", "6", "0", "sleep", "0.008"].map(String::from));
+    }
+    let args: Vec<&str> = chain.iter().map(String::as_str).collect();
+    key(&display, &args);
+    std::thread::sleep(Duration::from_secs(2));
+    let moves = cursor_trace(&trace);
+    let path: Vec<_> = moves[start_at..].to_vec();
+    let end = *path.last().expect("the guest's cursor moved");
+    let (reversals, wander) = (turned_back(&path, true), vertical_range(&path));
+    eprintln!(
+        "captured: {} counts right moved the guest's cursor from {:?} to {:?}; {} cursor changes, {} turn-backs, {} px of vertical wander",
+        600, (start.1, start.2), (end.1, end.2), path.len(), reversals, wander
+    );
+    // IRIX moves a packet of up to 4 counts that many pixels and a larger one
+    // further, so 600 counts are at least 600 pixels, less any that fell off the edge.
+    let want = (1280 - 1 - i64::from(start.1)).min(600);
+    assert!(
+        i64::from(end.1) - i64::from(start.1) >= want * 9 / 10,
+        "the guest's cursor went {} px for {want} counts",
+        i64::from(end.1) - i64::from(start.1)
+    );
+    assert_eq!(reversals, 0, "the cursor turned back: {path:?}");
+    // The reported hot spot steps a few pixels when the arrow's shape changes.
+    assert!(wander <= 8, "the cursor wandered {wander} px: {path:?}");
+    // Down is positive y, as the guest counts it: 60 steps of 6 counts.
+    let start_at = cursor_trace(&trace).len();
+    let top = cursor_trace(&trace)
+        .last()
+        .copied()
+        .expect("the guest's cursor");
+    let mut chain: Vec<String> = Vec::new();
+    for _ in 0..60 {
+        chain.extend(["mousemove_relative", "--", "0", "6", "sleep", "0.008"].map(String::from));
+    }
+    key(
+        &display,
+        &chain.iter().map(String::as_str).collect::<Vec<_>>(),
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    let path: Vec<_> = cursor_trace(&trace)[start_at..].to_vec();
+    let bottom = *path.last().expect("the guest's cursor moved down");
+    assert!(
+        bottom.2 - top.2 >= 360 * 9 / 10,
+        "360 counts down moved the guest's cursor from y = {} to {}: {path:?}",
+        top.2,
+        bottom.2
+    );
+    assert!(
+        path.windows(2).all(|w| w[1].2 >= w[0].2 - 2),
+        "the cursor turned back going down: {path:?}"
+    );
+    // Ctrl+Alt frees it.
+    key(
+        &display,
+        &[
+            "keydown", "ctrl", "keydown", "alt", "keyup", "alt", "keyup", "ctrl",
+        ],
+    );
+    wait_state(
+        "the pointer to be released",
+        Duration::from_secs(20),
+        &mut gui,
+        &log,
+        &s,
+        |m| m["captured"] == false,
+    );
+
+    // Absolute, from the toolbar button: the arrow lands on the pointer.
     // The picture starts at (320, 153) on this screen, shown at 1:1. QEMU
     // learns where the guest's cursor is from what the head publishes, and
     // closes the loop on that, so the arrow must land on the pointer.
+    click_button(&display, &s, "absolute");
+    wait_state(
+        "absolute mode",
+        Duration::from_secs(20),
+        &mut gui,
+        &log,
+        &s,
+        |m| m["pointer_mode"] == "absolute",
+    );
+    let before = rig.out.join("irix-before.png");
+    park();
+    std::thread::sleep(Duration::from_secs(1));
+    screenshot(&display, &before);
     for (x, y) in [(700i64, 500i64), (900, 640), (1000, 300), (400, 200)] {
         let want = (x - 320, y - 153);
         key(&display, &["mousemove", &x.to_string(), &y.to_string()]);
@@ -780,10 +917,109 @@ fn irix_cursor_follows_the_host_pointer() {
     let after = rig.out.join("irix-after.png");
     screenshot(&display, &after);
     assert!(differing(&before, &after, "1280x1024+320+153") > 20);
+
+    // At an ordinary speed the pointer names a new place every few
+    // milliseconds. The viewer sends one in each period, so QEMU's loop
+    // gets to finish each walk, and the arrow ends on the pointer without
+    // having turned back.
+    let sent_before = counter(&s, "moves_sent");
+    let start_at = cursor_trace(&trace).len();
+    let mut chain: Vec<String> = Vec::new();
+    chain.extend(["mousemove", "500", "400"].map(String::from));
+    for i in 1..=100 {
+        chain.extend(
+            [
+                "mousemove",
+                &(500 + i * 6).to_string(),
+                "400",
+                "sleep",
+                "0.008",
+            ]
+            .map(String::from),
+        );
+    }
+    let args: Vec<&str> = chain.iter().map(String::as_str).collect();
+    key(&display, &args);
+    std::thread::sleep(Duration::from_secs(4));
+    let sent = counter(&s, "moves_sent") - sent_before;
+    let path: Vec<_> = cursor_trace(&trace)[start_at..].to_vec();
+    park();
+    std::thread::sleep(Duration::from_secs(1));
+    screenshot(&display, &shot);
+    let got = red_arrow(&shot);
+    let want = (1100 - 320, 400 - 153);
+    eprintln!(
+        "absolute, 101 pointer events over 0.8 s: {sent} targets sent, {} cursor changes, {} turn-backs, arrow at {got:?}, wanted {want:?}",
+        path.len(),
+        turned_back(&path, true)
+    );
+    assert!(sent <= 8, "{sent} targets for one sweep");
+    // Measured on this build, a viewer that sent every move (one target for
+    // each, 64 of them) sent the arrow across the whole head and back, from
+    // x = -1 to 1271 in a 600 pixel sweep. QEMU's walk to each target still
+    // overshoots a little and comes back; it must not be more than that.
+    let (lo, hi) = (
+        path.iter().map(|p| p.1).min().unwrap_or(0),
+        path.iter().map(|p| p.1).max().unwrap_or(0),
+    );
+    assert!(
+        lo >= 500 - 320 - 200 && hi <= 1100 - 320 + 200,
+        "the arrow ranged over x = {lo}..{hi} for a sweep of {}..{}: {path:?}",
+        500 - 320,
+        1100 - 320
+    );
+    assert!(
+        got.is_some_and(|(cx, cy)| (cx - want.0).abs() <= ARROW_TOLERANCE
+            && (cy - want.1).abs() <= ARROW_TOLERANCE),
+        "the guest's arrow is at {got:?}, the pointer ended at {want:?} (see {})",
+        shot.display()
+    );
     assert_eq!(counter(&s, "input_errors"), 0);
     assert_eq!(counter(&s, "gpu_errors"), 0);
     check_copies(&s, rig.gpu.is_some());
     assert_eq!(engine_running(&s), Some(true));
+}
+
+/// The guest's cursor over time, from the viewer's trace: (ms, x, y, on).
+fn cursor_trace(path: &Path) -> Vec<(u64, i32, i32, u8)> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.split(' ');
+            Some((
+                f.next()?.parse().ok()?,
+                f.next()?.parse().ok()?,
+                f.next()?.parse().ok()?,
+                f.next()?.parse().ok()?,
+            ))
+        })
+        .collect()
+}
+
+/// How many times the cursor's x turned back against the way it was going
+/// by more than 2 pixels, for a pointer that only goes right (`right`) or
+/// only goes left.
+fn turned_back(path: &[(u64, i32, i32, u8)], right: bool) -> usize {
+    let mut peak = path.first().map_or(0, |p| p.1);
+    let mut turns = 0;
+    for p in path {
+        let x = if right { p.1 } else { -p.1 };
+        let peak_x = if right { peak } else { -peak };
+        if x > peak_x {
+            peak = p.1;
+        } else if peak_x - x > 2 {
+            turns += 1;
+            peak = p.1;
+        }
+    }
+    turns
+}
+
+/// The spread of the cursor's y over a path.
+fn vertical_range(path: &[(u64, i32, i32, u8)]) -> i32 {
+    let ys = path.iter().map(|p| p.2);
+    ys.clone().max().unwrap_or(0) - ys.min().unwrap_or(0)
 }
 
 // ---- the serial console, the logs and the machine controls -----------------
@@ -1173,6 +1409,62 @@ fn irix_serial_login_command_scrollback_copy_paste_logs_and_restart() {
     );
     std::thread::sleep(Duration::from_secs(1));
     shot("logs-1-merged-spam.png");
+
+    // Copy from the logs: drag over the start of the first line of the
+    // runner log, then select the whole log, with and without the repeat
+    // count on a merged line.
+    let m = machine_state(&s).unwrap();
+    let (x0, y0) = cell_point(&m, 1, 0);
+    let (x1, y1) = cell_point(&m, 1, 9);
+    mouse(
+        &display,
+        &[
+            "mousemove",
+            &x0.to_string(),
+            &y0.to_string(),
+            "mousedown",
+            "1",
+        ],
+    );
+    for step in 1..=5 {
+        let x = x0 + (x1 - x0) * step / 5;
+        mouse(&display, &["mousemove", &x.to_string(), &y1.to_string()]);
+    }
+    mouse(&display, &["mouseup", "1"]);
+    let m = wait("a drag in the logs", 20, &mut gui, &mut |m| {
+        m["log_selection"]
+            .as_str()
+            .is_some_and(|t| t.chars().count() == 10)
+    });
+    let dragged = text_of(&m, "log_selection");
+    press(&display, "ctrl+c");
+    wait("the drag copied with Ctrl+C", 20, &mut gui, &mut |m| {
+        m["copied"] == dragged.as_str()
+    });
+    press(&display, "ctrl+a");
+    let m = wait("the whole log selected", 20, &mut gui, &mut |m| {
+        m["log_selection"]
+            .as_str()
+            .is_some_and(|t| t.contains(SPAM))
+    });
+    assert_eq!(
+        text_of(&m, "log_selection").matches(SPAM).count(),
+        1,
+        "a merged line is copied once"
+    );
+    press(&display, "ctrl+c");
+    wait("select all copied", 20, &mut gui, &mut |m| {
+        text_of(m, "copied").contains(SPAM) && !text_of(m, "copied").contains("(x65371)")
+    });
+    click_button(&display, &s, "counts");
+    wait("the repeat count on", 20, &mut gui, &mut |m| {
+        m["copy_counts"] == true
+    });
+    click_button(&display, &s, "copy");
+    wait("the copy with its count", 20, &mut gui, &mut |m| {
+        text_of(m, "copied").contains(&format!("{SPAM} (x65371)"))
+    });
+    shot("logs-2-selected.png");
 
     // Stop from the UI: the status names the last error runner.log holds.
     click_button(&display, &s, "stop");

@@ -28,6 +28,17 @@
     keyboard including Ctrl-C and Esc, scrollback, drag to select, copy and
     paste) that works with the display down, and a Logs view that follows
     `runner.log` and `serial.log` with runs of the same line merged (×65371).
+  - `origami-gui` sends the mouse by capture by default, as other emulators do
+    for a guest with no absolute tablet: click the picture and the host
+    cursor is hidden and locked, the device's motion goes to the guest as
+    relative motion one for one, and Ctrl+Alt (Ctrl+Option on a Mac) frees it.
+    The Absolute button (or `--pointer absolute`) follows the pointer's place
+    in the picture instead, sending one target for each quarter second so
+    QEMU's closed loop can finish each walk; it used to restart on every host
+    mouse move and chase the pointer. The host cursor is hidden while the
+    guest draws its own. Log lines can be selected by dragging or Ctrl+A
+    (Command+A) and copied with Ctrl+C (Command+C) or Copy, a merged line
+    once, or with its repeat count when Counts is on.
     The toolbar starts, stops, force stops and resets the machine, and sets
     the PROM's console to serial or graphics on a stopped one. `--debug` or
     the Debug button shows the display protocol's state and counters, and

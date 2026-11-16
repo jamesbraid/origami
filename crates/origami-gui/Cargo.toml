@@ -16,7 +16,7 @@ bytemuck = "1"
 memmap2 = "0.9"
 # A pinned master commit until Slint 1.19 ships (its femtovg 0.28 carries the
 # pipeline-cache fix 1.18's femtovg 0.27 lacks).
-slint = { git = "https://github.com/slint-ui/slint", rev = "3b68276e2fb5cfd965bdbfc7e78be0a91ebf1e26", default-features = false, features = ["std", "backend-winit", "renderer-femtovg-wgpu", "unstable-wgpu-30", "compat-1-2"] }
+slint = { git = "https://github.com/slint-ui/slint", rev = "3b68276e2fb5cfd965bdbfc7e78be0a91ebf1e26", default-features = false, features = ["std", "backend-winit", "renderer-femtovg-wgpu", "unstable-wgpu-30", "unstable-winit-030", "compat-1-2"] }
 # Stock wgpu 30.0.2. Its Surface::configure can fail and lose the device when
 # another thread submits to the same device while a window is created or
 # resized. This viewer submits from one thread, so it is not affected; gfx-rs/wgpu

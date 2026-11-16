@@ -16,18 +16,18 @@ use std::sync::{Arc, Mutex};
 
 use slint::{ComponentHandle, Model, VecModel};
 
-use crate::core::{
-    ConsoleKind, CursorInfo, Engine, Frame, InputEvent, MachineId, PointerButton, Power,
-};
+use crate::core::{ConsoleKind, CursorInfo, Engine, Frame, InputEvent, MachineId, Power};
 use crate::gfx::{
     cursor_texture, Blit, Compose, CursorDraw, Gpu, HeadTexture, Presenter, ScaleMode,
 };
-use crate::keymap;
+use crate::pointer::PointerMode;
 use crate::termkeys::Mods;
 use crate::textgrid::Painter;
 use crate::{AboutWindow, Shell, TabInfo};
 
+mod input;
 mod views;
+pub use input::RawPointer;
 use views::Extra;
 pub use views::View;
 
@@ -103,6 +103,10 @@ pub struct Ui {
     copied: Option<String>,
     /// Show the protocol and counters.
     debug: bool,
+    /// ORIGAMI_GUI_TRACE_CURSOR=PATH: every change of the guest's cursor on
+    /// the shown head, as "milliseconds x y on", for measuring how it follows
+    /// the pointer.
+    cursor_trace: Option<(std::fs::File, std::time::Instant)>,
 }
 
 thread_local! {
@@ -148,6 +152,7 @@ pub fn install(
     machines: Vec<(MachineId, String)>,
     debug: bool,
     first_view: View,
+    pointer: PointerMode,
 ) -> Arc<Counters> {
     let main = Shell::new().expect("main window");
     main.set_is_main(true);
@@ -206,6 +211,9 @@ pub fn install(
         clipboard: None,
         copied: None,
         debug,
+        cursor_trace: std::env::var_os("ORIGAMI_GUI_TRACE_CURSOR")
+            .and_then(|p| std::fs::File::create(p).ok())
+            .map(|f| (f, std::time::Instant::now())),
     };
     let pending = ui.pending.clone();
     let ids: Vec<(MachineId, bool)> = ui.machines.iter().map(|m| (m.id, m.visible)).collect();
@@ -229,6 +237,7 @@ pub fn install(
     with_ui_now(|u| {
         for mi in 0..u.machines.len() {
             u.machines[mi].x.view = first_view;
+            u.machines[mi].x.mode = pointer;
             u.machines[mi].x.was_running = u.engine.facts(u.machines[mi].id).running;
             if !u.machines[mi].x.was_running {
                 u.read_console_kind(mi);
@@ -336,41 +345,42 @@ fn wire(w: &Shell, win: usize) {
     });
     w.on_key_event(move |text, down| {
         let text = text.to_string();
-        with_ui(move |u| {
-            if let (Some(mi), Some(key)) = (u.machine_in(win), keymap::from_text(&text)) {
-                u.send(mi, InputEvent::Key { key, down });
-                u.counters.keys_sent.fetch_add(1, Ordering::Relaxed);
-            }
-        })
+        with_ui(move |u| u.key_event(win, &text, down))
     });
-    w.on_moved(move |x, y| {
-        with_ui(move |u| {
-            let Some(mi) = u.machine_in(win) else { return };
-            // The pointer is where the user's is, in the head's pixels; the
-            // engine moves the guest's cursor there.
-            if let Some((hx, hy)) = u.guest_pos(mi, x, y) {
-                let head = u.machines[mi].head_sel as u32;
-                u.counters.moves_sent.fetch_add(1, Ordering::Relaxed);
-                u.send(mi, InputEvent::PointerAt { head, x: hx, y: hy });
-            }
-        })
-    });
-    w.on_button_event(move |b, down| {
-        with_ui(move |u| {
-            if let Some(mi) = u.machine_in(win) {
-                let button = match b {
-                    0 => PointerButton::Left,
-                    1 => PointerButton::Middle,
-                    _ => PointerButton::Right,
-                };
-                u.send(mi, InputEvent::Button { button, down });
-            }
-        })
-    });
+    w.on_moved(move |x, y| with_ui(move |u| u.pointer_moved(win, x, y)));
+    w.on_button_event(move |b, down| with_ui(move |u| u.button_event(win, b, down)));
     w.on_wheel(move |n| {
         with_ui(move |u| {
             if let (Some(mi), true) = (u.machine_in(win), n != 0) {
-                u.send(mi, InputEvent::Wheel { notches: n });
+                // Uncaptured, the first click is the capture, so the wheel is
+                // not the guest's yet either.
+                let x = &u.machines[mi].x;
+                if x.mode == PointerMode::Absolute || x.captured {
+                    u.send(mi, InputEvent::Wheel { notches: n });
+                }
+            }
+        })
+    });
+    w.on_toggle_absolute(move || {
+        with_ui(move |u| {
+            let mi = machine_of(u);
+            let mode = match u.machines[mi].x.mode {
+                PointerMode::Capture => PointerMode::Absolute,
+                PointerMode::Absolute => PointerMode::Capture,
+            };
+            u.set_pointer_mode(mi, mode);
+        })
+    });
+    w.on_toggle_copy_counts(move || {
+        with_ui(move |u| {
+            let mi = machine_of(u);
+            u.toggle_copy_counts(mi);
+        })
+    });
+    w.on_focus_lost(move || {
+        with_ui(move |u| {
+            if let Some(mi) = u.machine_in(win) {
+                u.release_all(mi);
             }
         })
     });
@@ -587,7 +597,16 @@ impl Ui {
             w.set_label(m.name.clone().into());
             w.set_popped(m.popped);
             w.set_img(m.out_img.clone().unwrap_or_default());
-            w.set_guest_cursor(m.cursor.as_ref().is_some_and(|c| c.on));
+            // The host cursor gives way to the guest's own when the pointer
+            // is followed in the picture, and to nothing while it is
+            // captured. Uncaptured, it is the user's way to the capture click.
+            w.set_hide_cursor(
+                m.x.captured
+                    || (m.x.mode == PointerMode::Absolute
+                        && m.cursor.as_ref().is_some_and(input::guest_has_cursor)),
+            );
+            w.set_absolute(m.x.mode == PointerMode::Absolute);
+            w.set_copy_counts(m.x.copy_counts);
             w.set_scale_mode(if m.mode == ScaleMode::Integer { 1 } else { 0 });
             w.set_head_count(m.heads.len() as i32);
             w.set_head_sel(m.head_sel as i32);
@@ -726,7 +745,19 @@ impl Ui {
             m.cursor_tex = Some((tex, info.gen));
         }
         let changed = m.cursor.as_ref() != Some(&info);
-        let shown_changed = m.cursor.as_ref().is_none_or(|c| c.on) != info.on;
+        if let (true, Some((f, t0))) = (changed, self.cursor_trace.as_mut()) {
+            use std::io::Write;
+            let _ = writeln!(
+                f,
+                "{} {} {} {}",
+                t0.elapsed().as_millis(),
+                info.x,
+                info.y,
+                u8::from(info.on)
+            );
+        }
+        let shown_changed = m.cursor.as_ref().is_some_and(input::guest_has_cursor)
+            != input::guest_has_cursor(&info);
         m.cursor = Some(info);
         if shown_changed {
             // Whether the host cursor hides depends on it.
@@ -753,6 +784,7 @@ impl Ui {
         if i >= self.machines.len() || i == self.current {
             return;
         }
+        self.release_all(self.current);
         self.current = i;
         self.main.set_current_tab(i as i32);
         self.update_visibility();
@@ -797,6 +829,7 @@ impl Ui {
         if self.machines[mi].popped {
             return;
         }
+        self.release_all(mi);
         self.counters.popouts.fetch_add(1, Ordering::Relaxed);
         let w = Shell::new().expect("pop-out window");
         w.set_is_main(false);
@@ -816,6 +849,7 @@ impl Ui {
         if !self.machines[mi].popped {
             return;
         }
+        self.release_all(mi);
         self.counters.docks.fetch_add(1, Ordering::Relaxed);
         if let Some(w) = self.pops.remove(&mi) {
             let _ = w.hide();
