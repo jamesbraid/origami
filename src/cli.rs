@@ -1,5 +1,5 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use origami::runtime::Display;
+use origami::runtime::{Display, GpuUuid};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -64,7 +64,9 @@ pub enum Action {
     /// Connect to a background guest's serial console
     Console(MachineArgs),
     /// Stop a background guest
-    Stop(MachineArgs),
+    Stop(StopArgs),
+    /// Reset a running guest, as its reset button would
+    Reset(MachineArgs),
     /// Create and attach a new system disk
     DriveCreate {
         #[arg(value_name = "DIR")]
@@ -234,6 +236,17 @@ pub struct MachineArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct StopArgs {
+    /// Machine directory
+    #[arg(value_name = "DIR")]
+    pub dir: PathBuf,
+    /// Kill QEMU instead of asking it to quit. The guest does not sync its
+    /// disks and a CHD disk's changes stay in its .diff.chd file
+    #[arg(long)]
+    pub force: bool,
+}
+
+#[derive(Debug, Args)]
 pub struct NvramArgs {
     /// Machine directory
     #[arg(value_name = "DIR")]
@@ -382,12 +395,17 @@ pub struct RunArgs {
 
 #[derive(Debug, Default, Args)]
 pub struct DisplayArgs {
-    /// Local window, VNC server or no graphics
+    /// Local window, VNC server, shared-memory display or no graphics
     #[arg(long, value_enum)]
     pub display: Option<DisplayMode>,
     /// VNC TCP port (default 5900)
     #[arg(long, requires = "display", value_parser = clap::value_parser!(u16).range(5900..))]
     pub vnc_port: Option<u16>,
+    /// With --display shm: the Vulkan deviceUUID (32 hex digits) of the
+    /// viewer's adapter, so QEMU exports scanout memory the viewer imports
+    /// without a copy
+    #[arg(long, value_name = "UUID", requires = "display")]
+    pub display_gpu: Option<GpuUuid>,
 }
 
 impl DisplayArgs {
@@ -400,9 +418,15 @@ impl DisplayArgs {
         if self.vnc_port.is_some() && mode != DisplayMode::Vnc {
             return Err("--vnc-port requires --display vnc".into());
         }
+        if self.display_gpu.is_some() && mode != DisplayMode::Shm {
+            return Err("--display-gpu requires --display shm".into());
+        }
         Ok(match mode {
             DisplayMode::Local => Display::Local,
             DisplayMode::None => Display::None,
+            DisplayMode::Shm => Display::Shm {
+                gpu: self.display_gpu,
+            },
             DisplayMode::Vnc => Display::Vnc {
                 port: self.vnc_port.unwrap_or(5900),
             },
@@ -414,6 +438,8 @@ impl DisplayArgs {
 pub enum DisplayMode {
     Local,
     Vnc,
+    /// Publish the display through shared memory for origami-gui
+    Shm,
     None,
 }
 

@@ -215,7 +215,7 @@ fn test(options: &Options) -> Result<()> {
     let platform = native(options)?;
     let tree = runtime(platform, options.qemu_archive.as_deref())?;
     let runtime_dir = tree.join("libexec/origami");
-    run(cargo(&["test", "--workspace", "--locked"]))?;
+    run(cargo(&["test", "--locked"]))?;
     // The contract tests create and start every preset, which needs QEMU, its
     // init tool and the keymaps laid out as an installed product has them.
     let mut command = cargo(&[

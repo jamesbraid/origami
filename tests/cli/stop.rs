@@ -18,6 +18,7 @@ fn fake_machine(dir: &std::path::Path, fold: Duration) -> std::thread::JoinHandl
         qmp_port: listener.local_addr().unwrap().port(),
         console_port: 0,
         name: NAME.into(),
+        qemu_pid: 0,
     };
     control::write(dir, &record).unwrap();
     std::thread::spawn(move || {
@@ -84,6 +85,7 @@ fn a_second_stop_waits_while_qemu_no_longer_answers() {
             qmp_port: port,
             console_port: 0,
             name: NAME.into(),
+            qemu_pid: 0,
         },
     )
     .unwrap();
@@ -112,8 +114,49 @@ fn stop_reports_a_dead_machine_whose_lock_is_free() {
             qmp_port: port,
             console_port: 0,
             name: NAME.into(),
+            qemu_pid: 0,
         },
     )
     .unwrap();
     assert!(control::stop(root.path()).is_err());
+}
+
+#[test]
+fn force_stop_of_a_machine_that_is_not_running_is_an_error() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("state")).unwrap();
+    control::write(
+        root.path(),
+        &Record {
+            pid: std::process::id(),
+            qmp_port: 0,
+            console_port: 0,
+            name: NAME.into(),
+            qemu_pid: 1,
+        },
+    )
+    .unwrap();
+    // The machine lock is free: nothing runs, so nothing is killed, whatever
+    // pid the record names.
+    let error = control::force_stop(root.path()).unwrap_err().to_string();
+    assert!(error.contains("not running"), "{error}");
+}
+
+#[test]
+fn force_stop_will_not_guess_at_a_record_that_does_not_name_qemu() {
+    let root = tempfile::tempdir().unwrap();
+    let _lock = control::lock_for_edit(root.path(), "test").unwrap();
+    control::write(
+        root.path(),
+        &Record {
+            pid: std::process::id(),
+            qmp_port: 0,
+            console_port: 0,
+            name: NAME.into(),
+            qemu_pid: 0,
+        },
+    )
+    .unwrap();
+    let error = control::force_stop(root.path()).unwrap_err().to_string();
+    assert!(error.contains("older origami"), "{error}");
 }

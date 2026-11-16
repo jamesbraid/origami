@@ -16,6 +16,8 @@ Features:
 - CHD disks: `drive-attach --type disk` takes a MAME CHD hard disk image. A compressed CHD takes guest writes in a `.diff.chd` beside it, folded back into the image when QEMU exits cleanly; `--overlay` keeps the diff instead. CD-ROM and tape CHDs are refused. Never use one CHD with iris and origami at the same time.
 - Settings: `--set` takes the inputs the preset lists as settings, each checked for its kind of value. A list takes a slot, as in `--set chassis-eeprom.0=FILE`. `origami machines PRESET` lists them. A CPU input is `prid` or `fpu-id` instead of one name for each CPU part. `l2-controller` is listed but refused: the CLI starts no such process.
 - CPU clock: `--processor` also picks the clock of an Origin 3200, 3400 or Onyx 3000.
+- origami-gui: a viewer that draws each machine's graphics from shared memory (`run --display shm`), with serial and log views and controls. It is a testbed outside the release build: select it with `cargo build -p origami-gui`.
+- reset and stop --force: `origami reset DIR` resets a running guest, and `origami stop --force DIR` kills QEMU at once. `state/run.json` records QEMU's own pid as `qemu_pid`.
 
 Changed:
 - stop: waits until QEMU has exited and prints `stopped`, instead of returning once the quit is requested. A CHD disk folds its diff into the image during that exit, which takes minutes for a large image.

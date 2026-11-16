@@ -18,6 +18,7 @@ Commands:
   status                  Show whether a machine is running
   console                 Connect to a background guest's serial console
   stop                    Stop a background guest
+  reset                   Reset a running guest, as its reset button would
   drive-create            Create and attach a new system disk
   drive-attach            Attach an existing disk, CD or tape image; a disk may be a CHD
   drive-detach            Detach a drive without deleting its image
@@ -59,6 +60,7 @@ Commands:
   status                  Show whether a machine is running
   console                 Connect to a background guest's serial console
   stop                    Stop a background guest
+  reset                   Reset a running guest, as its reset button would
   drive-create            Create and attach a new system disk
   drive-attach            Attach an existing disk, CD or tape image; a disk may be a CHD
   drive-detach            Detach a drive without deleting its image
@@ -186,13 +188,30 @@ Print the QEMU command without starting the guest
 Usage: origami show-command [OPTIONS] <DIR>
 
 Arguments:
-  <DIR>  Machine directory
+  <DIR>
+          Machine directory
 
 Options:
-      --display <DISPLAY>    Local window, VNC server or no graphics [possible values: local, vnc, none]
-      --vnc-port <VNC_PORT>  VNC TCP port (default 5900)
-      --qemu-arg <ARG>       Extra QEMU argument, appended after the `[qemu] extra-args` of machine.toml (repeatable; unsupported and not validated)
-  -h, --help                 Print help
+      --display <DISPLAY>
+          Local window, VNC server, shared-memory display or no graphics
+
+          Possible values:
+          - local
+          - vnc
+          - shm:   Publish the display through shared memory for origami-gui
+          - none
+
+      --vnc-port <VNC_PORT>
+          VNC TCP port (default 5900)
+
+      --display-gpu <UUID>
+          With --display shm: the Vulkan deviceUUID (32 hex digits) of the viewer's adapter, so QEMU exports scanout memory the viewer imports without a copy
+
+      --qemu-arg <ARG>
+          Extra QEMU argument, appended after the `[qemu] extra-args` of machine.toml (repeatable; unsupported and not validated)
+
+  -h, --help
+          Print help (see a summary with '-h')
 --- stderr
 === origami run --help
 exit 0
@@ -202,14 +221,33 @@ Start a guest
 Usage: origami run [OPTIONS] <DIR>
 
 Arguments:
-  <DIR>  Machine directory
+  <DIR>
+          Machine directory
 
 Options:
-      --display <DISPLAY>    Local window, VNC server or no graphics [possible values: local, vnc, none]
-      --vnc-port <VNC_PORT>  VNC TCP port (default 5900)
-      --qemu-arg <ARG>       Extra QEMU argument, appended after the `[qemu] extra-args` of machine.toml (repeatable; unsupported and not validated)
-      --background           Run with console and installer control connections
-  -h, --help                 Print help
+      --display <DISPLAY>
+          Local window, VNC server, shared-memory display or no graphics
+
+          Possible values:
+          - local
+          - vnc
+          - shm:   Publish the display through shared memory for origami-gui
+          - none
+
+      --vnc-port <VNC_PORT>
+          VNC TCP port (default 5900)
+
+      --display-gpu <UUID>
+          With --display shm: the Vulkan deviceUUID (32 hex digits) of the viewer's adapter, so QEMU exports scanout memory the viewer imports without a copy
+
+      --qemu-arg <ARG>
+          Extra QEMU argument, appended after the `[qemu] extra-args` of machine.toml (repeatable; unsupported and not validated)
+
+      --background
+          Run with console and installer control connections
+
+  -h, --help
+          Print help (see a summary with '-h')
 
 Examples:
   origami run o200
@@ -246,7 +284,21 @@ exit 0
 --- stdout
 Stop a background guest
 
-Usage: origami stop <DIR>
+Usage: origami stop [OPTIONS] <DIR>
+
+Arguments:
+  <DIR>  Machine directory
+
+Options:
+      --force  Kill QEMU instead of asking it to quit. The guest does not sync its disks and a CHD disk's changes stay in its .diff.chd file
+  -h, --help   Print help
+--- stderr
+=== origami reset --help
+exit 0
+--- stdout
+Reset a running guest, as its reset button would
+
+Usage: origami reset <DIR>
 
 Arguments:
   <DIR>  Machine directory
