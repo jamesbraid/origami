@@ -10,7 +10,11 @@
 use ash::vk;
 use origami_display::proto::Region;
 use origami_display::Handle;
+#[cfg(unix)]
+use origami_display::Memory;
 use std::io;
+#[cfg(unix)]
+use std::sync::Arc;
 use wgpu::hal::api::Vulkan;
 
 #[cfg(unix)]
@@ -36,6 +40,9 @@ pub struct Caps {
     pub device_uuid: [u8; 16],
     pub driver_uuid: [u8; 16],
     pub name: String,
+    /// `minImportedHostPointerAlignment` where the device can import host
+    /// memory (`VK_EXT_external_memory_host`), else None.
+    pub host_align: Option<u64>,
 }
 
 impl Caps {
@@ -107,10 +114,20 @@ fn probe(adapter: &wgpu::hal::vulkan::Adapter) -> Result<Caps, String> {
                 "a storage buffer's memory cannot be imported from this handle type".into(),
             );
         }
+        let host_align = caps
+            .supports_extension(ash::ext::external_memory_host::NAME)
+            .then(|| {
+                let mut host = vk::PhysicalDeviceExternalMemoryHostPropertiesEXT::default();
+                let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut host);
+                raw.get_physical_device_properties2(phys, &mut props);
+                host.min_imported_host_pointer_alignment
+            })
+            .filter(|a| *a > 0);
         Ok(Caps {
             device_uuid: id.device_uuid,
             driver_uuid: id.driver_uuid,
             name,
+            host_align,
         })
     }
 }
@@ -127,6 +144,7 @@ pub fn open_device(
     let base = hal_adapter
         .physical_device_capabilities()
         .supports_extension(ash::khr::external_memory::NAME);
+    let host = caps.host_align.is_some();
     let callback = Box::new(
         move |args: wgpu::hal::vulkan::CreateDeviceCallbackArgs<'_, '_, '_>| {
             // `VK_KHR_external_memory` is core in 1.1 and a no-op to name there;
@@ -134,7 +152,8 @@ pub fn open_device(
             let wanted = base
                 .then_some(ash::khr::external_memory::NAME)
                 .into_iter()
-                .chain([HANDLE_EXTENSION]);
+                .chain([HANDLE_EXTENSION])
+                .chain(host.then_some(ash::ext::external_memory_host::NAME));
             for ext in wanted {
                 if !args.extensions.contains(&ext) {
                     args.extensions.push(ext);
@@ -270,6 +289,121 @@ pub fn import(
             &wgpu::BufferDescriptor {
                 label: Some("qemu region"),
                 size: region.size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            },
+        ))
+    }
+}
+
+/// Import `size` bytes of mapped shared memory as a storage buffer, with no
+/// copy (`VK_EXT_external_memory_host`). The buffer keeps `memory` alive.
+#[cfg(unix)]
+pub fn import_host(
+    device: &wgpu::Device,
+    caps: &Caps,
+    memory: &Arc<dyn Memory>,
+    size: u64,
+) -> io::Result<wgpu::Buffer> {
+    let align = caps
+        .host_align
+        .ok_or_else(|| bad("the device cannot import host memory"))?;
+    let ptr = memory.base();
+    if size == 0 || size > memory.len() as u64 || !size.is_multiple_of(align) {
+        return Err(bad(format!(
+            "{size} bytes of a {} byte mapping, imported in units of {align}",
+            memory.len()
+        )));
+    }
+    if !(ptr as u64).is_multiple_of(align) {
+        return Err(bad(format!("{ptr:p} is not aligned to {align}")));
+    }
+    // SAFETY: the Vulkan calls follow the extension's rules; `memory` is held
+    // by the release callback until wgpu drops the buffer.
+    unsafe {
+        let hal = device
+            .as_hal::<Vulkan>()
+            .ok_or_else(|| bad("not a Vulkan device"))?;
+        let raw = hal.raw_device().clone();
+        let instance = hal.shared_instance().raw_instance();
+        let phys = hal.raw_physical_device();
+        let host = ash::ext::external_memory_host::Device::new(instance, &raw);
+        let kind = vk::ExternalMemoryHandleTypeFlags::HOST_ALLOCATION_EXT;
+        let mut allowed = vk::MemoryHostPointerPropertiesEXT::default();
+        (host.fp().get_memory_host_pointer_properties_ext)(
+            raw.handle(),
+            kind,
+            ptr.cast(),
+            &mut allowed,
+        )
+        .result()
+        .map_err(|e| io::Error::other(format!("host pointer properties: {e}")))?;
+        let mut external = vk::ExternalMemoryBufferCreateInfo::default().handle_types(kind);
+        let info = vk::BufferCreateInfo::default()
+            .size(size)
+            .usage(usage())
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .push_next(&mut external);
+        let buffer = raw
+            .create_buffer(&info, None)
+            .map_err(|e| io::Error::other(format!("vkCreateBuffer: {e}")))?;
+        let need = raw.get_buffer_memory_requirements(buffer);
+        let types = instance.get_physical_device_memory_properties(phys);
+        let bits = need.memory_type_bits & allowed.memory_type_bits;
+        let visible = vk::MemoryPropertyFlags::HOST_VISIBLE;
+        let coherent = visible | vk::MemoryPropertyFlags::HOST_COHERENT;
+        let pick = |want: vk::MemoryPropertyFlags| {
+            (0..types.memory_type_count).find(|&i| {
+                bits & (1 << i) != 0 && types.memory_types[i as usize].property_flags.contains(want)
+            })
+        };
+        let Some(index) = pick(coherent).or_else(|| pick(visible)) else {
+            raw.destroy_buffer(buffer, None);
+            return Err(bad("no host visible memory type takes host pointers"));
+        };
+        if need.size > size {
+            raw.destroy_buffer(buffer, None);
+            return Err(bad(format!(
+                "the buffer needs {} of {size} bytes",
+                need.size
+            )));
+        }
+        let mut import = vk::ImportMemoryHostPointerInfoEXT::default()
+            .handle_type(kind)
+            .host_pointer(ptr.cast());
+        let alloc = vk::MemoryAllocateInfo::default()
+            .allocation_size(size)
+            .memory_type_index(index)
+            .push_next(&mut import);
+        let mem = match raw.allocate_memory(&alloc, None) {
+            Ok(m) => m,
+            Err(e) => {
+                raw.destroy_buffer(buffer, None);
+                return Err(io::Error::other(format!("vkAllocateMemory (host): {e}")));
+            }
+        };
+        if let Err(e) = raw.bind_buffer_memory(buffer, mem, 0) {
+            raw.free_memory(mem, None);
+            raw.destroy_buffer(buffer, None);
+            return Err(io::Error::other(format!("vkBindBufferMemory: {e}")));
+        }
+        let keep = memory.clone();
+        let release = {
+            let raw = raw.clone();
+            move || {
+                raw.destroy_buffer(buffer, None);
+                raw.free_memory(mem, None);
+                drop(keep);
+            }
+        };
+        let hal_buffer =
+            wgpu::hal::vulkan::Buffer::from_raw_externally_owned(buffer, Box::new(release));
+        drop(hal);
+        Ok(device.create_buffer_from_hal::<Vulkan>(
+            hal_buffer,
+            &wgpu::BufferDescriptor {
+                label: Some("shared slot"),
+                size,
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             },
@@ -553,6 +687,7 @@ mod tests {
             offset: offset as u64,
             stride: stride as u32,
             bottom_up,
+            hold: None,
         };
 
         // The CPU writes into the exporter's mapping; the GPU reads the same
@@ -610,6 +745,126 @@ mod tests {
         // The imported buffer lets go of the memory when it is dropped.
         drop(head);
         drop(region);
+        gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
+        assert_eq!(gpu.errors.count(), 0);
+    }
+
+    /// Page-aligned shared memory standing in for a mapped slot.
+    struct Anon(*mut u8, usize);
+
+    // SAFETY: a private anonymous mapping, valid until dropped.
+    unsafe impl Send for Anon {}
+    unsafe impl Sync for Anon {}
+    // SAFETY: as above; page aligned.
+    unsafe impl origami_display::Memory for Anon {
+        fn base(&self) -> *mut u8 {
+            self.0
+        }
+        fn len(&self) -> usize {
+            self.1
+        }
+    }
+
+    impl Drop for Anon {
+        fn drop(&mut self) {
+            // SAFETY: mapped in `host_memory`, unmapped once.
+            unsafe { libc::munmap(self.0.cast(), self.1) };
+        }
+    }
+
+    fn host_memory(len: usize) -> Arc<dyn origami_display::Memory> {
+        // SAFETY: an anonymous shared mapping nobody else holds.
+        let p = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        assert_ne!(p, libc::MAP_FAILED);
+        Arc::new(Anon(p.cast(), len))
+    }
+
+    #[test]
+    fn mapped_memory_is_imported_as_host_memory_and_held_until_the_gpu_is_done() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct Lent(Arc<AtomicBool>);
+        impl Drop for Lent {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let gpu = match Gpu::new() {
+            Ok(g) if matches!(g.import.kind, Some(crate::import::Kind::Vulkan(_))) => g,
+            _ => return,
+        };
+        let Some(crate::import::Kind::Vulkan(caps)) = gpu.import.kind.as_ref() else {
+            unreachable!()
+        };
+        let Some(align) = caps.host_align else {
+            eprintln!("skipping: this device cannot import host memory");
+            return;
+        };
+        let len = (1usize << 16).next_multiple_of(align as usize);
+        let mem = host_memory(len);
+        let (w, h) = (32u32, 16u32);
+        let word = |x: u32, y: u32| 0x0010_2030 + x * 0x0001_0000 + y * 0x0000_0100;
+        for y in 0..h {
+            for x in 0..w {
+                // SAFETY: inside the mapping; the GPU has not seen it yet.
+                unsafe {
+                    mem.base()
+                        .add((y * w + x) as usize * 4)
+                        .cast::<u32>()
+                        .write_volatile(word(x, y))
+                };
+            }
+        }
+        // Sizes the driver cannot take are errors, not crashes.
+        assert!(import_host(&gpu.device, caps, &mem, 0).is_err());
+        assert!(import_host(&gpu.device, caps, &mem, len as u64 + align).is_err());
+        assert!(import_host(&gpu.device, caps, &mem, align + 1).is_err());
+        let buffer = import_host(&gpu.device, caps, &mem, len as u64).expect("import");
+        let region: Arc<dyn GpuMemory> = Arc::new(ImportedBuffer::new(buffer));
+        let released = Arc::new(AtomicBool::new(false));
+        let frame = ImportedUpdate {
+            update: FrameUpdate {
+                seq: 1,
+                width: w,
+                height: h,
+                runs: vec![(0, h)],
+                resized: false,
+            },
+            memory: region,
+            offset: 0,
+            stride: w * 4,
+            bottom_up: false,
+            hold: Some(Arc::new(Lent(released.clone()))),
+        };
+        let compose = Compose::new(&gpu);
+        let head = HeadTexture::apply_imported(&gpu, &compose, None, &frame);
+        let want: Vec<u8> = (0..h)
+            .flat_map(|y| {
+                (0..w).flat_map(move |x| {
+                    let v = word(x, y);
+                    [(v >> 16) as u8, (v >> 8) as u8, v as u8]
+                })
+            })
+            .collect();
+        assert!(read_back(&gpu, &head.texture) == want, "the picture");
+        assert_eq!(head.bytes_uploaded, 0, "no CPU upload");
+        // The lent slot is let go once the GPU finished, and not before the
+        // caller dropped its own reference.
+        drop(frame);
+        let t = std::time::Instant::now();
+        while !released.load(Ordering::SeqCst) {
+            assert!(t.elapsed().as_secs() < 5, "the hold was never released");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        drop(head);
         gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
         assert_eq!(gpu.errors.count(), 0);
     }

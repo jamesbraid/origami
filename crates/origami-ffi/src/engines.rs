@@ -42,7 +42,12 @@ pub(crate) mod gpu {
 
     pub(crate) fn shared() -> Result<Gpu, String> {
         static GPU: OnceLock<Result<Gpu, String>> = OnceLock::new();
-        GPU.get_or_init(Gpu::new).clone()
+        GPU.get_or_init(|| {
+            let gpu = Gpu::new()?;
+            eprintln!("origami: GPU {}; {}", gpu.describe(), gpu.import.describe());
+            Ok(gpu)
+        })
+        .clone()
     }
 }
 
@@ -106,6 +111,12 @@ mod lazy {
             handle: &Handle,
         ) -> Option<Arc<dyn GpuMemory>> {
             self.get()?.open_section(region, handle)
+        }
+        fn wrap_shm(&self, size: u64, memory: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>> {
+            self.get()?.wrap_shm(size, memory)
+        }
+        fn shm_needs_write(&self) -> bool {
+            self.get().is_some_and(|i| i.shm_needs_write())
         }
         fn name(&self) -> &'static str {
             self.get().map_or("none", |i| i.name())

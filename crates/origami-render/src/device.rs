@@ -34,6 +34,30 @@ pub struct Gpu {
     pub errors: Arc<GpuErrors>,
     /// What the device can import from another process, or why not.
     pub import: Arc<ImportSupport>,
+    /// Drops what a frame lends until the GPU has finished with it.
+    reaper: Arc<Reaper>,
+}
+
+type Hold = Arc<dyn std::any::Any + Send + Sync>;
+
+/// A thread that waits for the device to go idle and then drops what it was
+/// handed, so the caller never blocks on the GPU.
+struct Reaper(std::sync::Mutex<std::sync::mpsc::Sender<Hold>>);
+
+impl Reaper {
+    fn new(device: wgpu::Device) -> Reaper {
+        let (tx, rx) = std::sync::mpsc::channel::<Hold>();
+        std::thread::Builder::new()
+            .name("gpu-reaper".into())
+            .spawn(move || {
+                while let Ok(hold) = rx.recv() {
+                    let _ = device.poll(wgpu::PollType::wait_indefinitely());
+                    drop(hold);
+                }
+            })
+            .expect("a thread");
+        Reaper(std::sync::Mutex::new(tx))
+    }
 }
 
 /// Set to `0` to keep the device from importing memory, so a machine's
@@ -100,6 +124,7 @@ impl Gpu {
                 errors.note(format!("device lost ({reason:?}): {message}"));
             });
         }
+        let reaper = Arc::new(Reaper::new(device.clone()));
         Ok(Gpu {
             instance,
             adapter,
@@ -107,7 +132,14 @@ impl Gpu {
             queue,
             errors,
             import: Arc::new(import),
+            reaper,
         })
+    }
+
+    /// Keep `hold` alive until everything submitted so far has finished.
+    pub fn release_when_idle(&self, hold: Hold) {
+        let tx = self.reaper.0.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = tx.send(hold);
     }
 
     pub fn describe(&self) -> String {

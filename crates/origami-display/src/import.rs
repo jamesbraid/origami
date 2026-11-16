@@ -39,6 +39,18 @@ pub trait Importer: Send + Sync {
         None
     }
 
+    /// Version 4: `size` bytes of mapped shared memory as GPU memory with no
+    /// copy (Metal, Vulkan host memory). None leaves it to CPU upload.
+    fn wrap_shm(&self, _size: u64, _memory: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>> {
+        None
+    }
+
+    /// Version 4: whether `wrap_shm` needs slots mapped writable, because the
+    /// API refuses read-only memory. The viewer then asks for `RW_PIXELS`.
+    fn shm_needs_write(&self) -> bool {
+        false
+    }
+
     /// A few words naming the way regions reach the GPU, for the debug output.
     fn name(&self) -> &'static str;
 }

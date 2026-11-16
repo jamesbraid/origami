@@ -76,6 +76,9 @@ pub struct ImportedUpdate {
     pub stride: u32,
     /// Row 0 of the plane is the bottom line of the picture.
     pub bottom_up: bool,
+    /// Keeps the rows valid: a lent slot the producer may not rewrite until
+    /// this drops. The presenter holds it until the GPU has read the rows.
+    pub hold: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 impl std::fmt::Debug for ImportedUpdate {

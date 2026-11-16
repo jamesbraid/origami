@@ -508,6 +508,7 @@ impl Display {
                     offset: plane.offset,
                     stride: plane.stride,
                     bottom_up: plane.flags & PLANE_BOTTOM_UP != 0,
+                    hold: None,
                 })
             }
             None => {

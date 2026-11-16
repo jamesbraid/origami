@@ -15,15 +15,25 @@ pub struct Compose {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     params: wgpu::Buffer,
-    /// The bind group of the last plane drawn; a plane stays put for many frames.
-    cached: Mutex<Option<Cached>>,
+    /// The bind groups of the planes drawn lately: a plane stays put for many
+    /// frames, and a producer's slots take turns.
+    cached: Mutex<Cache>,
 }
+
+#[derive(Default)]
+struct Cache {
+    /// What `Compose::params` holds now.
+    params: Option<Params>,
+    groups: Vec<Cached>,
+}
+
+/// Slots a producer rotates through is at most a handful.
+const CACHED_GROUPS: usize = 8;
 
 struct Cached {
     buffer: wgpu::Buffer,
     offset: u64,
     bytes: u64,
-    params: Params,
     group: wgpu::BindGroup,
 }
 
@@ -108,7 +118,7 @@ impl Compose {
             pipeline,
             layout,
             params,
-            cached: Mutex::new(None),
+            cached: Mutex::new(Cache::default()),
         }
     }
 
@@ -157,16 +167,16 @@ impl Compose {
             stride_words: frame.stride / 4,
             bottom_up: u32::from(frame.bottom_up),
         };
-        let mut cached = self.cached.lock().unwrap_or_else(|e| e.into_inner());
-        let fresh = !cached.as_ref().is_some_and(|c| {
-            c.buffer == region.buffer
-                && c.offset == frame.offset
-                && c.bytes == plane_bytes
-                && c.params == params
-        });
-        if fresh {
+        let mut cache = self.cached.lock().unwrap_or_else(|e| e.into_inner());
+        if cache.params != Some(params) {
             gpu.queue
                 .write_buffer(&self.params, 0, bytemuck::bytes_of(&params));
+            cache.params = Some(params);
+        }
+        let at = cache.groups.iter().position(|c| {
+            c.buffer == region.buffer && c.offset == frame.offset && c.bytes == plane_bytes
+        });
+        let at = at.unwrap_or_else(|| {
             let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("compose"),
                 layout: &self.layout,
@@ -185,15 +195,18 @@ impl Compose {
                     },
                 ],
             });
-            *cached = Some(Cached {
+            if cache.groups.len() >= CACHED_GROUPS {
+                cache.groups.remove(0);
+            }
+            cache.groups.push(Cached {
                 buffer: region.buffer.clone(),
                 offset: frame.offset,
                 bytes: plane_bytes,
-                params,
                 group,
             });
-        }
-        let group = &cached.as_ref().expect("set above").group;
+            cache.groups.len() - 1
+        });
+        let group = &cache.groups[at].group;
         let view = texture.create_view(&Default::default());
         let mut lines = 0;
         {

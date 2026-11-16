@@ -204,6 +204,7 @@ mod tests {
             offset: offset as u64,
             stride: stride as u32,
             bottom_up: false,
+            hold: None,
         };
         let word = |x: u32, y: u32| 0x0001_0203 + x * 0x0001_0000 + y * 0x0000_0100;
         let rgb = |w: u32| [(w >> 16) as u8, (w >> 8) as u8, w as u8];

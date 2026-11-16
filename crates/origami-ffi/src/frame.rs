@@ -1314,6 +1314,9 @@ mod present {
             if !self.view.visible() {
                 return Ok(ORIGAMI_DRAWN_SKIPPED);
             }
+            // Before the take: an error here must not drop a frame whose
+            // changed lines the producer will not send again.
+            self.refresh_cursor()?;
             let mut pending = None;
             match self
                 .machine
@@ -1338,7 +1341,6 @@ mod present {
                 }
                 None => {}
             }
-            self.refresh_cursor()?;
             self.take_ns += start.elapsed().as_nanos() as u64;
             let Some(texture) = &self.texture else {
                 return Ok(ORIGAMI_DRAWN_SKIPPED);
@@ -1368,7 +1370,7 @@ mod present {
             if let (Some(rows), Some(frame), Some(texture)) =
                 (rows, &pending, self.texture.as_mut())
             {
-                texture.note_imported(rows, frame);
+                texture.note_imported(gpu, rows, frame);
             }
             Ok(match drawn {
                 Drawn::Presented => ORIGAMI_DRAWN_PRESENTED,

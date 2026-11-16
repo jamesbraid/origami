@@ -78,7 +78,7 @@ impl HeadTexture {
         let mut enc = gpu.device.create_command_encoder(&Default::default());
         let rows = h.encode_imported(gpu, compose, &mut enc, frame);
         gpu.queue.submit([enc.finish()]);
-        h.note_imported(rows, frame);
+        h.note_imported(gpu, rows, frame);
         h
     }
 
@@ -102,8 +102,11 @@ impl HeadTexture {
 
     /// Count an update [`HeadTexture::encode_imported`] recorded. None means
     /// the frame named memory this device cannot read: the texture is as it was.
-    pub fn note_imported(&mut self, rows: Option<u32>, frame: &ImportedUpdate) {
+    pub fn note_imported(&mut self, gpu: &Gpu, rows: Option<u32>, frame: &ImportedUpdate) {
         let u = &frame.update;
+        if let Some(hold) = &frame.hold {
+            gpu.release_when_idle(hold.clone());
+        }
         if let Some(rows) = rows {
             self.rows_imported += u64::from(rows);
             self.seq = u.seq;

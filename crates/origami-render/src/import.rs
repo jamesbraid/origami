@@ -256,6 +256,35 @@ impl Importer for GpuImporter {
         None
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn wrap_shm(&self, size: u64, memory: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>> {
+        let buffer = match &self.support.kind {
+            #[cfg(target_os = "macos")]
+            Some(Kind::Metal) => native::wrap(&self.device, memory, size),
+            #[cfg(target_os = "linux")]
+            Some(Kind::Vulkan(c)) => {
+                native::import_host(&self.device, c, memory, size).map_err(|e| e.to_string())
+            }
+            _ => return None,
+        };
+        match buffer {
+            Ok(buffer) => Some(Arc::new(ImportedBuffer::new(buffer))),
+            Err(why) => {
+                eprintln!("origami: shared slot: {why}; copying");
+                None
+            }
+        }
+    }
+
+    fn shm_needs_write(&self) -> bool {
+        // The driver pins a host pointer for writing as well as reading.
+        #[cfg(target_os = "linux")]
+        if let Some(Kind::Vulkan(c)) = &self.support.kind {
+            return c.host_align.is_some();
+        }
+        false
+    }
+
     fn name(&self) -> &'static str {
         match self.support.kind {
             #[cfg(any(target_os = "linux", windows))]
