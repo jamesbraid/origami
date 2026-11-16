@@ -25,6 +25,7 @@ impl Lab {
                 name: "m".into(),
                 offering: "fake.1".into(),
                 memory_per_node_mib: None,
+                graphics: None,
                 boot_prom: Some(prom.to_str().unwrap().into()),
                 io_prom: None,
             })

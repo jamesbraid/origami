@@ -175,6 +175,8 @@ pub struct OrigamiCreateRequest {
     pub name: String,
     pub offering: String,
     pub memory_per_node_mib: Option<u32>,
+    /// A graphics product, or "none"; without it the topology's default pipe.
+    pub graphics: Option<String>,
     pub boot_prom: Option<String>,
     pub io_prom: Option<String>,
 }
@@ -480,6 +482,7 @@ impl OrigamiCore {
             name: request.name,
             offering: request.offering,
             memory_per_node_mib: request.memory_per_node_mib,
+            graphics: request.graphics,
             boot_prom: request.boot_prom.map(PathBuf::from),
             io_prom: request.io_prom.map(PathBuf::from),
         })?;

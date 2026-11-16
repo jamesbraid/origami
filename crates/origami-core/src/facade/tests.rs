@@ -211,6 +211,30 @@ fn the_observer_can_call_back_into_the_core_without_deadlock() {
 }
 
 #[test]
+fn a_created_machine_gets_the_identity_the_cli_gives() {
+    let f = fixture();
+    let key = f.create("i", "fake.1");
+    let file = origami_machine::read_machine(Path::new(&key)).unwrap();
+    assert!(file.identity.is_some_and(|i| i.emu_id.is_some()));
+}
+
+#[test]
+fn a_graphics_product_the_machine_cannot_take_fails_the_create() {
+    let f = fixture();
+    let op = f
+        .core
+        .create_machine(CreateRequest {
+            name: "g".into(),
+            offering: "fake.1".into(),
+            graphics: Some("v12".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(matches!(op.wait(Some(WAIT)), OperationState::Failed(_)));
+    assert!(!f.core.root().join("g").exists());
+}
+
+#[test]
 fn errors_carry_a_kind_a_program_can_branch_on() {
     let f = fixture();
     let kind = |r: CoreResult<_>| r.map(|_: ()| ()).unwrap_err().kind;

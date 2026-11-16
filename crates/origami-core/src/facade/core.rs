@@ -6,10 +6,10 @@ use super::error::{CoreError, CoreResult, ErrorKind};
 use super::event::{Dispatcher, EventKind, Observer, Slot};
 use super::machine::{Machine, MachineState, Shared};
 use super::operation::{self, Operation};
-use origami_engine::{Capabilities, Catalogue, Engine, EngineStores};
+use origami_engine::{Capabilities, Catalogue, Engine};
 use origami_machine::dir::MachineDir;
 use origami_machine::model;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
@@ -75,8 +75,22 @@ pub struct CreateRequest {
     /// An [`OfferingSummary::id`].
     pub offering: String,
     pub memory_per_node_mib: Option<u32>,
+    /// A graphics product, or `none`; without it the topology's default pipe.
+    pub graphics: Option<String>,
     pub boot_prom: Option<PathBuf>,
     pub io_prom: Option<PathBuf>,
+}
+
+/// The preset `offering` is the only one of, or none: with several presets
+/// on one offering (Octane2 IMPACT and VPro) the catalogue's defaults apply.
+fn preset_of(machines: &origami_machine::Machines, offering: &origami_machine::Offering) -> String {
+    let mut found = origami_machine::profiles::presets(machines)
+        .into_iter()
+        .filter(|(_, o)| o.id == offering.id);
+    match (found.next(), found.next()) {
+        (Some((name, _)), None) => name,
+        _ => String::new(),
+    }
 }
 
 pub(crate) struct CoreInner {
@@ -263,41 +277,24 @@ impl Core {
                 let dir = inner.config.root.join(&request.name);
                 let (index, offering) = inner.find_offering(&request.offering)?;
                 let engine = inner.engines[index].clone();
-                origami_machine::validate_create_inputs(
-                    &dir,
-                    &offering,
-                    request.memory_per_node_mib,
-                    None,
-                )
-                .map_err(CoreError::machine)?;
-                let proms = engine
-                    .firmware(
-                        &offering,
-                        request.boot_prom.as_deref(),
-                        request.io_prom.as_deref(),
-                    )
-                    .map_err(CoreError::engine)?;
                 if control.is_cancelled() {
                     return Err(CoreError::new(
                         ErrorKind::Cancelled,
                         "creation was cancelled",
                     ));
                 }
-                let stores = EngineStores(engine.as_ref());
-                origami_machine::create_configured(
-                    &dir,
-                    &offering,
-                    &origami_machine::MachineInit {
-                        stores: &stores,
-                        boot_prom: &proms.boot_prom,
-                        io_prom: proms.io_prom.as_deref(),
-                    },
-                    request.memory_per_node_mib,
-                    None,
-                    vec![],
-                    BTreeMap::new(),
-                )
-                .map_err(CoreError::machine)?;
+                // The same create the CLI runs, so graphics, the serial
+                // console of a headless machine, identity and settings agree.
+                let machines = inner.catalogue(index)?;
+                let mut spec = crate::MachineSpec::new(&dir, preset_of(&machines, &offering));
+                spec.memory_per_node_mib = request.memory_per_node_mib;
+                spec.graphics.product = request.graphics.clone();
+                spec.firmware = crate::FirmwareRequest {
+                    boot_prom: request.boot_prom.clone(),
+                    io_prom: request.io_prom.clone(),
+                };
+                crate::create::create_from(engine.as_ref(), &machines, &spec, &offering)
+                    .map_err(CoreError::machine)?;
                 inner.slot.raise(&[EventKind::Library]);
                 let key = dir.canonicalize().unwrap_or(dir);
                 Ok(Some(key.to_string_lossy().into_owned()))

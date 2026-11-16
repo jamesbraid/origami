@@ -15,8 +15,18 @@ use std::fs;
 /// when it fails.
 pub fn create(engine: &dyn Engine, spec: &MachineSpec) -> Result<Report> {
     let machines = engine.catalogue()?;
-    let machines = &*machines;
-    let preset_offer = preset(machines, &spec.preset)?;
+    let preset_offer = preset(&machines, &spec.preset)?;
+    create_from(engine, &machines, spec, preset_offer)
+}
+
+/// [`create`] for a machine that starts from `preset_offer`; `spec.preset`
+/// only names the graphics and settings a preset adds, and may name none.
+pub(crate) fn create_from(
+    engine: &dyn Engine,
+    machines: &origami_machine::Machines,
+    spec: &MachineSpec,
+    preset_offer: &Offering,
+) -> Result<Report> {
     let offer = match &spec.processor {
         Some(processor) => profiles::with_processor(machines, preset_offer, processor)?,
         None => preset_offer,
