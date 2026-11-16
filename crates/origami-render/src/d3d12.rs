@@ -1,9 +1,5 @@
-//! The Direct3D 12 half of importing on Windows. QEMU's region is a
-//! pagefile-backed section; D3D12 opens it as a heap (no copy, no QEMU
-//! change) and a buffer is placed on it for the pass to read in place.
-//!
-//! Not run on hardware yet: written from the Windows spike's measurements
-//! (WARP) and checked only by cross-compiling.
+//! Direct3D 12 opens QEMU's pagefile-backed section as a heap and a buffer is
+//! placed on it: no copy. Cross-compiled only; not yet run on Windows.
 
 use crate::ImportedBuffer;
 use origami_display::proto::Region;

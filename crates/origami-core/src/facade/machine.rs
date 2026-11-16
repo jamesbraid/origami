@@ -349,10 +349,9 @@ impl Machine {
 
     /// Tell the engine whether any view shows the machine. While hidden it
     /// sends no frame wake-ups; showing it again wakes once if it changed.
-    pub fn set_visible(&self, visible: bool) {
-        if let Ok(frames) = self.inner.frames() {
-            frames.set_visible(visible);
-        }
+    pub fn set_visible(&self, visible: bool) -> CoreResult<()> {
+        self.inner.frames()?.set_visible(visible);
+        Ok(())
     }
 
     /// Call `hook` from an engine thread whenever a head has news, with no

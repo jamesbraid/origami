@@ -46,9 +46,8 @@ pub(crate) mod gpu {
     }
 }
 
-/// Imports into [`gpu::shared`], opened when the first machine starts rather
-/// than when the core is made. No importer (no GPU, or a device that imports
-/// nothing) leaves pictures on the copying path.
+/// Imports into [`gpu::shared`], opened at the first machine start. With no
+/// GPU that imports, pictures take the copying path.
 #[cfg(all(feature = "qemu", feature = "render", not(feature = "fake")))]
 mod lazy {
     use super::gpu::shared;

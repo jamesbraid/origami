@@ -305,13 +305,11 @@ typedef struct origami_view_counters {
   uint32_t reserved;
   // Pictures drawn and presented.
   uint64_t presents;
-  // Taking the frame from the display client, drawing it into the head
-  // texture and updating the cursor.
+  // Taking the frame from the display client and updating the cursor.
   uint64_t take_ns;
-  // Acquiring the window's image and drawing the head into it.
+  // Acquiring the window's image, drawing the picture and the head into it.
   uint64_t draw_ns;
-  // Handing the image to the window system, whose cost is not ours: a
-  // compositor or X server without direct presentation makes it large.
+  // Handing the image to the window system, which can make it large.
   uint64_t present_ns;
 } origami_view_counters;
 

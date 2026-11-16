@@ -339,9 +339,9 @@ fn hiding_a_machine_reaches_its_frame_source() {
     let f = fixture();
     let (machine, session) = f.started("m");
     assert!(session.frames_visible());
-    machine.set_visible(false);
+    machine.set_visible(false).unwrap();
     assert!(!session.frames_visible());
-    machine.set_visible(true);
+    machine.set_visible(true).unwrap();
     assert!(session.frames_visible());
 }
 

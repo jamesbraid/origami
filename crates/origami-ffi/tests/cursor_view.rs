@@ -2,6 +2,7 @@
 //! drawn into an X11 window by the C view functions. Ignored: needs a Vulkan
 //! device, an X server (`DISPLAY`) and ImageMagick's `import`.
 #![cfg(all(unix, feature = "fake", feature = "render"))]
+#![allow(clippy::unnecessary_cast)]
 
 mod common;
 
@@ -81,7 +82,7 @@ fn the_guests_cursor_is_drawn_over_the_picture() {
         kind: ORIGAMI_SURFACE_XLIB_WINDOW,
         window: ptr::null_mut(),
         display: dpy,
-        window_id: window.into(),
+        window_id: window as u64, // c_ulong is wider elsewhere
         screen,
     };
     let mut view = ptr::null_mut();

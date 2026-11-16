@@ -13,6 +13,7 @@
 //! with `cargo test -p origami-ffi --release --test qemu_boot -- --ignored --nocapture`;
 //! the numbers it prints start with `MEASURE`.
 #![cfg(all(unix, feature = "qemu", feature = "render", not(feature = "fake")))]
+#![allow(clippy::unnecessary_cast)]
 
 use origami_ffi::*;
 use std::ffi::{c_char, c_int, c_uint, c_ulong, c_void, CString};
@@ -69,6 +70,28 @@ fn thread_cpu() -> f64 {
     // SAFETY: a valid timespec.
     unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
     t.tv_sec as f64 + t.tv_nsec as f64 * 1e-9
+}
+
+/// CPU ticks each thread has used, by name.
+fn thread_ticks() -> std::collections::BTreeMap<String, u64> {
+    let mut out = std::collections::BTreeMap::new();
+    for t in std::fs::read_dir("/proc/self/task").unwrap().flatten() {
+        let Ok(stat) = std::fs::read_to_string(t.path().join("stat")) else {
+            continue;
+        };
+        let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else {
+            continue;
+        };
+        let f: Vec<&str> = stat[close + 2..].split(' ').collect();
+        let ticks: u64 = f[11].parse::<u64>().unwrap_or(0) + f[12].parse::<u64>().unwrap_or(0);
+        let name = format!(
+            "{} {}",
+            &stat[open + 1..close],
+            t.file_name().to_string_lossy()
+        );
+        out.insert(name, ticks);
+    }
+    out
 }
 
 /// CPU seconds the whole process has used.
@@ -466,7 +489,7 @@ fn an_octane2_boot_reaches_the_window_without_the_cpu_touching_a_pixel() {
         kind: ORIGAMI_SURFACE_XLIB_WINDOW,
         window: ptr::null_mut(),
         display: dpy,
-        window_id: window.into(),
+        window_id: window as u64, // c_ulong is wider elsewhere
         screen,
     };
     let mut view = ptr::null_mut();
@@ -592,12 +615,20 @@ fn an_octane2_boot_reaches_the_window_without_the_cpu_touching_a_pixel() {
 
     // Idle: the picture is still, so nothing may wake or present.
     rig.settle(Duration::from_secs(3), Duration::from_secs(60));
+    let ticks0 = thread_ticks();
     let (wakes0, presents0, cpu0) = (WAKES.load(Ordering::Relaxed), rig.presents, process_cpu());
     let idle = Duration::from_secs(10);
     let t = Instant::now();
     while t.elapsed() < idle {
         if rig.wait(200) {
             rig.present();
+        }
+    }
+    let ticks1 = thread_ticks();
+    for (name, t) in &ticks1 {
+        let d = t - ticks0.get(name).copied().unwrap_or(0);
+        if d > 0 {
+            eprintln!("MEASURE idle thread {name}: {d} ticks (10 ms each)");
         }
     }
     let wakes = WAKES.load(Ordering::Relaxed) - wakes0;

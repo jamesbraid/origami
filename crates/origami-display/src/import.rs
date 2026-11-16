@@ -33,9 +33,8 @@ pub trait Importer: Send + Sync {
     /// path.
     fn wrap(&self, region: &Region, memory: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>>;
 
-    /// Take a region that is plain shared memory from its handle, before it
-    /// is mapped, where the API opens the section itself (Direct3D 12 on
-    /// Windows). The handle stays the caller's. None leaves it to `wrap`.
+    /// Take plain shared memory from its handle before it is mapped, where
+    /// the API opens the section itself (Direct3D 12). None leaves it to `wrap`.
     fn open_section(&self, _region: &Region, _handle: &Handle) -> Option<Arc<dyn GpuMemory>> {
         None
     }

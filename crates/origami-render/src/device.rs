@@ -41,9 +41,8 @@ pub struct Gpu {
 pub const ZERO_COPY_ENV: &str = "ORIGAMI_GUI_ZERO_COPY";
 
 impl Gpu {
-    /// A device on Vulkan on Linux and on Direct3D 12 on Windows, where each
-    /// imports QEMU's memory, else on whatever wgpu finds. `WGPU_BACKEND`
-    /// overrides the choice.
+    /// Vulkan on Linux and Direct3D 12 on Windows, which import QEMU's memory,
+    /// else whatever wgpu finds. `WGPU_BACKEND` overrides.
     pub fn new() -> Result<Gpu, String> {
         if wgpu::Backends::from_env().is_none() {
             #[cfg(target_os = "linux")]
