@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Set by run.sh: the generated origami_ffi.cs and the folder holding the built library. -->
+    <GeneratedBindings></GeneratedBindings>
+    <OrigamiLibDir></OrigamiLibDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="$(GeneratedBindings)" />
+    <None Include="$(OrigamiLibDir)/origami_ffi.dll" Condition="Exists('$(OrigamiLibDir)/origami_ffi.dll')" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(OrigamiLibDir)/liborigami_ffi.so" Condition="Exists('$(OrigamiLibDir)/liborigami_ffi.so')" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

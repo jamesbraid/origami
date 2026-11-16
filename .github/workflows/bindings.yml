@@ -1,0 +1,107 @@
+name: Bindings
+
+# origami-ffi is outside the workspace's default members, so the CLI checks do
+# not build it. Linux builds and tests it on the fake engine, keeps the
+# checked-in C header current, runs the C test program and generates the Swift
+# and C# bindings. macOS compiles and runs the Swift program; Windows builds
+# and runs the C# program.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bindings-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CBINDGEN_VERSION: 0.29.4
+  UNIFFI_BINDGEN_CS_TAG: v0.12.0+v0.32.0
+
+jobs:
+  linux:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install Rust and the Windows cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
+            https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --component clippy,rustfmt \
+            --default-toolchain stable --target x86_64-pc-windows-gnu
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Install the binding generators
+        run: |
+          cargo install cbindgen --version "$CBINDGEN_VERSION" --locked
+          cargo install uniffi-bindgen-cs --locked \
+            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag "$UNIFFI_BINDGEN_CS_TAG"
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Lint
+        run: cargo clippy --locked -p origami-core -p origami-ffi --features fake --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked -p origami-core -p origami-ffi --features fake
+      - name: Check the C header is up to date
+        run: |
+          crates/origami-ffi/bindings/gen-header.sh
+          git diff --exit-code -- crates/origami-ffi/include
+      - name: Compile and run the C program
+        run: crates/origami-ffi/bindings/c/run.sh
+      - name: Generate the Swift bindings
+        run: crates/origami-ffi/bindings/swift/gen.sh "$RUNNER_TEMP/swift"
+      - name: Generate the C# bindings
+        run: crates/origami-ffi/bindings/csharp/gen.sh "$RUNNER_TEMP/csharp"
+      - name: Check for Windows
+        run: cargo check --locked --target x86_64-pc-windows-gnu -p origami-ffi --features fake
+
+  macos:
+    if: github.server_url == 'https://github.com'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install Rust
+        run: |
+          curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
+            https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Generate the Swift bindings, compile the test program and run it
+        run: crates/origami-ffi/bindings/swift/run.sh
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Install the C# generator
+        run: |
+          cargo install uniffi-bindgen-cs --locked \
+            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag "$UNIFFI_BINDGEN_CS_TAG"
+      - name: Generate the C# bindings, build the test program and run it
+        run: crates/origami-ffi/bindings/csharp/run.sh

@@ -1,0 +1,114 @@
+# origami-ffi
+
+What the native apps (Swift, C#, GTK) bind to. Two planes over `origami-core`'s
+facade (`crates/origami-core/src/facade/`):
+
+- **Control plane, UniFFI.** Machines, operations, events, console, input,
+  commands. Generated Swift and C#. Names carry an `Origami` prefix.
+- **Frame plane, C ABI.** Pixels, the frame wake-up, cursor, input, presenting
+  into a window. Header: [`include/origami_frame.h`](include/origami_frame.h)
+  (checked in; regenerate with `bindings/gen-header.sh`, CI fails if stale).
+  Ownership and threading rules are in the header.
+
+`OrigamiMachine.frame_plane_handle()` joins them: it returns an owned
+`origami_machine*` (as an integer) for the C functions. Release it with
+`origami_machine_release`.
+
+## Features
+
+| feature | meaning |
+|---|---|
+| `fake` | `FakeEngine` is the only engine; adds `fake_*` helpers to drive it. Bindings tests and app development use this. |
+| `qemu` (default) | `QemuEngine` (found by `Runtime::locate`, beside the executable). Ignored when `fake` is on. |
+| `render` (default) | `origami_view_*` draw through `origami-render` (wgpu, Vulkan on Linux and Windows, Metal on macOS). |
+
+`cargo build -p origami-ffi --features fake` gives `liborigami_ffi.{so,dylib}` /
+`origami_ffi.dll` and the static library. The crate is a workspace member, not a
+default member (it pulls wgpu and uniffi); select it with `-p`.
+
+## Threading
+
+Every call may be made from any thread. Fast calls (`view`, `send_*`,
+`console_*`, `origami_frame_*`, `origami_input_*`) are safe on a UI thread.
+Long calls (`start`, `stop`, `create_machine`, `start_machine`) return an
+`OrigamiOperation`, except `start_machine`, which blocks. The observer is
+called on a core-owned thread with no lock held; hop to your UI thread inside
+it. Events are level triggered and coalesced: they say *what* changed on a
+machine (`state`, `display`, `console`, `operation`, `library`); pull the new
+state. `OrigamiCore.shutdown()` waits for a callback in flight, so do not call
+it under a lock the observer takes.
+
+## Control plane
+
+`OrigamiCore(libraryRoot, observer?)` throws `CoreError`.
+
+- `engines()`, `catalogue()` (offerings you can create), `list_machines()`,
+  `commands()` (menu table: id, title, `enabled_when`, shortcut per platform;
+  `origami_command_enabled(when, state)`).
+- `create_machine(OrigamiCreateRequest) -> OrigamiOperation`; its
+  `result_machine()` is the new key.
+- `open_machine(key) -> OrigamiMachine` (same machine, same object state);
+  `start_machine(key)` opens, starts and waits.
+- `shutdown()`.
+
+`OrigamiMachine`: `key()`, `name()`, `view()` (state `NotRunning | Starting |
+Running | Paused | Stopping | Exited`, exit code and last error, `heads`,
+`console`, `operation`), `start()`, `stop(Clean | Force)` (a clean stop cannot
+be cancelled and can take minutes), `control(Reset | PowerButton | Nmi | Pause |
+Resume)`, `change_media(drive, image?)`, `screendump(head, path)`,
+`send_key(OrigamiKey, down)`, `send_pointer(Move | At | Button | Wheel)`,
+`release_all_keys()` (call when your window loses focus; returns how many it
+lifted), `console_read(from, max)` (offset ring: pass `next` back; `dropped`
+says what you missed), `console_send(bytes)`, `frame_plane_handle()`.
+
+`OrigamiOperation`: `id()`, `title()`, `state()` (`Running | Succeeded |
+Failed(kind, message) | Cancelled`), `wait(timeout_ms?)` (blocks), `cancel()`
+(false when it cannot be), `result_machine()`.
+
+`CoreError` has one variant per kind, each with `message` (a sentence safe to
+show) and `detail`: `NotFound`, `Invalid`, `Busy`, `NotRunning`, `Unsupported`,
+`NeedsUpgrade`, `Io`, `Protocol`, `Engine`, `Cancelled`, `Internal`. In C# the
+type is `CoreException` with nested classes.
+
+Generated code notes: Swift `OrigamiObserver.onEvent(event:)`; C# types are
+`internal` in namespace `uniffi.origami_ffi` (compile the file into your app)
+and the library name is `origami_ffi`.
+
+## Frame plane
+
+All functions return `origami_status` (`ORIGAMI_OK` = 0, negative
+`ORIGAMI_ERR_*`) and catch panics; `origami_last_error` has the text.
+
+- Machine: `origami_machine_release`; for plain C also `origami_core_new/
+  release/machines`, `origami_machine_open/start`.
+- Frames: `origami_frame_heads`, `origami_frame_take` (the copy path, into your
+  buffer; `BUFFER_TOO_SMALL` loses nothing), `origami_frame_cursor`.
+- Wake-up without polling: `origami_frame_set_wake(machine, cb, user_data)`,
+  and `origami_frame_wake_handle(machine, &h)`: an eventfd (a pipe on macOS)
+  to `poll`/`kqueue`, or an auto-reset event `HANDLE` on Windows. Neither
+  allocates per frame. On Unix call `origami_frame_wake_clear` to re-arm.
+- Input: `origami_input_send` (batch), `origami_input_release_all`. Key codes
+  are `origami_key` (same order as `OrigamiKey`).
+- Presenting: `origami_view_attach(machine, head, &surface, w, h, scale, &view)`,
+  `_resize`, `_set_scale`, `_set_visible`, `_present`, `_detach`. Surfaces:
+  Cocoa `NSView`/`CAMetalLayer`, Win32 `HWND`, X11 (Xlib or XCB), Wayland.
+  A WinUI `SwapChainPanel` is Direct3D and is refused
+  (`ORIGAMI_ERR_UNSUPPORTED`): give a child window's `HWND`. Detach the view
+  before its window goes.
+
+A typical render loop: wait on the wake handle (or post from the callback),
+then `origami_view_present`; or, on the copy path, `origami_frame_take` and
+upload.
+
+Limits today: only engines with in-process frames work (the fake). A QEMU
+machine's display socket and the cursor drawing are not wired yet, so
+`take_frame` reports `Unsupported` for it.
+
+## Bindings tests
+
+`bindings/c`, `bindings/swift`, `bindings/csharp`: each has a program and a
+script (`run.sh`; `gen.sh` only generates). They list the fake machines, start
+one and receive an event. CI: `.github/workflows/bindings.yml`. The Swift and
+C# programs build only on macOS and Windows; Linux CI generates both.
+`uniffi-bindgen-cs` is pinned to 0.12.0 (uniffi 0.32); install it with
+`cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0 --locked`.
