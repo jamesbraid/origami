@@ -134,6 +134,10 @@ impl Control {
         self.u32_at(Self::head_off(h) + R_LAYOUT_GEN)
     }
 
+    pub fn cursor_gen(&self, h: usize) -> u32 {
+        self.u32_at(Self::head_off(h) + R_CURSOR_GEN)
+    }
+
     pub fn content_gen(&self, h: usize) -> u64 {
         self.atom64(Self::head_off(h) + R_CONTENT_GEN)
             .load(Ordering::Acquire)
@@ -211,6 +215,9 @@ impl Control {
     pub fn cursor(&self, h: usize) -> CursorState {
         let o = Self::head_off(h);
         let i = |off: usize| self.u32_at(o + off) as i32;
+        // QEMU writes the fields and then advances the generation, so the
+        // generation is read first: what is read after it is at least as new.
+        let gen = self.u32_at(o + R_CURSOR_GEN);
         CursorState {
             on: self.u32_at(o + R_CURSOR_ON) != 0,
             x: i(R_CURSOR_X),
@@ -219,7 +226,7 @@ impl Control {
             hot_y: i(R_CURSOR_HOT_Y),
             width: self.u32_at(o + R_CURSOR_W).min(CURSOR_MAX),
             height: self.u32_at(o + R_CURSOR_H).min(CURSOR_MAX),
-            gen: self.u32_at(o + R_CURSOR_GEN),
+            gen,
         }
     }
 }

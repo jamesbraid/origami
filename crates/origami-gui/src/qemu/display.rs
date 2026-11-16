@@ -84,6 +84,10 @@ struct HeadSlot {
     key: Option<Key>,
     /// `content_gen` at the last take.
     last_content: u64,
+    /// `layout_gen` the last take read, and `cursor_gen` the last cursor
+    /// read saw: the other two things a `WAKE` can be for.
+    last_layout: u32,
+    last_cursor: u32,
     /// The next take must carry the whole picture.
     full: bool,
 }
@@ -161,7 +165,7 @@ fn runs_of(lines: &[u32], gap: u32) -> Vec<(u32, u32)> {
 
 impl State {
     fn layout_usable(&self, l: &Layout) -> bool {
-        if !l.active || l.family != FAMILY_XRGB {
+        if !l.active || l.family != FAMILY_XRGB || l.family_version != FAMILY_XRGB_VERSION {
             return false;
         }
         let p = &l.plane0;
@@ -366,11 +370,16 @@ impl Display {
         if head >= c.nheads() {
             return false;
         }
+        // The armed word is stored sequentially consistent, then all three
+        // generations are read again: QEMU wakes only a head that is armed
+        // when it changes, so a change it made first must show here.
         c.arm(head);
         fence(Ordering::SeqCst);
-        s.heads
-            .get(head)
-            .is_some_and(|slot| c.content_gen(head) != slot.last_content)
+        s.heads.get(head).is_some_and(|slot| {
+            c.content_gen(head) != slot.last_content
+                || c.layout_gen(head) != slot.last_layout
+                || c.cursor_gen(head) != slot.last_cursor
+        })
     }
 
     /// Arm every head; true when any has already changed.
@@ -399,6 +408,7 @@ impl Display {
             Err(ControlError::Torn) => return Ok(Taken::Retry),
             Err(e) => return Err(e),
         };
+        s.heads[head].last_layout = layout.layout_gen;
         if !s.layout_usable(&layout) {
             // Not a picture: the bits are not ours to keep either.
             c.take_dirty(head, layout.height);
@@ -502,7 +512,17 @@ impl Display {
     /// The guest's cursor for `head`. The image comes only when `cursor_gen`
     /// differs from `known_gen`.
     pub fn cursor(&self, head: usize, known_gen: u32) -> Option<CursorInfo> {
-        let s = lock(&self.state);
+        let mut s = lock(&self.state);
+        let (info, seen) = Self::cursor_locked(&s, head, known_gen)?;
+        if let (Some(gen), Some(slot)) = (seen, s.heads.get_mut(head)) {
+            slot.last_cursor = gen;
+        }
+        Some(info)
+    }
+
+    /// The cursor, and the `cursor_gen` it is complete for: `None` when the
+    /// read was torn, or the image is still to come.
+    fn cursor_locked(s: &State, head: usize, known_gen: u32) -> Option<(CursorInfo, Option<u32>)> {
         let c = s.control.as_ref()?;
         if head >= c.nheads() {
             return None;
@@ -519,8 +539,11 @@ impl Display {
             gen: known_gen,
             image: None,
         };
-        if st.gen == known_gen || st.gen & 1 == 1 || st.width == 0 || st.height == 0 {
-            return Some(info);
+        if st.gen & 1 == 1 {
+            return Some((info, None));
+        }
+        if st.gen == known_gen || st.width == 0 || st.height == 0 {
+            return Some((info, Some(st.gen)));
         }
         let layout = c.layout(head).ok()?;
         let mem = s.regions.get(&layout.cursor_region)?.mem.as_ref()?;
@@ -529,7 +552,7 @@ impl Display {
             .cursor_offset
             .checked_add((CURSOR_MAX as u64) * (CURSOR_MAX as u64) * 4)?;
         if end > mem.len() as u64 {
-            return Some(info);
+            return Some((info, None));
         }
         let mut image = vec![0u8; w * h * 4];
         for y in 0..h {
@@ -546,11 +569,11 @@ impl Display {
         fence(Ordering::Acquire);
         let again = c.cursor(head);
         if again.gen != st.gen {
-            return Some(info); // changed under the copy: ask again
+            return Some((info, None)); // changed under the copy: ask again
         }
         info.gen = st.gen;
         info.image = Some(image);
-        Some(info)
+        Some((info, Some(st.gen)))
     }
 }
 
@@ -878,6 +901,32 @@ mod tests {
         r.block.bump(0);
         assert!(r.d.arm_all(), "changed between the take and the arm");
         assert!(!r.d.arm(7));
+    }
+
+    #[test]
+    fn arming_also_sees_a_layout_or_cursor_change() {
+        let r = rig(W, 8);
+        let mut px = Vec::new();
+        frame(&r.d, &mut px);
+        r.d.cursor(0, 0);
+        assert!(!r.d.arm(0));
+        r.block.put(0, R_CURSOR_GEN, 2);
+        assert!(r.d.arm(0), "the cursor moved after the last read of it");
+        r.d.cursor(0, 2);
+        assert!(!r.d.arm(0));
+        let lg = r.block.get(0, R_LAYOUT_GEN);
+        r.block.put(0, R_LAYOUT_GEN, lg + 2);
+        assert!(r.d.arm(0), "the layout changed after the last take");
+    }
+
+    #[test]
+    fn a_family_version_this_viewer_does_not_know_is_not_shown() {
+        let r = rig(W, 8);
+        let mut px = Vec::new();
+        r.block.put(0, R_FAMILY_VERSION, 2);
+        assert_eq!(r.d.take(0, &mut px).unwrap(), Taken::Nothing);
+        r.block.put(0, R_FAMILY_VERSION, FAMILY_XRGB_VERSION);
+        assert!(r.d.heads()[0].active);
     }
 
     #[test]

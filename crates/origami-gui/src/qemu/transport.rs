@@ -122,12 +122,45 @@ fn read_message(
     Ok(Some((msg, handles)))
 }
 
+/// The handle value a WELCOME or REGION carries, owned from the moment the
+/// message is parsed. On Windows the value is a handle QEMU duplicated into
+/// this process, so a message that is then rejected must close it: dropping
+/// this does, unless [`take_handle`] took it first. On Linux and macOS the
+/// descriptor rides in the `handles` list, which closes on drop, and this
+/// holds nothing.
+struct Passed {
+    #[cfg(windows)]
+    value: u64,
+}
+
+impl Passed {
+    #[cfg_attr(unix, allow(unused_variables))]
+    fn new(value: u64) -> Self {
+        Passed {
+            #[cfg(windows)]
+            value,
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Passed {
+    fn drop(&mut self) {
+        if self.value != 0 {
+            // SAFETY: a handle QEMU duplicated into this process for us to
+            // close, not yet handed to anything that owns it.
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(self.value as usize as _) };
+        }
+    }
+}
+
 /// The handle for a control block or region: the one that was attached
 /// (Linux, macOS) or the value in the message (Windows).
-#[cfg_attr(unix, allow(unused_variables))]
-fn take_handle(value: u64, handles: &mut Vec<Handle>) -> io::Result<Handle> {
+#[cfg_attr(windows, allow(unused_variables))]
+fn take_handle(passed: &mut Passed, handles: &mut Vec<Handle>) -> io::Result<Handle> {
     #[cfg(unix)]
     {
+        let _ = passed;
         if handles.is_empty() {
             Err(bad("a message that should carry a handle carried none"))
         } else {
@@ -137,21 +170,10 @@ fn take_handle(value: u64, handles: &mut Vec<Handle>) -> io::Result<Handle> {
     #[cfg(windows)]
     {
         let _ = handles;
-        if value == 0 {
-            Err(bad("a message that should carry a handle carried none"))
-        } else {
-            Ok(Handle::Value(value))
+        match std::mem::take(&mut passed.value) {
+            0 => Err(bad("a message that should carry a handle carried none")),
+            value => Ok(Handle::Value(value)),
         }
-    }
-}
-
-/// Close a passed handle that nothing will map or import.
-#[cfg(windows)]
-fn close_handle(handle: Handle) {
-    #[allow(irrefutable_let_patterns)]
-    if let Handle::Value(v) = handle {
-        // SAFETY: a handle QEMU duplicated into this process for us to close.
-        unsafe { windows_sys::Win32::Foundation::CloseHandle(v as usize as _) };
     }
 }
 
@@ -175,6 +197,7 @@ pub fn pump(
                     return Err(bad("a second WELCOME"));
                 }
                 let w = parse_welcome(&msg);
+                let mut passed = Passed::new(w.control_handle);
                 if w.version != VERSION {
                     return Err(bad(format!("QEMU speaks version {}", w.version)));
                 }
@@ -200,7 +223,7 @@ pub fn pump(
                         .accepts(&w.device_uuid, &w.driver_uuid)
                         .map_err(|why| bad(format!("cannot import QEMU's GPU memory: {why}")))?;
                 }
-                let mem = take_handle(w.control_handle, &mut handles)?.map()?;
+                let mem = take_handle(&mut passed, &mut handles)?.map()?;
                 let control = Control::new(mem).map_err(|e| bad(e.to_string()))?;
                 display.attach(control);
                 welcomed = true;
@@ -211,6 +234,7 @@ pub fn pump(
             }
             MSG_REGION if welcomed => {
                 let r = parse_region(&msg);
+                let mut passed = Passed::new(r.handle);
                 if r.id == 0 || !r.size.is_multiple_of(REGION_ALIGN) {
                     return Err(bad(format!(
                         "region {} has {} bytes, not a multiple of {REGION_ALIGN}",
@@ -226,15 +250,12 @@ pub fn pump(
                             ))
                         })?;
                         if r.alloc_size < r.size {
-                            // The handle that came with it is ours to close.
-                            #[cfg(windows)]
-                            drop(take_handle(r.handle, &mut handles).map(close_handle));
                             return Err(bad(format!(
                                 "region {} allocates {} bytes for {}",
                                 r.id, r.alloc_size, r.size
                             )));
                         }
-                        let handle = take_handle(r.handle, &mut handles)?;
+                        let handle = take_handle(&mut passed, &mut handles)?;
                         let memory = importer
                             .import(&r, handle)
                             .map_err(|e| bad(format!("cannot import region {}: {e}", r.id)))?;
@@ -242,7 +263,7 @@ pub fn pump(
                         display.note_backend(importer.name().to_string());
                     }
                     BACKEND_SHM_FD | BACKEND_SHM_WIN32 => {
-                        let mem = take_handle(r.handle, &mut handles)?.map()?;
+                        let mem = take_handle(&mut passed, &mut handles)?.map()?;
                         if (mem.len() as u64) < r.size {
                             return Err(bad(format!(
                                 "region {} is {} bytes, said {}",
@@ -422,7 +443,14 @@ mod sock {
             msg.msg_control = control.as_mut_ptr().cast();
             msg.msg_controllen = std::mem::size_of_val(&control) as _;
             // SAFETY: `msg` is fully set up for one iovec and a control buffer.
-            let n = unsafe { libc::recvmsg(self.0.as_raw_fd(), &mut msg, 0) };
+            // Linux marks the descriptors close-on-exec as they arrive, so a
+            // child started on another thread cannot inherit one; macOS has
+            // no such flag, and the fcntl below is the best it can do.
+            #[cfg(target_os = "linux")]
+            let flags = libc::MSG_CMSG_CLOEXEC;
+            #[cfg(not(target_os = "linux"))]
+            let flags = 0;
+            let n = unsafe { libc::recvmsg(self.0.as_raw_fd(), &mut msg, flags) };
             if n < 0 {
                 return Err(io::Error::last_os_error());
             }

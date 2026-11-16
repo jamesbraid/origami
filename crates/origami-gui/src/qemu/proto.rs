@@ -19,6 +19,9 @@ pub const BACKEND_SHM_WIN32: u32 = 4;
 
 // Head families and plane formats.
 pub const FAMILY_XRGB: u32 = 1;
+/// The xrgb family's `family_version`: a layout this viewer does not know
+/// is not drawn.
+pub const FAMILY_XRGB_VERSION: u32 = 1;
 pub const FMT_X8R8G8B8: u32 = 1;
 
 // Head flags.
