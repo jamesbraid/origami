@@ -402,8 +402,7 @@ impl Engine for RunnerEngine {
         }
         let id = MachineId(self.next.fetch_add(1, Ordering::Relaxed));
         let importer = lock(&self.importer).clone();
-        // The runner recorded what it started QEMU with; the viewer follows it.
-        let v4 = cfg!(unix) && machine_control::read(&dir).is_ok_and(|r| r.display_protocol == 4);
+        let v4 = cfg!(unix) && runs_protocol_4(&dir)?;
         let (backend, sink): (Backend, Box<dyn InputSink>) = if v4 {
             #[cfg(unix)]
             {
@@ -674,6 +673,15 @@ impl FrameSource for Shown {
     }
 }
 
+/// Whether the runner started the machine on display protocol 4, as its run
+/// record says. A record that cannot be read is an error: guessing would
+/// attach the wrong protocol to a running machine.
+fn runs_protocol_4(dir: &Path) -> Result<bool> {
+    let record = machine_control::read(dir)
+        .map_err(|e| format!("cannot read the run record of {}: {e}", dir.display()))?;
+    Ok(record.display_protocol == 4)
+}
+
 /// How much of `serial.log` primes a console that connects to a guest that
 /// has been talking.
 const CONSOLE_PRIME: u64 = 16 << 10;
@@ -928,6 +936,24 @@ mod tests {
         let mut sent = [0u8; 4];
         peer.read_exact(&mut sent).unwrap();
         assert_eq!(&sent, b"root");
+    }
+
+    #[test]
+    fn the_viewer_follows_the_run_record_and_an_unreadable_one_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        assert!(runs_protocol_4(dir.path()).is_err());
+        let write = |text: &str| std::fs::write(machine_control::path(dir.path()), text).unwrap();
+        let base = r#""pid": 1, "qmp_port": 2, "console_port": 3, "name": "m""#;
+        // A record an older origami wrote has no protocol: version 3.
+        write(&format!("{{{base}}}"));
+        assert!(!runs_protocol_4(dir.path()).unwrap());
+        write(&format!("{{{base}, \"display_protocol\": 3}}"));
+        assert!(!runs_protocol_4(dir.path()).unwrap());
+        write(&format!("{{{base}, \"display_protocol\": 4}}"));
+        assert!(runs_protocol_4(dir.path()).unwrap());
+        write("not json");
+        assert!(runs_protocol_4(dir.path()).is_err());
     }
 
     #[test]
