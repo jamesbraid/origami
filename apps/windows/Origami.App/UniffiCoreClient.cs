@@ -87,7 +87,7 @@ public sealed class UniffiCoreClient : ICoreClient
 #else
         string? prom = null;
 #endif
-        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null));
+        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null, null));
         var reg = ct.Register(() => op.Cancel());
         try
         {
