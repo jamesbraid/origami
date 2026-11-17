@@ -452,6 +452,18 @@ impl Engine for RunnerEngine {
                 .name("shm-display".into())
                 .spawn(move || reader_thread(&shown))?
         };
+        // A runner paused by an earlier session stays paused.
+        let status = machine_control::read(&dir)
+            .map_err(|e| e.to_string())
+            .and_then(|run| qemu_control::verified_qmp(&run).map_err(|e| e.to_string()))
+            .and_then(|mut qmp| {
+                qmp.execute(&qmp::query_status {})
+                    .map_err(|e| e.to_string())
+            });
+        if let Ok(info) = status {
+            let paused = !info.running && !matches!(info.status, qmp::RunState::prelaunch);
+            shown.paused.store(paused, Ordering::Release);
+        }
         lock(&self.shown).insert(dir, shown.clone());
         Ok(Arc::new(RunnerSession {
             shown,
