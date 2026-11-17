@@ -551,6 +551,44 @@ public sealed partial class MainWindow : Window
         w.Activate();
     }
     public ConsoleView? ConsoleForTest(string key) => _consoles.GetValueOrDefault(key)?.View;
+    bool _sized;
+    const double MinWidthDips = 900, MinHeightDips = 600;
+
+    PixelRect WindowRect => new(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
+    PixelRect WorkArea
+    {
+        get
+        {
+            var w = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest).WorkArea;
+            return new(w.X, w.Y, w.Width, w.Height);
+        }
+    }
+
+    void MoveResize(PixelRect r) => AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(r.X, r.Y, r.W, r.H));
+
+    /// <summary>The opening size, in DIPs, kept inside the work area.</summary>
+    public void SizeToDips(double w, double h)
+    {
+        var s = Win32.GetDpiForWindow(Hwnd) / 96.0;
+        MoveResize(ViewScale.Within(WindowRect, WorkArea, (int)Math.Round(w * s), (int)Math.Round(h * s)));
+    }
+
+    /// <summary>Once per run, when the first picture arrives: size the window so the picture shows at 1 DIP per guest pixel, in the work area.
+    /// A maximised, minimised or full-screen window is left alone.</summary>
+    void SizeForPicture()
+    {
+        if (_sized || Display.HeadWidth <= 0) return;
+        _sized = true;
+        if (AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Restored }) return;
+        var (pw, ph) = Display.PaneSize;
+        MoveResize(ViewScale.WindowFor(WindowRect, WorkArea, Root.XamlRoot.RasterizationScale, pw, ph, Display.HeadWidth, Display.HeadHeight, MinWidthDips, MinHeightDips));
+    }
+
+    /// <summary>Self-test: the window lies in its monitor's work area.</summary>
+    public bool InsideWorkArea
+    {
+        get { var (r, wa) = (WindowRect, WorkArea); return r.X >= wa.X - 2 && r.Y >= wa.Y - 2 && r.X + r.W <= wa.X + wa.W + 2 && r.Y + r.H <= wa.Y + wa.H + 2; }
+    }
 
     void SetViewMode(ViewMode mode)
     {
@@ -681,7 +719,7 @@ public sealed partial class MainWindow : Window
                 if (!Display.Attached || _attachedKey != key)
                 {
                     // The panel must be laid out before the child window is placed over it.
-                    _ui.TryEnqueue(DispatcherQueuePriority.Low, () => { if (Display.Attach(_core, key)) _attachedKey = key; });
+                    _ui.TryEnqueue(DispatcherQueuePriority.Low, () => { if (Display.Attach(_core, key)) { _attachedKey = key; SizeForPicture(); } });
                 }
                 break;
         }

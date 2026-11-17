@@ -320,6 +320,21 @@ Test("view scale: 1x and 2x are DIPs per guest pixel and fall back to fit; actua
     Eq(1.0, ViewScale.Factor(ViewMode.ActualSize, 1280, 1024, 3000, 2200, 2.0), "actual size is one device pixel");
 });
 
+Test("window: sized to the picture, growing or shrinking, kept inside the work area", () =>
+{
+    var work = new PixelRect(0, 0, 1920, 1040);
+    // 100%: 1280x1024 head, 700x400 pane: wants 1592x1336, capped to the work area; the right edge is pulled in from x=600.
+    Eq(new PixelRect(328, 0, 1592, 1040), ViewScale.WindowFor(new(600, 100, 1000, 700), work, 1.0, 700, 400, 1280, 1024, 900, 600), "grows, capped, moved");
+    // A pane with room to spare shrinks the window, down to the minimum.
+    Eq(new PixelRect(0, 0, 900, 600), ViewScale.WindowFor(new(0, 0, 1500, 1000), work, 1.0, 1400, 900, 640, 480, 900, 600), "shrinks to the minimum");
+    Eq(new PixelRect(0, 0, 1112, 712), ViewScale.WindowFor(new(0, 0, 1500, 1000), work, 1.0, 1200, 900, 800, 600, 900, 600), "shrinks to the picture");
+    // 150%: sizes are device pixels, the pane and head are DIPs.
+    Eq(new PixelRect(100, 0, 2388, 1400), ViewScale.WindowFor(new(100, 100, 2250, 1500), new(0, 0, 2560, 1400), 1.5, 1200, 800, 1280, 1024, 900, 600), "150%");
+    // A second monitor to the right: a window straddling its left edge moves onto it.
+    Eq(new PixelRect(1920, 0, 1000, 700), ViewScale.Within(new(1800, 0, 1200, 700), new(1920, 0, 1920, 1040), 1000, 700), "moved onto the monitor");
+    Eq(new PixelRect(0, 0, 1920, 1040), ViewScale.Within(new(0, 0, 100, 100), work, 5000, 5000), "never larger than the work area");
+});
+
 Test("view mode store: defaults to fit, round-trips, ignores junk and unreadable files", () =>
 {
     var dir = Path.Combine(Path.GetTempPath(), "origami-vm-" + Guid.NewGuid().ToString("N"));

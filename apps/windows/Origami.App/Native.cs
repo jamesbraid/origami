@@ -146,6 +146,7 @@ public static class Win32
     [DllImport("user32")] public static extern bool ReleaseCapture();
     [DllImport("user32")] public static extern IntPtr GetFocus();
     [DllImport("user32")] public static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32")] public static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32")] public static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("user32")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);

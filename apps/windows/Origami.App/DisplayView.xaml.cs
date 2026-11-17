@@ -256,7 +256,7 @@ public sealed partial class DisplayView : UserControl
     {
         if (_hidden || _hwnd == IntPtr.Zero || _headW <= 0 || XamlRoot is null) return;
         var s = XamlRoot.RasterizationScale;
-        double aw = Surround.ActualWidth - 12, ah = Surround.ActualHeight - 12;
+        double aw = Surround.ActualWidth - ViewScale.PanePadding, ah = Surround.ActualHeight - ViewScale.PanePadding;
         if (aw < 16 || ah < 16) return;
         // Device pixels per guest pixel: whole steps where they fit (the core's view then maps pixels one to one).
         var k = ViewScale.Factor(ViewMode, _headW, _headH, aw * s, ah * s, s);
@@ -384,6 +384,8 @@ public sealed partial class DisplayView : UserControl
         return Frame.origami_view_stats(_view, ref c) == Frame.Ok ? c : null;
     }
 
+    /// <summary>The pane the picture lays out in, in DIPs.</summary>
+    public (double W, double H) PaneSize => (Surround.ActualWidth, Surround.ActualHeight);
     public double DeviceScale => XamlRoot?.RasterizationScale ?? 1.0;
     public int HeadWidth => _headW;
     public int HeadHeight => _headH;

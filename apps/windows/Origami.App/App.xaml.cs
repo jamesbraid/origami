@@ -66,6 +66,7 @@ public partial class App : Application
         _window = new MainWindow(core, store);
         Log("window constructed");
         _window.Activate();
+        ((MainWindow)_window).SizeToDips(1500, 1000);
         if (ArgValue("--selftest") is { } outFile)
             _ = Selftest.RunAsync((MainWindow)_window, core, outFile);
     }
