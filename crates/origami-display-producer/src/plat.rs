@@ -561,8 +561,10 @@ mod imp {
         pub fn drain(&self) {
             use std::io::Read;
             let mut b = [0u8; 16];
-            self.pending.store(false, Ordering::Release);
             while matches!((&self.rx).read(&mut b), Ok(n) if n > 0) {}
+            // After the reads: a wake that lands before them has its byte read
+            // here, and must not leave `pending` set with nothing to read.
+            self.pending.store(false, Ordering::Release);
         }
         pub fn sock(&self) -> origami_display::v4::sys::RawSock {
             self.rx.sock()
