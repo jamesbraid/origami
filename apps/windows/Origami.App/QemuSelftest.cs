@@ -120,26 +120,39 @@ public static class Selftest
             }
             catch (Exception e) { dumpError = e.Message; }
         }
-        // Exact compare: the core's own readback of what its view drew against QEMU's screendump of the same moment.
-        // The PROM menu is static once drawn, so the two are taken a moment apart without a frame between them.
+        // Exact compare: the core's readback of what its view drew against QEMU's screendump. The machine is paused
+        // first, so the PROM cannot draw between the two calls and the two pictures must be identical.
         {
             var ppm = Path.Combine(dir, "qemu-screendump.ppm");
-            var rbk = disp.CoreReadback(out var rw, out var rh, headSize: true);
-            core.Screendump(key, 0, ppm);
-            var (pw, ph, engine) = Shot.ReadPpm(ppm);
-            if (rbk == null) Add("first-picture: the core's readback equals QEMU's screendump", false, "no readback: " + disp.LastError);
-            else if (rw != pw || rh != ph) Add("first-picture: the core's readback equals QEMU's screendump", false, $"size {rw}x{rh} vs {pw}x{ph}");
-            else
+            string result = ""; bool same = false; byte[]? shot = null; int cw = 0, ch = 0;
+            try
             {
-                int bad = 0;
-                for (int i = 0; i < pw * ph; i++)
+                await core.ControlAsync(key, MachineControl.Pause);
+                if (!await Until(() => core.Status(key).State == MachineState.Paused, 30_000)) result = "the machine did not pause";
+                else
                 {
-                    int o = i * 4;
-                    if (rbk[o] != engine[o] || rbk[o + 1] != engine[o + 1] || rbk[o + 2] != engine[o + 2]) bad++;
+                    var rbk = disp.CoreReadback(out cw, out ch, headSize: true);
+                    core.Screendump(key, 0, ppm);
+                    var (pw, ph, engine) = Shot.ReadPpm(ppm);
+                    if (rbk == null) result = "no readback: " + disp.LastError;
+                    else if (cw != pw || ch != ph) result = $"size {cw}x{ch} vs {pw}x{ph}";
+                    else
+                    {
+                        int bad = 0;
+                        for (int i = 0; i < pw * ph; i++)
+                        {
+                            int o = i * 4;
+                            if (rbk[o] != engine[o] || rbk[o + 1] != engine[o + 1] || rbk[o + 2] != engine[o + 2]) bad++;
+                        }
+                        same = bad == 0; shot = rbk;
+                        result = $"{bad} mismatching pixels of {pw * ph} ({pw}x{ph}), machine paused";
+                    }
                 }
-                Add("first-picture: the core's readback equals QEMU's screendump", bad == 0, $"{bad} mismatching pixels of {pw * ph} ({pw}x{ph})");
-                await Shot.Readback(rbk, rw, rh, rw * 4, Path.Combine(dir, "core-readback.png"));
             }
+            catch (Exception e) { result = e.GetType().Name + ": " + e.Message; }
+            finally { try { await core.ControlAsync(key, MachineControl.Resume); } catch { } }
+            Add("first-picture: the core's readback equals QEMU's screendump", same, result);
+            if (shot != null) await Shot.Readback(shot, cw, ch, cw * 4, Path.Combine(dir, "core-readback.png"));
         }
         Add("QEMU screendump shows a picture", lit > 100, dumpError is null ? $"{lit} lit pixels of {hw * hh} ({hw}x{hh})" : "screendump failed: " + dumpError);
         if (disp.Verify(out _) is { } rb) Add("fallback readback taken", true, $"{rb.Length} bytes");
@@ -149,6 +162,19 @@ public static class Selftest
         await Until(() => File.Exists(Path.Combine(dir, "done.txt")), 15_000);
 
         // Pause and resume the real machine; the picture keeps its head.
+        // Call the core directly first, so a QMP failure shows its own error and timing (the status bar hides it).
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            string res;
+            try { await core.ControlAsync(key, MachineControl.Pause); res = "ok"; } catch (Exception e) { res = e.GetType().Name + ": " + e.Message; }
+            Add("pause: the core call returns without error", res == "ok", $"{res} after {sw.ElapsedMilliseconds} ms; state now {core.Status(key).State}");
+            if (res == "ok")
+            {
+                string back;
+                try { await core.ControlAsync(key, MachineControl.Resume); back = "ok"; } catch (Exception e) { back = e.GetType().Name + ": " + e.Message; }
+                Add("resume: the core call returns without error", back == "ok", back);
+            }
+        }
         w.Invoke("machine.pause");
         Add("pause: the machine is Paused", await Until(() => core.Status(key).State == MachineState.Paused, 30_000), core.Status(key).Reason + " | status bar: " + w.StatusForTest + " | enabled: " + core.CommandEnabled("machine.pause", core.Status(key).State));
         if (core.Status(key).State == MachineState.Paused)
