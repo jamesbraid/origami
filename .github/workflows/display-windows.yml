@@ -35,7 +35,7 @@ jobs:
         run: |
           cargo test --target x86_64-pc-windows-gnu --no-run --message-format=json \
             -p origami-display -p origami-display-producer -p display-conformance \
-            -p origami-render > build.json
+            -p origami-render -p origami-iris > build.json
           mkdir win
           python3 - <<'PY'
           import json, shutil

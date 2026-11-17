@@ -39,3 +39,9 @@ jobs:
           path: ${{ runner.temp }}/origami-app-macos/out
           if-no-files-found: ignore
           retention-days: 14
+      - name: Lint and test the iris engine and display producer
+        if: always()
+        run: |
+          cargo clippy --locked -p origami-iris -p origami-display-producer --all-targets -- -D warnings
+          cargo clippy --locked -p origami-iris --features runner --all-targets -- -D warnings
+          cargo test --locked -p origami-iris -p origami-display-producer -p display-conformance
