@@ -79,6 +79,34 @@ public static unsafe class Frame
     [DllImport(Dll)] public static extern int origami_view_set_scale(IntPtr view, double scale);
     [DllImport(Dll)] public static extern int origami_view_set_visible(IntPtr view, uint visible);
     [DllImport(Dll)] public static extern int origami_view_readback(IntPtr view, byte* buf, nuint cap, out uint w, out uint h, out uint stride);
+    public const uint CubeEnvStudio = 0, CubeEnvScene = 1, CubeEnvMachine = 2;
+    public const uint CubeNoColour = 0xFFFFFFFF, CubeBackdropNone = 0, CubeBackdropGranite = 1;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CubeStyle
+    {
+        public uint Size, Env, Scene, HorizonRgb, GraniteLightRgb, GraniteDarkRgb, LightLook, Spin, ReduceMotion, Backdrop, SurroundRgb;
+    }
+
+    [DllImport(Dll)] public static extern int origami_cube_attach(ref Surface s, uint w, uint h, double scale, out IntPtr cube);
+    [DllImport(Dll)] public static extern int origami_cube_resize(IntPtr cube, uint w, uint h, double scale);
+    [DllImport(Dll)] public static extern int origami_cube_set_visible(IntPtr cube, uint visible);
+    [DllImport(Dll)] public static extern int origami_cube_set_style(IntPtr cube, ref CubeStyle style);
+    [DllImport(Dll)] public static extern uint origami_cube_scene_count();
+    [DllImport(Dll)] public static extern uint origami_cube_about_scene(uint dark);
+    [DllImport(Dll)] public static extern nuint origami_cube_scene_text(uint index, uint field, byte* buf, nuint cap);
+    [DllImport(Dll)] public static extern int origami_cube_set_machine(IntPtr cube, IntPtr machine, uint head);
+    [DllImport(Dll)] public static extern int origami_cube_present(IntPtr cube, out uint drawn, out uint moving);
+    [DllImport(Dll)] public static extern int origami_cube_readback(IntPtr cube, byte* buf, nuint cap, out uint w, out uint h, out uint stride);
+    [DllImport(Dll)] public static extern void origami_cube_detach(IntPtr cube);
+
+    /// <summary>A scene's text: field 0 id, 1 title, 2 credit line, 3 source URL.</summary>
+    public static string SceneText(uint index, uint field)
+    {
+        var b = new byte[1024];
+        fixed (byte* p = b) { var n = (int)origami_cube_scene_text(index, field, p, (nuint)b.Length); return System.Text.Encoding.UTF8.GetString(b, 0, Math.Min(n, b.Length - 1)); }
+    }
+
     [DllImport(Dll)] public static extern int origami_view_present(IntPtr view, out uint drawn);
     [DllImport(Dll)] public static extern void origami_view_detach(IntPtr view);
     [DllImport(Dll)] public static extern void origami_machine_release(IntPtr machine);
@@ -103,6 +131,7 @@ public static class Win32
     [DllImport("user32")] public static extern IntPtr SetCapture(IntPtr hwnd);
     [DllImport("user32")] public static extern bool ReleaseCapture();
     [DllImport("user32")] public static extern IntPtr GetFocus();
+    [DllImport("user32")] public static extern bool IsWindowVisible(IntPtr hwnd);
     [DllImport("user32")] public static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("user32")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);

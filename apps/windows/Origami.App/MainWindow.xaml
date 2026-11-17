@@ -69,15 +69,20 @@
                             AutomationProperties.AutomationId="hero.start" MinWidth="120"/>
                 </StackPanel>
 
-                <!-- Starting: stages, then the screen. -->
-                <StackPanel x:Name="StartingPanel" HorizontalAlignment="Center" VerticalAlignment="Center"
-                            Spacing="10" Visibility="Collapsed">
-                    <ProgressRing IsActive="True" Width="56" Height="56"/>
-                    <TextBlock Text="Starting up the system…" Style="{ThemeResource SubtitleTextBlockStyle}"
-                               HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="StageText" Opacity="0.7" HorizontalAlignment="Center"
-                               AutomationProperties.AutomationId="start.stage"/>
-                </StackPanel>
+                <!-- Starting: the live cube on granite, then the screen. -->
+                <Grid x:Name="StartingPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <local:CubeHost x:Name="StartCube" Grid.Row="0"/>
+                    <StackPanel Grid.Row="1" Spacing="2" Padding="0,10,0,12" HorizontalAlignment="Center">
+                        <TextBlock Text="Starting up the system…" Style="{ThemeResource SubtitleTextBlockStyle}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="StageText" Opacity="0.7" HorizontalAlignment="Center"
+                                   AutomationProperties.AutomationId="start.stage"/>
+                    </StackPanel>
+                </Grid>
 
                 <local:DisplayView x:Name="Display" Visibility="Collapsed"/>
 

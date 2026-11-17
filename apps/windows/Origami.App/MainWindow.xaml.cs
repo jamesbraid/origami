@@ -56,6 +56,7 @@ public sealed partial class MainWindow : Window
             })) _refreshQueued = 0;
         };
 
+        Root.ActualThemeChanged += (_, _) => Refresh();
         Activated += (_, a) => { if (a.WindowActivationState == WindowActivationState.Deactivated) Display.LoseFocus(); };
         AppWindow.Closing += OnClosing;
         Library.SelectedIndex = 0;
@@ -97,6 +98,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Command ID to the menu item's shortcut text, for the menus check.</summary>
     public IReadOnlyDictionary<string, string?> MenuShortcuts => _menuShortcuts;
     public IntPtr Hwnd => WinRT.Interop.WindowNative.GetWindowHandle(this);
+    bool Dark => Root.ActualTheme == ElementTheme.Dark;
 
     // ---- library ----------------------------------------------------------------------------
 
@@ -509,6 +511,9 @@ public sealed partial class MainWindow : Window
         }
 
         var key = SelectedKey;
+        // The cube holds a child window and a GPU surface, so it lives only while the starting pane shows.
+        var starting = key != null && !_prefsOpen && _core.Status(key).State == MachineState.Starting;
+        if (!starting) StartCube.Close();
         HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Visibility.Collapsed;
         if (_pane is not null) _pane.Visibility = Visibility.Collapsed;
         Settings.Visibility = _prefsOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -541,7 +546,9 @@ public sealed partial class MainWindow : Window
                 HeroPanel.Visibility = Visibility.Visible; break;
             case MachineState.Starting:
                 Detach();
-                StartingPanel.Visibility = Visibility.Visible; break;
+                StartingPanel.Visibility = Visibility.Visible;
+                ShowStartCube();
+                break;
             case var _ when !info.HasDisplay: // serial only: the console is the machine's view
                 Display.Detach(); _attachedKey = _modeKey = null;
                 ShowConsolePane(key);
@@ -560,6 +567,35 @@ public sealed partial class MainWindow : Window
         }
         RefreshPointerUi();
     }
+
+    /// <summary>The window's background as 0xRRGGBB; the cube's child window has no alpha, so it is filled with this.</summary>
+    uint WindowBackground()
+    {
+        if (Application.Current.Resources.TryGetValue("SolidBackgroundFillColorBase", out var v) && v is Color c)
+            return (uint)(c.R << 16 | c.G << 8 | c.B);
+        return Dark ? 0x202020u : 0xF3F3F3u;
+    }
+
+    /// <summary>The live cube, spinning, on the window's own background, in the window's light or dark look.</summary>
+    void ShowStartCube()
+    {
+        var reduce = !new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
+        StartCube.WindowHandle = () => Hwnd;
+        StartCube.SetStyle(Frame.CubeEnvStudio, 0, null, Dark, true, reduce, WindowBackground());
+        StartCube.Show(true);
+    }
+
+    /// <summary>Self-test hook: the starting pane as it looks while a machine starts.</summary>
+    public void PreviewStarting()
+    {
+        _prefsOpen = false;
+        Display.Hide(); // the screen's child window is not hidden by collapsing its pane
+        HeroPanel.Visibility = Display.Visibility = Visibility.Collapsed;
+        StartingPanel.Visibility = Visibility.Visible;
+        ShowStartCube();
+    }
+    public CubeHost StartCubeForTest => StartCube;
+    public void Restore() => Refresh();
 
     void Detach() { Display.Detach(); _attachedKey = _modeKey = null; ClosePane(); }
 
