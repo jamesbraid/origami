@@ -213,6 +213,26 @@ impl View {
         cursor: Option<&CursorDraw>,
         before: impl FnOnce(&mut wgpu::CommandEncoder),
     ) -> Result<Drawn, String> {
+        self.draw_pass(gpu, true, before, |blit, enc, target, size| {
+            blit.encode(gpu, enc, target, size, head, mode, cursor)
+        })
+    }
+
+    /// The surface's pixel format.
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.config.format
+    }
+
+    /// [`View::draw_with`] with the drawing left to `pass`, which gets the
+    /// view's [`Blit`], the encoder, the image to draw into and its size.
+    /// With `draw_occluded` false a covered window is not drawn at all.
+    pub fn draw_pass(
+        &mut self,
+        gpu: &Gpu,
+        draw_occluded: bool,
+        before: impl FnOnce(&mut wgpu::CommandEncoder),
+        pass: impl FnOnce(&Blit, &mut wgpu::CommandEncoder, &wgpu::TextureView, (u32, u32)),
+    ) -> Result<Drawn, String> {
         let mut enc = gpu.device.create_command_encoder(&Default::default());
         if !self.visible || self.config.width == 0 || self.config.height == 0 {
             before(&mut enc);
@@ -231,6 +251,10 @@ impl View {
             }
             wgpu::CurrentSurfaceTexture::Occluded => {
                 before(&mut enc);
+                if !draw_occluded {
+                    gpu.queue.submit([enc.finish()]);
+                    return Ok(Drawn::Occluded);
+                }
                 let size = (self.config.width, self.config.height);
                 let stale = self
                     .offscreen
@@ -257,8 +281,7 @@ impl View {
                     .as_ref()
                     .unwrap()
                     .create_view(&Default::default());
-                self.blit
-                    .encode(gpu, &mut enc, &target, size, head, mode, cursor);
+                pass(&self.blit, &mut enc, &target, size);
                 gpu.queue.submit([enc.finish()]);
                 return Ok(Drawn::Occluded);
             }
@@ -274,14 +297,11 @@ impl View {
         };
         before(&mut enc);
         let target = frame.texture.create_view(&Default::default());
-        self.blit.encode(
-            gpu,
+        pass(
+            &self.blit,
             &mut enc,
             &target,
             (self.config.width, self.config.height),
-            head,
-            mode,
-            cursor,
         );
         gpu.queue.submit([enc.finish()]);
         let drawn = start.elapsed();

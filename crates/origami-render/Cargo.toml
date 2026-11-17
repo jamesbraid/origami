@@ -6,10 +6,17 @@ edition = "2021"
 rust-version = "1.95"
 license = "BSD-3-Clause"
 
+[build-dependencies]
+serde_json = "1"
+
 [dependencies]
 origami-engine = { path = "../origami-engine" }
 origami-display = { path = "../origami-display" }
 bytemuck = "1"
+# The cube: its mesh, the Howe Sound photograph (WebP) and the granite tile (PNG).
+image-webp = "0.2"
+png = "0.18"
+serde_json = "1"
 # Stock wgpu 30.0.2. Its Surface::configure can fail and lose the device when
 # another thread submits to the same device while a window is created or
 # resized. This viewer submits from one thread, so it is not affected; gfx-rs/wgpu
