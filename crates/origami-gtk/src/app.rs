@@ -96,9 +96,22 @@ pub fn run(cfg: Config) -> glib::ExitCode {
         engine.set_importer(Arc::new(vk::VkImporter { dev: d.clone() }));
     }
     let (tx, rx) = async_channel::unbounded::<Msg>();
+    #[allow(unused_mut)]
+    let mut engines: Vec<Arc<dyn origami_engine::Engine>> = vec![engine.clone()];
+    #[cfg(feature = "iris")]
+    match RunnerEngine::locate_runner() {
+        Ok(runner) => {
+            let iris = origami_iris::IrisEngine::new(runner);
+            iris.attach_display(dev.as_ref().map(|d| {
+                Arc::new(vk::VkImporter { dev: d.clone() }) as Arc<dyn origami_display::Importer>
+            }));
+            engines.push(Arc::new(iris));
+        }
+        Err(e) => eprintln!("origami-gtk: no iris engine: {e}"),
+    }
     let core = match Core::new(
         CoreConfig::new(&cfg.library),
-        vec![engine.clone()],
+        engines,
         Some(Arc::new(Forward(tx.clone()))),
     ) {
         Ok(c) => c,

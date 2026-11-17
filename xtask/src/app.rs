@@ -95,12 +95,23 @@ fn linux(product: &Product) -> Result<()> {
         "--locked",
         "-p",
         "origami-gtk",
+        "-p",
+        "origami",
         "--bin",
         "origami-gtk",
+        "--bin",
+        "origami",
+        "--features",
+        "origami-gtk/iris,origami/iris",
     ]))?;
     archive::copy_file(
         &target_dir().join("release/origami-gtk"),
         &product.stage.join("bin/origami-gtk"),
+    )?;
+    // The app's runner hosts iris machines, which the command-line package's does not.
+    archive::copy_file(
+        &target_dir().join("release/origami"),
+        &product.stage.join("bin/origami"),
     )?;
     let id = "fans.irix.Origami";
     archive::copy_file(

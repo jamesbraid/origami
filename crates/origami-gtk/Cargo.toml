@@ -20,12 +20,16 @@ required-features = ["test-tools"]
 
 [features]
 test-tools = ["dep:wayland-protocols-wlr"]
+# The iris engine beside QEMU. iris itself runs in the `origami` runner, which
+# must be built with its own `iris` feature.
+iris = ["dep:origami-iris"]
 
 [dependencies]
 wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
 origami-core = { path = "../origami-core" }
 origami-display = { path = "../origami-display" }
 origami-engine = { path = "../origami-engine" }
+origami-iris = { path = "../origami-iris", optional = true }
 origami-machine = { path = "../origami-machine" }
 origami-qemu = { path = "../origami-qemu" }
 origami-render = { path = "../origami-render" }

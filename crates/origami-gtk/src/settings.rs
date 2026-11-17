@@ -41,32 +41,24 @@ struct Loaded {
     cpus: Vec<u32>,
 }
 
-fn load(engine: &origami_qemu::RunnerEngine, dir: &std::path::Path) -> Result<Loaded, String> {
-    let l = origami_core::open(engine, dir).map_err(|e| e.to_string())?;
-    let offering = l.offering().map_err(|e| e.to_string())?;
-    let mut cpus: Vec<u32> = l
-        .catalogue
-        .offerings
-        .iter()
-        .filter(|o| o.topology == offering.topology && o.nodes == offering.nodes)
-        .flat_map(|o| o.cpus_per_node.iter().copied())
-        .collect();
-    cpus.sort_unstable();
-    cpus.dedup();
+/// Through the machine's own engine, so an iris machine is read by iris.
+fn load(machine: &origami_core::facade::Machine, dir: &std::path::Path) -> Result<Loaded, String> {
+    let settings = machine.settings().map_err(|e| e.to_string())?;
+    let file = origami_machine::read_machine(dir).map_err(|e| e.to_string())?;
     Ok(Loaded {
-        memory: offering.memory.accepted.clone(),
-        cpus,
-        file: l.file,
+        memory: settings.memory_allowed_mib,
+        cpus: settings.cpus_per_node_allowed,
+        file,
     })
 }
 
 pub fn present_machine(app: &Rc<App>, parent: &adw::ApplicationWindow, m: &Rc<MachineUi>) {
     let (app, parent, m) = (app.clone(), parent.clone(), m.clone());
     glib::spawn_future_local(async move {
-        let (engine, dir) = (app.engine.clone(), m.dir.clone());
+        let (machine, dir) = (m.machine.clone(), m.dir.clone());
         let loaded = gtk::gio::spawn_blocking(move || {
             // The core reads the machine through the engine, which may start it.
-            load(&engine, &dir)
+            load(&machine, &dir)
         })
         .await
         .unwrap_or_else(|_| Err("the settings could not be read".into()));
@@ -83,11 +75,11 @@ fn apply(
     dialog: &adw::PreferencesDialog,
     change: Change,
 ) {
-    let (engine, dir) = (app.engine.clone(), m.dir.clone());
+    let machine = m.machine.clone();
     let (app, parent, m, dialog) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
     glib::spawn_future_local(async move {
         let r = gtk::gio::spawn_blocking(move || {
-            origami_core::apply_change(&*engine, &dir, &change).map_err(|e| e.to_string())
+            machine.apply_change(&change).map_err(|e| e.to_string())
         })
         .await;
         match r {
@@ -735,7 +727,10 @@ fn new_machine_dialog(
     };
     fill(&engine, &combo);
     let offerings = shown_offerings;
-    let name = adw::EntryRow::builder().title("Name").build();
+    let name = adw::EntryRow::builder()
+        .title("Name")
+        .activates_default(true)
+        .build();
     let preview = gtk::Box::builder().halign(gtk::Align::Center).build();
     let show = {
         let (preview, offerings) = (preview.clone(), offerings.clone());
@@ -788,6 +783,7 @@ fn new_machine_dialog(
     view.add_top_bar(&header);
     view.set_content(Some(&page));
     dialog.set_child(Some(&view));
+    dialog.set_default_widget(Some(&create));
     {
         let engines = engines.clone();
         let (app, dialog, engine, combo, name, err) = (

@@ -23,8 +23,9 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 export CARGO_TARGET_DIR="$S/target"
 cd "$ROOT"
-cargo clippy --locked -p origami-gtk --all-targets -- -D warnings
-cargo build --locked --release -p origami-gtk -p origami
+cargo clippy --locked -p origami-gtk --features iris --all-targets -- -D warnings
+# iris is hosted by the origami runner, so both are built with it.
+cargo build --locked --release -p origami-gtk -p origami --features origami-gtk/iris,origami/iris
 cargo build --locked --release -p origami-gtk --features test-tools --bin vptr
 cargo test --locked -p origami-gtk -p origami-terminal
 cargo xtask runtime --platform linux-x86_64
