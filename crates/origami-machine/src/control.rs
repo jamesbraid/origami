@@ -32,6 +32,10 @@ pub struct Record {
     /// when it has none or an older origami wrote the record.
     #[serde(default)]
     pub display_protocol: u32,
+    /// How long `logs/serial.log` was when this run began, so a console that
+    /// connects later replays only this run's output. Zero when absent.
+    #[serde(default)]
+    pub serial_from: u64,
 }
 
 /// How a runner's machine ended, left in `state/exit.json` for a viewer; the

@@ -53,6 +53,12 @@ impl Link {
         (link, tail)
     }
 
+    /// The serial log's length when the runner began: this run's output
+    /// starts there.
+    pub fn serial_from(&self) -> u64 {
+        self.log_from
+    }
+
     /// The single writer end of the ring, once the broker has made it.
     pub fn set_writer(&self, writer: RingWriter) {
         self.lock().writer = Some(writer);

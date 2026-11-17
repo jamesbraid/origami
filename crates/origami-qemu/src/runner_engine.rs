@@ -536,8 +536,12 @@ impl Session for RunnerSession {
         let stream = std::net::TcpStream::connect(("127.0.0.1", record.console_port))?;
         // The console socket carries only what is written while someone is
         // connected, so a login prompt printed earlier would never show.
-        let prime =
-            serial_log_tail(&dir.join("logs/serial.log"), CONSOLE_PRIME).unwrap_or_default();
+        let prime = serial_log_tail(
+            &dir.join("logs/serial.log"),
+            CONSOLE_PRIME,
+            record.serial_from,
+        )
+        .unwrap_or_default();
         Ok(Box::new(PrimedConsole {
             prime,
             at: 0,
@@ -800,16 +804,16 @@ fn runner_alive(dir: &Path) -> bool {
     }
 }
 
-/// The last `len` bytes of a log, starting at a line.
-fn serial_log_tail(path: &Path, len: u64) -> Option<Vec<u8>> {
+/// The last `len` bytes of a log from offset `since` on, starting at a line.
+fn serial_log_tail(path: &Path, len: u64, since: u64) -> Option<Vec<u8>> {
     use std::io::{Seek, SeekFrom};
     let mut f = std::fs::File::open(path).ok()?;
     let size = f.metadata().ok()?.len();
-    let from = size.saturating_sub(len);
+    let from = size.saturating_sub(len).max(since.min(size));
     f.seek(SeekFrom::Start(from)).ok()?;
     let mut buf = Vec::new();
     f.read_to_end(&mut buf).ok()?;
-    if from > 0 {
+    if from > since {
         let start = buf.iter().position(|&b| b == b'\n').map_or(0, |p| p + 1);
         buf.drain(..start);
     }
@@ -1131,7 +1135,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log = dir.path().join("serial.log");
         std::fs::write(&log, "one\ntwo\nthree\n").unwrap();
-        assert_eq!(serial_log_tail(&log, 8).unwrap(), b"three\n");
-        assert_eq!(serial_log_tail(&log, 100).unwrap(), b"one\ntwo\nthree\n");
+        assert_eq!(serial_log_tail(&log, 8, 0).unwrap(), b"three\n");
+        assert_eq!(serial_log_tail(&log, 100, 0).unwrap(), b"one\ntwo\nthree\n");
+    }
+
+    #[test]
+    fn the_log_tail_leaves_out_earlier_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("serial.log");
+        std::fs::write(&log, "old login\nnew one\nnew two\n").unwrap();
+        // The run began after "old login\n" (10 bytes), and it fits the cap.
+        assert_eq!(
+            serial_log_tail(&log, 100, 10).unwrap(),
+            b"new one\nnew two\n"
+        );
+        // Nothing yet from this run, and a log shorter than the offset.
+        assert_eq!(serial_log_tail(&log, 100, 27).unwrap(), b"");
+        assert_eq!(serial_log_tail(&log, 100, 999).unwrap(), b"");
     }
 }

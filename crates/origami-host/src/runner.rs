@@ -169,6 +169,7 @@ pub fn host(
         engine_console: hosted.engine_console,
         started_by: started_by.into(),
         display_protocol: hosted.display_protocol,
+        serial_from: link.serial_from(),
     };
     record::clear_exit(dir);
     if let Err(e) = record::write(dir, &rec) {
