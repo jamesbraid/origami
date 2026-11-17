@@ -372,12 +372,29 @@ public sealed partial class MainWindow : Window
 
     bool _quitting;
 
-    /// <summary>Clean stop, waited for up to a minute. False if the machine is still up when the minute ends or the stop failed.</summary>
+    /// <summary>Clean stop, waited for up to a minute; a Stopping or Busy machine is waited on, not failed.</summary>
     async Task<bool> StopClean(MachineSummary m)
     {
-        var clean = _core.PowerOffAsync(m.Key);
-        if (await Task.WhenAny(clean, Task.Delay(TimeSpan.FromSeconds(60))) != clean) return false;
-        return !clean.IsFaulted && !clean.IsCanceled;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(60);
+        bool Ended() => _core.Machines().All(x => x.Key != m.Key || x.State is MachineState.Stopped or MachineState.Exited);
+        if (_core.Machines().FirstOrDefault(x => x.Key == m.Key)?.State != MachineState.Stopping)
+        {
+            var clean = _core.PowerOffAsync(m.Key);
+            try
+            {
+                if (await Task.WhenAny(clean, Task.Delay(deadline - DateTime.UtcNow)) != clean) return false;
+                await clean;
+                return true;
+            }
+            catch (CoreBusyException) { /* a stop is already running: wait for it below */ }
+            catch (Exception) { return Ended(); }
+        }
+        while (DateTime.UtcNow < deadline)
+        {
+            if (Ended()) return true;
+            await Task.Delay(500);
+        }
+        return false;
     }
 
     async void OnClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)

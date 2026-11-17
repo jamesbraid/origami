@@ -3,6 +3,9 @@ using uniffi.origami_ffi;
 
 namespace Origami.App;
 
+/// <summary>The core is already doing something to this machine (for example a stop in progress).</summary>
+public sealed class CoreBusyException : Exception { public CoreBusyException(string m) : base(m) { } }
+
 /// <summary><see cref="ICoreClient"/> over the UniFFI control plane; generated types stay in this file.</summary>
 public sealed class UniffiCoreClient : ICoreClient
 {
@@ -212,12 +215,14 @@ public sealed class UniffiCoreClient : ICoreClient
         OrigamiOperation op;
         try { op = start(); }
         catch (CoreException.NotRunning) when (ignoreEnded) { return; }
+        catch (CoreException.Busy b) { throw new CoreBusyException(b.message); }
         var reg = ct.Register(() => op.Cancel());
         try
         {
             switch (op.Wait(null))
             {
                 case OrigamiOperationState.Failed { Kind: OrigamiErrorKind.NotRunning } when ignoreEnded: break;
+                case OrigamiOperationState.Failed { Kind: OrigamiErrorKind.Busy } b: throw new CoreBusyException(b.Message);
                 case OrigamiOperationState.Failed f: throw new InvalidOperationException(f.Message);
                 case OrigamiOperationState.Cancelled: throw new OperationCanceledException();
             }
