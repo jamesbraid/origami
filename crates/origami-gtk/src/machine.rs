@@ -96,6 +96,11 @@ pub struct MachineUi {
     pub root: gtk::Stack,
     pub hero: gtk::Box,
     pub starting_line: gtk::Label,
+    /// The start page, its spinner, and the cube that replaces the spinner
+    /// while the machine is starting and the GPU allows one.
+    starting: gtk::Box,
+    spinner: gtk::Widget,
+    cube: RefCell<Option<crate::cube::Cube>>,
     pub screen: gtk::Overlay,
     pub picture: gtk::Picture,
     pub status: gtk::Label,
@@ -193,11 +198,12 @@ impl MachineUi {
             .hexpand(true)
             .vexpand(true)
             .build();
-        let spinner = gtk::Spinner::builder()
+        let spinner: gtk::Widget = gtk::Spinner::builder()
             .spinning(true)
             .width_request(48)
             .height_request(48)
-            .build();
+            .build()
+            .upcast();
         let heading = gtk::Label::builder()
             .label("Starting up the system…")
             .css_classes(["title-2"])
@@ -237,6 +243,9 @@ impl MachineUi {
             root,
             hero,
             starting_line,
+            starting: starting.clone(),
+            spinner: spinner.clone(),
+            cube: RefCell::new(None),
             screen,
             picture,
             status,
@@ -298,6 +307,29 @@ impl MachineUi {
         }
     }
 
+    /// The start page's cube exists only while the machine is starting, so a
+    /// library of stopped machines holds no GPU memory.
+    fn show_cube(&self, starting: bool) {
+        let mut cube = self.cube.borrow_mut();
+        match (starting, cube.is_some()) {
+            (true, false) => {
+                let style = crate::cube::starting_style(self.entry.borrow().chassis);
+                if let Some(c) = crate::cube::Cube::new(108, style) {
+                    self.spinner.set_visible(false);
+                    self.starting.prepend(&c.widget);
+                    *cube = Some(c);
+                }
+            }
+            (false, true) => {
+                if let Some(c) = cube.take() {
+                    self.starting.remove(&c.widget);
+                }
+                self.spinner.set_visible(true);
+            }
+            _ => {}
+        }
+    }
+
     /// Show the page for the current state and the words that belong on it.
     pub fn apply_state(&self) {
         let state = self.compute_state();
@@ -308,6 +340,7 @@ impl MachineUi {
             self.screen.grab_focus();
         }
         self.read_operation();
+        self.show_cube(state == State::Starting);
         let page = match state {
             State::Stopped | State::Crashed | State::LeftRunning | State::Stopping => "hero",
             State::Starting => "starting",

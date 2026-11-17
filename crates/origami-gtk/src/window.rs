@@ -620,17 +620,7 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
         }
         ("machine.new", _) => settings::new_machine(app, &w.win),
         ("app.preferences", _) => settings::preferences(app, &w.win),
-        ("app.about", _) => {
-            adw::AboutDialog::builder()
-                .application_name("Origami")
-                .application_icon("computer-symbolic")
-                .developer_name("Origami")
-                .version(env!("CARGO_PKG_VERSION"))
-                .comments("SGI workstations and servers on your desktop")
-                .license_type(gtk::License::Bsd3)
-                .build()
-                .present(Some(&w.win));
-        }
+        ("app.about", _) => about(&w.win),
         ("app.quit", _) => app::request_quit(app),
         _ => {}
     }
@@ -1062,4 +1052,87 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
         flow.append(&b);
     }
     m.hero.append(&flow);
+}
+
+/// The About window: the cube on granite, the version and the photographs'
+/// credits. Without a GPU for the cube it is the stock dialog.
+fn about(parent: &adw::ApplicationWindow) {
+    let version = env!("CARGO_PKG_VERSION");
+    let dark = adw::StyleManager::default().is_dark();
+    let Some(cube) = crate::cube::Cube::new(160, crate::cube::about_style(dark)) else {
+        adw::AboutDialog::builder()
+            .application_name("Origami")
+            .application_icon("computer-symbolic")
+            .developer_name("Origami")
+            .version(version)
+            .comments("SGI workstations and servers on your desktop")
+            .license_type(gtk::License::Bsd3)
+            .build()
+            .present(Some(parent));
+        return;
+    };
+    let label = |text: &str, css: &[&str]| {
+        gtk::Label::builder()
+            .label(text)
+            .css_classes(css.to_vec())
+            .wrap(true)
+            .justify(gtk::Justification::Center)
+            .build()
+    };
+    let credits: String = origami_render::scenes::SCENES
+        .iter()
+        .map(|s| format!("{}: {}", s.title, s.credit))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let page = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(10)
+        .margin_bottom(18)
+        .margin_start(18)
+        .margin_end(18)
+        .build();
+    page.append(&cube.widget);
+    page.append(&label("Origami", &["title-1"]));
+    page.append(&label(version, &["dim-label"]));
+    page.append(&label("SGI workstations and servers on your desktop", &[]));
+    page.append(&label(&credits, &["caption", "dim-label"]));
+    page.append(&label(
+        "All trademarks are the property of their respective owners.",
+        &["caption", "dim-label"],
+    ));
+    // What the stock dialog's licence row showed: BSD 3-Clause, with its text.
+    let licence = gtk::Expander::builder()
+        .label("Licensed under the BSD 3-Clause License. No warranty.")
+        .child(
+            &gtk::ScrolledWindow::builder()
+                .min_content_height(160)
+                .child(&label(
+                    include_str!("../../../LICENSE"),
+                    &["caption", "monospace"],
+                ))
+                .build(),
+        )
+        .build();
+    page.append(&licence);
+    // The scene follows the appearance while the window is open.
+    let style = adw::StyleManager::default();
+    let cube = Rc::new(cube);
+    let handler = RefCell::new(Some(style.connect_dark_notify({
+        let cube = cube.clone();
+        move |s| cube.set_style(crate::cube::about_style(s.is_dark()))
+    })));
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(&page));
+    let dialog = adw::Dialog::builder()
+        .title("About Origami")
+        .content_width(420)
+        .child(&toolbar)
+        .build();
+    dialog.connect_closed(move |_| {
+        if let Some(id) = handler.take() {
+            adw::StyleManager::default().disconnect(id);
+        }
+    });
+    dialog.present(Some(parent));
 }

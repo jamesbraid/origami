@@ -11,6 +11,7 @@ mod automation;
 mod commands;
 mod config;
 mod console;
+mod cube;
 mod display;
 mod input;
 mod keys;

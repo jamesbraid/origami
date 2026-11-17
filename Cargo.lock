@@ -4786,6 +4786,7 @@ dependencies = [
  "origami-engine",
  "origami-machine",
  "origami-qemu",
+ "origami-render",
  "origami-terminal",
  "pangocairo",
  "serde",
