@@ -13,6 +13,7 @@ use adw::prelude::*;
 use gtk::glib;
 use origami_core::facade::CreateRequest;
 use origami_core::{Change, NetworkChange, NetworkMode};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 fn value_row(title: &str, value: &str) -> adw::ActionRow {
@@ -669,6 +670,18 @@ pub fn new_machine(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     });
 }
 
+/// The offerings one engine lists; without an engine, all of them.
+fn for_engine(
+    offerings: &[origami_core::facade::OfferingSummary],
+    engine: Option<&str>,
+) -> Vec<origami_core::facade::OfferingSummary> {
+    offerings
+        .iter()
+        .filter(|o| engine.is_none_or(|e| o.engine == e))
+        .cloned()
+        .collect()
+}
+
 fn new_machine_dialog(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
@@ -680,35 +693,55 @@ fn new_machine_dialog(
         .build();
     let page = adw::PreferencesPage::new();
     let g = adw::PreferencesGroup::new();
-    let labels: Vec<String> = offerings
-        .iter()
-        .map(|o| {
-            format!(
-                "{} ({} CPU{})",
-                o.id,
-                o.cpus,
-                if o.cpus == 1 { "" } else { "s" }
-            )
-        })
-        .collect();
-    let combo = adw::ComboRow::builder()
-        .title("Model")
+    // The engine comes first: it decides which models are offered, and the
+    // machine keeps it for life.
+    let engines: Vec<String> = app.core.engines().into_iter().map(|e| e.id).collect();
+    let engine = adw::ComboRow::builder()
+        .title("Engine")
         .model(&gtk::StringList::new(
-            &labels.iter().map(String::as_str).collect::<Vec<_>>(),
+            &engines.iter().map(String::as_str).collect::<Vec<_>>(),
         ))
+        .sensitive(engines.len() > 1)
         .build();
-    combo.set_selected(
-        offerings
-            .iter()
-            .position(|o| o.id == "octane2-vpro")
-            .unwrap_or(0) as u32,
-    );
+    let shown_offerings = Rc::new(RefCell::new(Vec::new()));
+    let combo = adw::ComboRow::builder().title("Model").build();
+    let fill = {
+        let (offerings, engines, shown) =
+            (offerings.clone(), engines.clone(), shown_offerings.clone());
+        move |engine: &adw::ComboRow, combo: &adw::ComboRow| {
+            let id = engines.get(engine.selected() as usize).map(String::as_str);
+            let list = for_engine(&offerings, id);
+            let labels: Vec<String> = list
+                .iter()
+                .map(|o| {
+                    format!(
+                        "{} ({} CPU{})",
+                        o.id,
+                        o.cpus,
+                        if o.cpus == 1 { "" } else { "s" }
+                    )
+                })
+                .collect();
+            combo.set_model(Some(&gtk::StringList::new(
+                &labels.iter().map(String::as_str).collect::<Vec<_>>(),
+            )));
+            combo.set_selected(
+                list.iter()
+                    .position(|o| o.id == "octane2-vpro")
+                    .unwrap_or(0) as u32,
+            );
+            *shown.borrow_mut() = list;
+        }
+    };
+    fill(&engine, &combo);
+    let offerings = shown_offerings;
     let name = adw::EntryRow::builder().title("Name").build();
     let preview = gtk::Box::builder().halign(gtk::Align::Center).build();
     let show = {
         let (preview, offerings) = (preview.clone(), offerings.clone());
         move |combo: &adw::ComboRow| {
-            let o = offerings.get(combo.selected() as usize);
+            let o = offerings.borrow().get(combo.selected() as usize).cloned();
+            let o = o.as_ref();
             let id = o.and_then(|o| crate::art::of(&o.product, Some(&o.topology)));
             let card = id.and_then(|id| crate::art::framed(id, "card"));
             if let Some(old) = preview.first_child() {
@@ -722,9 +755,14 @@ fn new_machine_dialog(
     };
     show(&combo);
     combo.connect_selected_notify(show);
+    {
+        let combo = combo.clone();
+        engine.connect_selected_notify(move |e| fill(e, &combo));
+    }
     let shown = adw::PreferencesGroup::new();
     shown.add(&preview);
     page.add(&shown);
+    g.add(&engine);
     g.add(&combo);
     g.add(&name);
     let err = gtk::Label::builder()
@@ -751,20 +789,23 @@ fn new_machine_dialog(
     view.set_content(Some(&page));
     dialog.set_child(Some(&view));
     {
-        let (app, dialog, combo, name, err) = (
+        let engines = engines.clone();
+        let (app, dialog, engine, combo, name, err) = (
             app.clone(),
             dialog.clone(),
+            engine.clone(),
             combo.clone(),
             name.clone(),
             err.clone(),
         );
         create.connect_clicked(move |b| {
-            let Some(o) = offerings.get(combo.selected() as usize) else {
+            let Some(o) = offerings.borrow().get(combo.selected() as usize).cloned() else {
                 return;
             };
             let request = CreateRequest {
                 name: name.text().trim().to_string(),
                 offering: o.id.clone(),
+                engine: engines.get(engine.selected() as usize).cloned(),
                 ..Default::default()
             };
             b.set_sensitive(false);
@@ -799,4 +840,37 @@ fn new_machine_dialog(
         });
     }
     dialog.present(Some(parent));
+}
+
+#[cfg(test)]
+mod engine_tests {
+    use super::*;
+    use origami_core::facade::OfferingSummary;
+
+    fn offering(id: &str, engine: &str) -> OfferingSummary {
+        OfferingSummary {
+            id: id.into(),
+            engine: engine.into(),
+            product: String::new(),
+            topology: String::new(),
+            nodes: 1,
+            cpus: 1,
+            memory_default_mib: 0,
+            memory_accepted_mib: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_chosen_engine_offers_only_its_own_models() {
+        let all = [offering("octane2", "qemu"), offering("indy", "iris")];
+        let ids = |e| {
+            for_engine(&all, e)
+                .into_iter()
+                .map(|o| o.id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(Some("iris")), ["indy"]);
+        assert_eq!(ids(Some("qemu")), ["octane2"]);
+        assert_eq!(ids(None), ["octane2", "indy"]);
+    }
 }
