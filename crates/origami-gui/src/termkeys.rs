@@ -1,6 +1,6 @@
 //! Slint key events as the bytes a serial terminal sends.
 
-use origami_terminal::{key_bytes, Key};
+use origami_terminal::{key_bytes, Key, KeyModes};
 
 /// Modifier keys, as the terminal's owner sees them. `command` is the key
 /// that copies and pastes where the platform has one (Command on macOS).
@@ -71,7 +71,7 @@ fn is_key_code(c: char) -> bool {
 }
 
 /// The action for a key press whose Slint text is `text`.
-pub fn key_action(text: &str, mods: Mods, app_cursor: bool) -> KeyAction {
+pub fn key_action(text: &str, mods: Mods, modes: KeyModes) -> KeyAction {
     let mut chars = text.chars();
     let Some(c) = chars.next() else {
         return KeyAction::Ignore;
@@ -109,7 +109,7 @@ pub fn key_action(text: &str, mods: Mods, app_cursor: bool) -> KeyAction {
 
     if single {
         if let Some(key) = special(c) {
-            let send = key.and_then(|k| key_bytes(k, mods.shift, mods.ctrl, mods.alt, app_cursor));
+            let send = key.and_then(|k| key_bytes(k, mods.shift, mods.ctrl, mods.alt, modes));
             return send.map_or(KeyAction::Ignore, KeyAction::Send);
         }
         if is_key_code(c) {
@@ -133,7 +133,17 @@ pub fn key_action(text: &str, mods: Mods, app_cursor: bool) -> KeyAction {
             '\t' => Key::Tab,
             c => Key::Char(c),
         };
-        return key_bytes(key, false, ctrl, alt, false).map_or(KeyAction::Ignore, KeyAction::Send);
+        return key_bytes(
+            key,
+            false,
+            ctrl,
+            alt,
+            KeyModes {
+                app_cursor: false,
+                ..modes
+            },
+        )
+        .map_or(KeyAction::Ignore, KeyAction::Send);
     }
     // Several characters at once (an input method's commit).
     if text.chars().any(is_key_code) {
@@ -149,7 +159,7 @@ mod tests {
     use slint::platform::Key as K;
 
     fn press(text: &str, mods: Mods) -> KeyAction {
-        key_action(text, mods, false)
+        key_action(text, mods, KeyModes::default())
     }
     fn plain(text: &str) -> KeyAction {
         press(text, Mods::default())
@@ -213,6 +223,19 @@ mod tests {
     }
 
     #[test]
+    fn backspace_is_bs_when_the_terminal_says_so() {
+        let bs = |on| {
+            let modes = KeyModes {
+                backspace_bs: on,
+                ..KeyModes::default()
+            };
+            key_action(&key(K::Backspace), Mods::default(), modes)
+        };
+        assert_eq!(bs(true), sent(&[0x08]));
+        assert_eq!(bs(false), sent(&[0x7f]));
+    }
+
+    #[test]
     fn enter_backspace_tab_and_text() {
         assert_eq!(plain("\n"), sent(b"\r"));
         assert_eq!(plain(&key(K::Return)), sent(b"\r"));
@@ -262,7 +285,14 @@ mod tests {
     fn arrows_follow_the_cursor_key_mode() {
         assert_eq!(plain(&key(K::UpArrow)), sent(b"\x1b[A"));
         assert_eq!(
-            key_action(&key(K::UpArrow), Mods::default(), true),
+            key_action(
+                &key(K::UpArrow),
+                Mods::default(),
+                KeyModes {
+                    app_cursor: true,
+                    ..KeyModes::default()
+                }
+            ),
             sent(b"\x1bOA")
         );
         assert_eq!(plain(&key(K::PageUp)), sent(b"\x1b[5~"));

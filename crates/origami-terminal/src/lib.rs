@@ -18,6 +18,8 @@ pub struct Terminal {
     parser: vt100::Parser,
     /// Where a drag started and where it is now, in visible cells.
     selection: Option<(Cell, Cell)>,
+    /// Whether Backspace sends ^H (SGI consoles erase on BS) instead of DEL.
+    pub backspace_sends_bs: bool,
     /// Bytes the guest has sent.
     pub received: u64,
 }
@@ -27,7 +29,16 @@ impl Terminal {
         Terminal {
             parser: vt100::Parser::new(nz(rows), nz(cols), SCROLLBACK),
             selection: None,
+            backspace_sends_bs: true,
             received: 0,
+        }
+    }
+
+    /// What the guest's modes and this terminal's options change in a key.
+    pub fn key_modes(&self) -> KeyModes {
+        KeyModes {
+            app_cursor: self.app_cursor(),
+            backspace_bs: self.backspace_sends_bs,
         }
     }
 
@@ -177,16 +188,18 @@ pub enum Key {
     F(u8),
 }
 
+/// What changes the bytes a key sends: the guest's cursor-key mode, and
+/// whether Backspace is ^H rather than DEL.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyModes {
+    pub app_cursor: bool,
+    pub backspace_bs: bool,
+}
+
 /// The bytes `key` sends, or None when it sends nothing. `alt` prefixes an
-/// ESC except on keys that carry it as an xterm modifier; `app_cursor` is the
-/// guest's cursor-key mode.
-pub fn key_bytes(
-    key: Key,
-    shift: bool,
-    ctrl: bool,
-    alt: bool,
-    app_cursor: bool,
-) -> Option<Vec<u8>> {
+/// ESC except on keys that carry it as an xterm modifier.
+pub fn key_bytes(key: Key, shift: bool, ctrl: bool, alt: bool, modes: KeyModes) -> Option<Vec<u8>> {
+    let app_cursor = modes.app_cursor;
     let md = 1 + u8::from(shift) + 2 * u8::from(alt) + 4 * u8::from(ctrl);
     let csi = |s: &str| format!("\x1b[{s}").into_bytes();
     let ss3 = |s: &str| format!("\x1bO{s}").into_bytes();
@@ -228,7 +241,8 @@ pub fn key_bytes(
         Key::Delete => tilde(3),
         Key::BackTab => csi("Z"),
         Key::Enter => b"\r".to_vec(),
-        // DEL, as xterm and the Linux console send.
+        // ^H for SGI consoles; DEL, as xterm and the Linux console send, otherwise.
+        Key::Backspace if modes.backspace_bs => vec![0x08],
         Key::Backspace => vec![0x7f],
         Key::Tab => b"\t".to_vec(),
         Key::Escape => vec![0x1b],
@@ -260,6 +274,13 @@ pub fn key_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn app_cursor(app_cursor: bool) -> KeyModes {
+        KeyModes {
+            app_cursor,
+            ..KeyModes::default()
+        }
+    }
 
     #[test]
     fn output_lands_on_the_screen_and_old_lines_go_to_scrollback() {
@@ -326,7 +347,7 @@ mod tests {
 
     #[test]
     fn keys_send_what_a_serial_terminal_expects() {
-        let k = |key, ctrl, alt, app| key_bytes(key, false, ctrl, alt, app);
+        let k = |key, ctrl, alt, app| key_bytes(key, false, ctrl, alt, app_cursor(app));
         assert_eq!(k(Key::Char('a'), true, false, false), Some(vec![1]));
         assert_eq!(
             k(Key::Char('x'), false, true, false),
@@ -344,7 +365,8 @@ mod tests {
 
     #[test]
     fn modified_navigation_and_function_keys_use_the_xterm_forms() {
-        let k = |key, shift, ctrl, alt, app| key_bytes(key, shift, ctrl, alt, app).unwrap();
+        let k =
+            |key, shift, ctrl, alt, app| key_bytes(key, shift, ctrl, alt, app_cursor(app)).unwrap();
         // mod = 1 + shift + 2 alt + 4 ctrl
         assert_eq!(k(Key::Up, true, false, false, false), b"\x1b[1;2A");
         assert_eq!(k(Key::Left, false, false, true, false), b"\x1b[1;3D");
@@ -362,5 +384,19 @@ mod tests {
         assert_eq!(k(Key::F(2), false, false, false, false), b"\x1bOQ");
         assert_eq!(k(Key::PageDown, false, false, false, false), b"\x1b[6~");
         assert_eq!(k(Key::Char('x'), true, false, true, false), b"\x1bx");
+    }
+
+    #[test]
+    fn backspace_sends_bs_unless_the_option_is_off() {
+        let mut t = Terminal::new(5, 20);
+        let bs = |t: &Terminal, alt| key_bytes(Key::Backspace, false, false, alt, t.key_modes());
+        assert!(t.backspace_sends_bs);
+        assert_eq!(bs(&t, false), Some(vec![0x08]));
+        assert_eq!(bs(&t, true), Some(vec![0x1b, 0x08]));
+        t.backspace_sends_bs = false;
+        assert_eq!(bs(&t, false), Some(vec![0x7f]));
+        // The cursor-key mode travels in the same value.
+        t.feed(b"\x1b[?1h");
+        assert!(t.key_modes().app_cursor);
     }
 }

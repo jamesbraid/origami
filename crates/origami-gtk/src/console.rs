@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::machine::MachineUi;
 use adw::prelude::*;
 use gtk::{gdk, glib, pango};
-use origami_terminal::{key_bytes as term_key_bytes, Key, Terminal};
+use origami_terminal::{key_bytes as term_key_bytes, Key, KeyModes, Terminal};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -64,7 +64,7 @@ fn colour(c: vt100::Color, default: (f64, f64, f64)) -> (f64, f64, f64) {
 }
 
 /// The bytes a key sends a serial terminal, or None when it sends nothing.
-pub fn key_bytes(key: gdk::Key, state: gdk::ModifierType, app_cursor: bool) -> Option<Vec<u8>> {
+pub fn key_bytes(key: gdk::Key, state: gdk::ModifierType, modes: KeyModes) -> Option<Vec<u8>> {
     let named = match key {
         gdk::Key::Up => Key::Up,
         gdk::Key::Down => Key::Down,
@@ -101,7 +101,7 @@ pub fn key_bytes(key: gdk::Key, state: gdk::ModifierType, app_cursor: bool) -> O
     let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
     let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
     let alt = state.contains(gdk::ModifierType::ALT_MASK);
-    term_key_bytes(named, shift, ctrl, alt, app_cursor)
+    term_key_bytes(named, shift, ctrl, alt, modes)
 }
 
 struct View {
@@ -230,8 +230,8 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
                 area2.queue_draw();
                 return glib::Propagation::Stop;
             }
-            let app_cursor = view.term.borrow().app_cursor();
-            match key_bytes(keyval, state, app_cursor) {
+            let modes = view.term.borrow().key_modes();
+            match key_bytes(keyval, state, modes) {
                 Some(b) => {
                     view.term.borrow_mut().scroll_to_end();
                     let _ = m.machine.console_send(&b);
@@ -344,16 +344,40 @@ mod key_tests {
     fn modifiers_on_navigation_keys_use_the_xterm_forms() {
         let m = gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK;
         assert_eq!(
-            key_bytes(gdk::Key::Right, m, false),
+            key_bytes(gdk::Key::Right, m, KeyModes::default()),
             Some(b"\x1b[1;6C".to_vec())
         );
         assert_eq!(
-            key_bytes(gdk::Key::Page_Up, gdk::ModifierType::ALT_MASK, false),
+            key_bytes(
+                gdk::Key::Page_Up,
+                gdk::ModifierType::ALT_MASK,
+                KeyModes::default()
+            ),
             Some(b"\x1b[5;3~".to_vec())
         );
         assert_eq!(
-            key_bytes(gdk::Key::Up, gdk::ModifierType::empty(), true),
+            key_bytes(
+                gdk::Key::Up,
+                gdk::ModifierType::empty(),
+                KeyModes {
+                    app_cursor: true,
+                    ..KeyModes::default()
+                }
+            ),
             Some(b"\x1bOA".to_vec())
         );
+    }
+
+    #[test]
+    fn backspace_is_bs_when_the_terminal_says_so() {
+        let bs = |on| {
+            let modes = KeyModes {
+                backspace_bs: on,
+                ..KeyModes::default()
+            };
+            key_bytes(gdk::Key::BackSpace, gdk::ModifierType::empty(), modes)
+        };
+        assert_eq!(bs(true), Some(vec![0x08]));
+        assert_eq!(bs(false), Some(vec![0x7f]));
     }
 }

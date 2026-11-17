@@ -82,7 +82,9 @@ terminal; a pump thread feeds it, so the app only draws. `row(i)` gives cells
 (text, colours, attributes), `cursor()`, `scrollback_count()` and
 `scrollback_row(i)` (0 is oldest), `scroll(lines)` moves the view,
 `changed_since(sequence)` names the rows to redraw (or `full`), `resize`,
-`send_key(key, ctrl, alt)` (`send_key_with` adds shift) and `paste(text)`.
+`send_key(key, ctrl, alt)` (`send_key_with` adds shift), `paste(text)` and
+`set_backspace_sends_bs(bool)` (default on: Backspace sends ^H, which SGI
+consoles erase on).
 Grids clamp to 256x512.
 
 `CoreError` has one variant per kind, each with `message` (a sentence safe to

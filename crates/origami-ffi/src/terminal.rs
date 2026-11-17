@@ -4,7 +4,7 @@
 
 use crate::control::{CoreError, OrigamiMachine};
 use origami_core::facade as f;
-use origami_terminal::{key_bytes as term_key_bytes, Key, Terminal};
+use origami_terminal::{key_bytes as term_key_bytes, Key, KeyModes, Terminal};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -244,7 +244,7 @@ fn key_bytes(
     shift: bool,
     ctrl: bool,
     alt: bool,
-    app_cursor: bool,
+    modes: KeyModes,
 ) -> Option<Vec<u8>> {
     use OrigamiTerminalKey as K;
     let key = match key {
@@ -274,7 +274,7 @@ fn key_bytes(
         K::Delete => Key::Delete,
         K::Function { number } => Key::F(*number),
     };
-    term_key_bytes(key, shift, ctrl, alt, app_cursor)
+    term_key_bytes(key, shift, ctrl, alt, modes)
 }
 
 struct Shared {
@@ -445,11 +445,21 @@ impl OrigamiTerminal {
         ctrl: bool,
         alt: bool,
     ) -> Res<()> {
-        let app_cursor = self.0.lock().term.app_cursor();
-        match key_bytes(&key, shift, ctrl, alt, app_cursor) {
+        let modes = self.0.lock().term.key_modes();
+        match key_bytes(&key, shift, ctrl, alt, modes) {
             Some(bytes) => self.queue(bytes),
             None => Ok(()),
         }
+    }
+
+    /// Whether Backspace sends ^H (the default, which SGI consoles erase on)
+    /// or DEL.
+    pub fn backspace_sends_bs(&self) -> bool {
+        self.0.lock().term.backspace_sends_bs
+    }
+
+    pub fn set_backspace_sends_bs(&self, on: bool) {
+        self.0.lock().term.backspace_sends_bs = on;
     }
 
     /// Paste text: line ends become `\r`, and the guest's bracketed-paste
@@ -486,6 +496,13 @@ impl Drop for OrigamiTerminal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn modes(app_cursor: bool) -> KeyModes {
+        KeyModes {
+            app_cursor,
+            ..KeyModes::default()
+        }
+    }
 
     fn text(row: &[OrigamiTerminalCell]) -> String {
         row.iter().map(|c| c.text.as_str()).collect::<String>()
@@ -562,20 +579,40 @@ mod tests {
     #[test]
     fn text_keys_map_to_the_shared_key_table() {
         let t = |s: &str| OrigamiTerminalKey::Text { text: s.into() };
-        assert_eq!(key_bytes(&t("a"), false, true, false, false), Some(vec![1]));
         assert_eq!(
-            key_bytes(&t("ab"), false, false, false, false),
+            key_bytes(&t("a"), false, true, false, modes(false)),
+            Some(vec![1])
+        );
+        assert_eq!(
+            key_bytes(&t("ab"), false, false, false, modes(false)),
             Some(b"ab".to_vec())
         );
-        assert_eq!(key_bytes(&t("ab"), false, true, false, false), None);
+        assert_eq!(key_bytes(&t("ab"), false, true, false, modes(false)), None);
         let up = OrigamiTerminalKey::Up;
         assert_eq!(
-            key_bytes(&up, false, false, false, true),
+            key_bytes(&up, false, false, false, modes(true)),
             Some(b"\x1bOA".to_vec())
         );
         assert_eq!(
-            key_bytes(&up, true, false, false, true),
+            key_bytes(&up, true, false, false, modes(true)),
             Some(b"\x1b[1;2A".to_vec())
         );
+    }
+
+    #[test]
+    fn backspace_follows_the_terminal_option() {
+        let mut s = State::new(5, 20);
+        let bs = |s: &State| {
+            key_bytes(
+                &OrigamiTerminalKey::Backspace,
+                false,
+                false,
+                false,
+                s.term.key_modes(),
+            )
+        };
+        assert_eq!(bs(&s), Some(vec![0x08]));
+        s.term.backspace_sends_bs = false;
+        assert_eq!(bs(&s), Some(vec![0x7f]));
     }
 }

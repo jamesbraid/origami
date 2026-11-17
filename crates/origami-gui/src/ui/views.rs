@@ -541,8 +541,8 @@ impl Ui {
         };
         match self.machines[mi].x.view {
             View::Serial => {
-                let app = self.machines[mi].x.term.app_cursor();
-                match termkeys::key_action(text, mods, app) {
+                let modes = self.machines[mi].x.term.key_modes();
+                match termkeys::key_action(text, mods, modes) {
                     KeyAction::Send(bytes) => {
                         self.machines[mi].x.term.scroll_to_end();
                         self.machines[mi].x.term.clear_selection();
