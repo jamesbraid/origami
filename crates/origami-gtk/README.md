@@ -46,6 +46,8 @@ Xvfb, wtype under cage, a virtual pointer under sway):
   scale step, filter and pointer mapping under `GDK_SCALE=2` (`XVFB_SCREEN`,
   `HIDPI_WINDOW`) or a scaled sway output (`SWAY_OUTPUT`).
 - `frames`: boot to the PROM and print what presenting cost.
+- `sidebar`: real clicks on the library (select, open, row menu), the tab bar and
+  the summary cards.
 - `settings`: edits through the core on a stopped machine, refused while it runs.
 
 Capture takes the window system's pointer lock: Wayland pointer constraints

@@ -1,4 +1,4 @@
-//! The look that is ours: the Indigo accent, status pills, the wash of each
+//! The look that is ours: status pills, the fade of each
 //! machine's measured colour and the plate under text on granite. Chrome, sidebars and
 //! system controls stay libadwaita's.
 
@@ -11,21 +11,36 @@ const COMMON: &str = "
 .pill-amber { background: alpha(@warning_color, 0.22); color: @warning_color; }
 .pill-red { background: alpha(@error_color, 0.20); color: @error_color; }
 .glyph { min-width: 34px; min-height: 34px; border-radius: 9px; color: white; background: #7b7b84; }
-.tile { padding: 12px 14px; border-radius: 12px; background: alpha(@window_fg_color, 0.05); }
+.tile { padding: 0 8px; border-radius: 10px; background: @card_bg_color; }
+.product-line { color: alpha(@window_fg_color, 0.7); }
 .tile-title { font-weight: 700; font-size: 1.05em; }
-.hero { padding: 24px; border-radius: 18px; background: alpha(@accent_bg_color, 0.08); }
+tabbar .box { padding: 0; background: @window_bg_color; box-shadow: inset 0 -1px alpha(@window_fg_color, 0.15); }
+tabbar tabbox { padding: 4px 8px; min-height: 26px; }
+tabbar tab { min-height: 26px; padding: 0 8px; border-radius: 6px; }
+tabbar tab > image { -gtk-icon-size: 20px; }
+tabbar tab button.image-button { min-width: 20px; min-height: 20px; }
+tabbar tab:hover { background: alpha(@window_fg_color, 0.07); }
+.hero { padding: 24px; }
+tabbar.flat .box { box-shadow: none; }
 .plate { padding: 14px 22px; border-radius: 14px; background: alpha(black, 0.55); }
 .on-dark { color: #f2f3f5; }
 .hud { background: alpha(black, 0.65); color: white; padding: 8px 14px; border-radius: 10px; }
 ";
 
-const LIGHT: &str = "@define-color accent_bg_color #4a52c4; @define-color accent_color #4a52c4; @define-color accent_fg_color #ffffff;";
-const DARK: &str = "@define-color accent_bg_color #7c83f2; @define-color accent_color #7c83f2; @define-color accent_fg_color #0d0e1a;";
-
-/// `.wash-<still>`: a faint tint of the machine's measured colour.
-fn washes() -> String {
+/// `.fade-<still>`: the machine's measured colour at 35% at the top of a stopped
+/// machine's pane, fading to the window background (and no edge) at the bottom.
+fn fades() -> String {
     crate::art::colours()
-        .map(|(id, c)| format!(".wash-{id} {{ background: alpha(#{c:06x}, 0.14); }}\n"))
+        .map(|(id, c)| format!(".fade-{id} {{ background-color: @window_bg_color; background-image: linear-gradient(to bottom, alpha(#{c:06x}, 0.35), alpha(#{c:06x}, 0)); }}\n"))
+        .collect()
+}
+
+/// `tabbar.chassis-<still> tab:selected`: the selected tab tinted and outlined in the machine's colour.
+fn tab_tints() -> String {
+    crate::art::colours()
+        .map(|(id, c)| {
+            format!("tabbar.chassis-{id} tab:selected {{ background: alpha(#{c:06x}, 0.22); box-shadow: inset 0 0 0 1px alpha(#{c:06x}, 0.5); }}\n")
+        })
         .collect()
 }
 
@@ -34,19 +49,7 @@ pub fn install() {
         return;
     };
     let provider = gtk::CssProvider::new();
-    let load = {
-        let provider = provider.clone();
-        move || {
-            let accent = if adw::StyleManager::default().is_dark() {
-                DARK
-            } else {
-                LIGHT
-            };
-            provider.load_from_string(&format!("{accent}\n{COMMON}\n{}", washes()));
-        }
-    };
-    load();
-    adw::StyleManager::default().connect_dark_notify(move |_| load());
+    provider.load_from_string(&format!("{COMMON}\n{}{}", fades(), tab_tints()));
     gtk::style_context_add_provider_for_display(
         &display,
         &provider,

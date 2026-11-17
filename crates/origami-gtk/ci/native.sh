@@ -10,7 +10,7 @@ set -eu
 S=$(mkdir -p "$1" && cd "$1" && pwd); shift
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
-SCEN=${*:-first-light settings popout}
+SCEN=${*:-first-light settings popout sidebar}
 mkdir -p "$S/cache" "$S/work" "$S/out"
 
 export DEBIAN_FRONTEND=noninteractive

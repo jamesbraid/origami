@@ -114,7 +114,68 @@ fn machine(app: &App, name: Option<&str>) -> Option<Rc<MachineUi>> {
     }
 }
 
+fn descendants(w: &gtk::Widget, keep: &dyn Fn(&gtk::Widget) -> bool, out: &mut Vec<gtk::Widget>) {
+    let mut c = w.first_child();
+    while let Some(child) = c {
+        if keep(&child) {
+            out.push(child.clone());
+        }
+        descendants(&child, keep, out);
+        c = child.next_sibling();
+    }
+}
+
+fn size(w: &gtk::Widget) -> Value {
+    json!([w.width(), w.height()])
+}
+
+/// What the main window's sidebar, row menu and tab bar show, for the scenarios.
+fn chrome(app: &App) -> Value {
+    let Some(w) = app.windows.borrow().iter().find(|w| w.has_library).cloned() else {
+        return Value::Null;
+    };
+    let rows: Vec<Value> = w
+        .rows
+        .borrow()
+        .iter()
+        .map(|r| {
+            let b = r
+                .row
+                .root()
+                .and_then(|root| r.row.compute_bounds(root.upcast_ref::<gtk::Widget>()));
+            json!({"name": r.dir.file_name().map(|n| n.to_string_lossy().into_owned()),
+                   "bounds": b.map(|b| json!([b.x(), b.y(), b.width(), b.height()]))})
+        })
+        .collect();
+    let selected = w.list.selected_row().and_then(|s| {
+        w.rows
+            .borrow()
+            .iter()
+            .find(|r| r.row == s)
+            .and_then(|r| r.dir.file_name().map(|n| n.to_string_lossy().into_owned()))
+    });
+    let mut tabs = Vec::new();
+    descendants(w.bar.upcast_ref(), &|c| c.css_name() == "tab", &mut tabs);
+    json!({"rows": rows, "selected": selected, "row_menu": w.row_menu.is_visible(), "row_menu_items": row_menu_labels(&w),
+           "tab_bar": size(w.bar.upcast_ref()), "tabs": tabs.iter().map(size).collect::<Vec<_>>()})
+}
+
+fn row_menu_labels(w: &window::Win) -> Vec<String> {
+    let Some(menu) = w.row_menu.menu_model() else {
+        return Vec::new();
+    };
+    (0..menu.n_items())
+        .filter_map(|i| menu.item_attribute_value(i, "label", None)?.get::<String>())
+        .collect()
+}
+
 fn describe(m: &MachineUi) -> Value {
+    let mut cards = Vec::new();
+    descendants(
+        m.hero.upcast_ref(),
+        &|c| c.has_css_class("tile"),
+        &mut cards,
+    );
     json!({
         "name": m.name, "state": m.state.get().pill().0, "seq": m.seq.get(),
         "size": [m.size.get().0, m.size.get().1],
@@ -126,6 +187,7 @@ fn describe(m: &MachineUi) -> Value {
         "view": format!("{:?}", m.view.get()).to_lowercase(),
         "scale_factor": m.scale_factor(),
         "picture": m.layout().map(|l| json!({"rect": [l.alloc().0, l.alloc().1, l.alloc().2, l.alloc().3], "device": [l.dev.0, l.dev.1, l.dev.2, l.dev.3], "step": l.step, "nearest": l.nearest})),
+        "cards": cards.iter().filter_map(|c| c.parent()).map(|c| size(&c)).collect::<Vec<_>>(),
         "presents_while_hidden": m.stats.borrow().presents_while_hidden,
         "screen_bounds": m.screen.root().and_then(|r| m.screen.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),
     })
@@ -169,7 +231,7 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                     }).collect::<Vec<_>>()
                 })
                 .collect();
-            json!({"machines": ms, "library": lib, "library_rows": rows, "windows": app.windows.borrow().len(),
+            json!({"machines": ms, "library": lib, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
                    "enabled": enabled, "cpu_s": cpu_seconds(),
                    "pause_tip": window::active(app).and_then(|w| w.pause_btn.tooltip_text()).map(|t| t.to_string()),
                    "status_pills": app.windows.borrow().iter().map(|w| w.pill.label().to_string()).collect::<Vec<_>>()})

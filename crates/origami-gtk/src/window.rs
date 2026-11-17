@@ -26,6 +26,8 @@ pub struct Row {
 pub struct Win {
     pub win: adw::ApplicationWindow,
     pub tv: adw::TabView,
+    pub bar: adw::TabBar,
+    toasts: adw::ToastOverlay,
     pub split: adw::OverlaySplitView,
     pub title: adw::WindowTitle,
     pub pill: gtk::Label,
@@ -35,6 +37,9 @@ pub struct Win {
     pub stack: gtk::Stack,
     pub list: gtk::ListBox,
     pub rows: RefCell<Vec<Row>>,
+    /// The library row's context menu, and the machine it was opened on.
+    pub row_menu: gtk::PopoverMenu,
+    row_dir: RefCell<Option<PathBuf>>,
     pub has_library: bool,
 }
 
@@ -112,18 +117,57 @@ fn default_size() -> (i32, i32) {
     (w.max(640), h.max(480))
 }
 
+/// What the window shows with no machine open: the cube turning slowly in the
+/// studio, over the window with no tile of its own, and nothing to click.
+fn empty_view() -> gtk::Widget {
+    const TITLE: &str = "No machine open";
+    const BODY: &str = "Choose a machine from the library, or create one.";
+    let Some(cube) = crate::cube::Cube::new(220, crate::cube::starting_style(0x7b7b84)) else {
+        return adw::StatusPage::builder()
+            .icon_name("computer-symbolic")
+            .title(TITLE)
+            .description(BODY)
+            .build()
+            .upcast();
+    };
+    cube.widget.set_can_target(false);
+    let page = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(18)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .build();
+    page.append(&cube.widget);
+    page.append(
+        &gtk::Label::builder()
+            .label(TITLE)
+            .css_classes(["title-2"])
+            .build(),
+    );
+    page.append(
+        &gtk::Label::builder()
+            .label(BODY)
+            .css_classes(["dim-label"])
+            .build(),
+    );
+    page.upcast()
+}
+
 pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     let tv = adw::TabView::new();
-    let bar = adw::TabBar::builder().view(&tv).autohide(true).build();
-    let empty = adw::StatusPage::builder()
-        .icon_name("computer-symbolic")
-        .title("No machine open")
-        .description("Choose a machine from the library, or create one.")
+    let bar = adw::TabBar::builder()
+        .view(&tv)
+        .autohide(false)
+        .expand_tabs(false)
         .build();
+    let empty = empty_view();
     let stack = gtk::Stack::new();
     stack.add_named(&tv, Some("tabs"));
     stack.add_named(&empty, Some("empty"));
     stack.set_visible_child_name("empty");
+
+    let toasts = adw::ToastOverlay::new();
+    toasts.set_child(Some(&stack));
 
     let title = adw::WindowTitle::new("Origami", "");
     let pill = gtk::Label::builder()
@@ -191,14 +235,20 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     let content = adw::ToolbarView::new();
     content.add_top_bar(&header);
     content.add_top_bar(&bar);
-    content.set_content(Some(&stack));
+    content.set_content(Some(&toasts));
 
     // Library sidebar.
     let list = gtk::ListBox::builder()
         .css_classes(["navigation-sidebar"])
         .selection_mode(gtk::SelectionMode::Single)
+        // A click selects; opening takes a double-click or Enter.
+        .activate_on_single_click(false)
         .build();
     list.update_property(&[gtk::accessible::Property::Label("Machines")]);
+    // The row menu's host: a GtkListBox disposes by removing every child as a
+    // row and loops forever on a popover, so the popover hangs off a box.
+    let list_host = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    list_host.append(&list);
     let split = adw::OverlaySplitView::builder()
         .sidebar_width_fraction(0.22)
         .min_sidebar_width(230.0)
@@ -218,7 +268,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         side.add_top_bar(&side_head);
         side.set_content(Some(
             &gtk::ScrolledWindow::builder()
-                .child(&list)
+                .child(&list_host)
                 .vexpand(true)
                 .build(),
         ));
@@ -242,9 +292,18 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .title("Origami")
         .content(&split)
         .build();
+    let menu = gio::Menu::new();
+    menu.append(Some("Open in New Tab"), Some("row.open"));
+    menu.append(Some("Show in Files"), Some("row.show"));
+    let row_menu = gtk::PopoverMenu::from_model(Some(&menu));
+    row_menu.set_parent(&list_host);
+    row_menu.set_has_arrow(false);
+    row_menu.set_halign(gtk::Align::Start);
     let w = Rc::new(Win {
         win: win.clone(),
         tv: tv.clone(),
+        bar,
+        toasts,
         split,
         title,
         pill,
@@ -254,10 +313,13 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         stack,
         list: list.clone(),
         rows: RefCell::new(Vec::new()),
+        row_menu,
+        row_dir: RefCell::new(None),
         has_library: with_library,
     });
     register_actions(app, &w);
     wire_tabs(app, &w);
+    wire_row_menu(app, &w);
     {
         let (app, weak) = (app.clone(), Rc::downgrade(&w));
         list.connect_row_activated(move |_, row| {
@@ -308,6 +370,100 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     sync_accels(app);
     refresh(app);
     w
+}
+
+/// Reveal a file or folder in the file manager (over the portal when sandboxed).
+fn show_in_files(win: &adw::ApplicationWindow, path: PathBuf) {
+    let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(&path)));
+    let win = win.clone();
+    glib::spawn_future_local(async move {
+        if let Err(e) = launcher.open_containing_folder_future(Some(&win)).await {
+            eprintln!("origami-gtk: show {} in Files: {e}", path.display());
+        }
+    });
+}
+
+/// Right-click on a library row: select it and offer its two commands.
+fn wire_row_menu(app: &Rc<App>, w: &Rc<Win>) {
+    let actions = gio::SimpleActionGroup::new();
+    let open = gio::SimpleAction::new("open", None);
+    {
+        let (app, weak) = (app.clone(), Rc::downgrade(w));
+        open.connect_activate(move |_, _| {
+            let dir = weak.upgrade().and_then(|w| w.row_dir.borrow().clone());
+            let entry = dir.and_then(|d| app.library.borrow().iter().find(|e| e.dir == d).cloned());
+            if let Some(entry) = entry {
+                let _ = app::open(&app, &entry);
+            }
+        });
+    }
+    let show = gio::SimpleAction::new("show", None);
+    {
+        let weak = Rc::downgrade(w);
+        show.connect_activate(move |_, _| {
+            let Some(w) = weak.upgrade() else { return };
+            let Some(dir) = w.row_dir.borrow().clone() else {
+                return;
+            };
+            show_in_files(&w.win, dir.join("machine.toml"));
+        });
+    }
+    actions.add_action(&open);
+    actions.add_action(&show);
+    {
+        // Hand the keyboard back to the row, so the menu key works again.
+        let weak = Rc::downgrade(w);
+        w.row_menu.connect_closed(move |_| {
+            if let Some(row) = weak.upgrade().and_then(|w| w.list.selected_row()) {
+                row.grab_focus();
+            }
+        });
+    }
+    w.row_menu.insert_action_group("row", Some(&actions));
+    let click = gtk::GestureClick::builder().button(3).build();
+    let weak = Rc::downgrade(w);
+    click.connect_pressed(move |_, _, x, y| {
+        let Some(w) = weak.upgrade() else { return };
+        let Some(row) = w.list.row_at_y(y as i32) else {
+            return;
+        };
+        popup_row_menu(&w, &row, x as i32, y as i32);
+    });
+    w.list.add_controller(click);
+    // The Menu key and Shift+F10 open it on the selected row.
+    let keys = gtk::EventControllerKey::new();
+    let weak = Rc::downgrade(w);
+    keys.connect_key_pressed(move |_, key, _, state| {
+        let menu = key == gtk::gdk::Key::Menu
+            || (key == gtk::gdk::Key::F10 && state.contains(gtk::gdk::ModifierType::SHIFT_MASK));
+        let Some(w) = weak.upgrade().filter(|_| menu) else {
+            return glib::Propagation::Proceed;
+        };
+        let Some(row) = w.list.selected_row() else {
+            return glib::Propagation::Proceed;
+        };
+        let at = row.compute_bounds(&w.list).map_or((0, 0), |b| {
+            (b.x() as i32 + 24, (b.y() + b.height() / 2.0) as i32)
+        });
+        popup_row_menu(&w, &row, at.0, at.1);
+        glib::Propagation::Stop
+    });
+    w.list.add_controller(keys);
+}
+
+/// Select a library row and show its menu at `x`, `y` in the list.
+fn popup_row_menu(w: &Win, row: &gtk::ListBoxRow, x: i32, y: i32) {
+    let dir = w
+        .rows
+        .borrow()
+        .iter()
+        .find(|r| &r.row == row)
+        .map(|r| r.dir.clone());
+    w.list.select_row(Some(row));
+    *w.row_dir.borrow_mut() = dir;
+    w.row_menu
+        .set_pointing_to(Some(&gtk::gdk::Rectangle::new(x, y, 1, 1)));
+    w.row_menu.popup();
 }
 
 fn wire_tabs(app: &Rc<App>, w: &Rc<Win>) {
@@ -643,7 +799,7 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
         ("machine.pause", Some(m)) => app::control(app, &m, Control::Pause),
         ("machine.resume", Some(m)) => app::control(app, &m, Control::Resume),
         ("machine.release-keys", Some(m)) => input::release_all(app, &m),
-        ("machine.screenshot", Some(m)) => screenshot(&m),
+        ("machine.screenshot", Some(m)) => screenshot(w, &m),
         ("machine.capture", Some(m)) => {
             m.pointer.set(PointerMode::Capture);
             let on = !m.captured.get();
@@ -691,12 +847,13 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
     }
 }
 
-/// Save the picture on screen as a PNG in the user's Pictures folder.
-fn screenshot(m: &MachineUi) {
+/// Save the picture on screen as a PNG in the user's Pictures folder, named
+/// "<machine> <yyyy-mm-dd at HH.mm.ss>.png", and offer to show it.
+fn screenshot(w: &Rc<Win>, m: &MachineUi) {
     let dir = dirs::picture_dir().unwrap_or_else(|| PathBuf::from("."));
     let stamp = glib::DateTime::now_local()
         .ok()
-        .and_then(|d| d.format("%Y%m%d-%H%M%S").ok())
+        .and_then(|d| d.format("%Y-%m-%d at %H.%M.%S").ok())
         .map(|s| s.to_string())
         .unwrap_or_default();
     let path = dir.join(format!("{} {stamp}.png", m.name));
@@ -707,7 +864,19 @@ fn screenshot(m: &MachineUi) {
         .and_then(|c| c.texture())
         .map(|t| t.save_to_png(&path));
     match saved {
-        Some(Ok(())) => {}
+        Some(Ok(())) => {
+            let toast = adw::Toast::builder()
+                .title("Screenshot saved")
+                .button_label("Show in Files")
+                .build();
+            let weak = Rc::downgrade(w);
+            toast.connect_button_clicked(move |_| {
+                if let Some(w) = weak.upgrade() {
+                    show_in_files(&w.win, path.clone());
+                }
+            });
+            w.toasts.add_toast(toast);
+        }
         Some(Err(e)) => *m.error.borrow_mut() = Some(e.to_string()),
         None => *m.error.borrow_mut() = Some("there is no picture to save".into()),
     }
@@ -793,6 +962,25 @@ pub fn sync_accels(app: &Rc<App>) {
     }
 }
 
+/// Outline the selected tab in the chassis colour: `style.rs` has one rule per still.
+fn tint_bar(bar: &adw::TabBar, art: Option<&str>, flat: bool) {
+    // The stopped machine's pane runs its fade up under the bar, so no rule.
+    if flat {
+        bar.add_css_class("flat");
+    } else {
+        bar.remove_css_class("flat");
+    }
+    let want = art.map(|id| format!("chassis-{id}"));
+    for c in bar.css_classes() {
+        if c.starts_with("chassis-") && Some(c.as_str()) != want.as_deref() {
+            bar.remove_css_class(&c);
+        }
+    }
+    if let Some(c) = want {
+        bar.add_css_class(&c);
+    }
+}
+
 /// Bring every visible thing in line with the machines' states.
 pub fn refresh(app: &Rc<App>) {
     let machines: Vec<_> = app.machines.borrow().clone();
@@ -803,6 +991,12 @@ pub fn refresh(app: &Rc<App>) {
     }
     for w in app.windows.borrow().iter() {
         let m = current(app, w);
+        tint_bar(
+            &w.bar,
+            m.as_ref().and_then(|m| m.entry.borrow().art),
+            m.as_ref()
+                .is_some_and(|m| m.root.visible_child_name().as_deref() == Some("hero")),
+        );
         match &m {
             Some(m) => {
                 let (word, class) = m.state.get().pill();
@@ -887,8 +1081,9 @@ pub fn refresh(app: &Rc<App>) {
 
 pub fn rebuild_library(app: &Rc<App>) {
     for w in app.windows.borrow().iter().filter(|w| w.has_library) {
-        while let Some(c) = w.list.first_child() {
-            w.list.remove(&c);
+        // Only the rows: the row menu's popover is a child of the list too.
+        for r in w.rows.borrow().iter() {
+            w.list.remove(&r.row);
         }
         w.rows.borrow_mut().clear();
         let entries = app.library.borrow().clone();
@@ -943,6 +1138,41 @@ pub fn rebuild_library(app: &Rc<App>) {
     refresh(app);
 }
 
+/// A summary card: a fixed 140 by 104 with the icon in a fixed box, so a row
+/// of them lines up whatever the text.
+fn summary_card(icon: &str, value: &str, title: &str) -> adw::Clamp {
+    let b = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .valign(gtk::Align::Center)
+        .css_classes(["tile"])
+        .build();
+    b.append(
+        &gtk::Image::builder()
+            .icon_name(icon)
+            .pixel_size(20)
+            .height_request(28)
+            .css_classes(["dim-label"])
+            .build(),
+    );
+    for (text, css) in [(value, "tile-title"), (title, "caption")] {
+        b.append(
+            &gtk::Label::builder()
+                .label(text)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .css_classes([css])
+                .build(),
+        );
+    }
+    adw::Clamp::builder()
+        .maximum_size(140)
+        .tightening_threshold(140)
+        .width_request(140)
+        .height_request(104)
+        .child(&b)
+        .build()
+}
+
 /// Rebuild a machine's hero card: its state, what it is made of, and what to
 /// do next.
 pub fn rebuild_hero(m: &Rc<MachineUi>) {
@@ -975,14 +1205,6 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
             .css_classes(["pill", class])
             .build(),
     );
-    if !e.product_label.is_empty() {
-        pills.append(
-            &gtk::Label::builder()
-                .label(&e.product_label)
-                .css_classes(["pill", "pill-grey"])
-                .build(),
-        );
-    }
     pills.append(
         &gtk::Label::builder()
             .label(m.pointer.get().label())
@@ -1012,6 +1234,15 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
     let text = gtk::Box::new(gtk::Orientation::Vertical, 10);
     text.set_hexpand(true);
     text.append(&name);
+    if !e.product_label.is_empty() {
+        text.append(
+            &gtk::Label::builder()
+                .label(&e.product_label)
+                .xalign(0.0)
+                .css_classes(["product-line"])
+                .build(),
+        );
+    }
     text.append(&pills);
     if state == State::Stopping {
         let bar = gtk::ProgressBar::builder().pulse_step(0.1).build();
@@ -1041,8 +1272,16 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
         .spacing(20)
         .css_classes(["hero"])
         .build();
-    if let Some(id) = e.art {
-        card.add_css_class(&format!("wash-{id}"));
+    // The tint is the pane's, not the card's: the scrolled window behind it.
+    if let Some(sw) = m.hero.ancestor(gtk::ScrolledWindow::static_type()) {
+        for c in sw.css_classes() {
+            if c.starts_with("fade-") {
+                sw.remove_css_class(&c);
+            }
+        }
+        if let Some(id) = e.art {
+            sw.add_css_class(&format!("fade-{id}"));
+        }
     }
     card.append(&g);
     card.append(&text);
@@ -1059,67 +1298,18 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
         .selection_mode(gtk::SelectionMode::None)
         .column_spacing(12)
         .row_spacing(12)
-        .max_children_per_line(4)
-        .homogeneous(true)
+        .halign(gtk::Align::Center)
         .build();
     let s = &e.summary;
-    let mut tiles: Vec<(String, String)> = vec![
-        (
-            if s.processor.is_empty() {
-                "Processor".into()
-            } else {
-                s.processor.to_uppercase()
-            },
-            format!("{} CPU{}", s.cpus, if s.cpus == 1 { "" } else { "s" }),
-        ),
-        (s.memory.clone(), "memory per node".into()),
+    let mut tiles = vec![
+        ("media-flash-symbolic", s.memory.clone(), "Memory"),
+        ("network-workgroup-symbolic", s.nodes.to_string(), "Nodes"),
     ];
-    if let Some(g) = &s.graphics {
-        tiles.push((g.clone(), "graphics".into()));
+    if let Some(t) = &s.topology {
+        tiles.push(("view-app-grid-symbolic", t.clone(), "Topology"));
     }
-    tiles.push((
-        format!("{} drive{}", s.drives, if s.drives == 1 { "" } else { "s" }),
-        "storage".into(),
-    ));
-    tiles.push((
-        s.network.clone(),
-        format!(
-            "{} port forward{}",
-            s.forwards,
-            if s.forwards == 1 { "" } else { "s" }
-        ),
-    ));
-    if s.shares > 0 {
-        tiles.push((
-            format!(
-                "{} folder{}",
-                s.shares,
-                if s.shares == 1 { "" } else { "s" }
-            ),
-            "shared".into(),
-        ));
-    }
-    for (t, sub) in tiles {
-        let b = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(2)
-            .css_classes(["tile"])
-            .build();
-        b.append(
-            &gtk::Label::builder()
-                .label(&t)
-                .xalign(0.0)
-                .css_classes(["tile-title"])
-                .build(),
-        );
-        b.append(
-            &gtk::Label::builder()
-                .label(&sub)
-                .xalign(0.0)
-                .css_classes(["dim-label"])
-                .build(),
-        );
-        flow.append(&b);
+    for (icon, t, sub) in tiles {
+        flow.append(&summary_card(icon, &t, sub));
     }
     m.hero.append(&flow);
 }

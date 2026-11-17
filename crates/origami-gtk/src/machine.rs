@@ -51,6 +51,16 @@ impl State {
         }
     }
 
+    /// The tab's dot, the pill's colour.
+    fn dot(self) -> u32 {
+        match self.pill().1 {
+            "pill-green" => 0x33d17a,
+            "pill-amber" => 0xe5a50a,
+            "pill-red" => 0xe01b24,
+            _ => 0x8d8d93,
+        }
+    }
+
     pub fn is_up(self) -> bool {
         matches!(
             self,
@@ -459,12 +469,13 @@ impl MachineUi {
         }
         if let Some(p) = self.page.borrow().as_ref() {
             p.set_title(&self.name);
-            let warn = gtk::gio::ThemedIcon::new("dialog-warning-symbolic");
-            p.set_indicator_icon(if matches!(state, State::NoPicture | State::Crashed) {
-                Some(&warn)
-            } else {
-                None
-            });
+            p.set_indicator_icon(Some(&crate::art::dot(state.dot())));
+            // The dot is a colour; the tooltip says the word.
+            p.set_tooltip(&format!(
+                "{}\n{}",
+                state.pill().0,
+                glib::markup_escape_text(&self.dir.display().to_string())
+            ));
         }
         if matches!(state, State::Stopped | State::Crashed) {
             self.size.set((0, 0));

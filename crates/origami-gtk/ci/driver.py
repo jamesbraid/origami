@@ -148,8 +148,8 @@ def pointer_to(x, y):
     return sh("xdotool", "mousemove", "--window", app_window(), str(int(x)), str(int(y))).returncode == 0
 
 
-def click(button=1):
-    return mode == "x11" and sh("xdotool", "click", str(button)).returncode == 0
+def click(button=1, times=1):
+    return mode == "x11" and sh("xdotool", "click", "--repeat", str(times), "--delay", "80", str(button)).returncode == 0
 
 
 def ppm_to_png(ppm, name):
@@ -541,10 +541,10 @@ def hidpi():
             for name, tabs in [("octane2b", ["octane2b"]), ("octane2", ["octane2", "octane2b"]), ("octane2b", ["octane2", "octane2b"])]:
                 b = rows[name]
                 pointer_to((b[0] + b[2] / 2) * factor, (b[1] + b[3] / 2) * factor)
-                click()
+                click(1, 2)
                 time.sleep(0.6)
                 got = sorted(m["name"] for m in a.state()["machines"])
-                check("clicking the %s row opens %s, once" % (name, name), got == tabs, [got, b])
+                check("double-clicking the %s row opens %s, once" % (name, name), got == tabs, [got, b])
         a.req("open octane2")
         r = a.req("invoke window.console octane2")
         check("the Console button's command opens the console", r.get("ok"), r)
@@ -559,7 +559,9 @@ def hidpi():
             return
         win = app_window()
         if win:
-            sh("xdotool", "windowsize", win, os.environ.get("HIDPI_WINDOW", "1500 1200").split()[0], os.environ.get("HIDPI_WINDOW", "1500 1200").split()[1])
+            # run.sh passes an unset HIDPI_WINDOW through as empty.
+            size = (os.environ.get("HIDPI_WINDOW") or "1500 1200").split()
+            sh("xdotool", "windowsize", win, size[0], size[1])
             time.sleep(1.5)
         a.req("invoke view.fit octane2")
         time.sleep(1)
@@ -632,7 +634,70 @@ def frames():
         a.stop()
 
 
-SCENARIOS = {"frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+def sidebar():
+    """The library's rows and the tab bar under real clicks: one click selects,
+    two open a tab and keep the others, the row menu offers its items, and the
+    tabs and summary cards have their sizes."""
+    if mode != "x11":
+        skip("sidebar", "needs XTest")
+        return
+    for n in ("octane2", "octane2-b", "octane2-c"):
+        create_machine(n)
+    a = App()
+    try:
+        a.wait("library", lambda: len(a.state()["library"]) == 3, 30)
+        chrome = lambda: a.state()["chrome"]
+        opened = lambda: sorted(m["name"] for m in a.state()["machines"])
+
+        def row(name):
+            # Past the double-click time, so one sequence's clicks never join
+            # the last one's, and after the pointer has settled on the row.
+            time.sleep(0.7)
+            b = {r["name"]: r["bounds"] for r in chrome()["rows"]}[name]
+            pointer_to(b[0] + b[2] / 2, b[1] + b[3] / 2)
+            time.sleep(0.3)
+
+        time.sleep(1)
+        shot("sidebar-empty")
+        row("octane2")
+        click()
+        time.sleep(0.5)
+        check("a single click selects the row and opens nothing", chrome()["selected"] == "octane2" and opened() == [], [chrome()["selected"], opened()])
+        row("octane2-b")
+        click(1, 2)
+        a.wait("tab", lambda: opened() == ["octane2-b"], 20, 0.2)
+        check("a double click opens the machine in a tab", opened() == ["octane2-b"], opened())
+        row("octane2")
+        click(1, 2)
+        a.wait("tab", lambda: len(opened()) == 2, 20, 0.2)
+        check("a second double click keeps the first tab", opened() == ["octane2", "octane2-b"], opened())
+        time.sleep(0.5)
+        shot("sidebar-tabs")
+        c = chrome()
+        # The tab widget is the tab's outer frame.
+        check("the tab bar is 34 px and its tabs 26", c["tab_bar"][1] == 34 and [t[1] for t in c["tabs"]] == [26, 26], [c["tab_bar"], c["tabs"]])
+        check("the summary cards are 140 by 104", a.machine("octane2")["cards"] and all(s == [140, 104] for s in a.machine("octane2")["cards"]), a.machine("octane2")["cards"])
+        row("octane2-c")
+        click(3)
+        shown = a.wait("row menu", lambda: chrome()["row_menu"], 20, 0.2)
+        check("a right click shows the row menu with its items", shown and chrome()["row_menu_items"] == ["Open in New Tab", "Show in Files"], chrome())
+        shot("sidebar-menu")
+        key("Return")
+        a.wait("tab", lambda: len(opened()) == 3, 20, 0.2)
+        check("Open in New Tab opens that machine", "octane2-c" in opened() and chrome()["selected"] == "octane2-c", opened())
+        # The keyboard route: focus the selected row, then the Menu key and Shift+F10.
+        row("octane2-b")
+        click()
+        for k in ("Menu", "shift+F10"):
+            key(k)
+            check(k + " opens the row menu", a.wait("row menu", lambda: chrome()["row_menu"], 20, 0.2) is not None, chrome())
+            key("Escape")
+            a.wait("menu closed", lambda: not chrome()["row_menu"], 20, 0.2)
+    finally:
+        a.stop()
+
+
+SCENARIOS = {"sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

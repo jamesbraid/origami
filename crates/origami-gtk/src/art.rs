@@ -151,6 +151,35 @@ pub fn tab_icon(page: &adw::TabPage, id: &'static str) {
     });
 }
 
+/// A filled circle of `rgb` for a tab's state, drawn 12 px in a 32 px square
+/// (shown at 16) so it stays sharp at 2x.
+pub fn dot(rgb: u32) -> gdk::Texture {
+    thread_local!(static DOTS: RefCell<HashMap<u32, gdk::Texture>> = RefCell::default());
+    if let Some(t) = DOTS.with(|d| d.borrow().get(&rgb).cloned()) {
+        return t;
+    }
+    const N: i32 = 32;
+    let mut px = Vec::with_capacity((N * N * 4) as usize);
+    for y in 0..N {
+        for x in 0..N {
+            let d = (f64::from(x - N / 2) + 0.5).hypot(f64::from(y - N / 2) + 0.5);
+            let a = (6.5 - d).clamp(0.0, 1.0);
+            let c = |shift: u32| ((rgb >> shift & 0xff) as f64 * a) as u8;
+            px.extend_from_slice(&[c(16), c(8), c(0), (a * 255.0) as u8]);
+        }
+    }
+    let t: gdk::Texture = gdk::MemoryTexture::new(
+        N,
+        N,
+        gdk::MemoryFormat::R8g8b8a8Premultiplied,
+        &glib::Bytes::from_owned(px),
+        (N * 4) as usize,
+    )
+    .upcast();
+    DOTS.with(|d| d.borrow_mut().insert(rgb, t.clone()));
+    t
+}
+
 /// A texture that reports half its pixels as its size in points.
 mod pt {
     use gtk::subclass::prelude::*;

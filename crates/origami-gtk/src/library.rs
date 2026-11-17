@@ -20,14 +20,9 @@ pub struct Entry {
 
 #[derive(Clone, Debug, Default)]
 pub struct Summary {
-    pub processor: String,
-    pub cpus: u32,
+    pub nodes: u32,
+    pub topology: Option<String>,
     pub memory: String,
-    pub graphics: Option<String>,
-    pub drives: usize,
-    pub network: String,
-    pub forwards: usize,
-    pub shares: usize,
 }
 
 /// The grey a machine with no still is tinted with.
@@ -77,14 +72,9 @@ pub fn read(dir: &Path) -> Entry {
                 art: crate::art::of(&m.model, m.topology.as_deref()),
                 error: None,
                 summary: Summary {
-                    processor: m.processor.clone().unwrap_or_default(),
-                    cpus: m.nodes * m.cpus_per_node,
+                    nodes: m.nodes,
+                    topology: m.topology.clone(),
                     memory: m.memory_per_node.clone(),
-                    graphics: file.pipe.first().map(|p| p.product.clone()),
-                    drives: file.drive.len(),
-                    network: file.network.mode.clone(),
-                    forwards: file.network.forward.len(),
-                    shares: file.share.len(),
                 },
             }
         }
