@@ -350,13 +350,26 @@ final class AppModel: ObservableObject {
     /// A click in the library: show the machine in the current tab.
     func select(_ id: String) {
         if tabs.contains(id) { active = id; return }
-        if let a = active, let i = tabs.firstIndex(of: a) { tabs[i] = id } else { tabs.append(id) }
+        if let a = active, let i = tabs.firstIndex(of: a) {
+            replaced = (slot: i, old: a, new: id)
+            tabs[i] = id
+        } else { tabs.append(id) }
         active = id
     }
 
-    /// Open the machine in a tab of its own.
+    /// The last tab a click took over: (slot, machine it showed, machine now shown there).
+    private var replaced: (slot: Int, old: String, new: String)?
+
+    /// Open the machine in a tab of its own. If a plain click just took over another tab to show
+    /// this machine (the first click of a double-click), give that tab its machine back.
     func openInNewTab(_ id: String) {
-        if !tabs.contains(id) { tabs.append(id) }
+        if let r = replaced, r.new == id, r.slot < tabs.count, tabs[r.slot] == id, !tabs.contains(r.old) {
+            tabs[r.slot] = r.old
+            tabs.append(id)
+        } else if !tabs.contains(id) {
+            tabs.append(id)
+        }
+        replaced = nil
         active = id
     }
 
@@ -366,6 +379,8 @@ final class AppModel: ObservableObject {
         tabs.remove(at: i)
         if active == id { active = tabs.isEmpty ? nil : tabs[min(i, tabs.count - 1)] }
     }
+
+    func closeAllTabsForTest() { tabs = []; active = nil; replaced = nil }
 
     func step(_ delta: Int) {
         guard tabs.count > 1, let a = active, let i = tabs.firstIndex(of: a) else { return }

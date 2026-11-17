@@ -80,6 +80,15 @@ func runSelfTest(library: String, out: String) {
         app.rescan()
     }
     #endif
+    // A second machine of the same product, to check selection keys rows by path.
+    if fake {
+        do {
+            let op = try host.core.createMachine(request: OrigamiCreateRequest(
+                name: "beta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil))
+            check("create-second-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
+            app.rescan()
+        } catch { check("create-second-machine", false, ["error": "\(error)"]) }
+    }
     let wanted = ProcessInfo.processInfo.environment["ORIGAMI_TEST_MACHINE"]
     guard let model = (wanted.flatMap { app.model(named: $0) } ?? app.models.first) else {
         check("library", false, ["error": "no machines in \(library)"]); finish()
@@ -101,6 +110,28 @@ func runSelfTest(library: String, out: String) {
           ["commands": CommandID.allCases.count, "clashes": clash])
     let coreCommands = Set(host.core.commands().map(\.id))
     check("core-command-table", coreCommands.contains("machine.start"), ["core_commands": coreCommands.sorted()])
+    // Every row of a library with machines of one product selects its own machine.
+    do {
+        let ids = app.models.map(\.id)
+        var picked: [String?] = []
+        for id in ids.reversed() + ids { app.select(id); picked.append(app.active) }
+        check("select-each-row-by-key", Set(ids).count == ids.count && picked == Array(ids.reversed() + ids),
+              ["machines": app.models.count, "same_product": Set(app.models.map(\.record.productName)).count == 1 && app.models.count > 1])
+    }
+    // Tabs: a double-click (select, then open in new tab) adds a tab and keeps the old one; the
+    // context menu's Open in New Tab adds another without a click.
+    do {
+        let ids = app.models.map(\.id)
+        if ids.count >= 2 {
+            app.closeAllTabsForTest()
+            app.select(ids[0])
+            app.select(ids[1]); app.openInNewTab(ids[1])
+            check("double-click-adds-a-tab-and-keeps-the-old-one", app.tabs == [ids[0], ids[1]] && app.active == ids[1], ["tabs": app.tabs.count])
+            app.closeAllTabsForTest()
+            app.select(ids[0]); app.openInNewTab(ids[1])
+            check("open-in-new-tab-adds-a-tab", app.tabs == [ids[0], ids[1]] && app.active == ids[1], ["tabs": app.tabs.count])
+        }
+    }
     app.select(model.id)
     check("commands-enabled-at-rest", app.isEnabled(.start) && !app.isEnabled(.powerOff) && !app.isEnabled(.reset)
           && !app.isEnabled(.forceQuit), [:])

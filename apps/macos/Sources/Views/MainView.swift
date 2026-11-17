@@ -79,18 +79,23 @@ struct LibrarySidebar: View {
     var body: some View {
         List(selection: Binding(get: { app.active }, set: { if let id = $0 { app.select(id) } })) {
             Section("Library") {
+                // Rows are keyed by the machine's path, never by product or art.
                 ForEach(app.models) { model in
-                    LibraryRow(model: model)
-                        .tag(model.id)
-                        .contextMenu {
-                            Button("Open in New Tab") { app.openInNewTab(model.id) }
-                            Divider()
-                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.root.appendingPathComponent(model.name)]) }
-                        }
+                    LibraryRow(model: model).tag(model.id)
                 }
             }
         }
         .listStyle(.sidebar)
+        // Double-click opens a tab. A tap gesture on the row would delay and drop plain clicks.
+        .contextMenu(forSelectionType: String.self) { ids in
+            if let id = ids.first, let model = app.models.first(where: { $0.id == id }) {
+                Button("Open in New Tab") { app.openInNewTab(id) }
+                Divider()
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.root.appendingPathComponent(model.name)]) }
+            }
+        } primaryAction: { ids in
+            if let id = ids.first { app.openInNewTab(id) }
+        }
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button { app.invoke(.newMachine) } label: { Label("New Machine", systemImage: "plus") }
@@ -122,9 +127,9 @@ struct LibraryRow: View {
             Spacer(minLength: 4)
             StatusPill(state: model.state)
         }
+        .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(model.name), \(model.record.product.name), \(model.state.pill)")
-        .onTapGesture(count: 2) { app.openInNewTab(model.id) }
     }
 }
 
