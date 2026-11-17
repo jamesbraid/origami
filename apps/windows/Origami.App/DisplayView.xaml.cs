@@ -43,6 +43,11 @@ public sealed partial class DisplayView : UserControl
     int _swallowButton = -1, _buttonsDown, _wheel;
     int _centerScreenX, _centerScreenY;
 
+    ViewMode _viewMode = ViewMode.FitToWindow;
+    public ViewMode ViewMode { get => _viewMode; set { if (value == _viewMode) return; _viewMode = value; _forcePlace = true; Place(); } }
+    /// <summary>Device pixels per guest pixel as last laid out, for the self-test.</summary>
+    public double LastFactor => _headW > 0 ? ScreenRect().W / (double)_headW : 0;
+
     public Func<IntPtr> WindowHandle { get; set; } = () => IntPtr.Zero;
     /// <summary>Gets (VK, ctrl, shift, alt) for a key pressed while not captured; true if the app took it.</summary>
     public Func<int, bool, bool, bool, bool>? Shortcut { get; set; }
@@ -50,6 +55,9 @@ public sealed partial class DisplayView : UserControl
 
     public bool Attached => _hwnd != IntPtr.Zero && (_view != IntPtr.Zero || _op != IntPtr.Zero);
     public bool Captured => _ptr.Captured;
+    /// <summary>Left button presses the screen window has seen, for the self-test.</summary>
+    public int ButtonDowns { get; private set; }
+    public IntPtr HwndForTest => _hwnd;
     public int KeysDown => _keys.DownCount;
     public string? LastError { get; private set; }
     /// <summary>"core view" or "d3d12 copy fallback" once attached.</summary>
@@ -250,8 +258,9 @@ public sealed partial class DisplayView : UserControl
         var s = XamlRoot.RasterizationScale;
         double aw = Surround.ActualWidth - 12, ah = Surround.ActualHeight - 12;
         if (aw < 16 || ah < 16) return;
-        var fit = Math.Min(aw / _headW, ah / _headH);
-        double pw = Math.Floor(_headW * fit), ph = Math.Floor(_headH * fit);
+        // Device pixels per guest pixel: whole steps where they fit (the core's view then maps pixels one to one).
+        var k = ViewScale.Factor(ViewMode, _headW, _headH, aw * s, ah * s, s);
+        double pw = Math.Floor(_headW * k) / s, ph = Math.Floor(_headH * k) / s; // DIPs
         var origin = Surround.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
         double x = origin.X + (Surround.ActualWidth - pw) / 2, y = origin.Y + (Surround.ActualHeight - ph) / 2;
         Bezel.Width = pw + 4; Bezel.Height = ph + 4;
@@ -375,6 +384,7 @@ public sealed partial class DisplayView : UserControl
         return Frame.origami_view_stats(_view, ref c) == Frame.Ok ? c : null;
     }
 
+    public double DeviceScale => XamlRoot?.RasterizationScale ?? 1.0;
     public int HeadWidth => _headW;
     public int HeadHeight => _headH;
     public void FocusDisplay() { if (_hwnd != IntPtr.Zero) Win32.SetFocus(_hwnd); }
@@ -406,7 +416,7 @@ public sealed partial class DisplayView : UserControl
             case WM_CAPTURECHANGED when l != hwnd: LiftButtons(); return false;
             case WM_KILLFOCUS: LoseFocus(); return false;
             case WM_MOUSEMOVE: Move((short)(l.ToInt64() & 0xFFFF), (short)((l.ToInt64() >> 16) & 0xFFFF)); return true;
-            case WM_LBUTTONDOWN: Button(hwnd, 0, true); return true;
+            case WM_LBUTTONDOWN: ButtonDowns++; Button(hwnd, 0, true); return true;
             case WM_LBUTTONUP: Button(hwnd, 0, false); return true;
             case WM_MBUTTONDOWN: Button(hwnd, 1, true); return true;
             case WM_MBUTTONUP: Button(hwnd, 1, false); return true;
@@ -438,7 +448,8 @@ public sealed partial class DisplayView : UserControl
         {
             bool ctrl = Win32.GetKeyState(0x11) < 0, shift = Win32.GetKeyState(0x10) < 0, alt = Win32.GetKeyState(0x12) < 0;
             var vk = (int)w.ToInt64();
-            if (((ctrl && shift) || (vk >= 0x70 && vk <= 0x87)) && sc(vk, ctrl, shift, alt)) { _consumed.Add(code); return; }
+            // Every shortcut the app takes needs Ctrl or is a function key; the app decides which ones the guest may not have.
+            if ((ctrl || (vk >= 0x70 && vk <= 0x87)) && sc(vk, ctrl, shift, alt)) { _consumed.Add(code); return; }
         }
         if (down) { if (!_keys.Press(code)) return; }
         else if (!_keys.Release(code)) return;

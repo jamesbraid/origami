@@ -289,5 +289,37 @@ Test("granite: two tones, repeated, pixel-doubled", () =>
     Eq(0xDD, (int)o[(2 * 8 + 0) * 4], "y=2 starts the tile's second row, dark first");
 });
 
+Test("view scale: fit in whole steps while that is at least 1 DIP, fractional below", () =>
+{
+    // 1280x1024 head. 200%: fit 2.148, whole step 2 is exactly 1 DIP.
+    Eq(2.0, ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 3000, 2200, 2.0), "200% steps to 2");
+    // 150%: fit 1.855, whole step 1 is only 0.67 DIP, so the fill is fractional (1.24 DIP per guest pixel).
+    Eq(true, Math.Abs(ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 2400, 1900, 1.5) - 1900.0 / 1024) < 1e-9, "150% fractional");
+    Eq(3.0, ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 4000, 3200, 1.5), "150% steps to 3 once that is 2 DIPs");
+    // 125%: fit 1.5625 is fractional; at 2.34 the whole step 2 is 1.6 DIPs.
+    Eq(true, Math.Abs(ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 2000, 1600, 1.25) - 1.5625) < 1e-9, "125% fractional");
+    Eq(2.0, ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 3000, 2500, 1.25), "125% steps to 2");
+    Eq(3.0, ViewScale.Factor(ViewMode.FitToWindow, 640, 480, 2200, 1700, 1.0), "100% whole steps");
+    Eq(true, Math.Abs(ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 800, 700, 1.0) - 0.625) < 1e-9, "100% fractional below 1 DIP");
+});
+
+Test("view scale: 1x and 2x are DIPs per guest pixel and fall back to fit; actual size is a device pixel", () =>
+{
+    Eq(2.0, ViewScale.Factor(ViewMode.Scale1x, 1280, 1024, 3000, 2200, 2.0), "1x at 200% is 2 device px");
+    Eq(2.0, ViewScale.Factor(ViewMode.Scale2x, 1280, 1024, 3000, 2200, 2.0), "2x does not fit at 200%: fit, whole 2");
+    Eq(1.5, ViewScale.Factor(ViewMode.Scale1x, 1280, 1024, 2400, 1900, 1.5), "1x at 150% is 1.5 device px");
+    Eq(true, Math.Abs(ViewScale.Factor(ViewMode.Scale2x, 1280, 1024, 2400, 1900, 1.5) - 1900.0 / 1024) < 1e-9, "2x at 150% falls back to fit");
+    Eq(2.0, ViewScale.Factor(ViewMode.Scale2x, 640, 480, 2200, 1700, 1.0), "2x at 100%");
+    Eq(1.0, ViewScale.Factor(ViewMode.ActualSize, 1280, 1024, 3000, 2200, 2.0), "actual size is one device pixel");
+});
+
+Test("accelerators: the four view shortcuts reach the app, bare Ctrl digits stay with the guest", () =>
+{
+    foreach (var s in new[] { "Ctrl+9", "Ctrl+0", "Ctrl+Alt+1", "Ctrl+Alt+2" })
+    { Eq(true, Accelerator.TryParse(s, out var a), s); Eq(true, a.TakenOverGuest, s + " is taken"); }
+    foreach (var s in new[] { "Ctrl+1", "Ctrl+2", "Ctrl+Alt+9", "Ctrl+Alt+3", "Alt+1" })
+    { Accelerator.TryParse(s, out var a); Eq(false, a.TakenOverGuest, s + " stays with the guest"); }
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;

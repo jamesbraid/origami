@@ -397,6 +397,10 @@ public sealed partial class MainWindow : Window
         new("view.library", "Show Library", "F9"),
         new("app.preferences", "Preferences", "Ctrl+,"),
         new("app.about", "About Origami", null),
+        new("view.fit", "Fit to Window", "Ctrl+9"),
+        new("view.scale1x", "Scale 1x", "Ctrl+Alt+1"),
+        new("view.scale2x", "Scale 2x", "Ctrl+Alt+2"),
+        new("view.actual-size", "Actual Size", "Ctrl+0"),
     };
 
     readonly List<CommandInfo> _commands = new();
@@ -487,6 +491,10 @@ public sealed partial class MainWindow : Window
             case "window.diagnostics" when key != null: OpenDiagnostics(key); break;
             case "machine.eject-cd":
                 StatusText.Text = "Not built yet: " + _commands.First(c => c.Id == id).Title; break;
+            case "view.fit": SetViewMode(ViewMode.FitToWindow); break;
+            case "view.scale1x": SetViewMode(ViewMode.Scale1x); break;
+            case "view.scale2x": SetViewMode(ViewMode.Scale2x); break;
+            case "view.actual-size": SetViewMode(ViewMode.ActualSize); break;
             case "app.about": OpenAbout(); break;
             case "app.quit": Close(); break;
         }
@@ -535,6 +543,14 @@ public sealed partial class MainWindow : Window
         w.Activate();
     }
     public ConsoleView? ConsoleForTest(string key) => _consoles.GetValueOrDefault(key)?.View;
+
+    void SetViewMode(ViewMode mode)
+    {
+        Display.ViewMode = mode;
+        StatusText.Text = "Picture size: " + mode switch { ViewMode.FitToWindow => "fit to window", ViewMode.Scale1x => "scale 1x", ViewMode.Scale2x => "scale 2x", _ => "actual size" };
+    }
+
+    public ViewMode CurrentViewMode => Display.ViewMode;
 
     AboutWindow? _about;
     public AboutWindow? AboutForTest => _about;

@@ -49,6 +49,9 @@ public readonly record struct Accelerator(bool Ctrl, bool Shift, bool Alt, strin
         }
     }
 
-    /// <summary>Whether the shortcut is safe to take while the guest has the keyboard: the guest keeps bare Ctrl letters.</summary>
-    public bool TakenOverGuest => (Ctrl && Shift) || (VirtualKey is >= 0x70 and <= 0x87);
+    /// <summary>Whether the shortcut is taken while the guest has the keyboard: Ctrl+Shift, function keys and the four view
+    /// shortcuts (Ctrl+9, Ctrl+0, Ctrl+Alt+1, Ctrl+Alt+2). The guest keeps bare Ctrl letters.</summary>
+    public bool TakenOverGuest => (Ctrl && Shift) || (VirtualKey is >= 0x70 and <= 0x87) || IsViewShortcut;
+
+    bool IsViewShortcut => Ctrl && !Shift && (Alt ? Key is "1" or "2" : Key is "9" or "0");
 }

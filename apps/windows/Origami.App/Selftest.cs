@@ -286,6 +286,21 @@ public static class Selftest
             Check("terminal: Backspace goes through the core as ^H and moves the echoed cursor left", await Until(() => con.CursorCol == col0 - 1, 3000), $"column {col0} -> {con.CursorCol}");
         }
 
+        // --- picture size: whole device pixels per guest pixel, as DIPs ---
+        var dip = disp.DeviceScale; // device pixels per DIP
+        w.Invoke("view.actual-size"); await Task.Delay(300);
+        var fa = disp.LastFactor;
+        w.Invoke("view.scale2x"); await Task.Delay(300);
+        var f2 = disp.LastFactor;
+        w.Invoke("view.scale1x"); await Task.Delay(300);
+        var f1 = disp.LastFactor;
+        w.Invoke("view.fit"); await Task.Delay(300);
+        var ff = disp.LastFactor;
+        Check("view: Actual Size is one device pixel per guest pixel", Math.Abs(fa - 1) < 0.01, $"actual={fa:F2}");
+        Check("view: Scale 1x and 2x are one and two DIPs per guest pixel, or Fit when that does not fit", (Math.Abs(f1 - dip) < 0.01 || Math.Abs(f1 - ff) < 0.01) && (Math.Abs(f2 - 2 * dip) < 0.01 || Math.Abs(f2 - ff) < 0.01), $"1x={f1:F2} 2x={f2:F2} fit={ff:F2} (device px per DIP {dip:F2})");
+        Check("view: Fit to Window uses whole device pixels while at least 1 DIP fits", ff >= dip - 0.001 ? Math.Abs(ff - Math.Round(ff)) < 0.01 : ff > 0, $"fit={ff:F3}");
+        Check("view: the default is Fit to Window", w.CurrentViewMode == ViewMode.FitToWindow, w.CurrentViewMode.ToString());
+
         // --- keyboard, real scancodes through the OS ---
         Win.Foreground(w.Hwnd);
         disp.FocusDisplay();
@@ -321,6 +336,25 @@ public static class Selftest
         w.Invoke("view.library");
         await Task.Delay(300);
 
+        // the view shortcuts, as real keys over the screen: the app takes them and the guest never sees the digit
+        var viewKeys = new (ViewMode Mode, string Name, int[] Scans, int Digit)[]
+        {
+            (ViewMode.Scale2x, "Ctrl+Alt+2", new[] { 0x1D, 0x38, 0x03 }, 3),
+            (ViewMode.Scale1x, "Ctrl+Alt+1", new[] { 0x1D, 0x38, 0x02 }, 2),
+            (ViewMode.ActualSize, "Ctrl+0", new[] { 0x1D, 0x0B }, 11),
+            (ViewMode.FitToWindow, "Ctrl+9", new[] { 0x1D, 0x0A }, 10),
+        };
+        foreach (var (mode, name, scans, digit) in viewKeys)
+        {
+            lock (log) log.Clear();
+            foreach (var sc in scans) Win.Scan(sc, false, true);
+            foreach (var sc in scans.Reverse()) Win.Scan(sc, false, false);
+            var took = await Until(() => w.CurrentViewMode == mode, 2000);
+            await Task.Delay(100);
+            bool digitLeaked; lock (log) digitLeaked = log.Any(e => e.Kind == InputKind.Key && e.A == digit);
+            Check($"shortcut: {name} over the screen sets {mode} and the digit does not reach the guest", took && !digitLeaked, $"mode={w.CurrentViewMode} leaked={digitLeaked}");
+        }
+
         // --- follow-the-mouse ---
         Check("pointer mode starts as Follow", disp.Mode == PointerMode.Follow);
         (cx, cy, cw, ch) = disp.ScreenRect();
@@ -355,6 +389,9 @@ public static class Selftest
         await Task.Delay(80);
         Win.Scan(0x1D, false, true); Win.Scan(0x38, false, true);
         Check("capture: Ctrl+Alt releases the pointer", await Until(() => !disp.Captured, 2000));
+        Win.Scan(0x02, false, true); Win.Scan(0x02, false, false); // '1' with the chord still held: the view shortcut, not a guest key
+        Check("capture: Ctrl+Alt+1 after the release is the view shortcut", await Until(() => w.CurrentViewMode == ViewMode.Scale1x, 2000), w.CurrentViewMode.ToString());
+        w.Invoke("view.fit");
         Win.Scan(0x38, false, false); Win.Scan(0x1D, false, false); Win.Scan(0x1E, false, false);
         await Task.Delay(150);
         guest2.Cancel(); await guest2Task;
@@ -411,8 +448,12 @@ public static class Selftest
         (cx, cy, cw, ch) = disp.ScreenRect();
         Win.MouseAbs(cx + cw / 2, cy + ch / 2);
         await Task.Delay(100);
+        var downs0 = disp.ButtonDowns;
         Win.MouseButton(true); Win.MouseButton(false);
-        Check("detach while captured: captured first", await Until(() => disp.Captured, 2000));
+        var capturedFirst = await Until(() => disp.Captured, 2000);
+        Win32.GetCursorPos(out var cur);
+        Check("detach while captured: captured first", capturedFirst,
+            $"mode={disp.Mode} focus={disp.HasFocus} foreground={Win.IsForeground(w.Hwnd)} screen=({cx},{cy},{cw},{ch}) cursor=({cur.X},{cur.Y}) presses seen={disp.ButtonDowns - downs0} under cursor={Win32.UnderPoint(cur.X, cur.Y)} display=0x{disp.HwndForTest.ToInt64():x}");
         Win.Scan(0x1E, false, true);
         await Task.Delay(150);
         w.Invoke("machine.stop");
