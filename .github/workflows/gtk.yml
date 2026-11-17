@@ -11,10 +11,10 @@ name: Linux app
 on:
   push:
     branches: [main]
-    paths: ['crates/origami-gtk/**', '.github/workflows/gtk.yml', 'runtime.lock']
+    paths: ['crates/origami-gtk/**', 'crates/origami-terminal/**', 'crates/ghostty-vt-sys/**', '.github/workflows/gtk.yml', 'runtime.lock']
   pull_request:
     branches: [main]
-    paths: ['crates/origami-gtk/**', '.github/workflows/gtk.yml', 'runtime.lock']
+    paths: ['crates/origami-gtk/**', 'crates/origami-terminal/**', 'crates/ghostty-vt-sys/**', '.github/workflows/gtk.yml', 'runtime.lock']
   workflow_dispatch:
 
 permissions:

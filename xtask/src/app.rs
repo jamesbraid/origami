@@ -331,6 +331,12 @@ fn windows_prebuild(out: &Path, target: Option<&str>) -> Result<()> {
             presenter_dir.join("origami_present.dll"),
             "native-out/origami_present.dll",
         ),
+        // The terminal engine's DLL, which ghostty-vt-sys's build script
+        // fetched beside the build output; origami_ffi.dll imports it.
+        (
+            target_dir().join("ghostty-vt/1.0.1-windows-x86_64/ghostty-vt.dll"),
+            "native-out/ghostty-vt.dll",
+        ),
     ] {
         archive::copy_file(&from, &out.join(to))?;
     }

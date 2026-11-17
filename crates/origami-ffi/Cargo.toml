@@ -15,7 +15,7 @@ name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
 
 [features]
-default = ["qemu", "render"]
+default = ["qemu", "render", "ghostty"]
 # FakeEngine as the only engine, for the bindings tests and the app teams.
 fake = ["origami-engine/fake", "origami-core/fake"]
 # QemuEngine as the engine, unless `fake` is on.
@@ -24,7 +24,7 @@ qemu = ["dep:origami-qemu"]
 render = ["dep:origami-render", "dep:origami-display", "dep:wgpu"]
 # iris machines too, hosted by the runner (`origami` built with its `iris` feature).
 iris = ["qemu", "dep:origami-iris"]
-# Runs terminals on libghostty-vt instead of vt100 (see ghostty-vt-sys).
+# libghostty-vt as the console's terminal engine; off leaves vt100, for debugging.
 ghostty = ["origami-terminal/ghostty"]
 
 [dependencies]
@@ -34,7 +34,7 @@ origami-engine = { path = "../origami-engine" }
 origami-qemu = { path = "../origami-qemu", optional = true }
 origami-iris = { path = "../origami-iris", optional = true }
 origami-render = { path = "../origami-render", optional = true }
-origami-terminal = { path = "../origami-terminal" }
+origami-terminal = { path = "../origami-terminal", default-features = false }
 thiserror = "2"
 # The version origami-render pins, for the cursor texture upload.
 wgpu = { version = "30", optional = true }

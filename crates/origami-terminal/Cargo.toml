@@ -7,8 +7,8 @@ rust-version = "1.95"
 license = "BSD-3-Clause"
 
 [features]
-# libghostty-vt as a second engine; needs the library at link time
-# (see ../ghostty-vt-sys/README.md).
+default = ["ghostty"]
+# libghostty-vt, the default engine; off leaves vt100 only, for debugging.
 ghostty = ["dep:ghostty-vt-sys"]
 
 [dependencies]

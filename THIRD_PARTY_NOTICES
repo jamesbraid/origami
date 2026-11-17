@@ -3906,13 +3906,21 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
   defined by the Mozilla Public License, v. 2.0.
 
 ==============================================================================
-libghostty-vt (optional terminal engine)
+libghostty-vt (the apps' terminal engine)
 ==============================================================================
 
-Builds made with the `ghostty` feature of origami-terminal link libghostty-vt
-1.0.1 statically (or ghostty-vt.dll on Windows). It is under the MIT license
-and bundles Highway (Apache-2.0 OR BSD-3-Clause), simdutf (Apache-2.0 OR MIT),
-uucode (MIT, with Unicode-3.0 data) and wuffs (Apache-2.0 OR MIT).
+The serial console's terminal in the apps (origami-terminal) runs on
+libghostty-vt 1.0.1, linked statically (ghostty-vt.dll on Windows). It is
+under the MIT license and bundles Highway (Apache-2.0 OR BSD-3-Clause),
+simdutf (Apache-2.0 OR MIT), uucode (MIT, with Unicode-3.0 data) and wuffs
+(Apache-2.0 OR MIT).
+
+The Linux library is built with Zig 0.17.1 (MIT, Copyright (c) Zig
+contributors), which is a build-time tool and ships in no archive. The
+library does embed Zig's compiler runtime and UBSan runtime, which are Zig's
+own MIT-licensed code under that notice; it links no libc or libc++ of
+Zig's. The macOS and Windows libraries are upstream's builds, not inspected
+for runtime code beyond the same notice.
 
   MIT License
 
@@ -3935,3 +3943,6 @@ uucode (MIT, with Unicode-3.0 data) and wuffs (Apache-2.0 OR MIT).
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
   IN THE SOFTWARE.
+
+  The same terms apply to the Zig code in the library, Copyright (c) Zig
+  contributors.

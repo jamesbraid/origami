@@ -4,7 +4,7 @@
 
 use crate::control::{CoreError, OrigamiMachine};
 use origami_core::facade as f;
-use origami_terminal::{key_bytes as term_key_bytes, Colour, EngineKind, Key, KeyModes, Terminal};
+use origami_terminal::{key_bytes as term_key_bytes, Colour, Key, KeyModes, Terminal};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -106,11 +106,6 @@ pub enum OrigamiTerminalKey {
     },
 }
 
-#[cfg(feature = "ghostty")]
-const ENGINE: EngineKind = EngineKind::Ghostty;
-#[cfg(not(feature = "ghostty"))]
-const ENGINE: EngineKind = EngineKind::Vt100;
-
 struct State {
     term: Terminal,
     /// The console offset the next pump read starts at.
@@ -126,7 +121,7 @@ struct State {
 impl State {
     fn new(rows: u16, cols: u16) -> State {
         let mut s = State {
-            term: Terminal::with_engine(ENGINE, rows.clamp(1, MAX_ROWS), cols.clamp(1, MAX_COLS)),
+            term: Terminal::new(rows.clamp(1, MAX_ROWS), cols.clamp(1, MAX_COLS)),
             next: 0,
             generation: None,
             seq: 0,
@@ -141,7 +136,7 @@ impl State {
     /// Blank screen and history; the sequence keeps counting.
     fn reset(&mut self) {
         let (rows, cols) = self.term.size();
-        self.term = Terminal::with_engine(ENGINE, rows, cols);
+        self.term = Terminal::new(rows, cols);
         self.refresh(true);
     }
 
@@ -573,11 +568,10 @@ mod tests {
         for i in 0..20_000 {
             s.feed(format!("{i}\r\n").as_bytes());
         }
-        // Ghostty trims history a page (about 750 lines) at a time.
+        // Ghostty trims history a page at a time, so it keeps a little more.
         let kept = s.term.history();
-        assert!(
-            (origami_terminal::SCROLLBACK - 1000..=origami_terminal::SCROLLBACK).contains(&kept)
-        );
+        let cap = origami_terminal::SCROLLBACK;
+        assert!((cap..=cap + 2048).contains(&kept), "kept {kept}");
     }
 
     #[test]

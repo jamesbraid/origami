@@ -46,6 +46,7 @@ jobs:
       - name: Collect
         run: |
           cp target/x86_64-pc-windows-gnu/release/origami_ffi.dll out/native-out/
+          cp target/ghostty-vt/1.0.1-windows-x86_64/ghostty-vt.dll out/native-out/
           cp target/x86_64-pc-windows-gnu/release/origami.exe out/native-out/
           cp apps/windows/native/target/x86_64-pc-windows-gnu/release/origami_present.dll out/native-out/
           ls -la out out/*

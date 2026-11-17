@@ -26,12 +26,21 @@ pub struct CellInfo {
 }
 
 /// Which emulator a `Terminal` runs on.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EngineKind {
-    #[default]
     Vt100,
     #[cfg(feature = "ghostty")]
     Ghostty,
+}
+
+impl Default for EngineKind {
+    /// libghostty-vt, unless the crate is built without it.
+    fn default() -> Self {
+        #[cfg(feature = "ghostty")]
+        return EngineKind::Ghostty;
+        #[cfg(not(feature = "ghostty"))]
+        EngineKind::Vt100
+    }
 }
 
 pub trait Engine: Send {

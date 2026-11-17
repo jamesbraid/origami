@@ -20,6 +20,8 @@ pub struct Ghostty {
 // that guards the `Terminal`, so a hand-off between threads is sequential.
 unsafe impl Send for Ghostty {}
 
+const MAX_REPLIES: usize = 4096;
+
 unsafe extern "C" fn write_pty(
     _t: g::GhosttyTerminal,
     ud: *mut c_void,
@@ -27,11 +29,18 @@ unsafe extern "C" fn write_pty(
     len: usize,
 ) {
     let out = &mut *(ud as *mut Replies);
-    out.0
-        .extend_from_slice(std::slice::from_raw_parts(data, len));
+    // Replies are drained after every feed; this bounds a flood of queries.
+    if out.0.len() + len <= MAX_REPLIES {
+        out.0
+            .extend_from_slice(std::slice::from_raw_parts(data, len));
+    }
 }
 
 impl Ghostty {
+    /// Lines asked for beyond SCROLLBACK: ghostty drops whole pages, up to
+    /// about 1500 lines at 20 columns.
+    const SCROLLBACK_SLACK: usize = 2048;
+
     pub fn new(rows: u16, cols: u16) -> Self {
         let (rows, cols) = (rows.max(1), cols.max(1));
         let mut term = ptr::null_mut();
@@ -39,8 +48,8 @@ impl Ghostty {
         assert_eq!(r, g::GHOSTTY_SUCCESS, "ghostty_terminal_new");
         let mut replies = Box::<Replies>::default();
         let ud = &mut *replies as *mut Replies as *mut c_void;
-        // The byte limit defaults to one page, so lift it and cap by lines.
-        let (lines, bytes): (usize, usize) = (SCROLLBACK, usize::MAX);
+        // The byte limit defaults to one page: lift it and cap by lines.
+        let (lines, bytes): (usize, usize) = (SCROLLBACK + Self::SCROLLBACK_SLACK, usize::MAX);
         unsafe {
             g::ghostty_terminal_set(term, g::OPT_USERDATA, ud);
             g::ghostty_terminal_set(
