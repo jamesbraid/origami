@@ -12,6 +12,7 @@ mod control;
 mod cube;
 mod engines;
 mod frame;
+mod hinv;
 mod keys;
 mod terminal;
 mod wake;

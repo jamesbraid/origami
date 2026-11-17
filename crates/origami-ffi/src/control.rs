@@ -477,6 +477,17 @@ impl OrigamiCore {
             .collect())
     }
 
+    /// The About egg's `hinv`-style host inventory. Reads the disk and may
+    /// open the GPU: call off the UI thread. Nothing leaves the machine.
+    pub fn hinv(&self) -> String {
+        let machines = self
+            .core
+            .list_machines()
+            .ok()
+            .map(|l| l.into_iter().map(|m| (m.name, m.product)).collect());
+        crate::hinv::format(&crate::hinv::gather(self.core.root(), machines))
+    }
+
     /// Long. The finished operation's `result_machine` is the new key.
     pub fn create_machine(&self, request: OrigamiCreateRequest) -> Res<Arc<OrigamiOperation>> {
         let operation = self.core.create_machine(f::CreateRequest {

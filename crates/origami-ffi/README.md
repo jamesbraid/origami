@@ -49,6 +49,8 @@ it under a lock the observer takes.
   `result_machine()` is the new key.
 - `open_machine(key) -> OrigamiMachine` (same machine, same object state);
   `start_machine(key)` opens, starts and waits.
+- `hinv()`: the About egg's text, an IRIX-style inventory of the host and library.
+  Reads the disk and may open the GPU: call off the UI thread.
 - `shutdown()`.
 
 `OrigamiMachine`: `key()`, `name()`, `view()` (state `NotRunning | Starting |
