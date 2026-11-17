@@ -94,6 +94,14 @@ public static class Selftest
         string refused = "";
         try { await core.CreateMachineAsync("a/b", offers[0].Id); } catch (Exception e) { refused = e.Message; }
         Check("new machine: a name with a slash is refused with a reason", refused.Length > 0 && w.LibraryCount == 3, refused);
+
+        // --- engine choice: a named engine is used, an unknown one is refused ---
+        var eng = offers[0].Engine;
+        var viaEngine = await core.CreateMachineAsync("Selftest engine", offers[0].Id, eng);
+        string noEngine = "";
+        try { await core.CreateMachineAsync("Selftest nowhere", offers[0].Id, "no-such-engine"); } catch (Exception e) { noEngine = e.Message; }
+        Check("engine: a create names its engine; an unknown engine is refused", viaEngine.Length > 0 && noEngine.Length > 0 && NewMachine.EnginesFor(offers, offers[0].Id).Contains(eng), $"engine={eng} refused='{noEngine}'");
+
         key = w.SelectedKey!;
 
         // --- start ---

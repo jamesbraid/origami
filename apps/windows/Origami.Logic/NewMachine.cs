@@ -8,6 +8,13 @@ public static class NewMachine
 {
     public static string Label(Offering o) => $"{o.Id} ({o.Cpus} CPU{(o.Cpus == 1 ? "" : "s")})";
 
+    /// <summary>One entry per offering ID: two engines may list the same machine.</summary>
+    public static IReadOnlyList<Offering> Models(IReadOnlyList<Offering> offerings) => offerings.DistinctBy(o => o.Id).ToList();
+
+    /// <summary>The engines that offer <paramref name="id"/>, in catalogue order.</summary>
+    public static IReadOnlyList<string> EnginesFor(IReadOnlyList<Offering> offerings, string id) =>
+        offerings.Where(o => o.Id == id).Select(o => o.Engine).Distinct().ToList();
+
     /// <summary>The Octane2 VPro when offered, else the first.</summary>
     public static int DefaultIndex(IReadOnlyList<Offering> offerings)
     {

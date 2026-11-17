@@ -130,14 +130,14 @@ public sealed class UniffiCoreClient : ICoreClient
     public IReadOnlyList<Offering> Catalogue() => _core.Catalogue()
         .Select(o => new Offering(o.Id, o.Engine, o.Product, o.Topology, (int)o.Nodes, (int)o.Cpus)).ToList();
 
-    public Task<string> CreateMachineAsync(string name, string offeringId, CancellationToken ct = default) => Task.Run(() =>
+    public Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default) => Task.Run(() =>
     {
 #if ORIGAMI_FAKE
         var prom = _fakeProm;
 #else
         string? prom = null;
 #endif
-        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null, null));
+        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null, engine));
         var reg = ct.Register(() => op.Cancel());
         try
         {

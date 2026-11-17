@@ -17,8 +17,9 @@ public interface ICoreClient : IDisposable
 
     /// <summary>What can be created. The first call may start an engine's program: call it off the UI thread.</summary>
     IReadOnlyList<Offering> Catalogue();
-    /// <summary>Creates a machine from an offering and returns its key; the core fetches any firmware.</summary>
-    Task<string> CreateMachineAsync(string name, string offeringId, CancellationToken ct = default);
+    /// <summary>Creates a machine from an offering and returns its key; the core fetches any firmware. <paramref name="engine"/> null takes the first engine that offers it.</summary>
+    Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default);
+
 
     Task StartAsync(string key, CancellationToken ct = default);
     /// <summary>Clean stop. Can take minutes while a disk folds.</summary>

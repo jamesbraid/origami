@@ -173,5 +173,16 @@ Test("diagnostics report: lists engine, state, heads, console and screen counts"
         if (!r2.Contains(want)) throw new Exception("missing: " + want + "\n" + r2);
 });
 
+Test("new machine: one model per id, engines that offer it", () =>
+{
+    var a = new Offering("x", "qemu", "P", "t", 1, 1);
+    var b = new Offering("x", "iris", "P", "t", 1, 1);
+    var c = new Offering("y", "qemu", "P", "t", 1, 1);
+    var all = new[] { a, b, c };
+    Eq(2, NewMachine.Models(all).Count, "models");
+    Eq("qemu,iris", string.Join(",", NewMachine.EnginesFor(all, "x")), "engines of x");
+    Eq("qemu", string.Join(",", NewMachine.EnginesFor(all, "y")), "engines of y");
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;
