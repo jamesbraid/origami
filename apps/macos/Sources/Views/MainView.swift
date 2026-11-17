@@ -55,8 +55,7 @@ struct EmptyDetail: View {
     var body: some View {
         VStack(spacing: 12) {
             // At rest: it draws one frame and costs nothing more.
-            CubeHost(look: .about).frame(width: 140, height: 140).clipShape(RoundedRectangle(cornerRadius: 10))
-                .accessibilityHidden(true)
+            CubeHost(look: .empty).frame(width: 140, height: 140).accessibilityHidden(true)
             Text(app.models.isEmpty ? "No machines yet" : "Choose a machine")
                 .font(.title2.weight(.semibold))
             if app.models.isEmpty {

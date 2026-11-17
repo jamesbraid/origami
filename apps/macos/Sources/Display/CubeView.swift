@@ -12,6 +12,8 @@ enum CubeLook: Equatable {
     case starting(chassis: UInt32)
     /// The scene for the appearance, at rest, or the running machine's screen.
     case about
+    /// The studio look at rest, over the window's own colour so no square shows.
+    case empty
 }
 
 func sceneText(_ index: UInt32, _ field: Int32) -> String {
@@ -44,6 +46,8 @@ final class CubeNSView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         metalLayer.contentsScale = 1
+        metalLayer.isOpaque = false
+        metalLayer.backgroundColor = NSColor.clear.cgColor
         // Reduce Motion can change while the view is up.
         motionObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -113,6 +117,13 @@ final class CubeNSView: NSView {
                 return v[0] << 16 | v[1] << 8 | v[2]
             }
             s.granite_light_rgb = mix(1.0); s.granite_dark_rgb = mix(0.8)
+        case .empty:
+            // The core always draws a granite backdrop until it can omit it; both tones the window's
+            // colour make it invisible. The layer is non-opaque for when the backdrop can be dropped.
+            let tones = Self.windowColour(dark: dark)
+            s.granite_light_rgb = tones; s.granite_dark_rgb = tones
+            s.env = UInt32(ORIGAMI_CUBE_ENV_STUDIO)
+            s.light_look = dark ? 0 : 1
         case .about:
             let tones = dark ? Granite.neutral : Granite.light
             s.granite_light_rgb = tones.0; s.granite_dark_rgb = tones.1
@@ -125,6 +136,16 @@ final class CubeNSView: NSView {
             }
         }
         origami_cube_set_style(cube, &s)
+    }
+
+    /// The window background as 0xRRGGBB in the given appearance.
+    private static func windowColour(dark: Bool) -> UInt32 {
+        var rgb: UInt32 = 0
+        NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
+            let c = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? .black
+            rgb = UInt32(c.redComponent * 255) << 16 | UInt32(c.greenComponent * 255) << 8 | UInt32(c.blueComponent * 255)
+        }
+        return rgb
     }
 
     // MARK: attach and draw

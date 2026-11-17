@@ -216,6 +216,11 @@ func runSelfTest(library: String, out: String) {
         check("cube-starting-draws", cube.cube != nil && studio != nil && colours(studio) > 8 && first.moving,
               ["error": cube.lastError, "size": studio.map { "\($0.width)x\($0.height)" } ?? "none",
                "colours": colours(studio), "spinning": first.moving])
+        cube.configure(look: .empty, dark: true, machine: nil)
+        let emptyView = cube.present()
+        let emptyPic = cube.readback()
+        check("empty-library-cube-is-studio-at-rest", !emptyView.moving && emptyPic != nil && colours(emptyPic) > 8,
+              ["at_rest": !emptyView.moving, "opaque_layer": cube.metalLayer.isOpaque])
         cube.configure(look: .about, dark: true, machine: nil)
         let dusk = cube.present()
         let duskPic = cube.readback()
