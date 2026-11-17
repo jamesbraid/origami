@@ -30,6 +30,8 @@ pub struct CellInfo {
 pub enum EngineKind {
     #[default]
     Vt100,
+    #[cfg(feature = "ghostty")]
+    Ghostty,
 }
 
 pub trait Engine: Send {

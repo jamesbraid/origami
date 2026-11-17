@@ -2326,6 +2326,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ghostty-vt-sys"
+version = "1.0.1"
+
+[[package]]
 name = "gif"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4952,6 +4956,7 @@ dependencies = [
 name = "origami-terminal"
 version = "0.0.0"
 dependencies = [
+ "ghostty-vt-sys",
  "vt100",
 ]
 

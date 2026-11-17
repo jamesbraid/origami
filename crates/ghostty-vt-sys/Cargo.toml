@@ -1,0 +1,9 @@
+[package]
+name = "ghostty-vt-sys"
+version = "1.0.1"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+links = "ghostty-vt"
+build = "build.rs"

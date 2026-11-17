@@ -24,6 +24,8 @@ qemu = ["dep:origami-qemu"]
 render = ["dep:origami-render", "dep:origami-display", "dep:wgpu"]
 # iris machines too, hosted by the runner (`origami` built with its `iris` feature).
 iris = ["qemu", "dep:origami-iris"]
+# Runs terminals on libghostty-vt instead of vt100 (see ghostty-vt-sys).
+ghostty = ["origami-terminal/ghostty"]
 
 [dependencies]
 origami-core = { path = "../origami-core" }

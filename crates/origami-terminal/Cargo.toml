@@ -6,5 +6,11 @@ edition = "2021"
 rust-version = "1.95"
 license = "BSD-3-Clause"
 
+[features]
+# libghostty-vt as a second engine; needs the library at link time
+# (see ../ghostty-vt-sys/README.md).
+ghostty = ["dep:ghostty-vt-sys"]
+
 [dependencies]
 vt100 = "0.18"
+ghostty-vt-sys = { path = "../ghostty-vt-sys", optional = true }

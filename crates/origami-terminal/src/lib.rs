@@ -3,11 +3,15 @@
 //! touches a window.
 
 mod engine;
+#[cfg(feature = "ghostty")]
+mod ghostty_engine;
 mod vt100_engine;
 
 pub use engine::{CellInfo, Colour, Engine, EngineKind};
 pub use vt100_engine::SCROLLBACK;
 
+#[cfg(feature = "ghostty")]
+pub use ghostty_engine::Ghostty;
 pub use vt100_engine::Vt100;
 
 /// A cell of the visible screen, row first.
@@ -34,6 +38,8 @@ impl Terminal {
     pub fn with_engine(kind: EngineKind, rows: u16, cols: u16) -> Self {
         let engine: Box<dyn Engine> = match kind {
             EngineKind::Vt100 => Box::new(Vt100::new(rows, cols)),
+            #[cfg(feature = "ghostty")]
+            EngineKind::Ghostty => Box::new(Ghostty::new(rows, cols)),
         };
         Terminal {
             engine,
@@ -353,6 +359,8 @@ mod tests {
 
     fn each(f: impl Fn(EngineKind)) {
         f(EngineKind::Vt100);
+        #[cfg(feature = "ghostty")]
+        f(EngineKind::Ghostty);
     }
 
     #[test]
@@ -481,5 +489,52 @@ mod tests {
         // The cursor-key mode travels in the same value.
         t.feed(b"\x1b[?1h");
         assert!(t.key_modes().app_cursor);
+    }
+
+    #[cfg(feature = "ghostty")]
+    #[test]
+    fn ghostty_answers_queries_and_reports_links_and_wide_cells() {
+        let mut t = Terminal::with_engine(EngineKind::Ghostty, 5, 20);
+        t.feed(b"\x1b[c\x1b[6n");
+        let reply = String::from_utf8(t.take_replies()).unwrap();
+        assert!(
+            reply.starts_with("\x1b[?") && reply.ends_with("\x1b[1;1R"),
+            "{reply:?}"
+        );
+        assert!(t.take_replies().is_empty());
+        t.feed(b"\x1b[2J\x1b[H\x1b]8;;http://x.test/\x1b\\ab\x1b]8;;\x1b\\c\xe6\xbc\xa2");
+        assert_eq!(t.hyperlink(0, 1).as_deref(), Some("http://x.test/"));
+        assert_eq!(t.hyperlink(0, 2), None);
+        let (wide, tail) = (t.cell(0, 3).unwrap(), t.cell(0, 4).unwrap());
+        assert!(wide.wide && wide.text == "\u{6f22}");
+        assert!(tail.continuation && tail.text.is_empty());
+        // A background-only cell keeps its colour outside the style.
+        t.feed(b"\x1b[2J\x1b[H\x1b[44m\x1b[K");
+        assert_eq!(t.cell(0, 3).unwrap().bg, Colour::Idx(4));
+    }
+
+    #[cfg(feature = "ghostty")]
+    #[test]
+    fn a_ghostty_terminal_can_move_between_threads() {
+        let mut t = Terminal::with_engine(EngineKind::Ghostty, 5, 20);
+        t.feed(b"hi");
+        let t = std::thread::spawn(move || {
+            t.feed(b"!");
+            t
+        })
+        .join()
+        .unwrap();
+        assert_eq!(t.row_text(0), "hi!");
+    }
+
+    #[cfg(feature = "ghostty")]
+    #[test]
+    fn replies_to_history_are_dropped() {
+        let mut t = Terminal::with_engine(EngineKind::Ghostty, 5, 20);
+        t.set_history_end(3);
+        // The first query (device attributes) is history, the second is live.
+        assert_eq!(t.feed_at(0, b"\x1b[c\x1b[6n"), b"\x1b[1;1R");
+        assert!(t.feed_at(0, b"\x1b[c").is_empty());
+        assert!(t.feed_at(3, b"\x1b[c").starts_with(b"\x1b[?"));
     }
 }
