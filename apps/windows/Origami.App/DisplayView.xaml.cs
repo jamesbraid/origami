@@ -32,6 +32,8 @@ public sealed partial class DisplayView : UserControl
     byte[] _pixels = Array.Empty<byte>();
     Frame.Run[] _runs = Array.Empty<Frame.Run>();
     ulong _lastSeq;
+    DispatcherQueueTimer? _retry; // pumps again once a present error's hold has passed
+    int _failures; // consecutive failed pumps; the retry timer gives up after a few so a dead view is not polled forever
     long _holdUntil; // after a present error, skip pumps for a second instead of failing every wake
 
     readonly KeyboardState _keys = new();
@@ -90,6 +92,10 @@ public sealed partial class DisplayView : UserControl
         if (_hwnd == IntPtr.Zero) return false;
         Views[_hwnd] = this;
         _frames = core.OpenFrames(key);
+        _retry = DispatcherQueue.CreateTimer();
+        _retry.Interval = TimeSpan.FromMilliseconds(1000);
+        _retry.IsRepeating = false;
+        _retry.Tick += (_, _) => Pump();
         _hidden = false; _forcePlace = true;
         Place();
 
@@ -138,6 +144,7 @@ public sealed partial class DisplayView : UserControl
         if (Attached) { try { LoseFocus(); } catch (Exception e) { LastError = "release on detach: " + e.Message; } }
         if (_ptr.Captured) { _ptr.ForceRelease(); EndCapture(); }
         _stop = true;
+        _retry?.Stop(); _retry = null;
         _waiter?.Join(1000); _waiter = null;
         // The view goes before the window it draws into.
         if (_view != IntPtr.Zero) { Frame.origami_view_detach(_view); _view = IntPtr.Zero; }
@@ -235,12 +242,14 @@ public sealed partial class DisplayView : UserControl
     void Pump()
     {
         Interlocked.Exchange(ref _pumpQueued, 0);
-        if (_frames is null || Environment.TickCount64 < _holdUntil) return;
+        if (_frames is null) return;
+        if (Environment.TickCount64 < _holdUntil) { if (_failures <= 10) _retry?.Start(); return; }
         if (_view != IntPtr.Zero)
         {
             for (int i = 0; i < 3; i++)
             {
-                if (Frame.origami_view_present(_view, out var drawn) != Frame.Ok) { LastError = "view_present: " + Frame.LastError(); _holdUntil = Environment.TickCount64 + 1000; return; }
+                if (Frame.origami_view_present(_view, out var drawn) != Frame.Ok) { LastError = "view_present: " + Frame.LastError(); _holdUntil = Environment.TickCount64 + 1000; if (++_failures <= 10) _retry?.Start(); return; }
+                _failures = 0;
                 if (drawn == Frame.DrawnPresented) Presents++;
                 if (drawn != Frame.DrawnAgain) break;
                 if (i == 2) _ui?.TryEnqueue(Pump); // still asking for another call
@@ -263,7 +272,7 @@ public sealed partial class DisplayView : UserControl
                     _runs = new Frame.Run[Math.Max(o.RunCount, (uint)_runs.Length)];
                     continue;
                 }
-                if (st != Frame.Ok) { LastError = "frame_take: " + Frame.LastError(); _holdUntil = Environment.TickCount64 + 1000; break; }
+                if (st != Frame.Ok) { LastError = "frame_take: " + Frame.LastError(); _holdUntil = Environment.TickCount64 + 1000; if (++_failures <= 10) _retry?.Start(); break; }
                 if (o.Kind != Frame.FrameRows) break;
                 if (o.Resized != 0 && (o.Width != _headW || o.Height != _headH))
                 {
