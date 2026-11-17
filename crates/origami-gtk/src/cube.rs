@@ -4,8 +4,8 @@
 use crate::granite::{self, tone};
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use origami_render::{scenes, CubeView, Env, Gpu, Pointer, Style};
-use std::cell::{Cell, RefCell};
+use origami_render::{scenes, CubeView, Env, Gpu, Style};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::OnceLock;
 
@@ -39,7 +39,7 @@ pub fn starting_style(chassis: u32) -> Style {
     }
 }
 
-/// About's cube: the scene for the appearance, at rest until dragged.
+/// About's cube: the scene for the appearance, at rest.
 pub fn about_style(dark: bool) -> Style {
     let (light, dark_tone) = if dark {
         (tone(0x282a30), tone(0x1f2126))
@@ -127,49 +127,6 @@ impl Cube {
                 kick(w, &inner);
             }
         });
-        // The gestures find the widget through their own handle, so no
-        // closure holds it and the cube can be freed.
-        let drag = gtk::GestureDrag::new();
-        let origin = Rc::new(Cell::new((0.0f64, 0.0f64)));
-        let touch = |phase| {
-            let (inner, origin) = (inner.clone(), origin.clone());
-            move |g: &gtk::GestureDrag, dx: f64, dy: f64| {
-                let (x, y) = origin.get();
-                pointer(&inner, phase, x + dx, y + dy, g.current_event_time());
-                if let Some(w) = g.widget().and_then(|w| w.downcast::<gtk::Image>().ok()) {
-                    kick(&w, &inner);
-                }
-            }
-        };
-        drag.connect_drag_begin({
-            let (touch, origin) = (touch(Pointer::Press), origin.clone());
-            move |g, x, y| {
-                origin.set((x, y));
-                touch(g, 0.0, 0.0);
-            }
-        });
-        drag.connect_drag_update(touch(Pointer::Move));
-        drag.connect_drag_end(touch(Pointer::Release));
-        self.widget.add_controller(drag);
-        let click = gtk::GestureClick::new();
-        click.connect_pressed({
-            let inner = inner.clone();
-            move |g, n, _, _| {
-                let alt = g
-                    .current_event_state()
-                    .contains(gdk::ModifierType::ALT_MASK);
-                let Some(gpu) = gpu() else { return };
-                if n == 2 {
-                    pointer(&inner, Pointer::DoubleClick, 0.0, 0.0, 0);
-                } else if alt {
-                    inner.borrow_mut().view.next_scene(gpu);
-                }
-                if let Some(w) = g.widget().and_then(|w| w.downcast::<gtk::Image>().ok()) {
-                    kick(&w, &inner);
-                }
-            }
-        });
-        self.widget.add_controller(click);
     }
 }
 
@@ -178,13 +135,6 @@ fn reduced(mut style: Style) -> Style {
     let animate = gtk::Settings::default().is_some_and(|s| s.is_gtk_enable_animations());
     style.reduce_motion = !animate;
     style
-}
-
-fn pointer(inner: &Rc<RefCell<Inner>>, phase: Pointer, x: f64, y: f64, ms: u32) {
-    inner
-        .borrow_mut()
-        .view
-        .pointer(phase, x as f32, y as f32, u64::from(ms));
 }
 
 fn resize(w: &gtk::Image, inner: &Rc<RefCell<Inner>>) {
