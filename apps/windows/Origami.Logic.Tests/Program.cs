@@ -266,5 +266,15 @@ Test("terminal keys: virtual keys that are not text", () =>
     Eq(true, TermKeys.FromVirtualKey(0x41) is null, "a letter is text");
 });
 
+Test("stills: topology first, product second, colour from the manifest", () =>
+{
+    var c = StillCatalog.Parse("""{"topologies":{"octane2":"octane2","tezro-ip53":"tezro-tower"},"products":{"tezro":"tezro-tower","o2":"o2"},"stills":{"octane2":{"name":"Octane2","colour":"#2e354e"},"tezro-tower":{"name":"Tezro","colour":"#4c629c"},"o2":{"name":"O2","colour":"#3d5a6d"}}}""");
+    Eq(0x2E354Eu, c.Resolve("octane2", "octane2")!.Rgb);
+    Eq("tezro-tower", c.Resolve("tezro", "tezro-ip53")!.Id);
+    Eq("tezro-tower", c.Resolve("tezro", null)!.Id, "product fallback");
+    Eq("o2", c.Resolve("o2", "unknown-topology")!.Id, "unknown topology falls back to the product");
+    Eq(true, c.Resolve("fake", null) is null, "no still for an unknown machine");
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;

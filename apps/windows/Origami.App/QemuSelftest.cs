@@ -161,6 +161,8 @@ public static class Selftest
         File.WriteAllText(Path.Combine(dir, "ready.txt"), "ready");
         await Until(() => File.Exists(Path.Combine(dir, "done.txt")), 15_000);
 
+        Add("library: the machine's still is shown", w.LibraryStills == 1, $"stills in the library: {w.LibraryStills}");
+        Add("library: the chassis colour is the measured one (octane2 #2e354e)", w.ChassisHex(key) == "#2e354e", w.ChassisHex(key));
         IdentityChecks.OutDir = dir;
         foreach (var (name, ok, detail) in await IdentityChecks.About(w, Until)) Add(name, ok, detail);
         // Pause and resume the real machine; the picture keeps its head.

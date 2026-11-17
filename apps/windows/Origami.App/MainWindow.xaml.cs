@@ -56,7 +56,11 @@ public sealed partial class MainWindow : Window
             })) _refreshQueued = 0;
         };
 
-        Root.ActualThemeChanged += (_, _) => Refresh();
+        Root.ActualThemeChanged += (_, _) =>
+        {
+            foreach (var (img, id) in _rowStills) img.Source = RowArt(id);
+            Refresh();
+        };
         Activated += (_, a) => { if (a.WindowActivationState == WindowActivationState.Deactivated) Display.LoseFocus(); };
         AppWindow.Closing += OnClosing;
         Library.SelectedIndex = 0;
@@ -102,6 +106,49 @@ public sealed partial class MainWindow : Window
 
     // ---- library ----------------------------------------------------------------------------
 
+    // ---- stills and measured colours --------------------------------------------------------
+
+    static readonly string IdentityDir = Path.Combine(AppContext.BaseDirectory, "identity");
+    readonly StillCatalog _stills = LoadStills();
+    readonly List<(Image Img, string Id)> _rowStills = new();
+    public int LibraryStills { get; private set; }
+    public string ChassisHex(string key) { var c = ChassisOf(_core.Machines().First(x => x.Key == key)); return $"#{c.R:x2}{c.G:x2}{c.B:x2}"; }
+    /// <summary>The screen position of a library row's centre, for a real click in a self-test.</summary>
+    public (int X, int Y)? RowCenter(string key)
+    {
+        foreach (ListViewItem it in Library.Items)
+            if ((string?)it.Tag == key)
+            {
+                var s = Root.XamlRoot.RasterizationScale;
+                var p = it.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(it.ActualWidth / 2, it.ActualHeight / 2));
+                var pt = new Win32.POINT { X = (int)(p.X * s), Y = (int)(p.Y * s) };
+                Win32.ClientToScreen(Hwnd, ref pt);
+                return (pt.X, pt.Y);
+            }
+        return null;
+    }
+    public bool HeroShowsStill => HeroImage.Source != null;
+
+    static StillCatalog LoadStills()
+    {
+        try { return StillCatalog.Parse(File.ReadAllText(Path.Combine(IdentityDir, "stills", "manifest.json"))); }
+        catch (Exception e) when (e is IOException or System.Text.Json.JsonException) { App.Log("no stills manifest: " + e.Message); return StillCatalog.Empty; }
+    }
+
+    Still? StillOf(MachineSummary m) => _stills.Resolve(m.Product, m.Topology);
+
+    static Microsoft.UI.Xaml.Media.Imaging.BitmapImage? Art(string id, string file)
+    {
+        var path = Path.Combine(IdentityDir, "stills", id, file);
+        return File.Exists(path) ? new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(path)) : null;
+    }
+
+    Microsoft.UI.Xaml.Media.Imaging.BitmapImage? RowArt(string id) => Art(id, $"34-{(Dark ? "dark" : "light")}@2x.png");
+
+    /// <summary>The measured chassis colour from the stills manifest; a hash-derived one only for a machine with no still.</summary>
+    Color ChassisOf(MachineSummary m) =>
+        StillOf(m) is { } s ? Color.FromArgb(255, (byte)(s.Rgb >> 16), (byte)(s.Rgb >> 8), (byte)s.Rgb) : ChassisColor(m.Product);
+
     static readonly (string Match, Color Color)[] Chassis =
     {
         ("octane2", Color.FromArgb(255, 0x3B, 0x6F, 0xD1)),
@@ -135,7 +182,7 @@ public sealed partial class MainWindow : Window
     public void Reload()
     {
         _rebuilding = true;
-        try { Library.Items.Clear(); _pills.Clear(); BuildLibrary(); Library.SelectedIndex = 0; }
+        try { Library.Items.Clear(); _pills.Clear(); _rowStills.Clear(); BuildLibrary(); Library.SelectedIndex = 0; }
         finally { _rebuilding = false; }
         Refresh();
     }
@@ -150,7 +197,7 @@ public sealed partial class MainWindow : Window
         _rebuilding = true;
         try
         {
-            Library.Items.Clear(); _pills.Clear();
+            Library.Items.Clear(); _pills.Clear(); _rowStills.Clear();
             BuildLibrary();
             Library.SelectedIndex = sel is not null && keys.IndexOf(sel) is var at and >= 0 ? at : (keys.Count > 0 ? 0 : -1);
         }
@@ -159,9 +206,18 @@ public sealed partial class MainWindow : Window
 
     void BuildLibrary()
     {
+        LibraryStills = 0;
         foreach (var m in _core.Machines())
         {
-            var glyph = new Border { Width = 6, Height = 34, CornerRadius = new CornerRadius(3), Background = new SolidColorBrush(ChassisColor(m.Product)) };
+            FrameworkElement glyph = new Border { Width = 6, Height = 34, CornerRadius = new CornerRadius(3), Background = new SolidColorBrush(ChassisOf(m)) };
+            if (StillOf(m) is { } still && RowArt(still.Id) is { } img)
+            {
+                // The 34 pt treated still, shown as it is: no badge, whatever the machine's review status.
+                var pic = new Image { Width = 34, Height = 34, Source = img };
+                _rowStills.Add((pic, still.Id));
+                glyph = pic;
+                LibraryStills++;
+            }
             var name = new TextBlock { Text = m.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
             var detail = new TextBlock { Text = Detail(m), FontSize = 12, Opacity = 0.7 };
             var ptext = new TextBlock { Foreground = new SolidColorBrush(Colors.White), FontSize = 11 };
@@ -527,13 +583,19 @@ public sealed partial class MainWindow : Window
         }
 
         var key = SelectedKey;
+        EmptyPanel.Visibility = Visibility.Collapsed;
         // The cube holds a child window and a GPU surface, so it lives only while the starting pane shows.
         var starting = key != null && !_prefsOpen && _core.Status(key).State == MachineState.Starting;
         if (!starting) StartCube.Close();
         HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Visibility.Collapsed;
         if (_pane is not null) _pane.Visibility = Visibility.Collapsed;
         Settings.Visibility = _prefsOpen ? Visibility.Visible : Visibility.Collapsed;
-        if (key is null) return;
+        if (key is null)
+        {
+            EmptyPanel.Visibility = Visibility.Visible;
+            EmptyImage.Source = Art(_stills.Resolve("octane2", null)?.Id ?? "octane2", "hero@2x.png");
+            return;
+        }
 
         var info = _core.Machines().First(m => m.Key == key);
         var st = _core.Status(key);
@@ -549,7 +611,9 @@ public sealed partial class MainWindow : Window
         HeroName.Text = info.Name;
         HeroDetail.Text = Detail(info);
         BuildCards(info);
-        HeroBand.Fill = new SolidColorBrush(ChassisColor(info.Product));
+        HeroBand.Fill = new SolidColorBrush(ChassisOf(info));
+        HeroImage.Source = StillOf(info) is { } hs ? Art(hs.Id, "hero@2x.png") : null;
+        HeroImage.Visibility = HeroImage.Source is null ? Visibility.Collapsed : Visibility.Visible;
         StageText.Text = st.Reason;
 
         if (_prefsOpen) { Display.Hide(); return; }
@@ -563,7 +627,7 @@ public sealed partial class MainWindow : Window
             case MachineState.Starting:
                 Detach();
                 StartingPanel.Visibility = Visibility.Visible;
-                ShowStartCube();
+                ShowStartCube(info);
                 break;
             case var _ when !info.HasDisplay: // serial only: the console is the machine's view
                 Display.Detach(); _attachedKey = _modeKey = null;
@@ -592,12 +656,12 @@ public sealed partial class MainWindow : Window
         return Dark ? 0x202020u : 0xF3F3F3u;
     }
 
-    /// <summary>The live cube, spinning, on the window's own background, in the window's light or dark look.</summary>
-    void ShowStartCube()
+    /// <summary>The live cube, spinning, on the window's own background, with the machine's chassis colour in the studio horizon.</summary>
+    void ShowStartCube(MachineSummary info)
     {
         var reduce = !new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
         StartCube.WindowHandle = () => Hwnd;
-        StartCube.SetStyle(Frame.CubeEnvStudio, 0, null, Dark, true, reduce, WindowBackground());
+        StartCube.SetStyle(Frame.CubeEnvStudio, 0, StillOf(info)?.Rgb, Dark, true, reduce, WindowBackground());
         StartCube.Show(true);
     }
 
@@ -608,7 +672,7 @@ public sealed partial class MainWindow : Window
         Display.Hide(); // the screen's child window is not hidden by collapsing its pane
         HeroPanel.Visibility = Display.Visibility = Visibility.Collapsed;
         StartingPanel.Visibility = Visibility.Visible;
-        ShowStartCube();
+        ShowStartCube(_core.Machines().First(x => x.Key == SelectedKey));
     }
     public CubeHost StartCubeForTest => StartCube;
     public void Restore() => Refresh();

@@ -61,12 +61,20 @@
             <Grid x:Name="Stage" Grid.Column="1" Grid.Row="1">
                 <!-- Stopped: the hero with Start. -->
                 <StackPanel x:Name="HeroPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                    <Image x:Name="HeroImage" Width="240" Height="180" Stretch="Uniform" AutomationProperties.AutomationId="hero.image"/>
                     <Rectangle x:Name="HeroBand" Height="6" Width="260" RadiusX="3" RadiusY="3"/>
                     <TextBlock x:Name="HeroName" Style="{ThemeResource TitleTextBlockStyle}" HorizontalAlignment="Center"/>
                     <TextBlock x:Name="HeroDetail" Opacity="0.7" HorizontalAlignment="Center"/>
                     <StackPanel x:Name="Cards" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"/>
                     <Button x:Name="HeroStart" Content="Start" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
                             AutomationProperties.AutomationId="hero.start" MinWidth="120"/>
+                </StackPanel>
+
+                <!-- No machines yet. -->
+                <StackPanel x:Name="EmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
+                    <Image x:Name="EmptyImage" Width="240" Height="180" Stretch="Uniform"/>
+                    <TextBlock Text="No machines yet" Style="{ThemeResource SubtitleTextBlockStyle}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Create one with the origami command line; it appears here." Opacity="0.7" HorizontalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Starting: the live cube on granite, then the screen. -->

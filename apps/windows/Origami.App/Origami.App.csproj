@@ -24,6 +24,12 @@
     <ProjectReference Include="../Origami.Logic/Origami.Logic.csproj" />
   </ItemGroup>
   <!-- Generated/origami_ffi.cs (uniffi-bindgen-cs output, made in CI) is compiled by the default globs. -->
+  <!-- The shared stills the app shows: the library row (34 pt, light or dark), the hero, and the manifest that names them. -->
+  <ItemGroup>
+    <Content Include="../../../resources/identity/stills/manifest.json" Link="identity/stills/manifest.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../resources/identity/stills/**/34-*@2x.png;../../../resources/identity/stills/**/hero@2x.png"
+             Link="identity/stills/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <!-- The licence About prints. -->
   <ItemGroup>
     <Content Include="../../../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />

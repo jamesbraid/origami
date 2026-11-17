@@ -85,6 +85,17 @@ public static class Selftest
         var key = w.SelectedKey!;
         Check("a machine is selected", !string.IsNullOrEmpty(key), key);
 
+        // --- two machines of one product: a real click on each row selects that row ---
+        var keys2 = core.Machines().Select(x => x.Key).ToList();
+        var okRows = keys2.Count == 2;
+        foreach (var target in keys2.Concat(keys2.Take(1)).ToList()) // a, b, a: never the same row twice running, which is a double click
+        {
+            if (w.RowCenter(target) is not { } rc) { okRows = false; break; }
+            Win.MouseAbs(rc.X, rc.Y); await Task.Delay(120); Win.MouseButton(true); Win.MouseButton(false);
+            okRows &= await Until(() => w.SelectedKey == target, 2000);
+        }
+        Check("library: clicking each of two same-product rows selects that row, in both orders", okRows, $"selected {w.SelectedKey}");
+
         // --- new machine: the catalogue, a create, and the core's refusal of a bad name ---
         var offers = core.Catalogue();
         Check("new machine: the catalogue offers machines", offers.Count > 0 && NewMachine.DefaultIndex(offers) < offers.Count, string.Join(",", offers.Select(NewMachine.Label)));
