@@ -232,7 +232,10 @@ impl MachineUi {
         root.add_named(&letterbox, Some("screen"));
 
         let pointer = app.prefs.borrow().pointer_for(&entry.dir);
-        let view = app.cfg.view_scale.unwrap_or_default();
+        let view = app
+            .cfg
+            .view_scale
+            .unwrap_or_else(|| app.prefs.borrow().view_for(&entry.dir));
         let m = Rc::new(MachineUi {
             dir: entry.dir.clone(),
             name: entry.name.clone(),

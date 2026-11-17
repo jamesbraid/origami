@@ -2,6 +2,7 @@
 //! configuration. A missing or unreadable file means defaults: a preference
 //! must never keep the app from starting.
 
+use crate::view_scale::ViewScale;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,6 +34,9 @@ pub struct Prefs {
     /// Per-machine override, keyed by machine directory.
     #[serde(default)]
     pub machine_pointer: BTreeMap<String, PointerMode>,
+    /// Per-machine view scale, keyed by machine directory.
+    #[serde(default)]
+    pub machine_view: BTreeMap<String, ViewScale>,
     /// Machines the user asked to keep running when the window was closed.
     #[serde(default)]
     pub remember_close_choice: Option<String>,
@@ -78,6 +82,18 @@ impl Prefs {
         };
         self.save();
     }
+
+    pub fn view_for(&self, dir: &Path) -> ViewScale {
+        self.machine_view
+            .get(&dir.display().to_string())
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub fn set_view_for(&mut self, dir: &Path, view: ViewScale) {
+        self.machine_view.insert(dir.display().to_string(), view);
+        self.save();
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +110,18 @@ mod tests {
         assert_eq!(Prefs::load(&dir).pointer_for(m), PointerMode::Capture);
         p.set_pointer_for(m, None);
         assert_eq!(Prefs::load(&dir).pointer_for(m), PointerMode::Follow);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_view_scale_is_kept_per_machine_directory() {
+        let dir =
+            std::env::temp_dir().join(format!("origami-gtk-prefs-view-{}", std::process::id()));
+        let mut p = Prefs::load(&dir);
+        p.set_view_for(Path::new("/lib/a/o2"), ViewScale::X2);
+        let p = Prefs::load(&dir);
+        assert_eq!(p.view_for(Path::new("/lib/a/o2")), ViewScale::X2);
+        assert_eq!(p.view_for(Path::new("/lib/b/o2")), ViewScale::Fit);
         let _ = std::fs::remove_dir_all(dir);
     }
 

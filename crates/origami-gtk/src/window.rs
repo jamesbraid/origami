@@ -98,6 +98,19 @@ fn menu_model(commands: &[Command]) -> gio::Menu {
     menu
 }
 
+/// 1500x1000, or the first monitor's size less a margin when that is smaller.
+fn default_size() -> (i32, i32) {
+    let (mut w, mut h) = (1500, 1000);
+    let mon = gtk::gdk::Display::default()
+        .and_then(|d| d.monitors().item(0))
+        .and_then(|m| m.downcast::<gtk::gdk::Monitor>().ok());
+    if let Some(g) = mon.map(|m| m.geometry()) {
+        w = w.min(g.width() - 80);
+        h = h.min(g.height() - 120);
+    }
+    (w.max(640), h.max(480))
+}
+
 pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     let tv = adw::TabView::new();
     let bar = adw::TabBar::builder().view(&tv).autohide(true).build();
@@ -217,8 +230,8 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
 
     let win = adw::ApplicationWindow::builder()
         .application(&app.app)
-        .default_width(1400)
-        .default_height(900)
+        .default_width(default_size().0)
+        .default_height(default_size().1)
         .title("Origami")
         .content(&split)
         .build();
@@ -645,6 +658,7 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
         (id, Some(m)) if ViewScale::from_command(id).is_some() => {
             let view = ViewScale::from_command(id).unwrap_or_default();
             m.set_view(view);
+            app.prefs.borrow_mut().set_view_for(&m.dir, view);
             refresh(app);
         }
         ("window.close-tab", Some(_)) => {
