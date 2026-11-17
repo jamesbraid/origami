@@ -72,6 +72,7 @@ public sealed partial class MainWindow : Window
     // ---- accessors for the automation (self-test) hooks ------------------------------------
 
     public DisplayView DisplayViewForTest => Display;
+    public bool DisplayVisibleForTest => Display.Visibility == Visibility.Visible;
 
     /// <summary>A key pressed over the screen that matches a command's shortcut; true when a command took it.</summary>
     bool OnDisplayShortcut(int vk, bool ctrl, bool shift, bool alt)
@@ -422,7 +423,7 @@ public sealed partial class MainWindow : Window
                     break;
                 }
             case "view.library": LibraryColumn.Width = LibraryColumn.Width.Value > 0 ? new GridLength(0) : new GridLength(260); break;
-            case "window.console" when key != null: OpenConsole(key); break;
+            case "window.console" when key != null: if (_paneKey == key) _pane?.FocusTerminal(); else OpenConsole(key); break;
             case "machine.new" when !_dialogOpen: _ = RunAsync(NewMachineAsync); break;
             case "window.diagnostics" when key != null: OpenDiagnostics(key); break;
             case "machine.eject-cd":
@@ -473,7 +474,7 @@ public sealed partial class MainWindow : Window
         }
         w.Activate();
     }
-    public ConsoleWindow? ConsoleForTest(string key) => _consoles.GetValueOrDefault(key);
+    public ConsoleView? ConsoleForTest(string key) => _consoles.GetValueOrDefault(key)?.View;
 
     void OpenConsole(string key)
     {
@@ -503,19 +504,20 @@ public sealed partial class MainWindow : Window
         foreach (var m in _core.Machines())
         {
             if (!_pills.TryGetValue(m.Key, out var p)) continue;
-            p.Text.Text = Pill.Text(m.State);
+            p.Text.Text = Pill.Text(m.State, !m.HasDisplay);
             p.Pill.Background = new SolidColorBrush(Tones.For(Pill.Tone(m.State)));
         }
 
         var key = SelectedKey;
         HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Visibility.Collapsed;
+        if (_pane is not null) _pane.Visibility = Visibility.Collapsed;
         Settings.Visibility = _prefsOpen ? Visibility.Visible : Visibility.Collapsed;
         if (key is null) return;
 
         var info = _core.Machines().First(m => m.Key == key);
         var st = _core.Status(key);
         TitleText.Text = info.Name;
-        PillText.Text = Pill.Text(st.State);
+        PillText.Text = Pill.Text(st.State, !info.HasDisplay);
         PillBorder.Background = new SolidColorBrush(Tones.For(Pill.Tone(st.State)));
         StatusText.Text = st.LastError is { Length: > 0 } e ? st.Reason + " " + e : st.Reason;
         foreach (var (cid, mi) in _menuItems) mi.IsEnabled = _core.CommandEnabled(cid, st.State);
@@ -540,7 +542,12 @@ public sealed partial class MainWindow : Window
             case MachineState.Starting:
                 Detach();
                 StartingPanel.Visibility = Visibility.Visible; break;
+            case var _ when !info.HasDisplay: // serial only: the console is the machine's view
+                Display.Detach(); _attachedKey = _modeKey = null;
+                ShowConsolePane(key);
+                break;
             default:
+                ClosePane();
                 Display.Visibility = Visibility.Visible;
                 Display.Show();
                 if (_modeKey != key) { _modeKey = key; Display.Mode = _settings.ModeFor(key); }
@@ -554,7 +561,31 @@ public sealed partial class MainWindow : Window
         RefreshPointerUi();
     }
 
-    void Detach() { Display.Detach(); _attachedKey = _modeKey = null; }
+    void Detach() { Display.Detach(); _attachedKey = _modeKey = null; ClosePane(); }
+
+    ConsoleView? _pane;
+    string? _paneKey;
+    public ConsoleView? ConsolePaneForTest => _pane is { Visibility: Visibility.Visible } ? _pane : null;
+
+    void ShowConsolePane(string key)
+    {
+        if (_paneKey != key) ClosePane();
+        if (_pane is null)
+        {
+            try { _pane = new ConsoleView(_core, key); }
+            catch (Exception e) { StatusText.Text = "Console: " + e.Message; return; }
+            _paneKey = key;
+            Stage.Children.Add(_pane);
+            _pane.Loaded += (_, _) => _pane?.FocusTerminal();
+        }
+        _pane.Visibility = Visibility.Visible;
+    }
+
+    void ClosePane()
+    {
+        if (_pane is null) return;
+        Stage.Children.Remove(_pane); _pane.Dispose(); _pane = null; _paneKey = null;
+    }
 
 
     // ---- quit -------------------------------------------------------------------------------

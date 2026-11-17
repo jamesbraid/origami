@@ -420,6 +420,23 @@ public static class Selftest
         try { await core.PowerOffAsync(key); await core.ForceQuitAsync(key); } catch (Exception e) { again = e.GetType().Name + ": " + e.Message; }
         Check("stop: Power Off and Force Quit on an ended machine do not fail", again == "ok", again);
         Check("quit: no machine is up, so quitting would not prompt", w.UpNames.Count == 0, string.Join(",", w.UpNames));
+
+        // --- a machine with no display opens to its console ---
+        var blind = await core.CreateMachineAsync("Serial only (fake)", "fakeblind.1");
+        w.Reload();
+        w.SelectForTest(blind);
+        await Until(() => w.SelectedKey == blind, 2000);
+        w.Invoke("machine.start");
+        Check("headless: the machine starts", await Until(() => core.Status(blind).State == MachineState.Running, 15_000), core.Status(blind).Reason);
+        Check("headless: the pill says Console only", await Until(() => w.PillTextForTest == "Console only", 3000), w.PillTextForTest);
+        Check("headless: the console is the machine's view, with no display attached", await Until(() => w.ConsolePaneForTest != null, 3000) && !w.DisplayViewForTest.Attached && !w.DisplayVisibleForTest);
+        if (w.ConsolePaneForTest is { } pane)
+        {
+            core.FakeSay(blind, "serial only\r\n");
+            Check("headless: guest output reaches the pane", await Until(() => pane.TextForTest.Contains("serial only"), 3000), pane.TextForTest.Replace("\n", " | "));
+        }
+        w.Invoke("machine.stop");
+        Check("headless: stopping closes the pane", await Until(() => core.Status(blind).State == MachineState.Stopped && w.ConsolePaneForTest == null, 8000), core.Status(blind).Reason);
     }
 }
 #endif

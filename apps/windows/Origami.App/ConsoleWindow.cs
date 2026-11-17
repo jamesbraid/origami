@@ -17,8 +17,9 @@ namespace Origami.App;
 /// The machine's console as the core's terminal grid: colours, a cursor, selection, copy, paste and scrollback. A timer asks the
 /// terminal what changed and redraws only those rows. Type with the window focused; Ctrl+C copies a selection (else it is sent),
 /// Ctrl+Shift+C and Ctrl+V / Ctrl+Shift+V copy and paste, Shift+PageUp/PageDown and the wheel scroll back.
+/// Shown in its own window, or in the main window's pane for a machine with no display.
 /// </summary>
-public sealed class ConsoleWindow : Window
+public sealed class ConsoleView : Grid
 {
     const double FontSize_ = 14;
     static readonly FontFamily Mono = new("Cascadia Mono, Consolas");
@@ -48,10 +49,9 @@ public sealed class ConsoleWindow : Window
 
     static Color Hex(uint rgb) => Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
 
-    public ConsoleWindow(ICoreClient core, string key)
+    public ConsoleView(ICoreClient core, string key)
     {
         _core = core; _key = key;
-        Title = "Console";
         Measure();
         _term = core.OpenTerminal(key, 24, 80);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_host, "console.terminal");
@@ -65,13 +65,10 @@ public sealed class ConsoleWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(paste, "console.paste");
         copy.Click += (_, _) => Copy(); paste.Click += async (_, _) => await PasteAsync();
         var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(8, 4, 8, 4), Children = { copy, paste, _scrollNote } };
-        var grid = new Grid();
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Grid.SetRow(bar, 1);
-        grid.Children.Add(_host); grid.Children.Add(bar);
-        Content = grid;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(960, 640));
+        Children.Add(_host); Children.Add(bar);
 
         _host.SizeChanged += (_, e) => Fit(e.NewSize.Width, e.NewSize.Height);
         _host.KeyDown += OnKeyDown;
@@ -81,13 +78,14 @@ public sealed class ConsoleWindow : Window
         _host.PointerReleased += (_, _) => _dragging = false;
         _host.PointerWheelChanged += (_, e) => { Scroll(e.GetCurrentPoint(_host).Properties.MouseWheelDelta > 0 ? 3 : -3); e.Handled = true; };
         _host.GotFocus += (_, _) => _cursor.Opacity = 1; _host.LostFocus += (_, _) => _cursor.Opacity = 0.4;
-        _timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _timer = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().CreateTimer();
         _timer.Interval = TimeSpan.FromMilliseconds(33);
         _timer.Tick += (_, _) => Tick();
         _timer.Start();
-        Closed += (_, _) => { _timer.Stop(); _term.Dispose(); };
-        Activated += (_, _) => _host.Focus(FocusState.Programmatic);
     }
+
+    public void Dispose() { _timer.Stop(); _term.Dispose(); }
+    public void FocusTerminal() => _host.Focus(FocusState.Programmatic);
 
     void Measure()
     {
@@ -269,4 +267,20 @@ public sealed class ConsoleWindow : Window
     public void ScrollBack(int lines) => Scroll(lines);
     public int ScrollOffset => _term.ScrollOffset;
     public int ScrollbackCount => _term.ScrollbackCount;
+}
+
+/// <summary>A console in a window of its own.</summary>
+public sealed class ConsoleWindow : Window
+{
+    public ConsoleView View { get; }
+
+    public ConsoleWindow(ICoreClient core, string key)
+    {
+        Title = "Console";
+        View = new ConsoleView(core, key);
+        Content = View;
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(960, 640));
+        Closed += (_, _) => View.Dispose();
+        Activated += (_, _) => View.FocusTerminal();
+    }
 }

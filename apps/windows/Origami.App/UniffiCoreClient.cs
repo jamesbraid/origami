@@ -227,8 +227,11 @@ public sealed class UniffiCoreClient : ICoreClient
         var snap = _snap;
         return snap.List.Select(m =>
         {
-            var state = snap.Views.TryGetValue(m.Key, out var v) ? v.State : m.State;
-            return new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes, (int)m.MemoryPerNodeMib, Settle(m.Key, state), m.Problem);
+            var has = snap.Views.TryGetValue(m.Key, out var v);
+            var state = has ? v!.State : m.State;
+            // The file says whether it has a graphics head; a head the engine reports counts too.
+            var display = m.HasDisplay || (has && v!.Heads.Length > 0);
+            return new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes, (int)m.MemoryPerNodeMib, Settle(m.Key, state), m.Problem, display);
         }).ToList();
     }
 

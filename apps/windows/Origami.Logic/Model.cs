@@ -13,7 +13,8 @@ public sealed record MachineSummary(
     int Nodes,
     int MemoryPerNodeMiB,
     MachineState State,
-    string? Problem);
+    string? Problem,
+    bool HasDisplay = true);
 
 public sealed record MachineStatus(MachineState State, string Reason, string? LastError);
 
