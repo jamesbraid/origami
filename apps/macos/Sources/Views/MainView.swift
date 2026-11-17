@@ -29,7 +29,7 @@ struct MainView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
         } detail: {
             VStack(spacing: 0) {
-                if app.tabs.count > 1 { TabBar() }
+                if app.showsTabBar { TabBar() }
                 if let model = app.current {
                     MachineTab(model: model).id(model.id)
                 } else {
@@ -138,15 +138,17 @@ struct LibraryRow: View {
 struct TabBar: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 4) {
             ForEach(app.tabs, id: \.self) { id in
                 if let model = app.models.first(where: { $0.id == id }) {
                     TabItem(model: model, active: app.active == id)
                 }
             }
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .frame(height: 30).background(.bar)
+        .padding(.horizontal, 8)
+        .frame(height: 34)
+        .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) { Divider() }
     }
 }
@@ -155,23 +157,28 @@ struct TabItem: View {
     @ObservedObject var model: MachineModel
     @EnvironmentObject var app: AppModel
     let active: Bool
+    @State private var hover = false
+
     var body: some View {
+        let chassis = Color(rgb: model.record.product.colour)
         HStack(spacing: 6) {
             MachineArt(product: model.record.product, pt: 20)
-            Circle().fill(model.state.tone.colour).frame(width: 7, height: 7).accessibilityHidden(true)
-            Text(model.name).lineLimit(1)
-            Button { app.closeTab(model.id) } label: { Image(systemName: "xmark").font(.caption2) }
+            Text(model.name).lineLimit(1).font(.callout)
+            Circle().fill(model.state.tone.colour).frame(width: 6, height: 6).accessibilityHidden(true)
+            // The close button shows on the selected tab and on hover; the space stays reserved.
+            Button { app.closeTab(model.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
                 .buttonStyle(.borderless).help("Close Tab").accessibilityLabel("Close \(model.name)")
+                .opacity(active || hover ? 1 : 0)
         }
-        .padding(.horizontal, 12).frame(maxHeight: .infinity)
-        .background(active ? Color(nsColor: .controlBackgroundColor) : .clear)
-        .overlay(alignment: .top) {
-            // The chassis colour as a 2 pixel stripe on the active tab.
-            if active { Rectangle().fill(Color(rgb: model.record.product.colour)).frame(height: 2) }
-        }
+        .padding(.horizontal, 8)
+        .frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: 6).fill(active ? chassis.opacity(0.22) : (hover ? Color.primary.opacity(0.07) : .clear)))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(active ? chassis.opacity(0.5) : .clear, lineWidth: 1))
         .contentShape(Rectangle())
+        .onHover { hover = $0 }
         .onTapGesture { app.active = model.id }
-        .accessibilityAddTraits(active ? [.isSelected] : [])
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(active ? [.isSelected, .isButton] : .isButton)
     }
 }
 

@@ -311,6 +311,9 @@ final class AppModel: ObservableObject {
         PointerMode(rawValue: AppModel.defaults.string(forKey: "pointerMode") ?? "") ?? .follow
     }
 
+    /// The tab bar shows whenever a tab is open, even one.
+    var showsTabBar: Bool { !tabs.isEmpty }
+
     var current: MachineModel? { models.first { $0.id == active } }
     func model(named name: String) -> MachineModel? { models.first { $0.name == name } }
 
