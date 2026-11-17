@@ -6,25 +6,37 @@ use adw::prelude::*;
 use gtk::{gdk, glib};
 use origami_render::{scenes, Backdrop, CubeView, Env, Gpu, Style};
 use std::cell::RefCell;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::OnceLock;
 
-/// The device is made once, on first use. A host with no GPU, or only a
-/// software one, gets none: the cube would cost more CPU than it is worth.
-fn gpu() -> Option<&'static Gpu> {
-    static GPU: OnceLock<Option<Gpu>> = OnceLock::new();
-    GPU.get_or_init(|| match Gpu::new() {
+/// The device lives only while a cube is on screen: it is held weakly here and
+/// made again when the next one maps. An idle Vulkan device costs the driver's
+/// threads a few wake-ups a second, which a cube nobody sees should not.
+fn gpu() -> Option<Rc<Gpu>> {
+    thread_local!(static GPU: RefCell<Weak<Gpu>> = const { RefCell::new(Weak::new()) });
+    if let Some(g) = GPU.with(|g| g.borrow().upgrade()) {
+        return Some(g);
+    }
+    let g = match Gpu::new() {
         Ok(g) if g.is_software() => {
             eprintln!("origami-gtk: no cube on a software GPU ({})", g.describe());
-            None
+            return None;
         }
-        Ok(g) => Some(g),
+        Ok(g) => Rc::new(g),
         Err(e) => {
             eprintln!("origami-gtk: no GPU for the cube: {e}");
-            None
+            return None;
         }
-    })
-    .as_ref()
+    };
+    GPU.with(|w| *w.borrow_mut() = Rc::downgrade(&g));
+    Some(g)
+}
+
+/// Whether this host has a GPU the cube can use, found once; the probe's
+/// device is dropped at once.
+fn usable() -> bool {
+    static USABLE: OnceLock<bool> = OnceLock::new();
+    *USABLE.get_or_init(|| gpu().is_some())
 }
 
 /// The start screen's cube: the studio with the machine's colour on its horizon,
@@ -64,8 +76,16 @@ pub fn about_style(dark: bool, scene: usize) -> Style {
     }
 }
 
-struct Inner {
+/// A cube's renderer, made on map and dropped on unmap (the view before the
+/// device it draws with).
+struct Live {
     view: CubeView,
+    gpu: Rc<Gpu>,
+}
+
+struct Inner {
+    live: Option<Live>,
+    style: Style,
     tick: Option<gtk::TickCallbackId>,
     size: i32,
 }
@@ -79,12 +99,9 @@ pub struct Cube {
 impl Cube {
     /// None when the machine has no GPU the renderer can use.
     pub fn new(size: i32, style: Style) -> Option<Cube> {
-        let gpu = gpu()?;
-        let scale = 2;
-        let px = (size * scale) as u32;
-        let mut view = CubeView::offscreen(gpu, px, px, f64::from(scale)).ok()?;
-        view.set_visible(false);
-        view.set_style(gpu, reduced(style));
+        if !usable() {
+            return None;
+        }
         // An image's size is its pixel size in points, whatever the texture's.
         let widget = gtk::Image::builder()
             .pixel_size(size)
@@ -93,7 +110,8 @@ impl Cube {
             .build();
         widget.set_accessible_role(gtk::AccessibleRole::Presentation);
         let inner = Rc::new(RefCell::new(Inner {
-            view,
+            live: None,
+            style,
             tick: None,
             size,
         }));
@@ -104,8 +122,11 @@ impl Cube {
 
     /// Restyle the cube; it draws once for the change.
     pub fn set_style(&self, style: Style) {
-        if let Some(gpu) = gpu() {
-            self.inner.borrow_mut().view.set_style(gpu, reduced(style));
+        let mut i = self.inner.borrow_mut();
+        i.style = style;
+        if let Some(Live { view, gpu }) = i.live.as_mut() {
+            view.set_style(gpu, reduced(style));
+            drop(i);
             kick(&self.widget, &self.inner);
         }
     }
@@ -114,10 +135,10 @@ impl Cube {
     pub fn stepper(&self) -> impl Fn() + 'static {
         let (widget, inner) = (self.widget.downgrade(), self.inner.clone());
         move || {
-            let (Some(w), Some(gpu)) = (widget.upgrade(), gpu()) else {
-                return;
-            };
-            inner.borrow_mut().view.step_scene(gpu);
+            let Some(w) = widget.upgrade() else { return };
+            if let Some(Live { view, gpu }) = inner.borrow_mut().live.as_mut() {
+                view.step_scene(gpu);
+            }
             kick(&w, &inner);
         }
     }
@@ -127,8 +148,7 @@ impl Cube {
         self.widget.connect_map({
             let inner = inner.clone();
             move |w| {
-                resize(w, &inner);
-                inner.borrow_mut().view.set_visible(true);
+                make(w, &inner);
                 kick(w, &inner);
             }
         });
@@ -136,10 +156,10 @@ impl Cube {
             let inner = inner.clone();
             move |_| {
                 let mut i = inner.borrow_mut();
-                i.view.set_visible(false);
                 if let Some(id) = i.tick.take() {
                     id.remove();
                 }
+                i.live = None;
             }
         });
         self.widget.connect_scale_factor_notify({
@@ -159,12 +179,27 @@ fn reduced(mut style: Style) -> Style {
     style
 }
 
-fn resize(w: &gtk::Image, inner: &Rc<RefCell<Inner>>) {
+/// Make the renderer for a cube that has just mapped.
+fn make(w: &gtk::Image, inner: &Rc<RefCell<Inner>>) {
     let Some(gpu) = gpu() else { return };
     let mut i = inner.borrow_mut();
     let scale = w.scale_factor().max(1);
     let px = (i.size * scale) as u32;
-    i.view.resize(gpu, px, px, f64::from(scale));
+    let Ok(mut view) = CubeView::offscreen(&gpu, px, px, f64::from(scale)) else {
+        return;
+    };
+    view.set_visible(true);
+    view.set_style(&gpu, reduced(i.style));
+    i.live = Some(Live { view, gpu });
+}
+
+fn resize(w: &gtk::Image, inner: &Rc<RefCell<Inner>>) {
+    let mut i = inner.borrow_mut();
+    let scale = w.scale_factor().max(1);
+    let px = (i.size * scale) as u32;
+    if let Some(Live { view, gpu }) = i.live.as_mut() {
+        view.resize(gpu, px, px, f64::from(scale));
+    }
 }
 
 /// Draw on each frame the display clock gives, until the cube is at rest.
@@ -174,16 +209,17 @@ fn kick(w: &gtk::Image, inner: &Rc<RefCell<Inner>>) {
     }
     let inner2 = inner.clone();
     let id = w.add_tick_callback(move |w, _| {
-        let Some(gpu) = gpu() else {
+        let mut i = inner2.borrow_mut();
+        let Some(Live { view, gpu }) = i.live.as_mut() else {
+            i.tick = None;
             return glib::ControlFlow::Break;
         };
-        let mut i = inner2.borrow_mut();
-        let (drawn, moving) = i.view.draw(gpu).unwrap_or_else(|e| {
+        let (drawn, moving) = view.draw(gpu).unwrap_or_else(|e| {
             eprintln!("origami-gtk: the cube could not draw: {e}");
             (origami_render::Drawn::Skipped, false)
         });
         if drawn == origami_render::Drawn::Presented {
-            if let Some((pw, ph, pixels)) = i.view.take_frame() {
+            if let Some((pw, ph, pixels)) = view.take_frame() {
                 let bytes = glib::Bytes::from_owned(pixels);
                 let tex = gdk::MemoryTexture::new(
                     pw as i32,

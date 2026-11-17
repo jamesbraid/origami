@@ -966,7 +966,42 @@ def hinv():
         a.stop()
 
 
-SCENARIOS = {"hinv": hinv, "about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+def cube():
+    """The empty-window cube and About's cube draw, and draw again after the
+    renderer's device is dropped (when the tab hides the empty window's cube)
+    and made anew. Needs a hardware GPU for the cube."""
+    if mode != "x11":
+        skip("cube", "needs XTest")
+        return
+    create_machine("octane2")
+    a = App()
+
+    def spread(png, box):
+        """The standard deviation of a crop: near 0 for a flat fill."""
+        r = sh("convert", png, "-crop", box, "+repage", "-colorspace", "Gray", "-format", "%[fx:standard_deviation]", "info:")
+        return float(r.stdout or 0)
+
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        time.sleep(3)
+        if "no cube" in open(os.path.join(out, "app.log")).read():
+            skip("the cubes draw", "no hardware GPU for the cube")
+            return
+        empty = "200x200+840+553"
+        check("the empty window's cube draws", spread(shot("cube-empty-1"), empty) > 0.03)
+        a.req("open octane2")
+        time.sleep(2)
+        a.req("invoke window.close-tab octane2")
+        time.sleep(3)
+        check("and again after its device was dropped and made anew", spread(shot("cube-empty-2"), empty) > 0.03)
+        a.req("invoke app.about")
+        time.sleep(3)
+        check("About's cube draws on the recreated device", spread(shot("cube-about"), "160x160+720+324") > 0.03)
+    finally:
+        a.stop()
+
+
+SCENARIOS = {"cube": cube, "hinv": hinv, "about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:
