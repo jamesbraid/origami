@@ -29,11 +29,14 @@
             <AppBarButton x:Name="PowerOffButton" Icon="Stop" Label="Power Off"
                           AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power Off"/>
             <AppBarSeparator/>
+            <AppBarButton x:Name="PauseButton" Icon="Pause" Label="Pause"
+                          AutomationProperties.AutomationId="cmd.pause" ToolTipService.ToolTip="Pause or resume the machine"/>
+            <AppBarButton x:Name="ConsoleButton" Icon="Message" Label="Console"
+                          AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Open the machine's serial console"/>
+            <AppBarSeparator/>
             <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" Label="Follow"
                                 AutomationProperties.AutomationId="cmd.pointermode"
                                 ToolTipService.ToolTip="Pointer mode: Follow my mouse or Capture on click"/>
-            <AppBarButton x:Name="ConsoleButton" Icon="Message" Label="Console"
-                          AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Console"/>
             <AppBarButton x:Name="SettingsButton" Icon="Setting" Label="Settings"
                           AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Settings"/>
         </CommandBar>

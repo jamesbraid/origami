@@ -301,6 +301,11 @@ public static class Selftest
         Check("view: Fit to Window uses whole device pixels while at least 1 DIP fits", ff >= dip - 0.001 ? Math.Abs(ff - Math.Round(ff)) < 0.01 : ff > 0, $"fit={ff:F3}");
         Check("view: the default is Fit to Window", w.CurrentViewMode == ViewMode.FitToWindow, w.CurrentViewMode.ToString());
 
+        // --- toolbar: the console opens from its button's command ---
+        w.Invoke("window.console");
+        Check("console: the toolbar command opens the machine's console window", await Until(() => w.ConsolesOpen == 1, 3000), $"open: {w.ConsolesOpen}");
+        w.CloseConsoles(); // the window would sit over the screen and take the clicks below
+
         // --- keyboard, real scancodes through the OS ---
         Win.Foreground(w.Hwnd);
         disp.FocusDisplay();
@@ -428,10 +433,12 @@ public static class Selftest
         w.Invoke("machine.pause");
         Check("pause: the machine is Paused", await Until(() => core.Status(key).State == MachineState.Paused, 3000), core.Status(key).Reason);
         Check("pause: the pill says Paused", await Until(() => w.PillTextForTest == "Paused", 2000), w.PillTextForTest);
+        Check("pause: the toolbar button reads Resume", await Until(() => w.PauseLabelForTest == "Resume", 2000), w.PauseLabelForTest);
         w.FocusLibrary();
         await Task.Delay(300);
         Win.Scan(0x1D, false, true); Win.Scan(0x19, false, true); Win.Scan(0x19, false, false); Win.Scan(0x1D, false, false); // Ctrl+P
         Check("resume: Ctrl+P from XAML focus resumes a paused machine", await Until(() => core.Status(key).State == MachineState.Running, 3000), core.Status(key).State.ToString());
+        Check("resume: the toolbar button reads Pause again", await Until(() => w.PauseLabelForTest == "Pause", 2000), w.PauseLabelForTest);
 
         // --- focus loss lifts a held key ---
         disp.FocusDisplay();

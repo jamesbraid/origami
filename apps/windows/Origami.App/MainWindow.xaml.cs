@@ -37,6 +37,7 @@ public sealed partial class MainWindow : Window
         StartButton.Click += (_, _) => Invoke("machine.start");
         HeroStart.Click += (_, _) => Invoke("machine.start");
         PowerOffButton.Click += (_, _) => Invoke("machine.stop");
+        PauseButton.Click += (_, _) => Invoke("machine.pause");
         ConsoleButton.Click += (_, _) => Invoke("window.console");
         SettingsButton.Click += (_, _) => Invoke("machine.settings");
         PointerButton.Click += (_, _) => Invoke("machine.pointer-mode");
@@ -127,6 +128,9 @@ public sealed partial class MainWindow : Window
             }
         return null;
     }
+    public int ConsolesOpen => _consoles.Count;
+    public void CloseConsoles() { foreach (var c in _consoles.Values.ToList()) c.Close(); }
+    public string PauseLabelForTest => PauseButton.Label;
     public bool HeroShowsStill => HeroImage.Source != null;
 
     static StillCatalog LoadStills()
@@ -623,6 +627,13 @@ public sealed partial class MainWindow : Window
         StartButton.IsEnabled = HeroStart.IsEnabled = _core.CommandEnabled("machine.start", st.State);
         HeroStart.Content = st.State == MachineState.LeftRunning ? "Reconnect" : "Start";
         PowerOffButton.IsEnabled = _core.CommandEnabled("machine.stop", st.State);
+        var paused = st.State == MachineState.Paused;
+        if (PauseButton.Label != (paused ? "Resume" : "Pause"))
+        {
+            PauseButton.Label = paused ? "Resume" : "Pause";
+            PauseButton.Icon = new SymbolIcon(paused ? Symbol.Play : Symbol.Pause);
+        }
+        PauseButton.IsEnabled = _core.CommandEnabled(paused ? "machine.resume" : "machine.pause", st.State);
 
         HeroName.Text = info.Name;
         HeroDetail.Text = Detail(info);
