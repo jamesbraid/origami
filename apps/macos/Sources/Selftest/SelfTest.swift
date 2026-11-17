@@ -169,8 +169,11 @@ func runSelfTest(library: String, out: String) {
     // A start that fails stays "Stopped unexpectedly" with its reason, through later refreshes.
     do {
         let victim = app.models.last!
+        victim.openForTest()   // opened, so a refresh runs the real branches
         victim.failStartForTest("boom: no firmware")
         victim.refresh()
+        _ = waitFor(10) { !victim.isRefreshing }
+        spin(0.5)
         check("start-error-is-not-wiped-to-stopped", victim.state == .stoppedUnexpectedly && (victim.failure ?? "").contains("boom"),
               ["state": victim.state.pill, "failure": victim.failure ?? "none"])
     }
@@ -309,7 +312,7 @@ func runSelfTest(library: String, out: String) {
             // Wait until the guest holds still: the head's sequence unchanged for 3 s.
             var lastSeq = session.head?.seq ?? 0, since = Date()
             let still = waitFor(90) {
-                model.refresh(); session.updateHead()
+                model.refresh()
                 let q = session.cachedHead?.seq ?? 0
                 if q != lastSeq { lastSeq = q; since = Date() }
                 return Date().timeIntervalSince(since) >= 3
@@ -383,7 +386,7 @@ func runSelfTest(library: String, out: String) {
                   ["state": seen?.state.pill ?? "none", "reason": seen?.failure ?? "none", "skipped_core_gap": !wasListed])
             _ = host
         } else { check("qemu-crash-shows-stopped-unexpectedly", false, ["error": "could not start or read run.json"]) }
-        // A QMP quit, which is what the guest shutting down looks like: never called clean.
+        // A QMP quit: the runner engine reports no exit code, so it is unexpected until the core says why.
         if let (host, m) = freshlyStarted(), let port = record()?["qmp_port"] as? Int {
             let script = """
             import json, socket, sys
@@ -395,10 +398,10 @@ func runSelfTest(library: String, out: String) {
             p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
             p.arguments = ["-c", script, "\(port)"]
             try? p.run(); p.waitUntilExit()
-            check("qemu-exit-by-itself-is-never-clean", waitFor(20) { m.state == .stoppedUnexpectedly && !(m.failure ?? "").isEmpty },
+            check("qemu-exit-with-no-code-is-unexpected", waitFor(20) { m.state == .stoppedUnexpectedly && !(m.failure ?? "").isEmpty },
                   ["state": m.state.pill, "reason": m.failure ?? "none"])
             _ = host
-        } else { check("qemu-exit-by-itself-is-never-clean", false, ["error": "could not start or read run.json"]) }
+        } else { check("qemu-exit-with-no-code-is-unexpected", false, ["error": "could not start or read run.json"]) }
         finish()
     }
 
@@ -640,21 +643,30 @@ func runSelfTest(library: String, out: String) {
     // Quit: no prompt when none runs, one naming the live ones otherwise; a stale entry for a
     // stopped machine is not counted.
     do {
-        let others = app.models.filter { $0.id != model.id }
-        let beta = others.first
-        let plans: [AppModel.QuitPlan] = {
-            var out: [AppModel.QuitPlan] = []
-            beta?.injectStaleState(.running)            // stale: the core says it is stopped
-            out.append(app.quitPlan())                  // one running (alpha) plus a stale beta
-            return out
-        }()
-        check("quit-one-running-ignores-a-stale-entry", plans == [.ask([model.name])] && beta?.state == .stopped,
-              ["plan": "\(plans)", "stale_state_after": beta?.state.pill ?? "none"])
+        // A machine nothing has opened, so a stale state on it can only be corrected by the listing.
+        do {
+            let op = try host.core.createMachine(request: OrigamiCreateRequest(
+                name: "delta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil))
+            check("create-quit-test-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
+            app.rescanNow()
+        } catch { check("create-quit-test-machine", false, ["error": "\(error)"]) }
+        let beta = app.model(named: "delta")
+        func plan() -> AppModel.QuitPlan {
+            var r: AppModel.QuitPlan?
+            app.quitPlan { r = $0 }
+            _ = waitFor(30) { r != nil }
+            return r ?? .ask(["no answer"])
+        }
+        beta?.injectStaleState(.running)            // stale: the core says it is stopped
+        let one = plan()                            // one running (alpha) plus a stale beta
+        check("quit-one-running-ignores-a-stale-entry", one == .ask([model.name]) && beta?.state == .stopped,
+              ["plan": "\(one)", "stale_state_after": beta?.state.pill ?? "none"])
         if let beta {
             beta.start()
-            _ = waitFor(60) { beta.isLive }
-            check("quit-two-running-one-prompt", app.quitPlan() == .ask([model.name, beta.name].sorted { $0 < $1 }) || app.quitPlan() == .ask([model.name, beta.name]),
-                  ["plan": "\(app.quitPlan())"])
+            _ = waitFor(60) { beta.state == .running }
+            let order = [model.name, beta.name].sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            let two = plan()
+            check("quit-two-running-one-prompt-in-library-order", two == .ask(order), ["plan": "\(two)", "expected": order])
         }
     }
 
@@ -663,7 +675,10 @@ func runSelfTest(library: String, out: String) {
     app.stopAll { failed in failedNames = failed.map(\.name); stopped = true }
     check("stop-all", waitFor(120) { stopped } && failedNames.isEmpty && model.state == .stopped,
           ["state": model.state.pill, "failed": failedNames])
-    check("quit-none-running-quits-silently", app.quitPlan() == .quitNow, ["plan": "\(app.quitPlan())"])
+    var final: AppModel.QuitPlan?
+    app.quitPlan { final = $0 }
+    _ = waitFor(30) { final != nil }
+    check("quit-none-running-quits-silently", final == .quitNow, ["plan": "\(String(describing: final))"])
     #else
     check("fake-build", false, ["error": "the core reports the fake engine but this app was built without -D FAKE"])
     #endif

@@ -90,11 +90,34 @@ final class MachineModel: ObservableObject, Identifiable {
         }
     }
 
-    /// Pull the machine's state from the core. Called on an event.
+    private var refreshing = false
+    private var refreshAgain = false
+    /// The core's view as of the last refresh (Diagnostics and quit read this, never the core itself).
+    private(set) var coreView: OrigamiMachineView?
+    var isRefreshing: Bool { refreshing }
+
+    /// Ask the core for the machine's state. The core's `view()` can query a live emulator, so it is
+    /// read on a background queue and the result applied here; overlapping requests coalesce.
     func refresh() {
         guard let machine = session?.machine else { return }
-        let view = machine.view()
-        session?.updateHead()
+        if refreshing { refreshAgain = true; return }
+        refreshing = true
+        DispatchQueue.global(qos: .utility).async {
+            let view = machine.view()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.refreshing = false
+                    self.apply(view)
+                    if self.refreshAgain { self.refreshAgain = false; self.refresh() }
+                }
+            }
+        }
+    }
+
+    /// Take in one reading of the core's view.
+    func apply(_ view: OrigamiMachineView) {
+        coreView = view
+        session?.setHead(from: view)
         let head = view.heads.first
         let active = head?.active ?? false
         if hasPicture != active { hasPicture = active }
@@ -115,9 +138,9 @@ final class MachineModel: ObservableObject, Identifiable {
         } else if state == .stoppedUnexpectedly && !expectedStop {
             next = state   // sticky: a start error or a crash stays until the next start
         } else if [.starting, .running, .noPicture, .leftRunning].contains(state) && !expectedStop && busy == nil {
-            // It ended without being asked. Only an exit code of 0 is a clean stop; the core gives
-            // none for QEMU yet, so that case is reported as unexpected.
-            if view.exitCode == 0 {
+            // It ended on its own. Exit code 0 is a clean stop (a guest that shut itself down);
+            // a signal, another code, an error or no code at all is unexpected.
+            if view.exitCode == 0 && view.lastError == nil {
                 next = .stopped
             } else {
                 failure = view.lastError ?? view.exitCode.map { "The emulator exited with code \($0)." } ?? "The emulator stopped without being asked."
@@ -163,14 +186,9 @@ final class MachineModel: ObservableObject, Identifiable {
     var canStop: Bool { [.starting, .running, .noPicture, .leftRunning].contains(state) && busy == nil }
     var isRunning: Bool { [.starting, .running, .noPicture, .stopping, .leftRunning].contains(state) }
 
-    /// Whether the machine is up right now, from the core (an opened machine's live state, or
-    /// the library listing for one this app has not opened), not from what the UI last showed.
-    var isLive: Bool {
-        if let s = session { return [.starting, .running, .paused, .stopping].contains(s.machine.view().state) }
-        return state == .leftRunning
-    }
-
     /// For tests: a start that failed with `message`.
+    func openForTest() { _ = try? open() }
+
     func failStartForTest(_ message: String) {
         busy = "Starting…"; set(.starting)
         finished(NSError(domain: "origami", code: 1, userInfo: [NSLocalizedDescriptionKey: message]), failureState: .stoppedUnexpectedly, done: nil)
@@ -252,7 +270,6 @@ final class MachineModel: ObservableObject, Identifiable {
     /// Always calls `done`. A stop asked for while another action runs waits for
     /// it, then runs; a force stop does not wait.
     func stop(force: Bool = false, done: (@MainActor (Error?) -> Void)? = nil) {
-        refresh()   // a machine that already ended must be seen as ended, not as stopped by us
         guard isRunning else { done?(nil); return }
         if let busy, !(force && busy != "Stopping…") {
             var queued = pendingStop ?? (force: force, done: [])
@@ -367,10 +384,10 @@ final class AppModel: ObservableObject {
 
     /// Listings are numbered when asked for; one that was asked for before the newest applied one is dropped.
     private var scanIssued = 0, scanApplied = 0
-    private func applyListing(_ summaries: [OrigamiMachineSummary], issued: Int) {
+    private func applyListing(_ summaries: [OrigamiMachineSummary], issued: Int, force: Bool = false) {
         guard issued > scanApplied else { return }
         scanApplied = issued
-        apply(summaries)
+        apply(summaries, force: force)
     }
 
     /// The same on the calling thread, for callers that need the answer now.
@@ -380,8 +397,8 @@ final class AppModel: ObservableObject {
 
     private var lastSummaries: [OrigamiMachineSummary]?
 
-    private func apply(_ summaries: [OrigamiMachineSummary]) {
-        guard let host, summaries != lastSummaries else { return }
+    private func apply(_ summaries: [OrigamiMachineSummary], force: Bool = false) {
+        guard let host, force || summaries != lastSummaries else { return }
         lastSummaries = summaries
         var next: [MachineModel] = []
         for s in summaries {
@@ -522,19 +539,31 @@ final class AppModel: ObservableObject {
 
     // MARK: quit
 
-    /// The machines running now, from the live core: the library is re-read and every opened
-    /// machine re-checked first, so a stale entry for a stopped machine is not counted.
-    func liveRunning() -> [MachineModel] {
-        rescanNow()
-        models.forEach { $0.refresh() }
-        return models.filter { $0.isLive }
+    /// The machines running now, from the live core and off the main thread: the library is
+    /// re-read and every opened machine asked, so a stale entry for a stopped machine is not counted.
+    func liveRunning(_ done: @escaping @MainActor ([MachineModel]) -> Void) {
+        guard let host else { done([]); return }
+        let opened = models.compactMap { m in m.session.map { (m.id, $0.machine) } }
+        scanIssued += 1
+        let issued = scanIssued
+        DispatchQueue.global(qos: .userInitiated).async {
+            let summaries = try? host.core.listMachines()
+            var live = Set<String>()
+            for (id, machine) in opened where [.starting, .running, .paused, .stopping].contains(machine.view().state) { live.insert(id) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if let summaries { self.applyListing(summaries, issued: issued, force: true) }
+                    for m in self.models where m.session == nil && m.state == .leftRunning { live.insert(m.id) }
+                    done(self.models.filter { live.contains($0.id) })
+                }
+            }
+        }
     }
 
     /// What quitting does: nothing to ask when none runs; otherwise one prompt naming them.
     enum QuitPlan: Equatable { case quitNow, ask([String]) }
-    func quitPlan() -> QuitPlan {
-        let up = liveRunning()
-        return up.isEmpty ? .quitNow : .ask(up.map(\.name))
+    func quitPlan(_ done: @escaping @MainActor (QuitPlan) -> Void) {
+        liveRunning { up in done(up.isEmpty ? .quitNow : .ask(up.map(\.name))) }
     }
 
     /// Stop every running machine in turn. A machine that errors or takes longer
@@ -542,7 +571,11 @@ final class AppModel: ObservableObject {
     func stopAll(force: Bool = false, bound: TimeInterval = 60,
                  progress: ((String) -> Void)? = nil,
                  done: @escaping @MainActor (_ failed: [MachineModel]) -> Void) {
-        let list = liveRunning()
+        liveRunning { list in self.stopEach(list, force: force, bound: bound, progress: progress, done: done) }
+    }
+
+    private func stopEach(_ list: [MachineModel], force: Bool, bound: TimeInterval, progress: ((String) -> Void)?,
+                          done: @escaping @MainActor (_ failed: [MachineModel]) -> Void) {
         var failed: [MachineModel] = []
         func next(_ i: Int) {
             guard i < list.count else { done(failed); return }

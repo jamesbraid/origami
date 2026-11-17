@@ -61,8 +61,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let app = Shared.model!
-        // One prompt at most, naming only machines that are up now; none up quits silently.
-        guard case .ask(let running) = app.quitPlan() else { return .terminateNow }
+        // One prompt at most, naming only machines that are up now; none up quits silently. The core
+        // is asked off the main thread, so the answer comes later.
+        app.quitPlan { [weak self] plan in
+            guard case .ask(let running) = plan else { AppDelegate.reply(true); return }
+            self?.askAboutRunning(running, app)
+        }
+        return .terminateLater
+    }
+
+    @MainActor
+    private func askAboutRunning(_ running: [String], _ app: AppModel) {
         let names = running.joined(separator: ", ")
         let alert = NSAlert()
         alert.messageText = running.count == 1 ? "\(names) is still running" : "\(running.count) machines are still running"
@@ -73,12 +82,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: "Power Off")
         alert.addButton(withTitle: "Cancel")
         switch alert.runModal() {
-        case .alertFirstButtonReturn: return .terminateNow
+        case .alertFirstButtonReturn: AppDelegate.reply(true)
         case .alertSecondButtonReturn:
             progress = QuitProgress()
             powerOffThenQuit(app, force: false)
-            return .terminateLater
-        default: return .terminateCancel
+        default: AppDelegate.reply(false)
         }
     }
 

@@ -107,15 +107,12 @@ final class MachineSession: @unchecked Sendable {
         frameHandler?()
     }
 
-    /// The head as of the last state event. Input mapping reads this; asking
-    /// the core (a UniFFI call) on every mouse move would cost more than it tells.
+    /// The head as of the last refresh, so input mapping never calls the core.
     private(set) var cachedHead: HeadInfo?
-    func updateHead() { cachedHead = head }
-
-    var head: HeadInfo? {
-        guard let h = machine.view().heads.first else { return nil }
-        return HeadInfo(width: Int(h.width), height: Int(h.height), active: h.active, seq: h.seq)
+    func setHead(from view: OrigamiMachineView) {
+        cachedHead = view.heads.first.map { HeadInfo(width: Int($0.width), height: Int($0.height), active: $0.active, seq: $0.seq) }
     }
+    var head: HeadInfo? { cachedHead }
 
     // MARK: input (the frame plane's batch call: no serialisation, never blocks)
 

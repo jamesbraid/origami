@@ -10,7 +10,7 @@ func diagnosticsReport(_ model: MachineModel) -> String {
     var out = ["Machine: \(model.name) (\(model.record.product.name))", "State: \(model.state.pill)"]
     if let p = model.picture { out.append("Picture: \(p.width) x \(p.height)") }
     if let s = model.session {
-        let v = s.machine.view()
+        guard let v = model.coreView else { out.append("Waiting for the core."); return out.joined(separator: "\n") }
         out.append("Engine: \(v.engine), core state: \(v.state), reason: \(v.reason)")
         if let e = v.lastError { out.append("Last error: \(e)") }
         for h in v.heads { out.append("Head \(h.index): \(h.width) x \(h.height), picture \(h.active ? "yes" : "no"), sequence \(h.seq)") }
