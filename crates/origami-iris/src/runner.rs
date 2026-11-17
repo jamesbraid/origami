@@ -116,14 +116,29 @@ fn publish_display(_: &Arc<dyn GfxDisplay>, _: &dyn Workstation, _: &Path) -> Re
     Err("publishing an iris display needs Linux".into())
 }
 
+/// End the process at once with `code`, skipping the exit handlers a half
+/// torn-down iris would trip over.
+pub fn exit_now(code: i32) -> ! {
+    #[cfg(unix)]
+    // SAFETY: _exit takes no pointers.
+    unsafe {
+        libc::_exit(code)
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+        // SAFETY: TerminateProcess on our own pseudo handle takes no pointers.
+        unsafe { TerminateProcess(GetCurrentProcess(), code as u32) };
+        std::process::abort()
+    }
+}
+
 /// A panic on any iris thread ends the runner at once with its message in
 /// the log, instead of leaving a machine with a dead thread running.
 fn install_panic_exit() {
     std::panic::set_hook(Box::new(|info| {
         eprintln!("iris runner panicked: {info}");
-        // SAFETY: _exit takes no pointers; it skips the exit handlers a half
-        // torn-down iris would trip over.
-        unsafe { libc::_exit(101) }
+        exit_now(101)
     }));
 }
 

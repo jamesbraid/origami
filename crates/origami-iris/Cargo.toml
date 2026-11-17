@@ -30,6 +30,9 @@ iris = { git = "https://github.com/jamesbraid/iris", rev = "f9d70ad8cdd15b519da4
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
+
 # The v4 producer is built on eventfd and memfd.
 [target.'cfg(target_os = "linux")'.dependencies]
 origami-display = { path = "../origami-display" }

@@ -135,8 +135,7 @@ fn serve_iris(
         origami_iris::runner::serve(dir, machine_file, started_by, foreground, hold, display)?;
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
-    // SAFETY: _exit takes no pointers.
-    unsafe { libc::_exit(if exit.success() { 0 } else { 1 }) }
+    origami_iris::runner::exit_now(if exit.success() { 0 } else { 1 })
 }
 
 #[cfg(not(feature = "iris"))]
