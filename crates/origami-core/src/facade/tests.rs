@@ -743,6 +743,19 @@ fn a_start_racing_an_edit_launches_the_edited_file_or_is_refused() {
 }
 
 #[test]
+fn a_machine_that_exited_on_its_own_starts_again() {
+    let f = fixture();
+    let (machine, session) = f.started("m");
+    session.crash(0, "");
+    assert_eq!(machine.view().state, MachineState::Exited);
+    assert_eq!(
+        machine.start().unwrap().wait(Some(WAIT)),
+        OperationState::Succeeded
+    );
+    assert_eq!(machine.view().state, MachineState::Running);
+}
+
+#[test]
 fn an_exit_says_why_the_machine_ended() {
     let f = fixture();
     let n = std::cell::Cell::new(0);

@@ -843,6 +843,19 @@ pub fn start_background_as(
     start_background_with(exe, dir, display, once, &start)
 }
 
+/// Whether no runner holds the machine lock, waiting up to `patience` for one
+/// that is exiting: a lock with no run record is an exit in progress.
+fn runner_released(dir: &Path, patience: Duration) -> Result<bool> {
+    let deadline = Instant::now() + patience;
+    while run_record::is_locked(dir)? {
+        if run_record::read(dir).is_ok() || Instant::now() >= deadline {
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    Ok(true)
+}
+
 /// [`start_background_as`] with the start's other choices.
 pub fn start_background_with(
     exe: &Path,
@@ -851,7 +864,7 @@ pub fn start_background_with(
     once: &[String],
     start: &Start,
 ) -> Result<u32> {
-    if run_record::is_locked(dir)? {
+    if !runner_released(dir, Duration::from_secs(5))? {
         return Err("machine is already running".into());
     }
     fs::create_dir_all(dir.join("logs"))?;
@@ -1265,6 +1278,24 @@ mod tests {
     use super::*;
     use crate::test_machines;
     use origami_machine::{preset, Machine, Network, PortForward};
+
+    #[test]
+    fn a_runner_that_is_exiting_is_waited_for_and_a_running_one_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock = run_record::lock_for_edit(dir.path(), "t").unwrap();
+        let held = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            drop(lock);
+        });
+        assert!(runner_released(dir.path(), Duration::from_secs(5)).unwrap());
+        held.join().unwrap();
+        let _lock = run_record::lock_for_edit(dir.path(), "t").unwrap();
+        assert!(!runner_released(dir.path(), Duration::from_millis(100)).unwrap());
+        let started = Instant::now();
+        run_record::write(dir.path(), &run_record::Record::default()).unwrap();
+        assert!(!runner_released(dir.path(), Duration::from_secs(5)).unwrap());
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
 
     fn machine(offering: &Offering) -> MachineFile {
         MachineFile {
