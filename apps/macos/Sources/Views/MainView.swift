@@ -90,6 +90,7 @@ struct LibrarySidebar: View {
                 Button("Open in New Tab") { app.openInNewTab(id) }
                 Divider()
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.root.appendingPathComponent(model.name)]) }
+                Button("Diagnostics") { app.select(id); app.invoke(.diagnostics) }
             }
         } primaryAction: { ids in
             if let id = ids.first { app.openInNewTab(id) }
