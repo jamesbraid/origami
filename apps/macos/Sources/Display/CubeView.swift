@@ -191,6 +191,15 @@ final class CubeNSView: NSView {
         return (drawn, moving != 0)
     }
 
+    /// Fade to the next scene in the manifest's About order (time of day).
+    func stepScene() {
+        guard let cube, origami_cube_next_scene(cube) == 0 else { return }
+        present()
+    }
+
+    /// The scene on show, or -1 for the studio or a machine's screen.
+    var currentScene: Int { cube.map { Int(origami_cube_current_scene($0)) } ?? -1 }
+
     @objc private func tick() { ticks += 1; present() }
 
     func detach() {
@@ -259,10 +268,13 @@ final class CubeNSView: NSView {
 struct CubeHost: NSViewRepresentable {
     let look: CubeLook
     var machine: MachineModel?
+    /// Told the view once it is made, for a host that steps the scene.
+    var made: ((CubeNSView) -> Void)?
     @Environment(\.colorScheme) private var scheme
 
     func makeNSView(context: Context) -> CubeNSView {
         let v = CubeNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 160))
+        made?(v)
         v.configure(look: look, dark: scheme == .dark, machine: shown)
         return v
     }

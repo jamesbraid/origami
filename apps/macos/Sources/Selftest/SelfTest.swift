@@ -333,6 +333,13 @@ func runSelfTest(library: String, out: String) {
         let light = cube.readback()
         check("cube-about-scene-follows-time-and-appearance", !dusk.moving && duskPic?.bgra != light?.bgra && duskPic?.bgra != studio?.bgra,
               ["at_rest_in_about": !dusk.moving, "noon_scene": origami_cube_scene_for_time(12, 0), "evening_scene": origami_cube_scene_for_time(20, 0)])
+        // Stepping: each step moves to a different scene, and the loop comes back round.
+        cube.configure(look: .about, dark: true, machine: nil)
+        _ = cube.present()
+        let firstScene = cube.currentScene
+        var seen = [firstScene]
+        for _ in 0..<Int(origami_cube_scene_count()) { cube.stepScene(); seen.append(cube.currentScene) }
+        check("about-scene-steps-and-comes-back-round", firstScene >= 0 && seen[1] != firstScene && Set(seen).count > 1 && seen.last == firstScene, ["scenes": seen])
         let count = origami_cube_scene_count()
         let credits = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_CREDIT)) }
         let titles = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_TITLE)) }

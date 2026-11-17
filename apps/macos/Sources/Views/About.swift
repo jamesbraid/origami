@@ -38,6 +38,11 @@ struct AboutView: View {
     @State private var hinv: String?
     @State private var egg = EggBuffer()
     @State private var keys: Any?
+    @State private var clicks: Any?
+    @State private var cube = CubeRef()
+
+    /// The About cube's view, so a Shift-click or the right arrow can step its scene.
+    final class CubeRef { weak var view: CubeNSView? }
 
     private var version: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -50,7 +55,7 @@ struct AboutView: View {
             // clear above and below it (the cube fills 90% of its own view).
             ZStack {
                 GraniteBackground(tones: scheme == .dark ? Granite.neutral : Granite.light)
-                CubeHost(look: .about, machine: Self.reflectsRunningMachine ? running : nil)
+                CubeHost(look: .about, machine: Self.reflectsRunningMachine ? running : nil, made: { [cube] in cube.view = $0 })
                     .frame(width: Self.cubeSide, height: Self.cubeSide)
                     .accessibilityLabel("The SGI cube")
             }
@@ -97,9 +102,18 @@ struct AboutView: View {
     /// While About is up, typing h-i-n-v shows the host inventory over the credits; Escape closes it.
     private func startListening() {
         guard keys == nil else { return }
+        // A Shift-click on the cube steps through the scenes.
+        clicks = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { e in
+            guard e.window?.title == "About Origami", e.modifierFlags.contains(.shift), let v = cube.view,
+                  v.bounds.contains(v.convert(e.locationInWindow, from: nil)) else { return e }
+            v.stepScene()
+            return nil
+        }
         keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
             guard e.window?.title == "About Origami" else { return e }
             if e.keyCode == 53, hinv != nil { withAnimation { hinv = nil }; return nil }
+            // The right arrow steps through the scenes, as in the GTK About window.
+            if e.keyCode == 124, e.modifierFlags.intersection([.command, .control, .option]).isEmpty { cube.view?.stepScene(); return nil }
             if let c = e.charactersIgnoringModifiers?.first, e.modifierFlags.intersection([.command, .control]).isEmpty, egg.feed(c) {
                 showHinv()
             }
@@ -110,6 +124,8 @@ struct AboutView: View {
     private func stopListening() {
         if let keys { NSEvent.removeMonitor(keys) }
         keys = nil
+        if let clicks { NSEvent.removeMonitor(clicks) }
+        clicks = nil
     }
 
     private func showHinv() {
