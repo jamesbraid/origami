@@ -405,7 +405,8 @@ func runSelfTest(library: String, out: String) {
             p.arguments = ["-c", script, "\(port)"]
             try? p.run(); p.waitUntilExit()
             check("qemu-exit-with-no-code-is-unexpected", waitFor(20) { m.state == .stoppedUnexpectedly && !(m.failure ?? "").isEmpty },
-                  ["state": m.state.pill, "reason": m.failure ?? "none"])
+                  ["state": m.state.pill, "reason": m.failure ?? "none", "core_state": "\(String(describing: m.coreView?.state))",
+                   "core_reason": m.coreView?.reason ?? "none", "core_exit": "\(String(describing: m.coreView?.exitCode))", "busy": m.busy ?? "none"])
             _ = host
         } else { check("qemu-exit-with-no-code-is-unexpected", false, ["error": "could not start or read run.json"]) }
         finish()

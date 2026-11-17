@@ -64,6 +64,8 @@ final class CubeNSView: NSView {
 
     override func makeBackingLayer() -> CALayer { CAMetalLayer() }
     override var isFlipped: Bool { true }
+    /// A layer-backed view copies this onto its layer, so the layer is non-opaque only if the view says so.
+    override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -203,6 +205,7 @@ final class CubeNSView: NSView {
     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); resize() }
 
     private func resize() {
+        metalLayer.isOpaque = false   // a layer sync from the view can reset it
         let scale = window?.backingScaleFactor ?? metalLayer.contentsScale
         metalLayer.contentsScale = scale
         let size = pixelSize
