@@ -104,6 +104,15 @@ pub fn table(core: &Core) -> Vec<Command> {
         ),
         extra("view.show-library", "Show Library", &["F9"], Group::View),
         extra("view.full-screen", "Full Screen", &["F11"], Group::View),
+        extra("view.fit", "Fit", &["<Control>9"], Group::View),
+        extra(
+            "view.actual-size",
+            "Actual Size",
+            &["<Control>0"],
+            Group::View,
+        ),
+        extra("view.scale-1x", "1×", &["<Control><Alt>1"], Group::View),
+        extra("view.scale-2x", "2×", &["<Control><Alt>2"], Group::View),
         extra(
             "window.move-to-new-window",
             "Move Tab to New Window",

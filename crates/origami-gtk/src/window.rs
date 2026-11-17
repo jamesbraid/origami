@@ -7,6 +7,7 @@ use crate::commands::{self, Command, Group};
 use crate::library::Entry;
 use crate::machine::{MachineUi, State};
 use crate::prefs::PointerMode;
+use crate::view_scale::ViewScale;
 use crate::{input, settings};
 use adw::prelude::*;
 use gtk::{gio, glib};
@@ -551,7 +552,15 @@ fn confirm(
 
 fn register_actions(app: &Rc<App>, w: &Rc<Win>) {
     for c in &app.commands {
-        let act = gio::SimpleAction::new(&c.id, None);
+        // The view scales are radio items: the menu shows which one is on.
+        let act = if ViewScale::from_command(&c.id).is_some() {
+            let a = gio::SimpleAction::new_stateful(&c.id, None, &false.to_variant());
+            // `refresh` owns the state; GLib's own toggle would untick the current item.
+            a.connect_change_state(|_, _| {});
+            a
+        } else {
+            gio::SimpleAction::new(&c.id, None)
+        };
         let (app, weak, id) = (app.clone(), Rc::downgrade(w), c.id.clone());
         act.connect_activate(move |_, _| {
             if let Some(w) = weak.upgrade() {
@@ -633,6 +642,11 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
         ("window.console", Some(m)) => crate::console::present(app, &m),
         ("view.show-library", _) => w.split.set_show_sidebar(!w.split.shows_sidebar()),
         ("view.full-screen", _) => w.win.set_fullscreened(!w.win.is_fullscreen()),
+        (id, Some(m)) if ViewScale::from_command(id).is_some() => {
+            let view = ViewScale::from_command(id).unwrap_or_default();
+            m.set_view(view);
+            refresh(app);
+        }
         ("window.close-tab", Some(_)) => {
             if let Some(p) = w.tv.selected_page() {
                 w.tv.close_page(&p);
@@ -731,6 +745,7 @@ pub fn enabled(app: &App, w: &Win, id: &str) -> bool {
     match id {
         "machine.capture" => running,
         "machine.pointer-follow" | "machine.pointer-capture" => m.is_some(),
+        id if ViewScale::from_command(id).is_some() => m.is_some(),
         "window.close-tab" | "window.move-to-new-window" => m.is_some(),
         _ => true,
     }
@@ -805,6 +820,9 @@ pub fn refresh(app: &Rc<App>) {
                 .and_then(|a| a.downcast::<gio::SimpleAction>().ok())
             {
                 a.set_enabled(enabled(app, w, &c.id));
+                if let Some(v) = ViewScale::from_command(&c.id) {
+                    a.set_state(&m.as_ref().is_some_and(|m| m.view.get() == v).to_variant());
+                }
             }
         }
         for r in w.rows.borrow().iter() {

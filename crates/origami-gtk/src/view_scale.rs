@@ -3,8 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// The menu that picks the other scales arrives with the next commit.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ViewScale {
@@ -20,7 +18,6 @@ pub enum ViewScale {
     X2,
 }
 
-#[allow(dead_code)]
 impl ViewScale {
     pub fn parse(s: &str) -> Option<ViewScale> {
         Some(match s {

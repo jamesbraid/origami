@@ -232,6 +232,7 @@ impl MachineUi {
         root.add_named(&letterbox, Some("screen"));
 
         let pointer = app.prefs.borrow().pointer_for(&entry.dir);
+        let view = app.cfg.view_scale.unwrap_or_default();
         let m = Rc::new(MachineUi {
             dir: entry.dir.clone(),
             name: entry.name.clone(),
@@ -255,7 +256,7 @@ impl MachineUi {
             screen,
             picture,
             offload,
-            view: Cell::new(ViewScale::Fit),
+            view: Cell::new(view),
             pointer_at: Cell::new((-1, -1)),
             place: Cell::new(Place::default()),
             status,
@@ -309,6 +310,11 @@ impl MachineUi {
     pub fn set_texture(&self, tex: &gdk::Texture) {
         self.picture
             .set_paintable(Some(&Crisp::new(tex, self.place.get())));
+    }
+
+    pub fn set_view(&self, view: ViewScale) {
+        self.view.set(view);
+        self.screen.queue_allocate();
     }
 
     /// Put the picture where `layout` says, and lay it out again when the

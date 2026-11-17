@@ -1,6 +1,7 @@
 //! Command-line options. Everything a test needs to steer is a flag, so the
 //! app has no test-only code paths.
 
+use crate::view_scale::ViewScale;
 use std::path::PathBuf;
 
 pub struct Config {
@@ -15,12 +16,14 @@ pub struct Config {
     pub automation: Option<PathBuf>,
     /// Print what the GPU import can do and exit.
     pub probe: bool,
+    /// Start every machine at this view scale instead of its saved one.
+    pub view_scale: Option<ViewScale>,
     /// Machines to start as soon as the library is shown, by directory name.
     pub start: Vec<String>,
 }
 
 pub const USAGE: &str = "usage: origami-gtk [--library DIR] [--config-dir DIR]
-                   [--vk-device NAME] [--no-import]
+                   [--vk-device NAME] [--no-import] [--view-scale fit|actual|1x|2x]
                    [--automation SOCKET] [--start NAME]... [--probe]";
 
 impl Config {
@@ -35,6 +38,7 @@ impl Config {
             no_import: false,
             automation: None,
             probe: false,
+            view_scale: None,
             start: Vec::new(),
         };
         let mut a = args;
@@ -48,6 +52,13 @@ impl Config {
                 "--automation" => c.automation = Some(value("a socket path")?.into()),
                 "--start" => c.start.push(value("a machine name")?),
                 "--no-import" => c.no_import = true,
+                "--view-scale" => {
+                    let v = value("fit, actual, 1x or 2x")?;
+                    c.view_scale = Some(
+                        ViewScale::parse(&v)
+                            .ok_or_else(|| format!("bad --view-scale {v}\n{USAGE}"))?,
+                    );
+                }
                 "--probe" => c.probe = true,
                 "-h" | "--help" => return Err(USAGE.into()),
                 other => return Err(format!("unknown argument {other}\n{USAGE}")),
