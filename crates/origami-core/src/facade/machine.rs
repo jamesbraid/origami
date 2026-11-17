@@ -6,6 +6,7 @@
 //! `stop` return an [`Operation`].
 
 use super::console::Console;
+use super::cpu::{self, CpuLoadReport, CpuMonitor};
 use super::error::{CoreError, CoreResult, ErrorKind};
 use super::event::{EventKind, Slot};
 use super::operation::{self, Control as OpControl, Operation};
@@ -152,6 +153,8 @@ struct Run {
     power_button: Option<Instant>,
     /// How the runner says the machine ended, read once when it exits.
     exit_note: Option<origami_machine::control::Exit>,
+    /// Samples the session's CPU threads; made by the first `cpu_load`.
+    cpu: Option<Arc<CpuMonitor>>,
 }
 
 #[derive(Default, Clone)]
@@ -224,6 +227,7 @@ impl Machine {
                     stop_requested: None,
                     power_button: None,
                     exit_note: None,
+                    cpu: None,
                 }),
                 held: Mutex::default(),
                 hooks: Mutex::new(Arc::new(Vec::new())),
@@ -442,6 +446,26 @@ impl Machine {
 
     pub fn heads(&self) -> Vec<HeadView> {
         self.inner.heads()
+    }
+
+    /// The latest per-CPU load, measured on the host (see [`CpuLoadReport`]).
+    /// Never blocks: a background thread samples while this is being called,
+    /// and stops a few seconds after the last call. Empty with a reason when
+    /// the machine is not running or the engine cannot measure it.
+    pub fn cpu_load(&self) -> CpuLoadReport {
+        let Ok(session) = self.inner.session() else {
+            return CpuLoadReport::none("the machine is not running");
+        };
+        let mut run = self.inner.run.lock().unwrap();
+        let monitor = match run.cpu.clone().filter(|m| m.serves(&session)) {
+            Some(monitor) => monitor,
+            None => match CpuMonitor::start(&session, cpu::INTERVAL) {
+                Some(monitor) => run.cpu.insert(Arc::new(monitor)).clone(),
+                None => return CpuLoadReport::none("the sampler thread did not start"),
+            },
+        };
+        drop(run);
+        monitor.latest()
     }
 
     /// The rows of `head` that changed since the last call, copied into

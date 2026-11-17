@@ -4,10 +4,10 @@ use crate::control::{verified_qmp, Qmp};
 use crate::runtime::{self, Display, GpuUuid, Runtime};
 use crate::ENGINE;
 use origami_engine::{
-    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, DiskFormat,
-    DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats, DriveKind, Engine, EngineInfo,
-    Facts, IdentityKind, LaunchPlan, MachineId, Polled, Report, Result, RunState, Session, Stop,
-    Wake, Wiring,
+    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, CpuReading,
+    DiskFormat, DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats, DriveKind, Engine,
+    EngineInfo, Facts, IdentityKind, LaunchPlan, MachineId, Polled, Report, Result, RunState,
+    Session, Stop, Wake, Wiring,
 };
 use origami_machine::control::Record;
 use origami_machine::dir::MachineDir;
@@ -382,6 +382,7 @@ impl QemuEngine {
             removable,
             heads,
             console_taken: AtomicBool::new(false),
+            cpus: Default::default(),
         });
         std::thread::spawn(move || {
             monitor(&inner, pump, &last_error, &wake, id);
@@ -548,6 +549,7 @@ struct QemuSession {
     removable: Vec<(String, String)>,
     heads: Vec<(String, u32)>,
     console_taken: AtomicBool,
+    cpus: crate::cpus::VcpuThreads,
 }
 
 impl QemuSession {
@@ -716,6 +718,17 @@ impl Session for QemuSession {
             pid: Some(self.record.qemu_pid),
         }
     }
+
+    fn cpu_times(&self) -> Result<CpuReading> {
+        // Hold the QMP gate so the state poller stays off the connection.
+        let _gate = self.inner.gate.lock().unwrap_or_else(|e| e.into_inner());
+        self.cpus.read(self.record.qemu_pid, || {
+            if self.exited() {
+                return Err("the machine has exited".into());
+            }
+            verified_qmp(&self.record)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -774,6 +787,7 @@ mod tests {
             removable: vec![],
             heads: vec![],
             console_taken: AtomicBool::new(false),
+            cpus: Default::default(),
         };
         // The poller is now stuck waiting on its first answer.
         let deadline = Instant::now() + Duration::from_secs(5);

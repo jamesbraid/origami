@@ -10,6 +10,7 @@ mod child;
 mod commands;
 mod console;
 mod core;
+mod cpu;
 mod error;
 mod event;
 mod install;
@@ -20,6 +21,7 @@ mod settings;
 
 pub use commands::{Command, EnabledWhen, Platform, Shortcut};
 pub use core::{Config, Core, CreateRequest, EngineSummary, MachineSummary, OfferingSummary};
+pub use cpu::{CpuLoadReport, CpuLoadSource};
 pub use error::{CoreError, CoreResult, ErrorKind};
 pub use event::{Event, EventKind, Observer};
 pub use lease::{connect as connect_install_console, Cancel, InstallStart, Starter};
@@ -31,7 +33,7 @@ pub use operation::{Operation, OperationState};
 pub use settings::{DriveSetting, MachineSettings, PipeSetting, ShareSetting};
 
 pub use origami_engine::{
-    Control, CursorInfo, Frame, FrameStats, FrameUpdate, InputEvent, Key, PointerButton,
+    Control, CpuLoad, CursorInfo, Frame, FrameStats, FrameUpdate, InputEvent, Key, PointerButton,
 };
 
 #[cfg(test)]

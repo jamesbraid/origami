@@ -9,10 +9,10 @@
 //! [`crate::contract`] passes on it.
 
 use crate::{
-    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, CursorInfo,
-    DiskFormat, DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats, DriveKind, Engine,
-    EngineInfo, Facts, Frame, FrameSource, FrameUpdate, HeadInfo, IdentityKind, InputEvent,
-    LaunchPlan, MachineId, Report, Result, RunState, Session, Stop, Wake, Wiring,
+    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, CpuReading,
+    CpuTimes, CursorInfo, DiskFormat, DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats,
+    DriveKind, Engine, EngineInfo, Facts, Frame, FrameSource, FrameUpdate, HeadInfo, IdentityKind,
+    InputEvent, LaunchPlan, MachineId, Report, Result, RunState, Session, Stop, Wake, Wiring,
 };
 use origami_machine::dir::MachineDir;
 use origami_machine::model::Machine;
@@ -335,6 +335,7 @@ impl Engine for FakeEngine {
             console,
             console_taken: AtomicBool::new(false),
             removable,
+            born: std::time::Instant::now(),
             record: Mutex::new(Record {
                 state,
                 controls: vec![],
@@ -368,6 +369,7 @@ pub struct FakeSession {
     console_taken: AtomicBool,
     removable: Vec<String>,
     record: Mutex<Record>,
+    born: std::time::Instant,
 }
 
 impl FakeSession {
@@ -561,6 +563,16 @@ impl Session for FakeSession {
     fn status(&self) -> Facts {
         let state = self.record.lock().unwrap().state.clone();
         Facts { state, pid: None }
+    }
+
+    /// Two CPUs at a steady 30% user and 10% system, and 60% and 5%.
+    fn cpu_times(&self) -> Result<CpuReading> {
+        let up = self.born.elapsed();
+        let at = |user: f64, sys: f64| CpuTimes {
+            user: up.mul_f64(user),
+            sys: up.mul_f64(sys),
+        };
+        Ok(CpuReading::Times(vec![at(0.30, 0.10), at(0.60, 0.05)]))
     }
 }
 

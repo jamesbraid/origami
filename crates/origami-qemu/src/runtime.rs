@@ -1250,7 +1250,8 @@ pub(crate) fn background_arguments(
         "-qmp".into(),
         format!("tcp:127.0.0.1:{qmp_port},server=on,wait=off"),
         "-name".into(),
-        name.into(),
+        // Names the vCPU threads ("CPU 0/TCG"); macOS reports no usable ids.
+        format!("{name},debug-threads=on"),
     ]);
     if paused {
         args.push("-S".into());

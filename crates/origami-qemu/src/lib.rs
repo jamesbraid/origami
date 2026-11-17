@@ -10,6 +10,7 @@ use std::path::Path;
 pub mod audio;
 pub mod catalogue;
 pub mod control;
+mod cpus;
 pub mod engine;
 pub mod graphics;
 pub mod init;

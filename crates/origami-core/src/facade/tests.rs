@@ -869,3 +869,30 @@ fn stopping_a_machine_that_has_ended_says_it_is_not_running() {
         assert_eq!(machine.stop(how).err().unwrap().kind, ErrorKind::NotRunning);
     }
 }
+
+#[test]
+fn cpu_load_follows_the_engine_and_is_empty_when_the_machine_is_not_running() {
+    let f = fixture();
+    let key = f.create("m", "fake.1");
+    let idle = f.core.open_machine(&key).unwrap();
+    let report = idle.cpu_load();
+    assert!(report.cpus.is_empty());
+    assert_eq!(
+        report.unavailable.as_deref(),
+        Some("the machine is not running")
+    );
+
+    let machine = f.core.start_machine(&key).unwrap();
+    // The first sample lands after two readings, one interval apart.
+    let report = (0..40)
+        .find_map(|_| {
+            std::thread::sleep(Duration::from_millis(100));
+            Some(machine.cpu_load()).filter(|r| !r.cpus.is_empty())
+        })
+        .expect("a sample within four seconds");
+    assert_eq!(report.unavailable, None);
+    let near = |got: f32, want: f32| (got - want).abs() < 5.0;
+    let (a, b) = (report.cpus[0], report.cpus[1]);
+    assert!(near(a.user_pct, 30.0) && near(a.sys_pct, 10.0), "{a:?}");
+    assert!(near(b.user_pct, 60.0) && near(b.sys_pct, 5.0), "{b:?}");
+}

@@ -5,8 +5,8 @@
 //! Engines own their threads; every method may be called from any thread.
 
 use crate::{
-    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, Control, DisplayEndpoint, Facts, InputEvent,
-    LaunchPlan, MachineId, Report, Result, Stop, Wake, Wiring,
+    Capabilities, Catalogue, ConsoleInfo, ConsoleIo, Control, CpuReading, DisplayEndpoint, Facts,
+    InputEvent, LaunchPlan, MachineId, Report, Result, Stop, Wake, Wiring,
 };
 use origami_machine::dir::MachineDir;
 use origami_machine::model::Machine;
@@ -108,4 +108,13 @@ pub trait Session: Send + Sync {
     /// The session's state. A UI thread polls it, so it must not wait on the
     /// engine's program: keep it current from a thread of the session.
     fn status(&self) -> Facts;
+
+    /// Cumulative host CPU time of each emulated CPU's thread, for a load
+    /// display. May query the engine on the first call: never on a UI thread.
+    /// An `Err` is transient; `Unavailable` is final for this session.
+    fn cpu_times(&self) -> Result<CpuReading> {
+        Ok(CpuReading::Unavailable(
+            "this engine does not report CPU load".into(),
+        ))
+    }
 }

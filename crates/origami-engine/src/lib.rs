@@ -5,6 +5,7 @@
 //! Nothing here names a window system or a GPU API.
 
 mod caps;
+mod cpu_load;
 mod engine;
 mod input;
 mod plan;
@@ -22,6 +23,10 @@ pub mod fake;
 
 pub use caps::{
     Capabilities, ConsoleTransport, DiskFormat, DisplayKind, DriveFormats, DriveKind, IdentityKind,
+};
+pub use cpu_load::{
+    iris_cpu_index, load_between, named_thread_times, thread_times, CpuLoad, CpuReading, CpuTimes,
+    HostThread, CAN_NAME_THREADS,
 };
 pub use engine::{Engine, EngineInfo, Session};
 pub use input::{InputEvent, Key, PointerButton};

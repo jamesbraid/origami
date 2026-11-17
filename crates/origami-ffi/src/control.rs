@@ -789,6 +789,61 @@ impl OrigamiCore {
     }
 }
 
+/// Where a CPU load figure comes from. More sources may be added.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum OrigamiCpuLoadSource {
+    /// Host CPU time of the threads that emulate the CPUs, as a percentage
+    /// of one host core. It is not the guest's own accounting: a guest CPU
+    /// idling in the emulator can read busy.
+    Host,
+}
+
+/// One emulated CPU's load. `user_pct` and `sys_pct` are always set and sum
+/// to at most 100. The other states are for a source that sees inside the
+/// guest and are `None` for `Host`.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct OrigamiCpuLoad {
+    pub cpu: u32,
+    pub user_pct: f32,
+    pub sys_pct: f32,
+    pub intr_pct: Option<f32>,
+    pub wait_pct: Option<f32>,
+    pub idle_pct: Option<f32>,
+}
+
+/// The latest CPU load sample. `cpus` is empty while the first sample is
+/// pending, and when the load cannot be measured, with the reason in
+/// `unavailable`.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct OrigamiCpuLoadReport {
+    pub source: OrigamiCpuLoadSource,
+    pub cpus: Vec<OrigamiCpuLoad>,
+    pub unavailable: Option<String>,
+}
+
+impl From<f::CpuLoadReport> for OrigamiCpuLoadReport {
+    fn from(r: f::CpuLoadReport) -> Self {
+        Self {
+            source: match r.source {
+                f::CpuLoadSource::Host => OrigamiCpuLoadSource::Host,
+            },
+            cpus: r
+                .cpus
+                .into_iter()
+                .map(|c| OrigamiCpuLoad {
+                    cpu: c.cpu,
+                    user_pct: c.user_pct,
+                    sys_pct: c.sys_pct,
+                    intr_pct: None,
+                    wait_pct: None,
+                    idle_pct: None,
+                })
+                .collect(),
+            unavailable: r.unavailable,
+        }
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct OrigamiMachine(pub(crate) f::Machine);
 
@@ -898,6 +953,13 @@ impl OrigamiMachine {
 
     pub fn console_send(&self, bytes: Vec<u8>) -> Res<()> {
         Ok(self.0.console_send(&bytes)?)
+    }
+
+    /// The latest CPU load. Does not block; the core samples on its own
+    /// thread, twice a second, while this keeps being called. Poll it at
+    /// about 2 Hz. Empty, with a reason, when the machine is not running.
+    pub fn cpu_load(&self) -> OrigamiCpuLoadReport {
+        self.0.cpu_load().into()
     }
 
     /// An owned `origami_machine*` for the C frame plane, as an integer. The

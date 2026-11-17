@@ -22,9 +22,9 @@ use origami_display::v4::viewer::{Viewer, ViewerInput};
 use origami_display::{Display, Taken};
 use origami_engine::status::Facts as DisplayFacts;
 use origami_engine::{
-    Catalogue, ConsoleInfo, ConsoleIo, ConsoleKind, Control, CursorInfo, DisplayEndpoint, Engine,
-    EngineInfo, Facts, Frame, FrameSource, HeadInfo, InputEvent, InputSink, LaunchPlan, MachineId,
-    Report, Result, RunState, Session, Stop, Wake, Wiring,
+    Catalogue, ConsoleInfo, ConsoleIo, ConsoleKind, Control, CpuReading, CursorInfo,
+    DisplayEndpoint, Engine, EngineInfo, Facts, Frame, FrameSource, HeadInfo, InputEvent,
+    InputSink, LaunchPlan, MachineId, Report, Result, RunState, Session, Stop, Wake, Wiring,
 };
 use origami_machine::control as machine_control;
 use origami_machine::dir::MachineDir;
@@ -479,6 +479,7 @@ impl Engine for RunnerEngine {
         lock(&self.shown).insert(dir, shown.clone());
         Ok(Arc::new(RunnerSession {
             shown,
+            cpus: Default::default(),
             threads: Mutex::new(vec![input, reader, watcher]),
         }))
     }
@@ -486,6 +487,7 @@ impl Engine for RunnerEngine {
 
 struct RunnerSession {
     shown: Arc<Shown>,
+    cpus: crate::cpus::VcpuThreads,
     threads: Mutex<Vec<std::thread::JoinHandle<()>>>,
 }
 
@@ -616,6 +618,11 @@ impl Session for RunnerSession {
             RunState::Running
         };
         Facts { state, pid: None }
+    }
+
+    fn cpu_times(&self) -> Result<CpuReading> {
+        let record = machine_control::read(&self.shown.dir)?;
+        self.cpus.read(record.qemu_pid, || self.qmp())
     }
 }
 
@@ -1071,6 +1078,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let session = RunnerSession {
             shown: shown(dir.path()),
+            cpus: Default::default(),
             threads: Mutex::new(vec![]),
         };
         for how in [Stop::Clean { timeout: None }, Stop::Force] {

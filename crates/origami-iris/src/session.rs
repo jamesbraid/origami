@@ -3,8 +3,8 @@
 
 use crate::engine::IrisPlan;
 use origami_engine::{
-    ConsoleInfo, ConsoleIo, Control, DisplayEndpoint, Facts, MachineId, Polled, Result, RunState,
-    Session, Stop, Wake,
+    ConsoleInfo, ConsoleIo, Control, CpuReading, DisplayEndpoint, Facts, MachineId, Polled, Result,
+    RunState, Session, Stop, Wake,
 };
 use origami_machine::control::{read, Record};
 use origami_protocol::{Client, Request};
@@ -463,5 +463,19 @@ impl Session for IrisSession {
             state: self.polled.get(),
             pid: Some(self.record.pid),
         }
+    }
+
+    /// iris names its CPU threads `MIPS-CPU`, `MIPS-CPU1`, ...; a paused CPU
+    /// has no thread, so the list can be short while the machine is held.
+    fn cpu_times(&self) -> Result<CpuReading> {
+        if !origami_engine::CAN_NAME_THREADS {
+            return Ok(CpuReading::Unavailable(
+                "iris CPU load is measured on Linux and macOS only".into(),
+            ));
+        }
+        Ok(CpuReading::Times(origami_engine::named_thread_times(
+            self.record.pid,
+            origami_engine::iris_cpu_index,
+        )?))
     }
 }

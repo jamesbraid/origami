@@ -4745,10 +4745,12 @@ dependencies = [
 name = "origami-engine"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "origami-machine",
  "serde",
  "serde_json",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
