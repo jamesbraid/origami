@@ -630,6 +630,36 @@ pub fn check_chd(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The product's SGI name. Origin 3000 and Onyx 3000 share a product, so the
+/// topology picks the model.
+pub fn product_label(product: &str, topology: Option<&str>) -> String {
+    let topology = topology.unwrap_or_default();
+    let label = match product {
+        "fuel" => "Fuel",
+        "o2" => "O2",
+        "octane" => "Octane",
+        "octane2" => "Octane2",
+        "onyx2" => "Onyx2",
+        "onyx4" => "Onyx 4",
+        "onyx350" => "Onyx 350",
+        "origin200" => "Origin 200",
+        "origin2000" => "Origin 2000",
+        "origin300" => "Origin 300",
+        "origin350" => "Origin 350",
+        "tezro" => "Tezro",
+        "origin3000" => match topology {
+            "onyx3000" => "Onyx 3000",
+            "onyx3400-ir" => "Onyx 3400",
+            "origin3200" => "Origin 3200",
+            "origin3400" => "Origin 3400",
+            t if t.starts_with("origin3900") => "Origin 3900",
+            _ => "Origin 3000",
+        },
+        other => return other.to_string(),
+    };
+    label.to_string()
+}
+
 pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
     profiles::presets(machines)
 }
@@ -1159,6 +1189,72 @@ pub(crate) mod test_support;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_catalogue_offering_has_its_sgi_product_name() {
+        let labels = [
+            ("fuel.1", "Fuel"),
+            ("o2.1", "O2"),
+            ("o2plus.1", "O2"),
+            ("octane.1", "Octane"),
+            ("octane2.1", "Octane2"),
+            ("onyx2-deskside.2-2", "Onyx2"),
+            ("onyx2-deskside.2", "Onyx2"),
+            ("onyx2-rack.1", "Onyx2"),
+            ("onyx2-rack.1-1", "Onyx2"),
+            ("onyx2-rack.2-2", "Onyx2"),
+            ("onyx2-rack.2-1", "Onyx2"),
+            ("onyx3000.4-4.r12000-400mhz-8mb", "Onyx 3000"),
+            ("onyx3000.4-4.r14000-500mhz-8mb", "Onyx 3000"),
+            ("onyx3000.4-4.r14000-600mhz-8mb", "Onyx 3000"),
+            ("onyx3000.4-4.r16000-800mhz-8mb", "Onyx 3000"),
+            ("onyx3400-ir.4-4-4-4", "Onyx 3400"),
+            ("origin3200.4-4.r12000-400mhz-8mb", "Origin 3200"),
+            ("origin3200.4-4.r14000-500mhz-8mb", "Origin 3200"),
+            ("origin3200.4-4.r14000-600mhz-8mb", "Origin 3200"),
+            ("origin3200.4-4.r16000-800mhz-8mb", "Origin 3200"),
+            ("origin3400.4-4-4-4.r12000-400mhz-8mb", "Origin 3400"),
+            ("origin3400.4-4-4-4.r14000-600mhz-8mb", "Origin 3400"),
+            ("origin3900-ip53.4-4-4-4", "Origin 3900"),
+            ("origin3900-ip59.4-4-4-4", "Origin 3900"),
+            ("onyx350-ip53.4", "Onyx 350"),
+            ("onyx350-ip59.4", "Onyx 350"),
+            ("onyx4.4", "Onyx 4"),
+            ("origin200.1.r10000-180mhz-1mb", "Origin 200"),
+            ("origin200.2.r10000-180mhz-1mb", "Origin 200"),
+            ("origin200.2.r12000-270mhz-4mb", "Origin 200"),
+            ("origin200.2.r10000-180mhz-2mb", "Origin 200"),
+            ("origin200-dual.2-2.r10000-180mhz-1mb", "Origin 200"),
+            ("origin200-gigachannel.1.r10000-180mhz-1mb", "Origin 200"),
+            ("origin2000-deskside.2", "Origin 2000"),
+            ("origin2000-rack.2-2-2-2", "Origin 2000"),
+            ("origin300.2", "Origin 300"),
+            ("origin300.4", "Origin 300"),
+            ("origin300-pci-expansion.2", "Origin 300"),
+            ("origin300-numalink-pci-expansion.2-2", "Origin 300"),
+            ("origin350-ip53.4.r16000-700mhz-4mb", "Origin 350"),
+            ("origin350-ip53.4.r16000-800mhz-8mb-rev22", "Origin 350"),
+            ("origin350-ip59.4", "Origin 350"),
+            ("tezro-ip53.4.r16000-700mhz-4mb", "Tezro"),
+            ("tezro-ip53.2.r16000-700mhz-4mb", "Tezro"),
+            ("tezro-ip53.4.r16000-800mhz-8mb-rev22", "Tezro"),
+            ("tezro-ip59.4", "Tezro"),
+            ("tezro-ip59.2", "Tezro"),
+            ("tezro-one-processor.1", "Tezro"),
+            ("tezro-rack-ip53.4.r16000-700mhz-4mb", "Tezro"),
+            ("tezro-rack-ip59.4", "Tezro"),
+        ];
+        let machines = test_machines();
+        assert_eq!(machines.offerings.len(), labels.len());
+        for offering in &machines.offerings {
+            let (_, want) = labels
+                .iter()
+                .find(|(id, _)| *id == offering.id)
+                .unwrap_or_else(|| panic!("no label pinned for {}", offering.id));
+            let got = product_label(&offering.product, Some(&offering.topology));
+            assert_eq!(got, *want, "{}", offering.id);
+        }
+    }
 
     #[test]
     fn engine_section_round_trips_and_private_is_omitted_when_empty() {

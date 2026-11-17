@@ -64,6 +64,8 @@ pub struct MachineSummary {
     pub key: String,
     pub name: String,
     pub product: String,
+    /// The product's SGI name, such as "Origin 200", for showing to people.
+    pub product_label: String,
     pub topology: Option<String>,
     pub nodes: u32,
     pub memory_per_node_mib: u32,
@@ -238,6 +240,10 @@ impl Core {
                 Ok(file) => MachineSummary {
                     key,
                     name,
+                    product_label: origami_machine::product_label(
+                        &file.machine.model,
+                        file.machine.topology.as_deref(),
+                    ),
                     product: file.machine.model,
                     topology: file.machine.topology,
                     nodes: file.machine.nodes,
@@ -254,6 +260,7 @@ impl Core {
                     key,
                     name,
                     product: String::new(),
+                    product_label: String::new(),
                     topology: None,
                     nodes: 0,
                     memory_per_node_mib: 0,

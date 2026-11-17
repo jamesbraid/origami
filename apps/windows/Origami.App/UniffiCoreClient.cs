@@ -138,7 +138,7 @@ public sealed class UniffiCoreClient : ICoreClient
     }
 
     public IReadOnlyList<MachineSummary> Machines() =>
-        _core.ListMachines().Select(m => new MachineSummary(m.Key, m.Name, m.Product, m.Topology, (int)m.Nodes,
+        _core.ListMachines().Select(m => new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes,
             (int)m.MemoryPerNodeMib, Settle(m.Key, m.State), m.Problem)).ToList();
 
     public MachineStatus Status(string key)

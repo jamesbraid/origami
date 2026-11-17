@@ -8,6 +8,7 @@ public sealed record MachineSummary(
     string Key,
     string Name,
     string Product,
+    string ProductLabel,
     string? Topology,
     int Nodes,
     int MemoryPerNodeMiB,

@@ -123,7 +123,7 @@ public sealed partial class MainWindow : Window
     readonly Dictionary<string, (Border Pill, TextBlock Text)> _pills = new();
 
     static string Detail(MachineSummary m) =>
-        $"{m.Product}, {m.Nodes} node{(m.Nodes == 1 ? "" : "s")}, {m.MemoryPerNodeMiB} MB";
+        $"{m.ProductLabel}, {m.Nodes} node{(m.Nodes == 1 ? "" : "s")}, {m.MemoryPerNodeMiB} MB";
 
     /// <summary>Rebuilds the library list after machines were added.</summary>
     public void Reload()

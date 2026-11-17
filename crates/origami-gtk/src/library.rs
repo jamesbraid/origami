@@ -9,6 +9,8 @@ pub struct Entry {
     pub dir: PathBuf,
     pub name: String,
     pub model: String,
+    /// The product's SGI name, such as "Origin 200".
+    pub product_label: String,
     /// The machine's still, when the product art has one.
     pub art: Option<&'static str>,
     /// Why the machine file could not be read, when it could not.
@@ -71,6 +73,7 @@ pub fn read(dir: &Path) -> Entry {
                 dir: dir.to_path_buf(),
                 name,
                 model: m.model.clone(),
+                product_label: origami_machine::product_label(&m.model, m.topology.as_deref()),
                 art: crate::art::of(&m.model, m.topology.as_deref()),
                 error: None,
                 summary: Summary {
@@ -89,6 +92,7 @@ pub fn read(dir: &Path) -> Entry {
             dir: dir.to_path_buf(),
             name,
             model: String::new(),
+            product_label: String::new(),
             art: None,
             error: Some(e.to_string()),
             summary: Summary::default(),

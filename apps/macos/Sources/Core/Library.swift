@@ -14,18 +14,19 @@ struct Product {
     var art: String?
     enum Kind { case workstation, server }
 
-    static func of(model: String) -> Product {
+    /// `label` is the core's product name; the model only picks the fallback colour.
+    static func of(model: String, label: String) -> Product {
         let m = model.lowercased()
         // Fallback colours, used when the bundle has no stills manifest.
-        if m.hasPrefix("octane2") { return Product(name: "Octane2", kind: .workstation, colour: 0x2e354e) }
-        if m.hasPrefix("octane") { return Product(name: "Octane", kind: .workstation, colour: 0x2a6574) }
-        if m.hasPrefix("o2") { return Product(name: "O2", kind: .workstation, colour: 0x3d5a6d) }
-        if m.hasPrefix("fuel") { return Product(name: "Fuel", kind: .workstation, colour: 0x8e3738) }
-        if m.hasPrefix("tezro") { return Product(name: "Tezro", kind: .workstation, colour: 0x4c629c) }
-        if m.hasPrefix("onyx") { return Product(name: "Onyx", kind: .server, colour: 0x5b6672) }
-        if m.hasPrefix("origin350") { return Product(name: "Origin 350", kind: .server, colour: 0xa2a4a6) }
-        if m.hasPrefix("origin") { return Product(name: "Origin", kind: .server, colour: 0x4a4f55) }
-        return Product(name: model.isEmpty ? "Machine" : model, kind: .workstation, colour: 0x8a8f96)
+        if m.hasPrefix("octane2") { return Product(name: label, kind: .workstation, colour: 0x2e354e) }
+        if m.hasPrefix("octane") { return Product(name: label, kind: .workstation, colour: 0x2a6574) }
+        if m.hasPrefix("o2") { return Product(name: label, kind: .workstation, colour: 0x3d5a6d) }
+        if m.hasPrefix("fuel") { return Product(name: label, kind: .workstation, colour: 0x8e3738) }
+        if m.hasPrefix("tezro") { return Product(name: label, kind: .workstation, colour: 0x4c629c) }
+        if m.hasPrefix("onyx") { return Product(name: label, kind: .server, colour: 0x5b6672) }
+        if m.hasPrefix("origin350") { return Product(name: label, kind: .server, colour: 0xa2a4a6) }
+        if m.hasPrefix("origin") { return Product(name: label, kind: .server, colour: 0x4a4f55) }
+        return Product(name: label.isEmpty ? "Machine" : label, kind: .workstation, colour: 0x8a8f96)
     }
 }
 
@@ -34,13 +35,14 @@ struct MachineRecord: Identifiable, Hashable {
     let key: String
     let name: String
     let productName: String
+    let productLabel: String
     let topology: String?
     let nodes: Int
     let memoryPerNodeMiB: Int
 
     var id: String { key }
     var product: Product {
-        var p = Product.of(model: productName)
+        var p = Product.of(model: productName, label: productLabel)
         if let id = Art.id(topology: topology, product: productName) {
             p.art = id
             if let c = Art.colour(id) { p.colour = c }
@@ -57,6 +59,7 @@ struct MachineRecord: Identifiable, Hashable {
         key = s.key
         name = s.name
         productName = s.product
+        productLabel = s.productLabel
         topology = s.topology
         nodes = Int(s.nodes)
         memoryPerNodeMiB = Int(s.memoryPerNodeMib)

@@ -794,7 +794,7 @@ pub fn refresh(app: &Rc<App>) {
             Some(m) => {
                 let (word, class) = m.state.get().pill();
                 w.title.set_title(&m.name);
-                w.title.set_subtitle(&m.entry.borrow().model);
+                w.title.set_subtitle(&m.entry.borrow().product_label);
                 for c in ["pill-grey", "pill-green", "pill-amber", "pill-red"] {
                     w.pill.remove_css_class(c);
                 }
@@ -949,10 +949,10 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
             .css_classes(["pill", class])
             .build(),
     );
-    if !e.model.is_empty() {
+    if !e.product_label.is_empty() {
         pills.append(
             &gtk::Label::builder()
-                .label(&e.model)
+                .label(&e.product_label)
                 .css_classes(["pill", "pill-grey"])
                 .build(),
         );

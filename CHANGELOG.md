@@ -35,6 +35,7 @@ Changed:
 - origami upgrade: adds an emu-id to a machine that has none and keeps its MAC. On an Octane, Octane2, Fuel or Origin 200 the host id comes from the station address and stays the same. On the IP35 machines, Origin 2000 and Onyx2 it comes from a system serial that the emu-id sets, so the guest sees a new host id; `upgrade` says so and how to keep the old one.
 - Origin 200: new machines get 256 MiB per node, up from 64 MiB (the `origin200-impact` GigaChannel preset had 128 MiB). Existing machines keep their size, and `--memory-per-node` still picks another.
 - Origin 3000, Onyx 3000 and Origin 300: the NUMAlink expansion takes its onboard Ethernet address from the machine's, where they all used 08:00:69:12:34:56.
+- Library: each machine shows its SGI product name, such as Origin 200, Origin 2000 or Onyx2. The Mac app showed "Origin" and "Onyx" for those models, and GTK and Windows showed the model id.
 - Copied machines: a copied machine directory keeps its emu-id, and `run` warns, but still starts it, while the machine it was copied from is running. The two share a host id and Ethernet address, which clash on a shared network.
 - Archive: the bundled QEMU is built with its chd driver, and the licence notices for MAME's CHD code ship with it.
 - Archive: `THIRD_PARTY_NOTICES` lists every Rust crate `origami` links, generated from `cargo metadata`; it named about two thirds of them.
