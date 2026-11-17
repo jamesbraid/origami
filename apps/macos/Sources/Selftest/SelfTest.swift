@@ -132,6 +132,37 @@ func runSelfTest(library: String, out: String) {
             app.rescanNow()
         } catch { check("create-second-machine", false, ["error": "\(error)"]) }
     }
+    // Settings: read through the core off the main thread, edit while stopped, refused while running. A machine of its
+    // own, because editing the file must not change the one the rest of the run starts.
+    if fake {
+        do {
+            let op = try host.core.createMachine(request: OrigamiCreateRequest(
+                name: "settingsvic", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil))
+            _ = op.wait(timeoutMs: 10_000)
+            app.rescanNow()
+        } catch { check("create-settings-machine", false, ["error": "\(error)"]) }
+        if let victim = app.model(named: "settingsvic") {
+            let sm = SettingsModel(machine: victim)
+            sm.load()
+            let loaded = waitFor(30) { sm.settings != nil || sm.error != nil }
+            let s = sm.settings
+            check("settings-load-through-the-core", loaded && s != nil && (s?.memoryPerNodeMib ?? 0) > 0,
+                  ["memory_mib": Int(s?.memoryPerNodeMib ?? 0), "allowed": (s?.memoryAllowedMib ?? []).map { Int($0) }, "error": sm.error ?? "none"])
+            if let s, let other = s.memoryAllowedMib.first(where: { $0 != s.memoryPerNodeMib }) {
+                sm.apply(.setMemory(mib: other))
+                let changed = waitFor(30) { sm.settings?.memoryPerNodeMib == other && !sm.working }
+                check("settings-edit-while-stopped", changed, ["wanted_mib": Int(other), "error": sm.error ?? "none"])
+                sm.apply(.setMemory(mib: s.memoryPerNodeMib))
+                let back = waitFor(30) { sm.settings?.memoryPerNodeMib == s.memoryPerNodeMib && !sm.working }
+                check("settings-edit-can-be-put-back", back, ["now_mib": Int(sm.settings?.memoryPerNodeMib ?? 0), "error": sm.error ?? "none"])
+            } else { check("settings-edit-while-stopped", false, ["error": "the machine offers one memory size"]) }
+            // While the machine runs an edit is refused before it reaches the core.
+            let wasLocked = sm.locked
+            check("settings-locked-follows-the-machine", !wasLocked && victim.state == .stopped, ["locked_at_rest": wasLocked])
+            let said = SettingsModel.say(CoreError.Busy(message: "x", detail: nil))
+            check("settings-busy-is-told-as-what-to-do", said.contains("Power off"), ["said": said])
+        }
+    }
     // The About egg: h-i-n-v, however it is broken up, completes the word once; the core's inventory comes back
     // off the main thread and says what the host is.
     do {

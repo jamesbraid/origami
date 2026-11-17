@@ -48,6 +48,7 @@ let headlessGrace: TimeInterval = 4
 final class MachineModel: ObservableObject, Identifiable {
     private(set) var record: MachineRecord
     private let host: CoreHost
+    var coreHost: CoreHost { host }
     /// Opened on first use; nil until then.
     private(set) var session: MachineSession?
     @Published private(set) var state: MachineState = .stopped
