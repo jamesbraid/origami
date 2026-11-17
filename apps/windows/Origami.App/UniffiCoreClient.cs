@@ -206,14 +206,18 @@ public sealed class UniffiCoreClient : ICoreClient
         return new MachineStatus(Settle(key, v.State), v.Reason, v.LastError);
     }
 
-    static Task Run(Func<OrigamiOperation> start, CancellationToken ct) => Task.Run(() =>
+    /// <summary>Runs a core operation to its end. With <paramref name="ignoreEnded"/>, a machine that is already not running is not an error.</summary>
+    static Task Run(Func<OrigamiOperation> start, CancellationToken ct, bool ignoreEnded = false) => Task.Run(() =>
     {
-        var op = start();
+        OrigamiOperation op;
+        try { op = start(); }
+        catch (CoreException.NotRunning) when (ignoreEnded) { return; }
         var reg = ct.Register(() => op.Cancel());
         try
         {
             switch (op.Wait(null))
             {
+                case OrigamiOperationState.Failed { Kind: OrigamiErrorKind.NotRunning } when ignoreEnded: break;
                 case OrigamiOperationState.Failed f: throw new InvalidOperationException(f.Message);
                 case OrigamiOperationState.Cancelled: throw new OperationCanceledException();
             }
@@ -222,11 +226,11 @@ public sealed class UniffiCoreClient : ICoreClient
     }, ct);
 
     public Task StartAsync(string key, CancellationToken ct = default) => Run(() => M(key).Start(), ct);
-    public Task PowerOffAsync(string key, CancellationToken ct = default) => Run(() => M(key).Stop(OrigamiStopKind.Clean), ct);
+    public Task PowerOffAsync(string key, CancellationToken ct = default) => Run(() => M(key).Stop(OrigamiStopKind.Clean), ct, ignoreEnded: true);
     public Task ForceQuitAsync(string key, CancellationToken ct = default)
     {
         lock (_forced) _forced.Add(key);
-        return Run(() => M(key).Stop(OrigamiStopKind.Force), ct);
+        return Run(() => M(key).Stop(OrigamiStopKind.Force), ct, ignoreEnded: true);
     }
     public Task ControlAsync(string key, MachineControl what, CancellationToken ct = default) => Task.Run(() => M(key).Control(what switch
     {
