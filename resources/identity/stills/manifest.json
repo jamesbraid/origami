@@ -1,0 +1,246 @@
+{
+  "hinv": {
+    "stills_commit": "28b4ceac034825fed0d30020b788d1c62de24ab9",
+    "high_commit": "8b5b40fa449534ec15516ac579531b25049fc890"
+  },
+  "files": {
+    "raw": "<art>/front34-{512,256,128}.png",
+    "small": "<art>/<pt>-<light|dark>[@2x].png, pt in 20, 34, 48, 72",
+    "framed": "<art>/{card,hero}[@2x].png, 120 x 90 pt and 240 x 180 pt, equal weight, shadow kept"
+  },
+  "topologies": {
+    "fuel": "fuel",
+    "indigo2": "indigo2-impact",
+    "indy": "indy",
+    "o2": "o2",
+    "octane": "octane",
+    "octane2": "octane2",
+    "onyx2-deskside": "onyx2-deskside",
+    "onyx2-rack": "onyx2-rack",
+    "onyx3000": "onyx3000",
+    "onyx350-ip53": "onyx350",
+    "onyx350-ip59": "onyx350",
+    "origin200": "origin200-tower",
+    "origin200-dual": "origin200-tower",
+    "origin200-gigachannel": "origin200-tower",
+    "origin200-gigachannel-loopback": "origin200-tower",
+    "origin2000-deskside": "origin2000-deskside",
+    "origin2000-rack": "origin2000-rack",
+    "origin300": "origin300",
+    "origin3200": "origin3200",
+    "origin3400": "origin3000",
+    "origin350": "origin350",
+    "origin3900-ip53": "origin3900",
+    "origin3900-ip59": "origin3900",
+    "tezro-ip53": "tezro-tower",
+    "tezro-ip59": "tezro-tower",
+    "tezro-one-processor": "tezro-tower"
+  },
+  "products": {
+    "fuel": "fuel",
+    "indigo2": "indigo2-impact",
+    "indy": "indy",
+    "o2": "o2",
+    "octane": "octane",
+    "octane2": "octane2",
+    "onyx2": "onyx2-deskside",
+    "onyx350": "onyx350",
+    "origin200": "origin200-tower",
+    "origin2000": "origin2000-deskside",
+    "origin300": "origin300",
+    "origin350": "origin350",
+    "tezro": "tezro-tower"
+  },
+  "stills": {
+    "fuel": {
+      "name": "Fuel (R14000, R16000)",
+      "colour": "#8e3738",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "a676b89207cbe6f5a90ac60029d3069a61dcb67f"
+      }
+    },
+    "octane": {
+      "name": "Octane (R10000, R12000; MXI, SI, SSI, MXE)",
+      "colour": "#2a6574",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "9e968f506e2338946a67deba27a8271d36d8b7b8"
+      }
+    },
+    "octane2": {
+      "name": "Octane2 (R12000, R14000; VPro V6, V8, V10, V12)",
+      "colour": "#2e354e",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "684a7378972d5da6ef97e780c80b16a6eed91cdc"
+      }
+    },
+    "o2": {
+      "name": "O2 (R5000, R10000, R12000; first marks: cube and SiliconGraphics, O2 badge)",
+      "colour": "#3d5a6d",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "a74756fdc329f1c960cb3b449f154003b2eaa2c1"
+      }
+    },
+    "indy": {
+      "name": "Indy (R4000, R4600, R5000)",
+      "colour": "#5e7d93",
+      "small": "front34-high",
+      "hinv": {
+        "status": "accepted",
+        "check_id": "c501cbf090e6",
+        "source_commit": "12751aee1797b417782ad8a1823fc0611f79e78d"
+      }
+    },
+    "indigo2-impact": {
+      "name": "Indigo2 IMPACT (R10000, purple)",
+      "colour": "#7e6a76",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "e9d6139342a5bc123b50f4695d4925fa60fc7009"
+      }
+    },
+    "tezro-tower": {
+      "name": "Tezro (tower)",
+      "colour": "#4c629c",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "b55d3e8a1683b4cf181f8c8064545ee662ca2978"
+      }
+    },
+    "origin200-tower": {
+      "name": "Origin 200 (tower)",
+      "colour": "#080e1e",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "07c30acbc94e525f6cba073a4bd581c0fe5235a3"
+      }
+    },
+    "origin2000-deskside": {
+      "name": "Origin 2000 deskside",
+      "colour": "#303953",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "76c7521629b221ed1b089f95349150d070855432"
+      }
+    },
+    "origin2000-rack": {
+      "name": "Origin 2000 rackmount",
+      "colour": "#48494d",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "a4f443d825fe72074dd42d791229eca813227dec"
+      }
+    },
+    "onyx2-deskside": {
+      "name": "Onyx2 deskside",
+      "colour": "#2c2632",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "57cb8f6f62f067ccc5896eaabcb522ef9acd9cbe"
+      }
+    },
+    "onyx2-rack": {
+      "name": "Onyx2 rackmount (InfiniteReality graphics module)",
+      "colour": "#43424a",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "e9d6139342a5bc123b50f4695d4925fa60fc7009"
+      }
+    },
+    "origin300": {
+      "name": "Origin 300",
+      "colour": "#a7aaad",
+      "small": "front34-high",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "86f535b71af9c101fcdf073d01cbc135a9beb001"
+      }
+    },
+    "origin350": {
+      "name": "Origin 350",
+      "colour": "#a2a4a6",
+      "small": "front34-high",
+      "hinv": {
+        "status": "accepted",
+        "check_id": "8a97b5b5e595",
+        "source_commit": "2a3bdb0d7e4313e2177035cc87cb3d6df3c80968"
+      }
+    },
+    "onyx350": {
+      "name": "Onyx 350",
+      "colour": "#a2a4a6",
+      "small": "front34-high",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "366cf1607afb83880b8dd9243dec2928bfc252f3"
+      }
+    },
+    "origin3000": {
+      "name": "Origin 3400",
+      "colour": "#343638",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "7c8a8101cc7db70491ff293025a0370171f17b83"
+      }
+    },
+    "origin3200": {
+      "name": "Origin 3200 (short rack)",
+      "colour": "#37383c",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "8b605deae7a84671b626dd3de75fba63f454ffaf"
+      }
+    },
+    "origin3900": {
+      "name": "Origin 3900",
+      "colour": "#35373a",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "8b605deae7a84671b626dd3de75fba63f454ffaf"
+      }
+    },
+    "onyx3000": {
+      "name": "Onyx 3200 (V-brick, short rack)",
+      "colour": "#55595b",
+      "small": "front34",
+      "hinv": {
+        "status": "draft",
+        "check_id": "draft",
+        "source_commit": "8b605deae7a84671b626dd3de75fba63f454ffaf"
+      }
+    }
+  }
+}
