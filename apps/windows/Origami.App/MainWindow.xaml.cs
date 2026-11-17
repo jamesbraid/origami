@@ -372,16 +372,12 @@ public sealed partial class MainWindow : Window
 
     bool _quitting;
 
-    /// <summary>Clean stop, then Force Quit if it has not finished in a few seconds; progress shows in the status bar.</summary>
-    async Task StopBounded(MachineSummary m)
+    /// <summary>Clean stop, waited for up to a minute. False if the machine is still up when the minute ends or the stop failed.</summary>
+    async Task<bool> StopClean(MachineSummary m)
     {
-        StatusText.Text = $"Powering off {m.Name}…";
         var clean = _core.PowerOffAsync(m.Key);
-        if (await Task.WhenAny(clean, Task.Delay(8000)) != clean)
-        {
-            StatusText.Text = $"{m.Name} did not stop; force quitting…";
-            await RunAsync(() => _core.ForceQuitAsync(m.Key));
-        }
+        if (await Task.WhenAny(clean, Task.Delay(TimeSpan.FromSeconds(60))) != clean) return false;
+        return !clean.IsFaulted && !clean.IsCanceled;
     }
 
     async void OnClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
@@ -406,11 +402,57 @@ public sealed partial class MainWindow : Window
             };
             var r = await dlg.ShowAsync();
             if (r == ContentDialogResult.None) return;
-            if (r == ContentDialogResult.Secondary) foreach (var m in up) await StopBounded(m);
+            if (r == ContentDialogResult.Secondary && !await PowerOffAll(up)) return;
             _closeApproved = true;
             Display.Detach();
             Close();
         }
         finally { _quitting = false; }
+    }
+
+    /// <summary>Powers machines off one at a time behind a progress panel; on a failure, offers Force Quit. False cancels the quit.</summary>
+    async Task<bool> PowerOffAll(List<MachineSummary> machines)
+    {
+        bool Ended(MachineSummary m) => _core.Machines().All(x => x.Key != m.Key || x.State is MachineState.Stopped or MachineState.Exited);
+        var todo = machines.Where(m => !Ended(m)).ToList();
+        if (todo.Count == 0) return true; // everything ended already: no panel
+        var text = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        var panel = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot, Title = "Powering off",
+            Content = new StackPanel { Spacing = 12, Children = { text, new ProgressBar { IsIndeterminate = true } } },
+        };
+        var shown = panel.ShowAsync().AsTask();
+        var failed = new List<MachineSummary>();
+        try
+        {
+            foreach (var m in todo)
+            {
+                text.Text = $"Powering off {m.Name}…";
+                if (Ended(m)) continue; // ended meanwhile
+                if (!await StopClean(m)) failed.Add(m);
+            }
+        }
+        finally
+        {
+            panel.Hide(); // always closed, whatever happened above
+            await shown;  // the next dialog opens only after this one has closed
+        }
+        if (failed.Count == 0) return true;
+        var alert = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            Title = failed.Count == 1 ? $"{failed[0].Name} did not power off" : $"{failed.Count} machines did not power off",
+            Content = "A clean stop can take a while while a disk folds its changes. Force Quit ends the emulator at once.",
+            PrimaryButtonText = "Force Quit Instead",
+            SecondaryButtonText = "Quit and Leave Running",
+            CloseButtonText = "Cancel Quit",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        var choice = await alert.ShowAsync();
+        if (choice == ContentDialogResult.None) return false;
+        if (choice == ContentDialogResult.Primary)
+            foreach (var m in failed) await RunAsync(() => _core.ForceQuitAsync(m.Key));
+        return true;
     }
 }
