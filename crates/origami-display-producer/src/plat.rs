@@ -22,30 +22,42 @@ mod imp {
     impl Peer {
         /// The peer if its user is ours or listed.
         pub fn of(sock: &UnixStream, allow: &[u32]) -> Option<Peer> {
-            let mut cred = libc::ucred {
-                pid: 0,
-                uid: 0,
-                gid: 0,
-            };
-            let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-            // SAFETY: SO_PEERCRED fills a ucred of the stated size.
-            let r = unsafe {
-                libc::getsockopt(
-                    sock.as_raw_fd(),
-                    libc::SOL_SOCKET,
-                    libc::SO_PEERCRED,
-                    (&mut cred as *mut libc::ucred).cast(),
-                    &mut len,
-                )
-            };
+            let uid = peer_uid(sock)?;
             // SAFETY: geteuid has no preconditions.
-            (r == 0 && (cred.uid == unsafe { libc::geteuid() } || allow.contains(&cred.uid)))
-                .then_some(Peer)
+            (uid == unsafe { libc::geteuid() } || allow.contains(&uid)).then_some(Peer)
         }
 
         pub fn pid(&self) -> u32 {
             0
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn peer_uid(sock: &UnixStream) -> Option<u32> {
+        let mut cred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
+        let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+        // SAFETY: SO_PEERCRED fills a ucred of the stated size.
+        let r = unsafe {
+            libc::getsockopt(
+                sock.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_PEERCRED,
+                (&mut cred as *mut libc::ucred).cast(),
+                &mut len,
+            )
+        };
+        (r == 0).then_some(cred.uid)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn peer_uid(sock: &UnixStream) -> Option<u32> {
+        let (mut uid, mut gid) = (0, 0);
+        // SAFETY: getpeereid writes two ids.
+        (unsafe { libc::getpeereid(sock.as_raw_fd(), &mut uid, &mut gid) } == 0).then_some(uid)
     }
 
     /// Before a message's first byte: the descriptor rides it.
@@ -64,9 +76,13 @@ mod imp {
 
     pub fn random_u64() -> u64 {
         let mut b = [0u8; 8];
+        #[cfg(target_os = "linux")]
         // SAFETY: getrandom fills our buffer.
-        let r = unsafe { libc::getrandom(b.as_mut_ptr().cast(), 8, 0) };
-        if r == 8 {
+        let ok = unsafe { libc::getrandom(b.as_mut_ptr().cast(), 8, 0) } == 8;
+        #[cfg(not(target_os = "linux"))]
+        // SAFETY: getentropy fills our buffer.
+        let ok = unsafe { libc::getentropy(b.as_mut_ptr().cast(), 8) } == 0;
+        if ok {
             u64::from_le_bytes(b) | 1
         } else {
             origami_display::v4::sys::now_ns() | 1
@@ -74,6 +90,7 @@ mod imp {
     }
 
     /// Shared memory of `size` bytes: a memfd, sealed by [`seal`] once mapped.
+    #[cfg(target_os = "linux")]
     pub fn create_section(size: u64) -> io::Result<Passed> {
         // SAFETY: memfd_create with a NUL-terminated name.
         let raw = unsafe {
@@ -94,8 +111,48 @@ mod imp {
         Ok(fd)
     }
 
+    /// Shared memory of `size` bytes: a POSIX shm object unlinked at once, so
+    /// only descriptors reach it. macOS has no memfd and no seals.
+    #[cfg(not(target_os = "linux"))]
+    pub fn create_section(size: u64) -> io::Result<Passed> {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static N: AtomicU32 = AtomicU32::new(0);
+        // macOS limits shm names to 31 bytes.
+        let name = std::ffi::CString::new(format!(
+            "/od.{:x}.{:x}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ))
+        .unwrap();
+        // SAFETY: shm_open with a NUL-terminated name.
+        let raw = unsafe {
+            libc::shm_open(
+                name.as_ptr(),
+                libc::O_RDWR | libc::O_CREAT | libc::O_EXCL,
+                0o600,
+            )
+        };
+        if raw < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: raw is a fresh descriptor.
+        let fd = unsafe { Passed::from_raw_fd(raw) };
+        // SAFETY: the name is ours; the object lives on through `fd`. macOS
+        // shm_open takes no O_CLOEXEC, so mark the descriptor here.
+        unsafe {
+            libc::shm_unlink(name.as_ptr());
+            libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC);
+        }
+        // SAFETY: ftruncate on our own shm object (macOS allows it once).
+        if unsafe { libc::ftruncate(fd.as_raw_fd(), size as libc::off_t) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        Ok(fd)
+    }
+
     /// Seal `fd` once the producer has mapped it, so the viewer's descriptor
     /// cannot resize it (nor map it writable unless `viewer_writable`).
+    #[cfg(target_os = "linux")]
     pub fn seal(fd: &Passed, viewer_writable: bool) -> io::Result<()> {
         use origami_display::v4::regions::{
             seals, SEAL_FUTURE_WRITE, SEAL_GROW, SEAL_SEAL, SEAL_SHRINK,
@@ -117,9 +174,18 @@ mod imp {
         Ok(())
     }
 
+    /// Shared memory has no seals off Linux; the viewer skips the check too.
+    /// Without them a connected peer (our uid or an allowed one) can map a read-only region writable.
+    #[cfg(not(target_os = "linux"))]
+    pub fn seal(_fd: &Passed, _viewer_writable: bool) -> io::Result<()> {
+        Ok(())
+    }
+
     /// The wake-up channel: an eventfd. Write end and read end are one descriptor.
+    #[cfg(target_os = "linux")]
     pub struct Wake(std::os::fd::OwnedFd);
 
+    #[cfg(target_os = "linux")]
     impl Wake {
         pub fn new() -> io::Result<Wake> {
             // SAFETY: eventfd returns a new descriptor we own.
@@ -142,6 +208,36 @@ mod imp {
         }
         pub fn sock(&self) -> origami_display::v4::sys::RawSock {
             self.0.as_raw_fd()
+        }
+    }
+
+    /// The wake-up channel off Linux: a connected socket pair, as on Windows.
+    #[cfg(not(target_os = "linux"))]
+    pub struct Wake {
+        rx: UnixStream,
+        tx: UnixStream,
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    impl Wake {
+        pub fn new() -> io::Result<Wake> {
+            let (rx, tx) = UnixStream::pair()?;
+            rx.set_nonblocking(true)?;
+            tx.set_nonblocking(true)?;
+            Ok(Wake { rx, tx })
+        }
+        pub fn wake(&self) {
+            use std::io::Write;
+            // A full buffer already means a wake-up is pending.
+            let _ = (&self.tx).write(&[1]);
+        }
+        pub fn drain(&self) {
+            use std::io::Read;
+            let mut b = [0u8; 64];
+            while matches!((&self.rx).read(&mut b), Ok(n) if n > 0) {}
+        }
+        pub fn sock(&self) -> origami_display::v4::sys::RawSock {
+            self.rx.as_raw_fd()
         }
     }
 

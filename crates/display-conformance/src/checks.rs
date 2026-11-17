@@ -2,7 +2,7 @@
 
 use crate::client::*;
 use crate::ensure;
-#[cfg(windows)]
+#[cfg(any(windows, all(unix, not(target_os = "linux"))))]
 use origami_display::v4::regions::{Expect, Mapping};
 use origami_display::v4::session::FrameLease;
 use origami_display::v4::sys::Passed;
@@ -487,7 +487,7 @@ fn handles_bad_seen(c: &Ctx) -> R<()> {
 }
 
 /// The region cannot be resized, and maps writable only when it should.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn check_region(reg: &wire::Region, h: &Passed, writable_expected: bool) -> R<()> {
     use std::os::fd::AsRawFd;
     let fd = h.as_raw_fd();
@@ -558,6 +558,15 @@ fn check_region(reg: &wire::Region, h: &Passed, writable_expected: bool) -> R<()
         reg.kind
     );
     Ok(())
+}
+
+/// A macOS shm object has no seals, so all that can be checked is that it maps.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn check_region(reg: &wire::Region, h: &Passed, _writable_expected: bool) -> R<()> {
+    let dup = h.try_clone().map_err(|e| e.to_string())?;
+    Mapping::map(dup, reg.size, false, Expect::Nothing)
+        .map(drop)
+        .map_err(|e| format!("region {}: {e}", reg.id))
 }
 
 fn regions_seals(c: &Ctx) -> R<()> {
