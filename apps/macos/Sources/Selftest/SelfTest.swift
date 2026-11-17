@@ -16,6 +16,23 @@ import Foundation
 import OrigamiFrame
 import SwiftUI
 
+/// The view at 2x in the given appearance, as a PNG. The bitmap's pixel size is twice its point size, so
+/// the drawing is done at device scale 2 as on a Retina display.
+@MainActor
+func snapshotRetina<V: View>(_ view: V, size: CGSize, dark: Bool, to path: String) -> Bool {
+    let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
+    host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+    host.frame = CGRect(origin: .zero, size: size)
+    host.layoutSubtreeIfNeeded()
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+                                     bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                     colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return false }
+    rep.size = size
+    host.cacheDisplay(in: host.bounds, to: rep)
+    guard let png = rep.representation(using: .png, properties: [:]) else { return false }
+    return (try? png.write(to: URL(fileURLWithPath: path))) != nil
+}
+
 @MainActor
 func snapshot<V: View>(_ view: V, size: CGSize, to path: String) -> (ok: Bool, colours: Int) {
     let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
@@ -185,6 +202,16 @@ func runSelfTest(library: String, out: String) {
     // 3. The SwiftUI views, rendered with no window.
     let hero = snapshot(Hero(model: model).environmentObject(app), size: CGSize(width: 760, height: 560), to: "\(out)/ui-hero.png")
     check("ui-hero-renders", hero.ok && hero.colours > 20, ["distinct_colours_sampled": hero.colours])
+    // An O2's summary pane in dark and light, at 2x, for looking at the tint fade by eye.
+    if let tint = ProcessInfo.processInfo.environment["ORIGAMI_TINT_PNG"] {
+        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", topology: "o2", nodes: 1,
+                                                             memoryPerNodeMib: 512, state: .notRunning, problem: nil),
+                              host: host, defaultPointer: .follow)
+        let size = CGSize(width: 800, height: 600)
+        let dark = snapshotRetina(Hero(model: o2).environmentObject(app), size: size, dark: true, to: tint)
+        let light = snapshotRetina(Hero(model: o2).environmentObject(app), size: size, dark: false, to: tint.replacingOccurrences(of: ".png", with: "-light.png"))
+        check("tint-pngs-written", dark && light, ["dark": tint])
+    }
     let sidebar = snapshot(LibrarySidebar().environmentObject(app), size: CGSize(width: 260, height: 420), to: "\(out)/ui-sidebar.png")
     check("ui-sidebar-renders", sidebar.ok && sidebar.colours > 5, ["distinct_colours_sampled": sidebar.colours])
     let startingUI = snapshot(StartingCard(model: model).environmentObject(app), size: CGSize(width: 760, height: 560), to: "\(out)/ui-starting.png")
