@@ -72,6 +72,29 @@ impl Change {
     }
 }
 
+/// The offerings with `offer`'s topology, nodes and processor module: the
+/// ones a processor change may move between.
+fn same_module<'a>(
+    catalogue: &'a Catalogue,
+    offer: &'a Offering,
+) -> impl Iterator<Item = &'a Offering> {
+    catalogue.offerings.iter().filter(move |o| {
+        o.topology == offer.topology
+            && o.nodes == offer.nodes
+            && o.processor.id == offer.processor.id
+    })
+}
+
+/// The CPUs per node `SetProcessor` accepts for the machine of `offer`.
+pub(crate) fn cpu_counts(catalogue: &Catalogue, offer: &Offering) -> Vec<u32> {
+    let mut counts: Vec<u32> = same_module(catalogue, offer)
+        .map(|o| o.cpus_per_node[0])
+        .collect();
+    counts.sort_unstable();
+    counts.dedup();
+    counts
+}
+
 /// Apply `change` to the stopped machine in `dir`.
 pub fn apply_change(engine: &dyn Engine, dir: &Path, change: &Change) -> Result<Report> {
     apply_changes(engine, dir, std::slice::from_ref(change))
@@ -293,25 +316,8 @@ impl Staged<'_> {
             return Ok(());
         };
         let population = vec![cpus; offer.nodes as usize];
-        let fits = |o: &&Offering| {
-            o.topology == offer.topology
-                && o.nodes == offer.nodes
-                && o.processor.id == offer.processor.id
-        };
-        if !catalogue
-            .offerings
-            .iter()
-            .filter(fits)
-            .any(|o| o.cpus_per_node == population)
-        {
-            let mut offered: Vec<u32> = catalogue
-                .offerings
-                .iter()
-                .filter(fits)
-                .map(|o| o.cpus_per_node[0])
-                .collect();
-            offered.sort_unstable();
-            offered.dedup();
+        if !same_module(&catalogue, offer).any(|o| o.cpus_per_node == population) {
+            let offered = cpu_counts(&catalogue, offer);
             return Err(format!(
                 "{} with {} takes {} CPUs per node, not {cpus}",
                 offer.topology,

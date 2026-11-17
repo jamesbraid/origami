@@ -9,6 +9,8 @@ use super::console::Console;
 use super::error::{CoreError, CoreResult, ErrorKind};
 use super::event::{EventKind, Slot};
 use super::operation::{self, Control as OpControl, Operation};
+use super::settings::{self, MachineSettings};
+use crate::Change;
 use origami_engine::{
     ConsoleIo, Control, CursorInfo, DisplayEndpoint, DisplayRequest, Engine, Frame, FrameSource,
     FrameStats, InputEvent, Key, PointerButton, RunState, Session, Stop, Wiring,
@@ -98,6 +100,17 @@ enum Phase {
     Idle,
     Starting,
     Stopping,
+    /// An edit is writing the file and reloading the model; a start waits.
+    Editing,
+}
+
+/// Puts the phase back to `Idle` when an edit ends, however it ends.
+struct Editing<'a>(&'a Mutex<Run>);
+
+impl Drop for Editing<'_> {
+    fn drop(&mut self) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).phase = Phase::Idle;
+    }
 }
 
 struct Run {
@@ -131,7 +144,8 @@ pub(crate) struct MachineInner {
     key: String,
     name: String,
     dir: MachineDir,
-    model: model::Machine,
+    /// Reloaded after each edit, so the next start launches what the file says.
+    model: Mutex<model::Machine>,
     engine: Arc<dyn Engine>,
     shared: Shared,
     run: Mutex<Run>,
@@ -166,7 +180,7 @@ impl Machine {
                 key,
                 name,
                 dir,
-                model,
+                model: Mutex::new(model),
                 engine,
                 shared,
                 run: Mutex::new(Run {
@@ -212,10 +226,12 @@ impl Machine {
         {
             let mut run = inner.run.lock().unwrap();
             if run.phase != Phase::Idle || inner.live(&run) {
-                return Err(CoreError::new(
-                    ErrorKind::Busy,
-                    "the machine is already running",
-                ));
+                let message = if run.phase == Phase::Editing {
+                    "the machine's settings are being changed"
+                } else {
+                    "the machine is already running"
+                };
+                return Err(CoreError::new(ErrorKind::Busy, message));
             }
             run.phase = Phase::Starting;
         }
@@ -290,6 +306,46 @@ impl Machine {
             .session()?
             .media(drive, image)
             .map_err(CoreError::engine)
+    }
+
+    /// What the machine's file says. Reads the disk and may start the
+    /// engine's program: off the UI thread.
+    pub fn settings(&self) -> CoreResult<MachineSettings> {
+        let loaded = crate::open(self.inner.engine.as_ref(), self.inner.dir.path())
+            .map_err(CoreError::machine)?;
+        settings::read(&loaded).map_err(CoreError::machine)
+    }
+
+    /// Edit the machine's file: `Busy` unless it is stopped and no other edit
+    /// runs, and a start waits out an edit. Off the UI thread.
+    pub fn apply_change(&self, change: &Change) -> CoreResult<()> {
+        let inner = &self.inner;
+        {
+            let mut run = inner.run.lock().unwrap();
+            if run.phase != Phase::Idle || inner.live(&run) {
+                return Err(CoreError::new(
+                    ErrorKind::Busy,
+                    "stop the machine before changing its settings",
+                ));
+            }
+            run.phase = Phase::Editing;
+        }
+        let _editing = Editing(&inner.run);
+        let (engine, dir) = (inner.engine.as_ref(), inner.dir.path());
+        crate::apply_change(engine, dir, change).map_err(CoreError::machine)?;
+        inner.shared.slot.raise(&[EventKind::Library]);
+        let stale = |error: Box<dyn std::error::Error + Send + Sync>| {
+            CoreError::new(
+                ErrorKind::Internal,
+                format!("the change was saved, but the machine could not be reloaded ({error}); open it again"),
+            )
+        };
+        let loaded = crate::open(engine, dir).map_err(stale)?;
+        let mut model =
+            model::Machine::from_file(&loaded.catalogue, &loaded.file).map_err(stale)?;
+        model.engine.id = engine.info().id;
+        *inner.model.lock().unwrap() = model;
+        Ok(())
     }
 
     pub fn screendump(&self, head: usize, path: &Path) -> CoreResult<()> {
@@ -585,7 +641,7 @@ impl MachineInner {
         MachineView {
             key: self.key.clone(),
             name: self.name.clone(),
-            product: self.model.product.clone(),
+            product: self.model.lock().unwrap().product.clone(),
             engine: self.engine.info().id,
             state,
             exit_code,
@@ -623,7 +679,8 @@ impl MachineInner {
         if let Err(error) = crate::apply_first_boot(self.engine.as_ref(), self.dir.path()) {
             eprintln!("warning: could not apply the first-boot settings: {error}");
         }
-        let report = self.engine.validate(&self.model, &self.dir);
+        let model = self.model.lock().unwrap().clone();
+        let report = self.engine.validate(&model, &self.dir);
         if let Some(problem) = report.errors().next() {
             return Err(CoreError::new(ErrorKind::Invalid, problem.message.clone()));
         }
@@ -638,7 +695,7 @@ impl MachineInner {
         };
         let plan = self
             .engine
-            .plan(&self.model, &self.dir, &wiring)
+            .plan(&model, &self.dir, &wiring)
             .map_err(CoreError::engine)?;
         if control.is_cancelled() {
             return Err(CoreError::new(

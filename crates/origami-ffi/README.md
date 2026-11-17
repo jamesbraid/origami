@@ -60,6 +60,11 @@ Running | Paused | Stopping | Exited`, exit code and last error, `heads`,
 `console`, `operation`), `start()`, `stop(Clean | Force)` (a clean stop cannot
 be cancelled and can take minutes), `control(Reset | PowerButton | Nmi | Pause |
 Resume)`, `change_media(drive, image?)`, `screendump(head, path)`,
+`settings()` (the machine file: processor, CPUs and memory with the values the
+offering allows, graphics pipes, drives, network mode, port forwards and
+shares), `apply_change(OrigamiChange)` (`SetProcessor | SetMemory | SetNetwork
+| AddForward | RemoveForward | AddShare | RemoveShare | DetachDrive`; `Busy`
+unless the machine is stopped, so read `settings()` again after it),
 `send_key(OrigamiKey, down)`, `send_pointer(Move | At | Button | Wheel)`,
 `release_all_keys()` (call when your window loses focus; returns how many it
 lifted), `console_read(from, max)` (offset ring: pass `next` back; `dropped`

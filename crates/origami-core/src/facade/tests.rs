@@ -1,4 +1,5 @@
 use super::*;
+use crate::Change;
 use origami_engine::fake::{FakeEngine, FakeSession};
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -599,6 +600,39 @@ fn a_start_applies_the_pending_first_boot_settings_first() {
 }
 
 #[test]
+fn settings_read_what_the_machine_file_holds() {
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("s", "fake.2")).unwrap();
+    let s = machine.settings().unwrap();
+    assert_eq!(
+        (s.processor.as_str(), s.processor_part.as_str()),
+        ("fake-cpu", "FAKE1")
+    );
+    assert_eq!((s.cpus_per_node, s.cpus_per_node_allowed), (1, vec![1]));
+    assert_eq!(
+        (s.memory_per_node_mib, s.memory_allowed_mib),
+        (128, vec![64, 128, 256])
+    );
+    assert_eq!(s.network_mode, "user");
+    assert!(s.forwards.is_empty() && s.shares.is_empty() && s.drives.is_empty());
+}
+
+#[test]
+fn an_edit_takes_hold_on_a_stopped_machine_and_is_refused_on_a_running_one() {
+    let f = fixture();
+    let key = f.create("e", "fake.1");
+    let machine = f.core.open_machine(&key).unwrap();
+    machine.apply_change(&Change::SetMemory(256)).unwrap();
+    assert_eq!(machine.settings().unwrap().memory_per_node_mib, 256);
+    // The next start launches the edited file, not the one opened.
+    machine.start().unwrap().wait(Some(WAIT));
+    assert_eq!(machine.view().state, MachineState::Running);
+    let error = machine.apply_change(&Change::SetMemory(64)).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Busy);
+    assert_eq!(machine.settings().unwrap().memory_per_node_mib, 256);
+}
+
+#[test]
 fn a_create_names_its_engine_or_takes_the_first_that_offers_the_offering() {
     let f = fixture();
     let prom = f.root.path().join("prom.bin");
@@ -630,4 +664,80 @@ fn a_create_names_its_engine_or_takes_the_first_that_offers_the_offering() {
     let wrong = failed(create("d", "no.such", Some("fake")));
     assert_eq!(wrong, (ErrorKind::NotFound, Some("offering".into())));
     assert!(!f.core.root().join("c").exists());
+}
+
+#[test]
+fn an_edit_in_progress_refuses_a_start_and_another_edit() {
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("e", "fake.1")).unwrap();
+    // One edit's validations, the last of which is the reload.
+    let before = f.engine.validations();
+    machine.apply_change(&Change::SetMemory(256)).unwrap();
+    let reload = f.engine.validations() - before;
+    let target = f.engine.validations() + reload;
+    let (entered, entered_rx) = channel();
+    let (release, release_rx) = channel::<()>();
+    let (entered, release_rx) = (Mutex::new(entered), Mutex::new(release_rx));
+    f.engine.set_validate_hook(Arc::new(move |call| {
+        if call == target {
+            entered.lock().unwrap().send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+        }
+        None
+    }));
+    let editor = machine.clone();
+    let edit = std::thread::spawn(move || editor.apply_change(&Change::SetMemory(64)));
+    entered_rx.recv_timeout(WAIT).unwrap();
+    assert_eq!(machine.start().err().unwrap().kind, ErrorKind::Busy);
+    let second = machine.apply_change(&Change::SetMemory(128)).unwrap_err();
+    assert_eq!(second.kind, ErrorKind::Busy);
+    release.send(()).unwrap();
+    edit.join().unwrap().unwrap();
+    assert_eq!(machine.settings().unwrap().memory_per_node_mib, 64);
+}
+
+#[test]
+fn a_reload_that_fails_after_the_write_says_the_change_was_saved() {
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("r", "fake.1")).unwrap();
+    let before = f.engine.validations();
+    machine.apply_change(&Change::SetMemory(256)).unwrap();
+    let target = f.engine.validations() + (f.engine.validations() - before);
+    f.engine.set_validate_hook(Arc::new(move |call| {
+        (call == target).then(|| "the engine gave up".to_string())
+    }));
+    let error = machine.apply_change(&Change::SetMemory(64)).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Internal);
+    assert!(error.message.contains("saved"), "{error}");
+    let file = origami_machine::read_machine(Path::new(machine.key())).unwrap();
+    assert_eq!(file.machine.memory_per_node, "64MiB");
+    // The edit lock is free again and a later edit works.
+    machine.apply_change(&Change::SetMemory(128)).unwrap();
+}
+
+#[test]
+fn a_start_racing_an_edit_launches_the_edited_file_or_is_refused() {
+    let f = fixture();
+    for round in 0..20 {
+        let machine = f
+            .core
+            .open_machine(&f.create(&format!("r{round}"), "fake.1"))
+            .unwrap();
+        let editor = machine.clone();
+        let edit = std::thread::spawn(move || editor.apply_change(&Change::SetMemory(256)));
+        let started = machine.start();
+        let edited = edit.join().unwrap();
+        // Each is either done or told Busy; a start that wins is never edited under.
+        for refused in [started.as_ref().err(), edited.as_ref().err()]
+            .into_iter()
+            .flatten()
+        {
+            assert_eq!(refused.kind, ErrorKind::Busy, "{refused}");
+        }
+        if let Ok(op) = started {
+            assert_eq!(op.wait(Some(WAIT)), OperationState::Succeeded);
+        }
+        let want = if edited.is_ok() { 256 } else { 128 };
+        assert_eq!(machine.settings().unwrap().memory_per_node_mib, want);
+    }
 }

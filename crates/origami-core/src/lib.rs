@@ -24,6 +24,7 @@ pub use create::create;
 pub use first_boot::apply_first_boot;
 pub use inspect::{check, directory, listing, open, show, validate, Loaded};
 pub use install::{install_addon, install_check, install_init, InstallAddon, InstallInit};
+pub use origami_machine::PortForward;
 pub use report::{Incomplete, Kind, Line, Report, Stream};
 pub use spec::{
     DriveKind, DriveRequest, FirmwareRequest, GraphicsRequest, IdentityRequest, MachineSpec,

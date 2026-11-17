@@ -42,7 +42,13 @@ pub struct FakeEngine {
     catalogue: Arc<Catalogue>,
     next_id: AtomicU32,
     sessions: Mutex<Vec<Arc<FakeSession>>>,
+    validations: AtomicU32,
+    validate_hook: Mutex<Option<ValidateHook>>,
 }
+
+/// Called with the number of each `validate` call; an error text fails it.
+/// It may block, to hold a caller inside the call.
+pub type ValidateHook = Arc<dyn Fn(u32) -> Option<String> + Send + Sync>;
 
 impl Default for FakeEngine {
     fn default() -> Self {
@@ -56,7 +62,19 @@ impl FakeEngine {
             catalogue: Arc::new(catalogue()),
             next_id: AtomicU32::new(1),
             sessions: Mutex::new(Vec::new()),
+            validations: AtomicU32::new(0),
+            validate_hook: Mutex::new(None),
         }
+    }
+
+    /// Run `hook` on every later `validate`, numbered from the count so far.
+    pub fn set_validate_hook(&self, hook: ValidateHook) {
+        *self.validate_hook.lock().unwrap() = Some(hook);
+    }
+
+    /// How many times `validate` has been called.
+    pub fn validations(&self) -> u32 {
+        self.validations.load(Ordering::SeqCst)
     }
 
     /// Every session launched so far, oldest first, for a test to drive.
@@ -166,6 +184,12 @@ impl Engine for FakeEngine {
 
     fn validate(&self, m: &Machine, dir: &MachineDir) -> Report {
         let mut report = Report::default();
+        let call = self.validations.fetch_add(1, Ordering::SeqCst) + 1;
+        let hook = self.validate_hook.lock().unwrap().clone();
+        if let Some(error) = hook.and_then(|hook| hook(call)) {
+            report.push(crate::Severity::Error, error);
+            return report;
+        }
         if m.engine.id != ID {
             report.push(
                 crate::Severity::Error,

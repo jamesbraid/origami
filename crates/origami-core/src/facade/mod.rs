@@ -16,6 +16,7 @@ mod install;
 mod lease;
 mod machine;
 mod operation;
+mod settings;
 
 pub use commands::{Command, EnabledWhen, Platform, Shortcut};
 pub use core::{Config, Core, CreateRequest, EngineSummary, MachineSummary, OfferingSummary};
@@ -27,6 +28,7 @@ pub use machine::{
     StopKind,
 };
 pub use operation::{Operation, OperationState};
+pub use settings::{DriveSetting, MachineSettings, PipeSetting, ShareSetting};
 
 pub use origami_engine::{
     Control, CursorInfo, Frame, FrameStats, FrameUpdate, InputEvent, Key, PointerButton,

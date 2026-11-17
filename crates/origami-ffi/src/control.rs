@@ -185,6 +185,175 @@ pub struct OrigamiCreateRequest {
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiPipeSetting {
+    pub slot: String,
+    pub product: String,
+    pub family: String,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiDriveSetting {
+    pub name: String,
+    /// `disk`, `cdrom` or `tape`.
+    pub kind: String,
+    pub bus: u32,
+    pub target: u32,
+    pub image: String,
+    pub read_only: bool,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiForward {
+    pub name: String,
+    /// `tcp` or `udp`.
+    pub protocol: String,
+    pub host_port: u16,
+    pub guest_port: u16,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiShare {
+    pub name: String,
+    pub host_dir: String,
+}
+
+/// What a machine's file says, for a settings pane.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiMachineSettings {
+    pub nodes: u32,
+    /// The processor module and its part, such as `R12000`. Fixed at creation.
+    pub processor: String,
+    pub processor_part: String,
+    pub cpus_per_node: u32,
+    /// The counts `OrigamiChange::SetProcessor` accepts.
+    pub cpus_per_node_allowed: Vec<u32>,
+    pub memory_per_node_mib: u32,
+    /// The sizes `OrigamiChange::SetMemory` accepts.
+    pub memory_allowed_mib: Vec<u32>,
+    pub pipes: Vec<OrigamiPipeSetting>,
+    pub drives: Vec<OrigamiDriveSetting>,
+    /// `user`, `private`, `none`, `tap` or `vmnet`.
+    pub network_mode: String,
+    pub forwards: Vec<OrigamiForward>,
+    pub shares: Vec<OrigamiShare>,
+}
+
+impl From<f::MachineSettings> for OrigamiMachineSettings {
+    fn from(s: f::MachineSettings) -> Self {
+        Self {
+            nodes: s.nodes,
+            processor: s.processor,
+            processor_part: s.processor_part,
+            cpus_per_node: s.cpus_per_node,
+            cpus_per_node_allowed: s.cpus_per_node_allowed,
+            memory_per_node_mib: s.memory_per_node_mib,
+            memory_allowed_mib: s.memory_allowed_mib,
+            pipes: s
+                .pipes
+                .into_iter()
+                .map(|p| OrigamiPipeSetting {
+                    slot: p.slot,
+                    product: p.product,
+                    family: p.family,
+                })
+                .collect(),
+            drives: s
+                .drives
+                .into_iter()
+                .map(|d| OrigamiDriveSetting {
+                    name: d.name,
+                    kind: d.kind,
+                    bus: d.bus,
+                    target: d.target,
+                    image: d.image,
+                    read_only: d.read_only,
+                })
+                .collect(),
+            network_mode: s.network_mode,
+            forwards: s
+                .forwards
+                .into_iter()
+                .map(|p| OrigamiForward {
+                    name: p.name,
+                    protocol: p.protocol,
+                    host_port: p.host_port,
+                    guest_port: p.guest_port,
+                })
+                .collect(),
+            shares: s
+                .shares
+                .into_iter()
+                .map(|s| OrigamiShare {
+                    name: s.name,
+                    host_dir: s.host_dir,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// The networking a change can pick; `tap` and `vmnet` need more than a mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum OrigamiNetworkMode {
+    User,
+    Private,
+    None,
+}
+
+/// One edit to a stopped machine's settings.
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum OrigamiChange {
+    SetProcessor { cpus_per_node: u32 },
+    SetMemory { mib: u32 },
+    SetNetwork { mode: OrigamiNetworkMode },
+    AddForward { forward: OrigamiForward },
+    RemoveForward { name: String },
+    AddShare { name: String, host_dir: String },
+    RemoveShare { name: String },
+    DetachDrive { name: String },
+}
+
+impl From<OrigamiChange> for origami_core::Change {
+    fn from(c: OrigamiChange) -> Self {
+        use origami_core::{NetworkChange, NetworkMode};
+        match c {
+            OrigamiChange::SetProcessor { cpus_per_node } => Self::SetProcessor {
+                module: None,
+                cpus_per_node: Some(cpus_per_node),
+            },
+            OrigamiChange::SetMemory { mib } => Self::SetMemory(mib),
+            OrigamiChange::SetNetwork { mode } => Self::SetNetwork(NetworkChange {
+                mode: match mode {
+                    OrigamiNetworkMode::User => NetworkMode::User,
+                    OrigamiNetworkMode::Private => NetworkMode::Private,
+                    OrigamiNetworkMode::None => NetworkMode::None,
+                },
+                endpoint: None,
+                interface: None,
+                share_address: None,
+                subnet: None,
+                mac: None,
+            }),
+            OrigamiChange::AddForward { forward: p } => {
+                Self::AddForward(origami_core::PortForward {
+                    name: p.name,
+                    protocol: p.protocol,
+                    host_port: p.host_port,
+                    guest_port: p.guest_port,
+                })
+            }
+            OrigamiChange::RemoveForward { name } => Self::RemoveForward(name),
+            OrigamiChange::AddShare { name, host_dir } => Self::AddShare {
+                name,
+                host_dir: PathBuf::from(host_dir),
+            },
+            OrigamiChange::RemoveShare { name } => Self::RemoveShare(name),
+            OrigamiChange::DetachDrive { name } => Self::DetachDrive(name),
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiHeadView {
     pub index: u32,
     pub width: u32,
@@ -636,6 +805,17 @@ impl OrigamiMachine {
         Ok(self
             .0
             .change_media(&drive, image.as_deref().map(std::path::Path::new))?)
+    }
+
+    /// The machine file's settings. Reads the disk: off the UI thread.
+    pub fn settings(&self) -> Res<OrigamiMachineSettings> {
+        Ok(self.0.settings()?.into())
+    }
+
+    /// Edit the machine. `Busy` unless it is stopped. Off the UI thread;
+    /// read `settings` again afterwards.
+    pub fn apply_change(&self, change: OrigamiChange) -> Res<()> {
+        Ok(self.0.apply_change(&change.into())?)
     }
 
     pub fn screendump(&self, head: u32, path: String) -> Res<()> {
