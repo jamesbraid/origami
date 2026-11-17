@@ -17,9 +17,7 @@
 
 use crate::engine::screendump_target;
 use crate::{control as qemu_control, runtime, QemuEngine, Runtime, ENGINE};
-#[cfg(unix)]
 use origami_display::v4::session::SessionError;
-#[cfg(unix)]
 use origami_display::v4::viewer::{Viewer, ViewerInput};
 use origami_display::{Display, Taken};
 use origami_engine::status::Facts as DisplayFacts;
@@ -61,7 +59,6 @@ enum Backend {
         display: Box<Display>,
         uplink: origami_display::Uplink,
     },
-    #[cfg(unix)]
     V4(Arc<Viewer>),
 }
 
@@ -90,7 +87,6 @@ impl Shown {
                 display.set_visible(visible);
                 visible && !was && display.arm_all()
             }
-            #[cfg(unix)]
             Backend::V4(viewer) => viewer.set_visible(visible),
         };
         if wake {
@@ -101,7 +97,6 @@ impl Shown {
     fn heads(&self) -> Vec<HeadInfo> {
         match &self.backend {
             Backend::V3 { display, .. } => display.heads(),
-            #[cfg(unix)]
             Backend::V4(viewer) => viewer.heads(),
         }
     }
@@ -109,7 +104,6 @@ impl Shown {
     fn stats(&self) -> Stats {
         match &self.backend {
             Backend::V3 { display, .. } => display.stats(),
-            #[cfg(unix)]
             Backend::V4(viewer) => viewer.stats(),
         }
     }
@@ -117,7 +111,6 @@ impl Shown {
     fn backend_name(&self) -> Option<String> {
         match &self.backend {
             Backend::V3 { display, .. } => display.backend(),
-            #[cfg(unix)]
             Backend::V4(viewer) => viewer.backend(),
         }
     }
@@ -125,7 +118,6 @@ impl Shown {
     fn link_facts(&self) -> origami_engine::status::LinkFacts {
         match &self.backend {
             Backend::V3 { display, .. } => display.link_facts(),
-            #[cfg(unix)]
             Backend::V4(viewer) => viewer.link_facts(),
         }
     }
@@ -402,19 +394,14 @@ impl Engine for RunnerEngine {
         }
         let id = MachineId(self.next.fetch_add(1, Ordering::Relaxed));
         let importer = lock(&self.importer).clone();
-        let v4 = cfg!(unix) && runs_protocol_4(&dir)?;
+        let v4 = runs_protocol_4(&dir)?;
         let (backend, sink): (Backend, Box<dyn InputSink>) = if v4 {
-            #[cfg(unix)]
-            {
-                let viewer = Arc::new(Viewer::new());
-                if let Some(importer) = importer {
-                    viewer.set_importer(importer);
-                }
-                let sink = Box::new(ViewerInput(viewer.clone()));
-                (Backend::V4(viewer), sink)
+            let viewer = Arc::new(Viewer::new());
+            if let Some(importer) = importer {
+                viewer.set_importer(importer);
             }
-            #[cfg(not(unix))]
-            unreachable!("version 4 is chosen on unix only")
+            let sink = Box::new(ViewerInput(viewer.clone()));
+            (Backend::V4(viewer), sink)
         } else {
             let display = Display::default();
             if let Some(importer) = importer {
@@ -609,7 +596,6 @@ impl FrameSource for Shown {
         let display = match &self.backend {
             Backend::V3 { display, .. } => display,
             // A version 4 frame needs no re-arming: the next one is already asked for.
-            #[cfg(unix)]
             Backend::V4(viewer) => {
                 return match viewer.take(head, pixels) {
                     Taken::Frame(update) => Some(Frame::Rows(update)),
@@ -646,7 +632,6 @@ impl FrameSource for Shown {
     fn cursor(&self, head: usize, known_gen: u32) -> Option<CursorInfo> {
         match &self.backend {
             Backend::V3 { display, .. } => display.cursor(head, known_gen),
-            #[cfg(unix)]
             Backend::V4(viewer) => viewer.cursor(head, known_gen),
         }
     }
@@ -804,7 +789,6 @@ impl origami_display::Link for SocketLink {
 fn reader_thread(m: &Arc<Shown>) {
     let (display, uplink) = match &m.backend {
         Backend::V3 { display, uplink } => (display, uplink),
-        #[cfg(unix)]
         Backend::V4(viewer) => return reader_thread_v4(m, viewer),
     };
     let mut link = SocketLink {
@@ -848,7 +832,6 @@ fn reader_thread(m: &Arc<Shown>) {
 /// The version 4 display thread: connect, serve the session until it ends,
 /// and mark the machine gone when it does. The runner holds the listening
 /// socket, so a connection waits for QEMU to accept it.
-#[cfg(unix)]
 fn reader_thread_v4(m: &Arc<Shown>, viewer: &Arc<Viewer>) {
     let socket = runtime::display_socket(&m.dir);
     let started = std::time::Instant::now();
@@ -859,7 +842,7 @@ fn reader_thread_v4(m: &Arc<Shown>, viewer: &Arc<Viewer>) {
         }
     };
     while !m.stop.load(Ordering::Acquire) {
-        match std::os::unix::net::UnixStream::connect(&socket) {
+        match origami_display::v4::sys::UnixStream::connect(&socket) {
             Ok(stream) => {
                 misses = 0;
                 ever = true;

@@ -277,6 +277,11 @@ impl Importer for GpuImporter {
     }
 
     fn shm_needs_write(&self) -> bool {
+        // OpenExistingHeapFromFileMapping is measured on writable sections only.
+        #[cfg(windows)]
+        if let Some(Kind::D3d12) = self.support.kind {
+            return true;
+        }
         // The driver pins a host pointer for writing as well as reading.
         #[cfg(target_os = "linux")]
         if let Some(Kind::Vulkan(c)) = &self.support.kind {

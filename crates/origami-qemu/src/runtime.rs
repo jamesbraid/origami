@@ -55,13 +55,9 @@ const PROBE_TIMEOUT: Duration = if cfg!(test) {
 };
 
 /// Ask `qemu` whether it has the `display-shm` device type. Version 3 for
-/// one that predates it, is not on Unix, or cannot be asked (not remembered).
+/// one that predates it or cannot be asked (not remembered).
 pub fn shm_protocol(qemu: &Path) -> ShmProtocol {
     static KNOWN: std::sync::Mutex<Vec<(PathBuf, ShmProtocol)>> = std::sync::Mutex::new(Vec::new());
-    // QEMU's version 4 producer and the session library are Unix only so far.
-    if !cfg!(unix) {
-        return ShmProtocol::V3;
-    }
     let known = |qemu: &Path| {
         let known = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
         known.iter().find(|(path, _)| path == qemu).map(|k| k.1)
@@ -1072,6 +1068,12 @@ pub fn launch(
             )
         }
         other => (other, None),
+    };
+    // Without an inherited socket QEMU binds the display socket itself.
+    #[cfg(not(unix))]
+    let display = match display {
+        Display::Shm { .. } if protocol == ShmProtocol::V4 => Display::ShmV4 { fd: None },
+        other => other,
     };
     let mut args = arguments_with(machines, dir, file, offering, display, ports.as_ref())?;
     args.splice(0..0, rt.data_arguments());
