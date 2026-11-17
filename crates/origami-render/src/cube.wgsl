@@ -13,6 +13,9 @@ struct U {
     dark: vec4<f32>,
     light: vec4<f32>,
     fill: vec4<f32>,
+    // The scene fading out: its mean colour, and in w how far the fade to
+    // the current one has come (1 when there is none).
+    fill_prev: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: U;
@@ -21,6 +24,7 @@ struct U {
 @group(0) @binding(3) var screen: texture_2d<f32>;
 @group(0) @binding(4) var tile: texture_2d<f32>;
 @group(0) @binding(5) var mean: texture_2d<f32>;
+@group(0) @binding(6) var photo_prev: texture_2d<f32>;
 
 const PI: f32 = 3.14159265;
 const EDGE: f32 = 0.22;
@@ -75,8 +79,16 @@ fn studio(r: vec3<f32>) -> vec3<f32> {
 // Blender's world mapping, u = 0.5 - atan2(y, x) / 2pi with x right, y away from
 // the camera and z up, so the direction to the camera is u = 0.75.
 fn equirect(r: vec3<f32>) -> vec3<f32> {
-    let uv = vec2<f32>(atan2(r.z, r.x) / (2.0 * PI) + 0.5, 0.5 - asin(clamp(r.y, -1.0, 1.0)) / PI);
-    return textureSampleLevel(photo, samp, uv, u.mode.y).rgb;
+    let uv = lonlat(r);
+    let now = textureSampleLevel(photo, samp, uv, u.mode.y).rgb;
+    if (u.fill_prev.w >= 1.0) {
+        return now;
+    }
+    return mix(textureSampleLevel(photo_prev, samp, uv, u.mode.y).rgb, now, u.fill_prev.w);
+}
+
+fn lonlat(r: vec3<f32>) -> vec2<f32> {
+    return vec2<f32>(atan2(r.z, r.x) / (2.0 * PI) + 0.5, 0.5 - asin(clamp(r.y, -1.0, 1.0)) / PI);
 }
 
 // The guest's screen round the horizon, mirrored across the back, over +-BAND
@@ -106,7 +118,7 @@ fn on_screen(r: vec3<f32>) -> vec3<f32> {
 // screen's, from the 1 by 1 texture the downsample pass writes.
 fn scene_average() -> vec3<f32> {
     if (u.mode.x == 1.0) {
-        return u.fill.rgb;
+        return mix(u.fill_prev.rgb, u.fill.rgb, u.fill_prev.w);
     }
     return textureLoad(mean, vec2<i32>(0, 0), 0).rgb;
 }

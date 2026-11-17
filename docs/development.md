@@ -237,7 +237,7 @@ numbers it prints start with `MEASURE`.
 
 `crates/origami-ffi/tests/cube_view.rs` draws the cube in an X11 window through
 the same functions with a fake machine: it reads back each scene in both
-appearances, drives the pointer and Alt-click, reflects the fake machine's
+appearances, drives the pointer, steps scenes, reflects the fake machine's
 screen, and measures CPU while turning, flung, at rest and hidden. It is
 ignored by default and needs a Vulkan device and an X server. Run it with
 `cargo test -p origami-ffi --release --features fake --test cube_view --

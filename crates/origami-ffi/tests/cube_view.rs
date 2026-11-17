@@ -1,6 +1,6 @@
 //! The cube view through the C frame plane, in an X11 window: each
-//! environment is drawn and read back, the pointer, Alt-click and the
-//! machine reflection act, and CPU time is measured. Ignored: needs a Vulkan
+//! environment is drawn and read back, the pointer acts, scenes step and the
+//! machine reflection works, and CPU time is measured. Ignored: needs a Vulkan
 //! device and an X server (`DISPLAY`). Run with
 //! `cargo test -p origami-ffi --release --features fake --test cube_view -- --ignored --nocapture`;
 //! `ORIGAMI_CUBE_SHOTS` names a directory for PNG screenshots and
@@ -200,6 +200,12 @@ fn save(name: &str, shot: &Shot) {
         .unwrap();
 }
 
+fn scene_named(id: &str) -> u32 {
+    let id = CString::new(id).unwrap();
+    // SAFETY: a NUL terminated string.
+    u32::try_from(unsafe { origami_cube_scene_find(id.as_ptr()) }).unwrap()
+}
+
 fn scene_text(index: u32, field: u32) -> String {
     let mut buf = [0 as std::ffi::c_char; 256];
     // SAFETY: `buf` is writable for its length.
@@ -218,7 +224,7 @@ fn same(a: &Shot, b: &Shot) -> bool {
 
 #[test]
 #[ignore = "needs a GPU and an X server; see the header"]
-fn every_environment_is_drawn_and_the_pointer_and_alt_click_act() {
+fn every_environment_is_drawn_and_the_pointer_acts() {
     let window = Window::new(320, 320);
     let cube = Cube::new(&window, 320, 320, 1.0);
     let mut seen: Vec<Shot> = Vec::new();
@@ -263,7 +269,7 @@ fn every_environment_is_drawn_and_the_pointer_and_alt_click_act() {
     let rounded = origami_cube_style {
         size: std::mem::size_of::<origami_cube_style>() as u32,
         env: ORIGAMI_CUBE_ENV_SCENE,
-        scene: origami_cube_about_scene(1),
+        scene: scene_named("vancouver-dusk"),
         horizon_rgb: ORIGAMI_CUBE_NO_COLOUR,
         granite_light_rgb: DARK[0],
         granite_dark_rgb: DARK[1],
@@ -276,10 +282,15 @@ fn every_environment_is_drawn_and_the_pointer_and_alt_click_act() {
     // SAFETY: valid cube and style.
     unsafe { ok(origami_cube_set_style(cube.0, &rounded), "set_style") };
     check(&cube, "about-no-backdrop-dark");
-    let (dark, light) = (origami_cube_about_scene(1), origami_cube_about_scene(0));
-    assert_eq!(scene_text(dark, ORIGAMI_CUBE_SCENE_ID), "vancouver-dusk");
-    assert_eq!(scene_text(light, ORIGAMI_CUBE_SCENE_ID), "howe-sound");
-    assert!(scene_text(light, ORIGAMI_CUBE_SCENE_CREDIT).contains("CC BY 2.0"));
+    // The credit lines are what About shows, word for word.
+    assert_eq!(
+        scene_text(
+            scene_named("horseshoe-bay-marina"),
+            ORIGAMI_CUBE_SCENE_CREDIT
+        ),
+        "Kay Röllig, 2016, CC BY 3.0, via Wikimedia Commons; cropped and mirror-tiled"
+    );
+    assert!(scene_text(scene_named("howe-sound"), ORIGAMI_CUBE_SCENE_CREDIT).contains("CC BY 2.0"));
     let found = CString::new("garibaldi-lake").unwrap();
     // SAFETY: a NUL terminated string.
     assert_eq!(unsafe { origami_cube_scene_find(found.as_ptr()) }, 1);
@@ -288,7 +299,7 @@ fn every_environment_is_drawn_and_the_pointer_and_alt_click_act() {
     // the cube and it stops dead on release.
     cube.scene_style(
         ORIGAMI_CUBE_ENV_SCENE,
-        origami_cube_about_scene(1),
+        scene_named("vancouver-dusk"),
         ORIGAMI_CUBE_NO_COLOUR,
         DARK,
         false,
@@ -312,13 +323,6 @@ fn every_environment_is_drawn_and_the_pointer_and_alt_click_act() {
         cube.present();
     }
     assert!(same(&cube.shot(), &before), "back in the mark pose");
-
-    // Alt-click moves to the next scene.
-    let first = cube.shot();
-    // SAFETY: valid cube.
-    unsafe { ok(origami_cube_alt_click(cube.0), "alt click") };
-    cube.present();
-    assert!(!same(&first, &cube.shot()));
 }
 
 #[test]
@@ -584,4 +588,66 @@ fn a_style_from_before_the_backdrop_field_is_read_by_its_size() {
     let (w, _, rgb) = cube.shot();
     assert_eq!(w, 64);
     assert!(rgb[..3] == [0xe2, 0xe4, 0xe8] || rgb[..3] == [0xd6, 0xd8, 0xdd]);
+}
+
+/// The About easter egg through the C functions: the scene for a time, a step with
+/// a fade, and the current scene for a tooltip's credit.
+#[test]
+fn the_scene_step_fades_and_reports_the_scene_on_show() {
+    let mut cube = ptr::null_mut();
+    // SAFETY: a valid out pointer.
+    let status = unsafe { origami_cube_attach_offscreen(64, 64, 1.0, &mut cube) };
+    if status == ORIGAMI_ERR_NO_GPU {
+        eprintln!("skipping: no GPU");
+        return;
+    }
+    ok(status, "attach offscreen");
+    let cube = Cube(cube);
+    // Noon is a day scene, eight in the evening is dusk.
+    let (day, dusk) = (scene_named("howe-sound"), scene_named("vancouver-dusk"));
+    assert_eq!(origami_cube_scene_for_time(12, 0), day);
+    assert_eq!(origami_cube_scene_for_time(20, 0), dusk);
+    let start = day;
+    cube.scene_style(
+        ORIGAMI_CUBE_ENV_SCENE,
+        start,
+        ORIGAMI_CUBE_NO_COLOUR,
+        DARK,
+        false,
+        false,
+    );
+    // SAFETY: valid cube.
+    unsafe {
+        assert_eq!(origami_cube_current_scene(cube.0), start as i32);
+        ok(origami_cube_next_scene(cube.0), "next scene");
+        let next = origami_cube_current_scene(cube.0);
+        assert_eq!(
+            next,
+            scene_named("horseshoe-bay-marina") as i32,
+            "the manifest order"
+        );
+    }
+    // The fade's timing is tested in origami-render with a stepped clock.
+    // The studio has no scene on show.
+    cube.style(
+        ORIGAMI_CUBE_ENV_STUDIO,
+        ORIGAMI_CUBE_NO_COLOUR,
+        DARK,
+        false,
+        false,
+    );
+    // SAFETY: valid cube.
+    assert_eq!(unsafe { origami_cube_current_scene(cube.0) }, -1);
+}
+
+#[test]
+fn the_scene_functions_take_a_null_cube_without_crashing() {
+    // SAFETY: null is the case under test.
+    unsafe {
+        assert_eq!(
+            origami_cube_next_scene(ptr::null_mut()),
+            ORIGAMI_ERR_NULL_ARGUMENT
+        );
+        assert_eq!(origami_cube_current_scene(ptr::null_mut()), -1);
+    }
 }

@@ -32,11 +32,12 @@ const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// only the calm spin moves the cube, which looks the same at 10 rpm.
 const MIN_FRAME: Duration = Duration::from_millis(12);
 const CALM_FRAME: Duration = Duration::from_millis(28);
+/// How long one scene takes to fade into the next.
+const FADE: Duration = Duration::from_millis(400);
 /// A frame after a longer pause advances the animation by no more than this.
 const MAX_STEP: f32 = 0.1;
 
-/// The scenes embedded from `resources/identity/scenes/scenes.json`, in the
-/// order Alt-click cycles them.
+/// The scenes embedded from `resources/identity/scenes/scenes.json`.
 pub mod scenes {
     include!(concat!(env!("OUT_DIR"), "/scenes.rs"));
 
@@ -49,13 +50,41 @@ pub mod scenes {
         SCENES.iter().position(|s| s.id == id)
     }
 
-    /// The scene About shows in the light or the dark appearance.
-    pub fn about(dark: bool) -> usize {
-        if dark {
-            ABOUT_DARK
-        } else {
-            ABOUT_LIGHT
+    /// The scene for a local time: the first, in file order, whose hours hold
+    /// it; with none (a gap in the hours) the one that began most recently.
+    pub fn for_time(hour: u32, minute: u32) -> usize {
+        pick(&hours(), hour as f32 + minute as f32 / 60.0)
+    }
+
+    /// The scene after `from` in the manifest's `about.order`, round to the first.
+    pub fn after(from: Option<usize>) -> usize {
+        next_in(ORDER, from)
+    }
+
+    fn hours() -> Vec<(f32, f32)> {
+        SCENES.iter().map(|s| (s.from, s.to)).collect()
+    }
+
+    pub(crate) fn next_in(order: &[usize], from: Option<usize>) -> usize {
+        let at = from.and_then(|f| order.iter().position(|&i| i == f));
+        order[at.map_or(0, |a| (a + 1) % order.len())]
+    }
+
+    pub(crate) fn pick(hours: &[(f32, f32)], t: f32) -> usize {
+        let holds = |&(from, to): &(f32, f32)| {
+            if from <= to {
+                from <= t && t < to
+            } else {
+                t >= from || t < to
+            }
+        };
+        if let Some(i) = hours.iter().position(holds) {
+            return i;
         }
+        // The latest start at or before t, going back round midnight.
+        let back = |from: f32| (t - from).rem_euclid(24.0);
+        let nearest = hours.iter().map(|h| back(h.0)).fold(f32::MAX, f32::min);
+        hours.iter().position(|h| back(h.0) == nearest).unwrap_or(0)
     }
 }
 
@@ -231,6 +260,8 @@ struct Uniforms {
     light: [f32; 4],
     /// The photograph's mean colour, for the fill.
     fill: [f32; 4],
+    /// The photograph fading out: its mean, and the fade's progress.
+    fill_prev: [f32; 4],
 }
 
 struct Targets {
@@ -257,6 +288,9 @@ pub struct CubeRenderer {
     photos: Vec<Option<(wgpu::TextureView, [f32; 3])>>,
     /// The photo the bind group shows.
     scene: Option<usize>,
+    /// The photograph fading out and how far the fade to `scene` has come.
+    prev: Option<usize>,
+    fade: f32,
     reflection: Option<Arc<Reflection>>,
     bind: Option<wgpu::BindGroup>,
     targets: Option<Targets>,
@@ -441,6 +475,7 @@ impl CubeRenderer {
                 tex_entry(3),
                 tex_entry(4),
                 tex_entry(5),
+                tex_entry(6),
             ],
         });
         let pl = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -550,6 +585,8 @@ impl CubeRenderer {
             blank: blank.create_view(&Default::default()),
             photos: vec![None; scenes::count()],
             scene: None,
+            prev: None,
+            fade: 1.0,
             reflection: None,
             bind: None,
             targets: None,
@@ -578,6 +615,15 @@ impl CubeRenderer {
     pub fn set_reflection(&mut self, reflection: Option<Arc<Reflection>>) {
         self.reflection = reflection;
         self.bind = None;
+    }
+
+    /// Blend `scene` in over `prev` (`t` from 0 to 1); `prev` none is no blend.
+    fn set_fade(&mut self, prev: Option<usize>, t: f32) {
+        if self.prev != prev {
+            self.prev = prev;
+            self.bind = None;
+        }
+        self.fade = if prev.is_some() { t } else { 1.0 };
     }
 
     fn bind_group(&mut self, gpu: &Gpu) -> wgpu::BindGroup {
@@ -620,6 +666,14 @@ impl CubeRenderer {
                         wgpu::BindGroupEntry {
                             binding: 4,
                             resource: wgpu::BindingResource::TextureView(&self.tile),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 6,
+                            resource: wgpu::BindingResource::TextureView(
+                                self.prev
+                                    .and_then(|s| self.photos[s].as_ref().map(|p| &p.0))
+                                    .unwrap_or(&self.blank),
+                            ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 5,
@@ -707,6 +761,12 @@ impl CubeRenderer {
                 1.0,
             ),
             dark: rgba(style.granite[1], 1.0),
+            fill_prev: rgba(
+                self.prev
+                    .and_then(|s| self.photos[s].as_ref())
+                    .map_or([0.0; 3], |p| p.1),
+                self.fade,
+            ),
         }
     }
 
@@ -958,6 +1018,8 @@ pub struct CubeView {
     dirty: bool,
     last_draw: Option<Instant>,
     last_tick: Option<Instant>,
+    /// The scene being faded out, and when the fade began.
+    crossfade: Option<(usize, Instant)>,
 }
 
 impl CubeView {
@@ -1009,6 +1071,7 @@ impl CubeView {
             dirty: true,
             last_draw: None,
             last_tick: None,
+            crossfade: None,
         }
     }
 
@@ -1069,17 +1132,29 @@ impl CubeView {
         self.dirty = true;
     }
 
-    /// Alt-click: the next scene in the manifest's order, then the running
-    /// machine's screen if one is set, then round again.
-    pub fn next_scene(&mut self, gpu: &Gpu) {
-        let screen = self.renderer.reflection.is_some().then_some(Env::Screen);
-        let last = scenes::count() - 1;
-        let env = match self.style.env {
-            Env::Studio | Env::Screen => Env::Scene(0),
-            Env::Scene(s) if s < last => Env::Scene(s + 1),
-            Env::Scene(_) => screen.unwrap_or(Env::Scene(0)),
-        };
-        self.show(gpu, env);
+    /// Step to the next scene in `about.order`, fading from the one on show.
+    pub fn step_scene(&mut self, gpu: &Gpu) {
+        self.step_scene_at(gpu, Instant::now());
+    }
+
+    /// [`CubeView::step_scene`] at a given time, for tests that step the clock.
+    pub fn step_scene_at(&mut self, gpu: &Gpu, now: Instant) {
+        if self.style.env == Env::Screen {
+            return;
+        }
+        let from = self.current_scene();
+        self.show(gpu, Env::Scene(scenes::after(from)));
+        self.crossfade = from
+            .filter(|_| self.current_scene() != from)
+            .map(|f| (f, now));
+    }
+
+    /// The photograph on show, an index into [`scenes::SCENES`].
+    pub fn current_scene(&self) -> Option<usize> {
+        match self.style.env {
+            Env::Scene(s) => Some(s),
+            _ => None,
+        }
     }
 
     /// The running machine's picture for [`Env::Screen`], or none.
@@ -1108,7 +1183,12 @@ impl CubeView {
     /// `false` means it is at rest and the host should stop; any call that
     /// changes the cube asks the host to draw again.
     pub fn draw(&mut self, gpu: &Gpu) -> Result<(Drawn, bool), String> {
-        let moving = self.motion.moving();
+        self.draw_at(gpu, Instant::now())
+    }
+
+    /// [`CubeView::draw`] at a given time.
+    pub fn draw_at(&mut self, gpu: &Gpu, now: Instant) -> Result<(Drawn, bool), String> {
+        let moving = self.motion.moving() || self.crossfade.is_some();
         let (w, h) = self.out.size();
         if !self.out.visible() || w == 0 || h == 0 {
             return Ok((Drawn::Skipped, false));
@@ -1117,8 +1197,7 @@ impl CubeView {
             self.last_tick = None;
             return Ok((Drawn::Skipped, false));
         }
-        let now = Instant::now();
-        let gap = if self.motion.coasting() {
+        let gap = if self.motion.coasting() && self.crossfade.is_none() {
             CALM_FRAME
         } else {
             MIN_FRAME
@@ -1130,6 +1209,16 @@ impl CubeView {
         if self.style.env == Env::Screen {
             if let Some(r) = &self.renderer.reflection {
                 r.refresh(gpu);
+            }
+        }
+        match self.crossfade {
+            Some((from, began)) if (now - began) < FADE => {
+                let t = (now - began).as_secs_f32() / FADE.as_secs_f32();
+                self.renderer.set_fade(Some(from), t * t * (3.0 - 2.0 * t));
+            }
+            _ => {
+                self.crossfade = None;
+                self.renderer.set_fade(None, 1.0);
             }
         }
         let dt = self
@@ -1165,12 +1254,14 @@ impl CubeView {
             // The swapchain was rebuilt or has no image just now: draw again.
             Drawn::Reconfigured | Drawn::Skipped => return Ok((drawn, true)),
             // Nothing was drawn: the change stays pending for when it shows.
-            Drawn::Occluded => return Ok((drawn, self.motion.moving())),
+            Drawn::Occluded => {
+                return Ok((drawn, self.motion.moving() || self.crossfade.is_some()))
+            }
             Drawn::Presented => {}
         }
         self.dirty = false;
         self.last_draw = Some(now);
-        Ok((drawn, self.motion.moving()))
+        Ok((drawn, self.motion.moving() || self.crossfade.is_some()))
     }
 
     /// The cube as Bgra8 rows. A surface cube is drawn again offscreen as it
@@ -1623,5 +1714,128 @@ mod tests {
                 us[150], us[285], us[299]
             );
         }
+    }
+
+    /// Night 21 to 7, day 7 to 17, dusk 19 to 21, sunset 17 to 19, and a
+    /// second day scene, in a shuffled file order.
+    const FOUR: [(f32, f32); 5] = [
+        (21.0, 7.0),
+        (7.0, 17.0),
+        (19.0, 21.0),
+        (17.0, 19.0),
+        (7.0, 17.0),
+    ];
+
+    #[test]
+    fn the_time_of_day_picks_its_scene_at_the_boundaries() {
+        let pick = |h: u32, m: u32| scenes::pick(&FOUR, h as f32 + m as f32 / 60.0);
+        let (night, day, dusk, sunset) = (0, 1, 2, 3);
+        assert_eq!(pick(6, 59), night);
+        assert_eq!(pick(7, 0), day, "a range starts at its first minute");
+        assert_eq!(pick(16, 59), day);
+        assert_eq!(pick(17, 0), sunset);
+        assert_eq!(pick(18, 59), sunset);
+        assert_eq!(pick(19, 0), dusk);
+        assert_eq!(pick(20, 59), dusk);
+        assert_eq!(pick(21, 0), night);
+        assert_eq!(pick(0, 0), night, "night wraps past midnight");
+        assert_eq!(pick(12, 0), day, "the first of two day scenes wins");
+        // A gap in the hours: the scene that began last.
+        let two = [(7.0, 17.0), (19.0, 21.0)];
+        assert_eq!(scenes::pick(&two, 17.5), 0);
+        assert_eq!(scenes::pick(&two, 22.0), 1);
+        assert_eq!(scenes::pick(&two, 3.0), 1);
+    }
+
+    #[test]
+    fn the_manifest_maps_each_time_of_day_to_its_scene() {
+        let at = |h, m| scenes::SCENES[scenes::for_time(h, m)].id;
+        assert_eq!(at(6, 59), "lions-gate-night");
+        assert_eq!(at(7, 0), "howe-sound");
+        assert_eq!(at(16, 59), "howe-sound");
+        assert_eq!(at(17, 0), "lions-gate-sunset");
+        assert_eq!(at(19, 0), "vancouver-dusk");
+        assert_eq!(at(21, 0), "lions-gate-night");
+        assert_eq!(at(0, 0), "lions-gate-night");
+    }
+
+    #[test]
+    fn stepping_goes_through_every_scene_once_in_the_manifests_order() {
+        assert_eq!(scenes::next_in(&[3, 1, 2], Some(2)), 3);
+        let mut at = None;
+        let walk: Vec<usize> = (0..scenes::count() + 1)
+            .map(|_| {
+                at = Some(scenes::after(at));
+                at.unwrap()
+            })
+            .collect();
+        let mut once = walk[..scenes::count()].to_vec();
+        once.sort_unstable();
+        assert_eq!(once, (0..scenes::count()).collect::<Vec<_>>());
+        assert_eq!(walk[0], walk[scenes::count()], "round to where it began");
+        // Time of day order: day, sunset, dusk, night.
+        let times: Vec<&str> = scenes::ORDER
+            .iter()
+            .map(|&i| scenes::SCENES[i].time)
+            .collect();
+        assert_eq!(
+            times,
+            ["day", "day", "day", "day", "sunset", "dusk", "night"]
+        );
+    }
+
+    fn frame_of(v: &mut CubeView, gpu: &Gpu, at: Instant) -> (Vec<u8>, bool) {
+        let moving = v.draw_at(gpu, at).unwrap().1;
+        (v.readback(gpu).unwrap().2, moving)
+    }
+
+    #[test]
+    fn stepping_fades_from_one_scene_to_the_next_and_stops() {
+        let Some(gpu) = gpu() else { return };
+        let mut v = CubeView::offscreen(&gpu, 96, 96, 1.0).unwrap();
+        let day = scenes::ORDER[0];
+        v.set_style(
+            &gpu,
+            Style {
+                env: Env::Scene(day),
+                ..Style::default()
+            },
+        );
+        // The clock is stepped by hand, so a loaded machine cannot skip the fade.
+        let t0 = Instant::now();
+        let frame = |v: &mut CubeView, ms: u64| frame_of(v, &gpu, t0 + Duration::from_millis(ms));
+        let (first, moving) = frame(&mut v, 0);
+        assert!(!moving, "a still scene is at rest");
+        v.step_scene_at(&gpu, t0 + Duration::from_millis(100));
+        assert_eq!(v.current_scene(), Some(scenes::ORDER[1]));
+        let (mid, moving) = frame(&mut v, 130);
+        assert!(moving, "a fade keeps the host drawing");
+        let (half, _) = frame(&mut v, 300);
+        let (last, moving) = frame(&mut v, 700);
+        assert!(!moving, "the fade ends");
+        let far = |a: &[u8], b: &[u8]| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| u64::from(x.abs_diff(*y)))
+                .sum::<u64>()
+        };
+        // Halfway is between: neither the old picture nor the new one.
+        assert!(far(&first, &last) > 0);
+        assert!(far(&half, &first) > 0 && far(&half, &last) > 0);
+        assert!(
+            far(&mid, &first) < far(&half, &first),
+            "the fade starts near the old scene"
+        );
+        // A finished fade is the new scene alone, as a fresh cube draws it.
+        let mut fresh = CubeView::offscreen(&gpu, 96, 96, 1.0).unwrap();
+        fresh.set_style(
+            &gpu,
+            Style {
+                env: Env::Scene(scenes::ORDER[1]),
+                ..Style::default()
+            },
+        );
+        let (alone, _) = frame_of(&mut fresh, &gpu, t0 + Duration::from_millis(900));
+        assert_eq!(last, alone, "the faded-in scene matches a fresh render");
     }
 }

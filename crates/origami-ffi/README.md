@@ -119,9 +119,11 @@ All functions return `origami_status` (`ORIGAMI_OK` = 0, negative
 - Cube: `origami_cube_attach(&surface, w, h, scale, &cube)`, `_resize`,
   `_set_visible`, `_set_style` (environment, scene, horizon colour, backdrop,
   granite tones, calm spin, reduce motion), `_pointer` (press, move, release, double
-  click), `_alt_click` (next scene), `_set_machine` (reflect a machine's screen),
+  click), `_next_scene` (step through the scenes in time-of-day order with a
+  crossfade), `_current_scene` and `_scene_for_time(hour, minute)` (About's
+  scene for the local time), `_set_machine` (reflect a machine's screen),
   `_present`, `_readback`, `_stats`, `_detach`, and `origami_cube_scene_count/
-  text/find` and `origami_cube_about_scene(dark)` for the scene list and its
+  text/find` and `origami_cube_scene_for_time` for the scene list and its
   credits. The host owns the clock: call `_present` on each display refresh
   while it reports `moving`, stop when it does not, and call it once after any
   other call. The backdrop is none by default (the view is transparent around the cube,

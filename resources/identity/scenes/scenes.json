@@ -1,10 +1,44 @@
 {
-  "about": { "light": "howe-sound", "dark": "vancouver-dusk" },
+  "about": {
+    "select": "time-of-day",
+    "times": {
+      "day": [
+        7,
+        17
+      ],
+      "sunset": [
+        17,
+        19
+      ],
+      "dusk": [
+        19,
+        21
+      ],
+      "night": [
+        21,
+        7
+      ]
+    },
+    "order": [
+      "howe-sound",
+      "horseshoe-bay-marina",
+      "vancouver-coal-harbour",
+      "garibaldi-lake",
+      "lions-gate-sunset",
+      "vancouver-dusk",
+      "lions-gate-night"
+    ]
+  },
   "scenes": [
     {
       "id": "howe-sound",
       "file": "howe-sound.webp",
       "title": "Howe Sound from Horseshoe Bay",
+      "time": "day",
+      "hours": [
+        7,
+        17
+      ],
       "credit": "Roy Luck, 2011, CC BY 2.0, via Wikimedia Commons; cropped and mirror-tiled",
       "source": "https://commons.wikimedia.org/wiki/File:Howe_Sound_from_Horseshoe_Bay_(5946423510).jpg"
     },
@@ -12,6 +46,11 @@
       "id": "garibaldi-lake",
       "file": "garibaldi-lake.webp",
       "title": "View towards Garibaldi Lake from Panorama Ridge",
+      "time": "day",
+      "hours": [
+        7,
+        17
+      ],
       "credit": "Benoit Brummer (Trougnouf), 2018, CC BY 4.0, via Wikimedia Commons; cropped and mirror-tiled",
       "source": "https://commons.wikimedia.org/wiki/File:View_towards_Garibaldi_Lake_from_Panorama_Ridge_(DSCF1842_-_DSCF1844).jpg"
     },
@@ -19,8 +58,61 @@
       "id": "vancouver-dusk",
       "file": "vancouver-dusk.webp",
       "title": "Vancouver from Grouse Mountain, dusk",
+      "time": "dusk",
+      "hours": [
+        19,
+        21
+      ],
       "credit": "Adam Lindsay, 2004, CC BY 2.0, via Wikimedia Commons; cropped and mirror-tiled",
       "source": "https://commons.wikimedia.org/wiki/File:Vancouver_from_Grouse_mountain.jpg"
+    },
+    {
+      "id": "horseshoe-bay-marina",
+      "file": "horseshoe-bay-marina.webp",
+      "title": "Horseshoe Bay",
+      "time": "day",
+      "hours": [
+        7,
+        17
+      ],
+      "credit": "Kay Röllig, 2016, CC BY 3.0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:Horseshoe_Bay_(208661883).jpeg"
+    },
+    {
+      "id": "vancouver-coal-harbour",
+      "file": "vancouver-coal-harbour.webp",
+      "title": "Vancouver skyline from Coal Harbour",
+      "time": "day",
+      "hours": [
+        7,
+        17
+      ],
+      "credit": "Bernard Spragg, 2012, CC0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:Vancouver_Skyline._(8069298011).jpg"
+    },
+    {
+      "id": "lions-gate-sunset",
+      "file": "lions-gate-sunset.webp",
+      "title": "Lions Gate Bridge at sunset",
+      "time": "sunset",
+      "hours": [
+        17,
+        19
+      ],
+      "credit": "buzzard525, 2008, CC BY 3.0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:Lions_Gate_Bridge_at_sunset_-_panoramio.jpg"
+    },
+    {
+      "id": "lions-gate-night",
+      "file": "lions-gate-night.webp",
+      "title": "Lions Gate Bridge at night",
+      "time": "night",
+      "hours": [
+        21,
+        7
+      ],
+      "credit": "Kenny Louie, 2008, CC BY 2.0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:Supernatural_(2419801077).jpg"
     }
   ]
 }

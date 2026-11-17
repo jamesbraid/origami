@@ -1129,7 +1129,8 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
 fn about(parent: &adw::ApplicationWindow) {
     let version = env!("CARGO_PKG_VERSION");
     let dark = adw::StyleManager::default().is_dark();
-    let Some(cube) = crate::cube::Cube::new(160, crate::cube::about_style(dark)) else {
+    let scene = crate::cube::about_scene();
+    let Some(cube) = crate::cube::Cube::new(160, crate::cube::about_style(dark, scene)) else {
         adw::AboutDialog::builder()
             .application_name("Origami")
             .application_icon("computer-symbolic")
@@ -1184,12 +1185,12 @@ fn about(parent: &adw::ApplicationWindow) {
         )
         .build();
     page.append(&licence);
-    // The scene follows the appearance while the window is open.
+    // The scene was picked from the clock at open; only the tones follow the appearance.
     let style = adw::StyleManager::default();
     let cube = Rc::new(cube);
     let handler = RefCell::new(Some(style.connect_dark_notify({
         let cube = cube.clone();
-        move |s| cube.set_style(crate::cube::about_style(s.is_dark()))
+        move |s| cube.set_style(crate::cube::about_style(s.is_dark(), scene))
     })));
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&adw::HeaderBar::new());

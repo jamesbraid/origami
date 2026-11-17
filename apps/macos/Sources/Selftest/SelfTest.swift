@@ -297,12 +297,12 @@ func runSelfTest(library: String, out: String) {
         cube.configure(look: .about, dark: false, machine: nil)
         _ = cube.present()
         let light = cube.readback()
-        check("cube-about-scene-follows-appearance", !dusk.moving && duskPic?.bgra != light?.bgra && duskPic?.bgra != studio?.bgra,
-              ["at_rest_in_about": !dusk.moving, "dark_scene": origami_cube_about_scene(1), "light_scene": origami_cube_about_scene(0)])
+        check("cube-about-scene-follows-time-and-appearance", !dusk.moving && duskPic?.bgra != light?.bgra && duskPic?.bgra != studio?.bgra,
+              ["at_rest_in_about": !dusk.moving, "noon_scene": origami_cube_scene_for_time(12, 0), "evening_scene": origami_cube_scene_for_time(20, 0)])
         let count = origami_cube_scene_count()
         let credits = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_CREDIT)) }
         let titles = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_TITLE)) }
-        check("cube-credits-from-manifest", count > 0 && Set(credits).count == Int(count) && titles.allSatisfy { !$0.isEmpty }
+        check("cube-credits-from-manifest", count > 0 && Set(zip(titles, credits).map { "\($0)|\($1)" }).count == Int(count) && titles.allSatisfy { !$0.isEmpty }
               && credits.allSatisfy { $0.contains("CC") && $0.contains("Wikimedia Commons") && $0.contains(", 20") },
               ["scenes": count, "credits": credits])
         // Machine art, as the app does: the colour comes from the manifest, and a build
@@ -559,7 +559,7 @@ func runSelfTest(library: String, out: String) {
                "changed_after_advance": first?.bgra != second?.bgra, "view_error": view.lastError])
     }
 
-    // The cube reflects a presenting machine's screen, and keeps the scene for one that is not.
+    // About does not reflect a machine, presenting or not: the scene stays as it was.
     do {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 108, height: 108), styleMask: [.titled], backing: .buffered, defer: false)
         w.isReleasedWhenClosed = false
@@ -577,8 +577,8 @@ func runSelfTest(library: String, out: String) {
         advance(); _ = waitFor(10) { view.presented > 1 }
         c.present()
         let screen = c.readback()
-        check("cube-reflects-a-presenting-machine", view.isPresenting && !idle.isPresenting && scene?.bgra == still?.bgra
-              && screen != nil && screen?.bgra != scene?.bgra, ["view_presenting": view.isPresenting, "error": c.lastError])
+        check("cube-about-ignores-a-presenting-machine", view.isPresenting && !idle.isPresenting && scene?.bgra == still?.bgra
+              && screen != nil && screen?.bgra == scene?.bgra, ["view_presenting": view.isPresenting, "error": c.lastError])
         idle.detach(); c.detach()
         // Making `idle` took the session's frame handler; give it back to `view`.
         session.setFrameHandler(owner: view) { [weak view] in view?.redraw() }

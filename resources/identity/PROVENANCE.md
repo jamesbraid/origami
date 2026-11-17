@@ -18,8 +18,9 @@ studio lighting and rotation) into `crates/origami-render/src/cube.wgsl`.
 ## Scene photographs
 
 `scenes/` holds the equirect images the cube reflects and `scenes.json`,
-which lists them in the order Alt-click cycles, carries each one's credit
-line, and names the scene About shows in each appearance. A new scene is a
+which lists them, carries each one's credit line, gives each a time of day
+and local hours (`origami_cube_scene_for_time` picks the one About shows) and
+the order `origami_cube_next_scene` steps through. A new scene is a
 1024 by 512 WebP and a new entry; the build embeds them.
 
 Each is a freely licensed photograph from Wikimedia Commons, cropped, laid
@@ -33,6 +34,17 @@ app's acknowledgements.
 | `howe-sound.webp` | Howe Sound from Horseshoe Bay | Roy Luck, 2011, CC BY 2.0 |
 | `garibaldi-lake.webp` | View towards Garibaldi Lake from Panorama Ridge | Benoit Brummer (Trougnouf), 2018, CC BY 4.0 |
 | `vancouver-dusk.webp` | Vancouver from Grouse Mountain | Adam Lindsay, 2004, CC BY 2.0 |
+| `horseshoe-bay-marina.webp` | Horseshoe Bay | Kay Röllig, 2016, CC BY 3.0 |
+| `vancouver-coal-harbour.webp` | Vancouver skyline from Coal Harbour | Bernard Spragg, 2012, CC0 |
+| `lions-gate-sunset.webp` | Lions Gate Bridge at sunset | buzzard525, 2008, CC BY 3.0 |
+| `lions-gate-night.webp` | Lions Gate Bridge at night | Kenny Louie, 2008, CC BY 2.0 |
+
+The four newer ones were licence-checked against their Commons metadata on
+2026-11-17; none is share-alike. Sources: `File:Horseshoe_Bay_(208661883).jpeg`,
+`File:Vancouver_Skyline._(8069298011).jpg`,
+`File:Lions_Gate_Bridge_at_sunset_-_panoramio.jpg` and
+`File:Supernatural_(2419801077).jpg`. Each scene's `time` and local `hours`
+in `scenes.json` choose it for About; `about.order` is the stepping order.
 
 ## Source credit and trademark
 

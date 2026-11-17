@@ -27,6 +27,12 @@ final class CubeNSView: NSView {
     private var link: CADisplayLink?
     private var look: CubeLook = .about
     private var dark = true
+    /// About's scene, picked from the clock once per About, when first needed; an
+    /// appearance change updates only the tones.
+    private lazy var aboutScene: UInt32 = {
+        let now = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        return origami_cube_scene_for_time(UInt32(now.hour ?? 12), UInt32(now.minute ?? 0))
+    }()
     /// The machine view whose screen the chrome reflects; only one that is presenting.
     private weak var reflected: MachineView?
     private var visible = true
@@ -76,9 +82,12 @@ final class CubeNSView: NSView {
 
     // MARK: style
 
-    /// `machine` is reflected only if it is presenting; otherwise the scene stays.
+    /// Off for now: About shows the BC scenes only. The machine reflection below is kept.
+    private static let reflectsMachine = false
+
+    /// `machine` is reflected only if enabled and presenting; otherwise the scene stays.
     func configure(look: CubeLook, dark: Bool, machine: MachineView?) {
-        let screen = (machine?.isPresenting ?? false) ? machine : nil
+        let screen = (Self.reflectsMachine && (machine?.isPresenting ?? false)) ? machine : nil
         let changed = look != self.look || dark != self.dark || screen !== reflected
         self.look = look; self.dark = dark
         let old = reflected
@@ -127,7 +136,7 @@ final class CubeNSView: NSView {
                 s.env = UInt32(ORIGAMI_CUBE_ENV_MACHINE)
             } else {
                 s.env = UInt32(ORIGAMI_CUBE_ENV_SCENE)
-                s.scene = origami_cube_about_scene(dark ? 1 : 0)
+                s.scene = aboutScene
             }
         }
         origami_cube_set_style(cube, &s)

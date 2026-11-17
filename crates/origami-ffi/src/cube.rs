@@ -50,7 +50,7 @@ pub const ORIGAMI_CUBE_NO_COLOUR: u32 = 0xffff_ffff;
 /// - `env`: `ORIGAMI_CUBE_ENV_*`. The machine's screen shows the studio until
 ///   its first picture has been copied.
 /// - `scene`: for `ORIGAMI_CUBE_ENV_SCENE`, an index below
-///   `origami_cube_scene_count`; `origami_cube_about_scene` gives About's.
+///   `origami_cube_scene_count`; `origami_cube_scene_for_time` gives About's.
 /// - `horizon_rgb`: the studio's horizon band colour (a machine's chassis
 ///   colour on the start screen), or `ORIGAMI_CUBE_NO_COLOUR`.
 /// - `granite_light_rgb`, `granite_dark_rgb`: the backdrop tile's two tones.
@@ -298,13 +298,30 @@ pub unsafe extern "C" fn origami_cube_pointer(
     })
 }
 
-/// Alt-click (Option-click): switch to the next scene in the order of
-/// `origami_cube_scene_text`'s indexes, then the machine's screen if
-/// `origami_cube_set_machine` gave one, then the first scene again. Call
-/// `origami_cube_present` after it.
+/// Step to the next scene in the manifest's `about.order` (time of day), fading
+/// from the current one.
 #[no_mangle]
-pub unsafe extern "C" fn origami_cube_alt_click(cube: *mut origami_cube) -> origami_status {
-    guard(|| act(cube, |c| c.view.next_scene(&c.gpu)))
+pub unsafe extern "C" fn origami_cube_next_scene(cube: *mut origami_cube) -> origami_status {
+    guard(|| act(cube, |c| c.view.step_scene(&c.gpu)))
+}
+
+/// The index of the scene on show, for `origami_cube_scene_text`; -1 for the
+/// studio, a machine's screen or a null `cube`.
+#[no_mangle]
+pub unsafe extern "C" fn origami_cube_current_scene(cube: *mut origami_cube) -> i32 {
+    let mut scene = -1;
+    let _ = guard(|| {
+        scene = with(cube, |c| Ok(c.view.current_scene()))?.map_or(-1, |s| s as i32);
+        Ok(())
+    });
+    scene
+}
+
+/// The scene About shows at the host's local time (`hour` 0 to 23, `minute` 0
+/// to 59): the first scene in `scenes.json` whose hours hold it.
+#[no_mangle]
+pub extern "C" fn origami_cube_scene_for_time(hour: u32, minute: u32) -> u32 {
+    scenes::for_time(hour.min(23), minute.min(59)) as u32
 }
 
 /// How many scenes there are: photographs embedded from
@@ -312,13 +329,6 @@ pub unsafe extern "C" fn origami_cube_alt_click(cube: *mut origami_cube) -> orig
 #[no_mangle]
 pub extern "C" fn origami_cube_scene_count() -> u32 {
     scenes::count() as u32
-}
-
-/// The index of the scene About shows in the dark (`dark` non-zero) or the
-/// light appearance, as the manifest names it.
-#[no_mangle]
-pub extern "C" fn origami_cube_about_scene(dark: u32) -> u32 {
-    scenes::about(dark != 0) as u32
 }
 
 /// The index of the scene whose id is `id`, or -1.
