@@ -41,6 +41,11 @@ struct MachineRecord: Identifiable, Hashable {
     let memoryPerNodeMiB: Int
 
     var id: String { key }
+
+    /// The summary cards: always Memory, Nodes and Topology. Other hardware belongs in Settings.
+    var cards: [(symbol: String, title: String, value: String)] {
+        [("memorychip", "Memory", memory), ("cpu", "Nodes", "\(nodes)"), ("square.stack.3d.up", "Topology", topology ?? "Unknown")]
+    }
     var product: Product {
         var p = Product.of(model: productName, label: productLabel)
         if let id = Art.id(topology: topology, product: productName) {

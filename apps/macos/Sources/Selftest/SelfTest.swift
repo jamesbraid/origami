@@ -132,12 +132,13 @@ func runSelfTest(library: String, out: String) {
             check("open-in-new-tab-adds-a-tab", app.tabs == [ids[0], ids[1]] && app.active == ids[1], ["tabs": app.tabs.count])
         }
     }
-    // Parity: the tab bar is up with one tab.
+    // Parity: the tab bar is up with one tab, and the cards are Memory, Nodes and Topology.
     do {
         app.closeAllTabsForTest()
         let bare = app.showsTabBar
         app.select(model.id)
         check("tab-bar-shows-with-one-tab", !bare && app.tabs.count == 1 && app.showsTabBar, [:])
+        check("summary-cards-are-memory-nodes-topology", model.record.cards.map(\.title) == ["Memory", "Nodes", "Topology"], [:])
     }
     app.select(model.id)
     check("commands-enabled-at-rest", app.isEnabled(.start) && !app.isEnabled(.powerOff) && !app.isEnabled(.reset)

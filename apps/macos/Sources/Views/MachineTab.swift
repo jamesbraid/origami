@@ -115,7 +115,7 @@ struct Tile: View {
             Text(value).font(.headline).lineLimit(1)
             Text(title).font(.caption).foregroundStyle(.secondary)
         }
-        .frame(minWidth: 110).padding(.vertical, 14).padding(.horizontal, 10)
+        .frame(width: 140, height: 104)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
         .accessibilityElement(children: .combine)
     }
@@ -147,10 +147,9 @@ struct Hero: View {
             }
             .frame(maxHeight: 340)
             HStack(spacing: 12) {
-                Tile(symbol: "memorychip", title: "Memory", value: r.memory)
-                if r.nodes > 1 { Tile(symbol: "cpu", title: "Nodes", value: "\(r.nodes)") }
-                if let t = r.topology { Tile(symbol: "square.stack.3d.up", title: "Topology", value: t) }
+                ForEach(r.cards, id: \.title) { Tile(symbol: $0.symbol, title: $0.title, value: $0.value) }
             }
+            .frame(maxWidth: .infinity)
             .padding(24)
             Spacer(minLength: 0)
         }
