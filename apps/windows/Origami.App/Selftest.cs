@@ -63,6 +63,8 @@ public static class Selftest
     {
         try { return File.ReadAllText(Path.Combine(dir, "view.txt")).Trim(); } catch (IOException) { return null; }
     }
+    [System.Runtime.InteropServices.DllImport("shell32", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    static extern uint ExtractIconEx(string file, int index, IntPtr[]? large, IntPtr[]? small, uint n);
 
     static CancellationTokenSource StartGuest(UniffiCoreClient core, string key, out Task task)
     {
@@ -171,6 +173,9 @@ public static class Selftest
         await w.CloseTabAsync(other2, ask: false);
         Check("cards: Memory, Nodes and Topology show on the stopped machine's card", w.CardsText.Contains("Memory") && w.CardsText.Contains("Node") && w.CardsText.Contains("Topology"), w.CardsText);
         key = w.SelectedKey!;
+        // --- the app icon: embedded in the exe, and copied beside it for the window ---
+        Check("icon: the exe carries the Origami icon", ExtractIconEx(Environment.ProcessPath!, -1, null, null, 0) > 0, $"{ExtractIconEx(Environment.ProcessPath!, -1, null, null, 0)} icon group(s)");
+        Check("icon: Origami.ico sits beside the exe for the window", File.Exists(Path.Combine(AppContext.BaseDirectory, "Origami.ico")));
 
         // --- start ---
         w.Invoke("machine.start");

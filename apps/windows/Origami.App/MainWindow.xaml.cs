@@ -30,6 +30,8 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = "Origami";
         Display.ViewMode = _viewStore.Load();
+        var icon = Path.Combine(AppContext.BaseDirectory, "Origami.ico");
+        if (File.Exists(icon)) AppWindow.SetIcon(icon);
         Display.WindowHandle = () => WinRT.Interop.WindowNative.GetWindowHandle(this);
         Display.PointerModeChanged = RefreshPointerUi;
         Display.Shortcut = OnDisplayShortcut;

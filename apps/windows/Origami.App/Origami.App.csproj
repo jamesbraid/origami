@@ -14,6 +14,7 @@
     <SelfContained>true</SelfContained>
     <EnableMsixTooling>true</EnableMsixTooling>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Origami.ico</ApplicationIcon>
   </PropertyGroup>
   <!-- The default build links the core's fake engine; -p:Qemu=true builds against the QEMU engine's bindings. -->
   <PropertyGroup Condition="'$(Qemu)' != 'true'">
@@ -37,6 +38,10 @@
   <!-- The licence About prints. -->
   <ItemGroup>
     <Content Include="../../../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- The icon again as a content file: the window's own icon is set from it at run time. -->
+  <ItemGroup>
+    <Content Include="Origami.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- The core's library and the fallback presenter, cross-built from Linux with mingw into native-out/. -->
   <ItemGroup>
