@@ -302,6 +302,12 @@ def first_light(quick=False):
             return
         shot("04-prom")
         check("picture equals QMP screendump (0 pixels differ)", c["differing_pixels"] == 0, c)
+        check("the toolbar offers Pause", a.state()["pause_tip"] == "Pause", a.state()["pause_tip"])
+        a.req("invoke machine.pause octane2")
+        check("Pause pauses the machine", a.wait("Paused", lambda: a.machine("octane2")["state"] == "Paused", 15, 0.2) is not None, a.machine("octane2")["state"])
+        check("and the button becomes Resume", a.state()["pause_tip"] == "Resume", a.state()["pause_tip"])
+        a.req("invoke machine.resume octane2")
+        check("Resume runs it again", a.wait("Running", lambda: a.machine("octane2")["state"] == "Running", 15, 0.2) is not None, a.machine("octane2")["state"])
         st = a.req("stats")["machines"][0]
         sc = st.get("scanout")
         if sc:

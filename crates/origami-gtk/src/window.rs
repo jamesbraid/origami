@@ -30,6 +30,7 @@ pub struct Win {
     pub title: adw::WindowTitle,
     pub pill: gtk::Label,
     pub power_btn: gtk::Button,
+    pub pause_btn: gtk::Button,
     pub pointer_btn: gtk::MenuButton,
     pub stack: gtk::Stack,
     pub list: gtk::ListBox,
@@ -139,6 +140,11 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .action_name("win.machine.start")
         .css_classes(["suggested-action"])
         .build();
+    let pause_btn = gtk::Button::builder()
+        .icon_name("media-playback-pause-symbolic")
+        .tooltip_text("Pause")
+        .action_name("win.machine.pause")
+        .build();
     let pointer_btn = gtk::MenuButton::builder()
         .icon_name("input-mouse-symbolic")
         .tooltip_text("Pointer mode")
@@ -175,6 +181,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         header.pack_start(&sidebar_toggle);
     }
     header.pack_start(&power_btn);
+    header.pack_start(&pause_btn);
     header.set_title_widget(Some(&title_box));
     header.pack_end(&menu_btn);
     header.pack_end(&settings_btn);
@@ -242,6 +249,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         title,
         pill,
         power_btn,
+        pause_btn,
         pointer_btn,
         stack,
         list: list.clone(),
@@ -821,6 +829,19 @@ pub fn refresh(app: &Rc<App>) {
                 } else {
                     w.power_btn.add_css_class("suggested-action");
                 }
+                let paused = m.state.get() == State::Paused;
+                w.pause_btn.set_icon_name(if paused {
+                    "media-playback-start-symbolic"
+                } else {
+                    "media-playback-pause-symbolic"
+                });
+                w.pause_btn
+                    .set_tooltip_text(Some(if paused { "Resume" } else { "Pause" }));
+                w.pause_btn.set_action_name(Some(if paused {
+                    "win.machine.resume"
+                } else {
+                    "win.machine.pause"
+                }));
                 w.win.set_title(Some(&format!("{} - Origami", m.name)));
             }
             None => {

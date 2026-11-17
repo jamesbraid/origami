@@ -171,6 +171,7 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 .collect();
             json!({"machines": ms, "library": lib, "library_rows": rows, "windows": app.windows.borrow().len(),
                    "enabled": enabled, "cpu_s": cpu_seconds(),
+                   "pause_tip": window::active(app).and_then(|w| w.pause_btn.tooltip_text()).map(|t| t.to_string()),
                    "status_pills": app.windows.borrow().iter().map(|w| w.pill.label().to_string()).collect::<Vec<_>>()})
         }
         "open" | "select" => {
