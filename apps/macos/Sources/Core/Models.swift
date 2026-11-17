@@ -422,6 +422,8 @@ final class AppModel: ObservableObject {
     }
     var openWindow: ((String) -> Void)?
     var openConsole: ((String) -> Void)?
+    /// Whether the CPU panel is shown; hidden, nothing is polled.
+    @Published var showsCpu = false
 
     private var forwards: [AnyCancellable] = []
     private var watchdog: Timer?

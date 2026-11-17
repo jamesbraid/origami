@@ -35,6 +35,7 @@ struct MainView: View {
                 } else {
                     EmptyDetail()
                 }
+                if app.showsCpu, let model = app.current, model.state == .running { CpuPanelHost(model: model) }
                 if let model = app.current { StatusBar(model: model) }
             }
             .navigationTitle(app.current?.name ?? "Origami")
@@ -198,11 +199,24 @@ struct MachineToolbar: ToolbarContent {
             }
             Button { app.invoke(.console) } label: { Label("Console", systemImage: "terminal") }
                 .disabled(!app.isEnabled(.console)).help("Console (⌥⌘C)")
+            Toggle(isOn: $app.showsCpu) { Label("CPU", systemImage: "cpu") }
+                .toggleStyle(.button).help("Show the emulated CPUs' load")
             Button { app.invoke(.diagnostics) } label: { Label("Diagnostics", systemImage: "waveform.path.ecg") }
                 .disabled(!app.isEnabled(.diagnostics)).help("Diagnostics")
             Button { app.invoke(.settings) } label: { Label("Settings", systemImage: "gearshape") }
                 .disabled(!app.isEnabled(.settings)).help("Settings")
         }
+    }
+}
+
+/// The panel for a running machine; it polls only while it is on screen.
+struct CpuPanelHost: View {
+    @ObservedObject var model: MachineModel
+    @StateObject private var load = CpuLoadModel()
+    var body: some View {
+        CpuPanel(model: load)
+            .onAppear { load.start(model) }
+            .onDisappear { load.stop() }
     }
 }
 

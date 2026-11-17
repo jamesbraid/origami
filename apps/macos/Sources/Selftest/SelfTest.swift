@@ -697,6 +697,22 @@ func runSelfTest(library: String, out: String) {
         check("console-command-enabled", app.isEnabled(.console), [:])
         console.detach()
     }
+    // The CPU panel: the fake engine's two CPUs at 30/10 and 60/5, polled while shown and not once hidden.
+    if fake {
+        let load = CpuLoadModel()
+        load.start(model)
+        let got = waitFor(20) { (load.report?.cpus.count ?? 0) == 2 }
+        let c = load.report?.cpus ?? []
+        func near(_ a: Float, _ b: Float) -> Bool { abs(a - b) < 6 }
+        check("cpu-panel-shows-the-fake-engines-two-cpus", got && near(c[0].userPct, 30) && near(c[0].sysPct, 10) && near(c[1].userPct, 60) && near(c[1].sysPct, 5),
+              ["cpus": c.map { "cpu\($0.cpu) \($0.userPct)/\($0.sysPct)" }, "unavailable": load.report?.unavailable ?? "none"])
+        load.stop()
+        let after = load.samples
+        spin(1.5)
+        check("cpu-panel-hidden-polls-nothing", load.samples == after && load.report == nil, ["samples_after_stop": load.samples - after])
+        check("cpu-placeholder-says-measuring-or-why", cpuLoadPlaceholder(nil) == "measuring…"
+              && cpuLoadPlaceholder(OrigamiCpuLoadReport(source: .host, cpus: [], unavailable: "no threads")) == "no threads", [:])
+    }
 
     // The display view in a window that is never shown.
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 512),
