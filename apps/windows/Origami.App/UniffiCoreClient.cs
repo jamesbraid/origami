@@ -99,7 +99,6 @@ public sealed class UniffiCoreClient : ICoreClient
         _ => MachineState.Exited,
     };
 
-    // A guest that exited with status 0 was stopped on purpose; only another exit is "stopped unexpectedly".
     // An exit the user asked for (clean stop with status 0, or a Force Quit) is Stopped; any other exit is unexpected.
     readonly HashSet<string> _forced = new();
     MachineState Settle(string key, OrigamiMachineState s)

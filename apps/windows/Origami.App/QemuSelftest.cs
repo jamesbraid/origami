@@ -66,7 +66,7 @@ public static class Selftest
         Add("an engine is linked", core.EngineIds.Length > 0, core.EngineIds);
         Add("window is the foreground window", Win.IsForeground(w.Hwnd));
 
-        // The library holds the machine the workflow made with the CLI (a VPro head); with none, create one.
+        // With an empty library, create the machine through the FFI (the product's graphics default).
         string key;
         if (w.LibraryCount == 0)
         {
