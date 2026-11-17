@@ -82,10 +82,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $out = Join-Path $env:RUNNER_TEMP "selftest-out"
           New-Item -ItemType Directory -Force $out | Out-Null
-          $p = Start-Process -FilePath "$top\app\Origami.exe" -ArgumentList "--selftest","`"$out\selftest.json`"","--library","`"$out\library`"","--create-product","octane2" -WorkingDirectory "$top\app" -PassThru
+          $p = Start-Process -FilePath "$top\app\Origami.exe" -ArgumentList "--selftest","`"$out\selftest.json`"","--settings","`"$out\settings.json`"","--stderr","`"$out\stderr.log`"","--library","`"$out\library`"","--create-product","octane2" -WorkingDirectory "$top\app" -PassThru
           $null = $p.Handle
           if (-not $p.WaitForExit(240000)) { $p.Kill(); "self-test did not exit"; exit 99 }
           if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } elseif (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" }
+          foreach ($f in "app.log","stderr.log") { if (Test-Path "$out\$f") { "--- $f"; Get-Content "$out\$f" -Tail 60 } }
           "exit code: $($p.ExitCode)"
           exit $p.ExitCode
       - uses: actions/upload-artifact@v3
