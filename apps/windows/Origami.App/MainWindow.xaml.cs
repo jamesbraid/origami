@@ -635,6 +635,10 @@ public sealed partial class MainWindow : Window
         }
         PauseButton.IsEnabled = _core.CommandEnabled(paused ? "machine.resume" : "machine.pause", st.State);
 
+        // A machine that ended on its own says why, from what the core reports.
+        ExitNote.Text = Pill.StoppedNote(st);
+        ExitNote.Visibility = ExitNote.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
         HeroName.Text = info.Name;
         HeroDetail.Text = Detail(info);
         BuildCards(info);

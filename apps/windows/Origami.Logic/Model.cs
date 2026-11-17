@@ -53,6 +53,10 @@ public static class Pill
         _ => "Unknown",
     };
 
+    /// <summary>Why a machine that ended on its own stopped: the core's last error, else its reason; empty in any other state.</summary>
+    public static string StoppedNote(MachineStatus st) =>
+        st.State != MachineState.Exited ? "" : "Stopped unexpectedly. " + (st.LastError is { Length: > 0 } e ? e : st.Reason);
+
     /// <summary>"grey", "amber", "green" or "red". Colour always travels with the word.</summary>
     public static string Tone(MachineState s) => s switch
     {

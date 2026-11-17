@@ -69,6 +69,9 @@
                     <TextBlock x:Name="HeroName" Style="{ThemeResource TitleTextBlockStyle}" HorizontalAlignment="Center"/>
                     <TextBlock x:Name="HeroDetail" Opacity="0.7" HorizontalAlignment="Center"/>
                     <StackPanel x:Name="Cards" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="ExitNote" TextWrapping="Wrap" MaxWidth="420" HorizontalAlignment="Center"
+                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" Visibility="Collapsed"
+                               AutomationProperties.AutomationId="hero.exitnote"/>
                     <Button x:Name="HeroStart" Content="Start" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
                             AutomationProperties.AutomationId="hero.start" MinWidth="120"/>
                 </StackPanel>

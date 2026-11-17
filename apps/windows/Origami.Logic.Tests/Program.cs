@@ -154,6 +154,13 @@ Test("egg: hinv typed in order, any case, restarting on a wrong letter", () =>
     Eq(true, Type(w, "hinv"), "matches again");
 });
 
+Test("pill: a machine that ended on its own says why", () =>
+{
+    Eq("Stopped unexpectedly. qemu exited 1", Pill.StoppedNote(new MachineStatus(MachineState.Exited, "Stopped unexpectedly", "qemu exited 1")));
+    Eq("Stopped unexpectedly. the runner went away", Pill.StoppedNote(new MachineStatus(MachineState.Exited, "the runner went away", "")), "reason when there is no error");
+    Eq("", Pill.StoppedNote(new MachineStatus(MachineState.Stopped, "Stopped", "old error")), "nothing unless it exited");
+});
+
 Test("commands: menu by id prefix", () =>
 {
     Eq("Machine", new CommandInfo("machine.start", "Start", null).Menu);
