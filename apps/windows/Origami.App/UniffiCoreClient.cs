@@ -153,6 +153,38 @@ public sealed class UniffiCoreClient : ICoreClient
         finally { reg.Dispose(); }
     }, ct);
 
+    public Task<MachineSettings> SettingsAsync(string key) => Task.Run(() =>
+    {
+        var s = M(key).Settings();
+        return new MachineSettings((int)s.Nodes, s.Processor, s.ProcessorPart,
+            (int)s.CpusPerNode, s.CpusPerNodeAllowed.Select(x => (int)x).ToList(),
+            (int)s.MemoryPerNodeMib, s.MemoryAllowedMib.Select(x => (int)x).ToList(),
+            s.Pipes.Select(p => new Pipe(p.Slot, p.Product, p.Family)).ToList(),
+            s.Drives.Select(d => new Drive(d.Name, d.Kind, (int)d.Bus, (int)d.Target, d.Image, d.ReadOnly)).ToList(),
+            s.NetworkMode,
+            s.Forwards.Select(f => new Forward(f.Name, f.Protocol, f.HostPort, f.GuestPort)).ToList(),
+            s.Shares.Select(x => new Share(x.Name, x.HostDir)).ToList());
+    });
+
+    public Task ApplyChangeAsync(string key, MachineChange change) => Task.Run(() => M(key).ApplyChange(change switch
+    {
+        MachineChange.SetCpus c => new OrigamiChange.SetProcessor((uint)c.CpusPerNode),
+        MachineChange.SetMemory c => new OrigamiChange.SetMemory((uint)c.MiB),
+        MachineChange.SetNetwork c => new OrigamiChange.SetNetwork(c.Mode switch
+        {
+            "user" => OrigamiNetworkMode.User,
+            "private" => OrigamiNetworkMode.Private,
+            "none" => OrigamiNetworkMode.None,
+            _ => throw new ArgumentException("unknown network mode " + c.Mode),
+        }),
+        MachineChange.AddForward c => new OrigamiChange.AddForward(new OrigamiForward(c.Forward.Name, c.Forward.Protocol, (ushort)c.Forward.HostPort, (ushort)c.Forward.GuestPort)),
+        MachineChange.RemoveForward c => new OrigamiChange.RemoveForward(c.Name),
+        MachineChange.AddShare c => new OrigamiChange.AddShare(c.Share.Name, c.Share.HostDir),
+        MachineChange.RemoveShare c => new OrigamiChange.RemoveShare(c.Name),
+        MachineChange.DetachDrive c => new OrigamiChange.DetachDrive(c.Name),
+        _ => throw new ArgumentException("unknown change"),
+    }));
+
     public string Heads(string key) => string.Join("; ", (TryView(key)?.Heads ?? Array.Empty<OrigamiHeadView>()).Select(h => $"#{h.Index} {h.Width}x{h.Height} active={h.Active} seq={h.Seq}"));
 
     public void Screendump(string key, int head, string path) => M(key).Screendump((uint)head, path);

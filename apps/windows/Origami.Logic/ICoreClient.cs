@@ -20,6 +20,10 @@ public interface ICoreClient : IDisposable
     /// <summary>Creates a machine from an offering and returns its key; the core fetches any firmware. <paramref name="engine"/> null takes the first engine that offers it.</summary>
     Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default);
 
+    /// <summary>Reads the machine file.</summary>
+    Task<MachineSettings> SettingsAsync(string key);
+    /// <summary>Edits a stopped machine; throws the core's Busy error while it runs. Read the settings again afterwards.</summary>
+    Task ApplyChangeAsync(string key, MachineChange change);
 
     Task StartAsync(string key, CancellationToken ct = default);
     /// <summary>Clean stop. Can take minutes while a disk folds.</summary>

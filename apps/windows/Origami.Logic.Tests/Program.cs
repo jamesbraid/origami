@@ -173,6 +173,20 @@ Test("diagnostics report: lists engine, state, heads, console and screen counts"
         if (!r2.Contains(want)) throw new Exception("missing: " + want + "\n" + r2);
 });
 
+Test("settings: editable only when stopped, add rules, share name", () =>
+{
+    Eq(true, MachineSettingsRules.Editable(MachineState.Stopped), "stopped");
+    Eq(true, MachineSettingsRules.Editable(MachineState.Exited), "exited");
+    Eq(false, MachineSettingsRules.Editable(MachineState.Running), "running");
+    Eq(false, MachineSettingsRules.Editable(MachineState.Stopping), "stopping");
+    Eq(true, MachineSettingsRules.CanAddForward("ssh", 2222, 22), "valid forward");
+    Eq(false, MachineSettingsRules.CanAddForward(" ", 2222, 22), "no name");
+    Eq(false, MachineSettingsRules.CanAddForward("x", 0, 22), "port 0");
+    Eq(false, MachineSettingsRules.CanAddForward("x", 1, 65536), "port too big");
+    Eq("src", MachineSettingsRules.ShareNameFor(@"C:\work\src\"), "trailing slash");
+    Eq("share", MachineSettingsRules.ShareNameFor(@"C:\"), "drive root");
+});
+
 Test("new machine: one model per id, engines that offer it", () =>
 {
     var a = new Offering("x", "qemu", "P", "t", 1, 1);

@@ -102,12 +102,32 @@ public static class Selftest
         try { await core.CreateMachineAsync("Selftest nowhere", offers[0].Id, "no-such-engine"); } catch (Exception e) { noEngine = e.Message; }
         Check("engine: a create names its engine; an unknown engine is refused", viaEngine.Length > 0 && noEngine.Length > 0 && NewMachine.EnginesFor(offers, offers[0].Id).Contains(eng), $"engine={eng} refused='{noEngine}'");
 
+        // --- settings: read, edit, save, and the core's refusal while running ---
+        var st0 = await core.SettingsAsync(made);
+        var other = st0.MemoryAllowed.FirstOrDefault(m => m != st0.MemoryMiB);
+        await core.ApplyChangeAsync(made, new MachineChange.SetMemory(other));
+        var st1 = await core.SettingsAsync(made);
+        Check("settings: a memory edit is written to the machine file", other != 0 && st1.MemoryMiB == other && st0.MemoryMiB != other, $"{st0.MemoryMiB} -> {st1.MemoryMiB} of {string.Join(",", st0.MemoryAllowed)}");
+        await core.ApplyChangeAsync(made, new MachineChange.AddForward(new Forward("ssh", "tcp", 2222, 22)));
+        var st2 = await core.SettingsAsync(made);
+        Check("settings: a port forward is added", st2.Forwards.Any(f => f.Name == "ssh" && f.HostPort == 2222 && f.GuestPort == 22), string.Join(",", st2.Forwards));
+        await core.ApplyChangeAsync(made, new MachineChange.RemoveForward("ssh"));
+        await core.ApplyChangeAsync(made, new MachineChange.AddShare(new Share("shared", dir)));
+        var st3 = await core.SettingsAsync(made);
+        Check("settings: a forward is removed and a folder shared", st3.Forwards.Count == 0 && st3.Shares.Any(x => x.Name == "shared"), string.Join(",", st3.Shares));
+        await core.ApplyChangeAsync(made, new MachineChange.RemoveShare("shared"));
+        await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("none"));
+        var st4 = await core.SettingsAsync(made);
+        Check("settings: a share is removed and the network mode set", st4.Shares.Count == 0 && st4.NetworkMode == "none", st4.NetworkMode);
         key = w.SelectedKey!;
 
         // --- start ---
         w.Invoke("machine.start");
         Check("start reaches Running", await Until(() => core.Status(key).State == MachineState.Running, 15_000), core.Status(key).Reason);
         Check("pill says Running", await Until(() => w.PillTextForTest == "Running", 3000), w.PillTextForTest);
+        string busy = "";
+        try { await core.ApplyChangeAsync(key, new MachineChange.SetMemory(st0.MemoryAllowed[0])); } catch (Exception e) { busy = e.GetType().Name; }
+        Check("settings: an edit to a running machine is refused as Busy", busy.Contains("Busy"), busy);
 
         // --- display ---
         var disp = w.DisplayViewForTest;

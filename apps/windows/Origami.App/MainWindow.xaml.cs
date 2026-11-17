@@ -38,7 +38,7 @@ public sealed partial class MainWindow : Window
         HeroStart.Click += (_, _) => Invoke("machine.start");
         PowerOffButton.Click += (_, _) => Invoke("machine.stop");
         ConsoleButton.Click += (_, _) => Invoke("window.console");
-        SettingsButton.Click += (_, _) => Invoke("app.preferences");
+        SettingsButton.Click += (_, _) => Invoke("machine.settings");
         PointerButton.Click += (_, _) => Invoke("machine.pointer-mode");
 
         Settings.Saved += s => { _settings = s; _store.Save(s); _modeKey = null; Refresh(); };
@@ -247,7 +247,7 @@ public sealed partial class MainWindow : Window
                     StatusText.Text = "Screenshot saved to " + path;
                     break;
                 }
-            case "machine.settings":
+            case "machine.settings" when key != null && !_dialogOpen: _ = RunAsync(() => MachineSettingsAsync(key)); break;
             case "app.preferences": _prefsOpen = true; Settings.Load(_settings); Refresh(); break; // load once: a refresh must not reset unsaved edits
             case "machine.pointer-mode" when key != null:
                 {
@@ -259,7 +259,7 @@ public sealed partial class MainWindow : Window
                 }
             case "view.library": LibraryColumn.Width = LibraryColumn.Width.Value > 0 ? new GridLength(0) : new GridLength(260); break;
             case "window.console" when key != null: OpenConsole(key); break;
-            case "machine.new" when !_newOpen: _ = RunAsync(NewMachineAsync); break;
+            case "machine.new" when !_dialogOpen: _ = RunAsync(NewMachineAsync); break;
             case "window.diagnostics" when key != null: OpenDiagnostics(key); break;
             case "machine.eject-cd":
                 StatusText.Text = "Not built yet: " + _commands.First(c => c.Id == id).Title; break;
@@ -273,14 +273,21 @@ public sealed partial class MainWindow : Window
         catch (Exception e) { StatusText.Text = "Error: " + e.Message; }
     }
 
-    bool _newOpen; // one ContentDialog at a time
+    bool _dialogOpen; // one ContentDialog at a time
+
+    async Task MachineSettingsAsync(string key)
+    {
+        _dialogOpen = true;
+        try { await MachineSettingsDialog.ShowAsync(Root.XamlRoot, _core, key, _core.Machines().First(m => m.Key == key).Name, () => Hwnd); }
+        finally { _dialogOpen = false; Refresh(); }
+    }
 
     async Task NewMachineAsync()
     {
-        _newOpen = true;
+        _dialogOpen = true;
         string? made;
         try { made = await NewMachineDialog.ShowAsync(Root.XamlRoot, _core); }
-        finally { _newOpen = false; }
+        finally { _dialogOpen = false; }
         if (made is not { } key) return;
         _prefsOpen = false;
         Reload();
