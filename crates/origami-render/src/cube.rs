@@ -108,6 +108,9 @@ pub enum Env {
     /// The running machine's screen (see [`CubeView::set_reflection`]); the
     /// studio until a picture has arrived.
     Screen,
+    /// The classic chrome horizon: a dark ground, a crisp bright band and a
+    /// sky from near-white to deep blue. The horizon colour tints the band.
+    Horizon,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -739,6 +742,7 @@ impl CubeRenderer {
         let mode = match style.env {
             Env::Scene(s) if self.scene == Some(s) => 1.0,
             Env::Screen if ready => 2.0,
+            Env::Horizon => 3.0,
             _ => 0.0,
         };
         let (ground, sky) = if style.light_look {
@@ -1517,6 +1521,42 @@ mod tests {
             right > left + 8.0,
             "red right at x {right}, red left at x {left}"
         );
+    }
+
+    /// The horizon environment is chrome-blue overhead and takes the tint on
+    /// its band; the studio is grey.
+    #[test]
+    fn the_horizon_environment_is_blue_above_and_takes_the_tint() {
+        let Some(gpu) = gpu() else { return };
+        let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
+        let draw = |r: &mut CubeRenderer, s: Style| {
+            render_image(&gpu, r, (128, 128), 1.0, &s, &Motion::new(false, false)).unwrap()
+        };
+        // Bgra: blue minus red over the cube's opaque pixels.
+        let blueness = |img: &[u8]| {
+            img.as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|p| p[3] == 255)
+                .map(|p| i64::from(p[0]) - i64::from(p[2]))
+                .sum::<i64>()
+        };
+        let studio = draw(&mut r, Style::default());
+        let plain = Style {
+            env: Env::Horizon,
+            ..Style::default()
+        };
+        let horizon = draw(&mut r, plain);
+        assert!(blueness(&horizon) > blueness(&studio) + 2000);
+        let tinted = draw(
+            &mut r,
+            Style {
+                horizon: Some([0.9, 0.1, 0.1]),
+                ..plain
+            },
+        );
+        assert_ne!(tinted, horizon, "the colour reaches the band");
+        assert!(blueness(&tinted) < blueness(&horizon), "and it is red");
     }
 
     #[test]

@@ -36,6 +36,9 @@
 
 #define ORIGAMI_CUBE_ENV_MACHINE 2
 
+// The classic chrome horizon: dark ground, bright band, blue sky.
+#define ORIGAMI_CUBE_ENV_HORIZON 3
+
 // `origami_cube_scene_text` fields.
 #define ORIGAMI_CUBE_SCENE_ID 0
 

@@ -7,7 +7,7 @@ struct U {
     look: vec4<f32>,
     // Horizon band colour, and how much of it (0 for none).
     tint: vec4<f32>,
-    // x: 0 studio, 1 equirect photo, 2 guest screen; y: photo mip level;
+    // x: 0 studio, 1 equirect photo, 2 guest screen, 3 chrome horizon; y: photo mip level;
     // z: granite texel size in pixels.
     mode: vec4<f32>,
     dark: vec4<f32>,
@@ -74,6 +74,19 @@ fn studio(r: vec3<f32>) -> vec3<f32> {
     let m = band(h, -0.22, 0.02, 0.03) * u.tint.a;
     rgb = mix(rgb, u.tint.rgb * 0.85, m);
     return rgb;
+}
+
+// The classic chrome-logo horizon: a dark ground, a crisp bright band at the
+// horizon and a sky from near-white there to deep blue overhead.
+fn horizon(r: vec3<f32>) -> vec3<f32> {
+    let h = r.y;
+    let sky = mix(vec3<f32>(0.97, 0.99, 1.0), vec3<f32>(0.08, 0.22, 0.68), pow(clamp(h, 0.0, 1.0), 1.7));
+    let ground = mix(vec3<f32>(0.46, 0.41, 0.38), vec3<f32>(0.04, 0.04, 0.055), pow(clamp(-h, 0.0, 1.0), 0.85));
+    var c = mix(ground, sky, smoothstep(-0.01, 0.01, h));
+    let line = band(h, -0.01, 0.16, 0.02);
+    c = mix(c, vec3<f32>(1.0), 0.7 * line);
+    // The machine's colour tints the band subtly.
+    return mix(c, u.tint.rgb, 0.4 * line * u.tint.a);
 }
 
 // Blender's world mapping, u = 0.5 - atan2(y, x) / 2pi with x right, y away from
@@ -143,7 +156,9 @@ fn fs(v: V) -> @location(0) vec4<f32> {
     // reflect((0, 0, -1), n)
     let r = vec3<f32>(2.0 * n.z * n.x, 2.0 * n.z * n.y, -1.0 + 2.0 * n.z * n.z);
     var c: vec3<f32>;
-    if (u.mode.x == 1.0) {
+    if (u.mode.x == 3.0) {
+        c = horizon(r);
+    } else if (u.mode.x == 1.0) {
         c = equirect(r);
     } else if (u.mode.x == 2.0) {
         c = on_screen(r);
@@ -151,7 +166,7 @@ fn fs(v: V) -> @location(0) vec4<f32> {
         c = studio(r);
     }
     c *= mix(0.86, 1.0, pow(saturate(1.0 - nv), 5.0));
-    if (u.mode.x != 0.0) {
+    if (u.mode.x == 1.0 || u.mode.x == 2.0) {
         // No tube reflects another here, which a ray tracer's would: lift dark
         // insides with the scene's mean, half desaturated against a violet cast.
         let avg = scene_average();

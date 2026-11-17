@@ -24,6 +24,8 @@ use std::sync::{Arc, Mutex};
 pub const ORIGAMI_CUBE_ENV_STUDIO: u32 = 0;
 pub const ORIGAMI_CUBE_ENV_SCENE: u32 = 1;
 pub const ORIGAMI_CUBE_ENV_MACHINE: u32 = 2;
+/// The classic chrome horizon: dark ground, bright band, blue sky.
+pub const ORIGAMI_CUBE_ENV_HORIZON: u32 = 3;
 
 /// `origami_cube_scene_text` fields.
 pub const ORIGAMI_CUBE_SCENE_ID: u32 = 0;
@@ -245,6 +247,7 @@ pub unsafe extern "C" fn origami_cube_set_style(
             }
             ORIGAMI_CUBE_ENV_SCENE => return fail(Status::InvalidArgument, "unknown scene"),
             ORIGAMI_CUBE_ENV_MACHINE => Env::Screen,
+            ORIGAMI_CUBE_ENV_HORIZON => Env::Horizon,
             _ => return fail(Status::InvalidArgument, "unknown env"),
         };
         let tone = |hex| {

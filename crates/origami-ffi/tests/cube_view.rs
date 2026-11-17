@@ -651,3 +651,28 @@ fn the_scene_functions_take_a_null_cube_without_crashing() {
         assert_eq!(origami_cube_current_scene(ptr::null_mut()), -1);
     }
 }
+
+#[test]
+fn the_horizon_environment_is_selectable_through_the_style() {
+    let mut cube = ptr::null_mut();
+    // SAFETY: a valid out pointer.
+    let status = unsafe { origami_cube_attach_offscreen(64, 64, 1.0, &mut cube) };
+    if status == ORIGAMI_ERR_NO_GPU {
+        eprintln!("skipping: no GPU");
+        return;
+    }
+    ok(status, "attach offscreen");
+    let cube = Cube(cube);
+    cube.style(
+        ORIGAMI_CUBE_ENV_STUDIO,
+        ORIGAMI_CUBE_NO_COLOUR,
+        DARK,
+        false,
+        true,
+    );
+    cube.present();
+    let studio = cube.shot();
+    cube.style(ORIGAMI_CUBE_ENV_HORIZON, 0x1f9e8f, DARK, false, true);
+    cube.present();
+    assert!(!same(&studio, &cube.shot()));
+}
