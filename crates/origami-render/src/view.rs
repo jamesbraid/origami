@@ -148,14 +148,7 @@ impl View {
             .ok_or("the surface has no usable configuration")?;
         config.format = format;
         config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
-        let alpha = transparent
-            .then(|| {
-                caps.alpha_modes
-                    .iter()
-                    .copied()
-                    .find(|m| *m == wgpu::CompositeAlphaMode::PreMultiplied)
-            })
-            .flatten();
+        let alpha = transparent.then(|| pick_alpha(&caps.alpha_modes)).flatten();
         if let Some(mode) = alpha {
             config.alpha_mode = mode;
         }
@@ -433,6 +426,16 @@ pub fn render_image(
     Ok(out)
 }
 
+/// The alpha mode that blends over what is behind. Metal offers only Opaque and
+/// PostMultiplied, which clears the layer's opaque flag; CAMetalLayer treats
+/// the pixels as premultiplied either way, and the cube draws them so.
+fn pick_alpha(offered: &[wgpu::CompositeAlphaMode]) -> Option<wgpu::CompositeAlphaMode> {
+    use wgpu::CompositeAlphaMode as M;
+    [M::PreMultiplied, M::PostMultiplied, M::Inherit]
+        .into_iter()
+        .find(|m| offered.contains(m))
+}
+
 /// The surface format to draw into: a non-sRGB one, because the pass writes
 /// the guest's pixel values as they are, as the Slint path's texture does. An
 /// sRGB format would encode them a second time.
@@ -461,6 +464,21 @@ mod tests {
                 None
             }
         }
+    }
+
+    #[test]
+    fn a_blending_alpha_mode_is_found_where_metal_offers_only_post_multiplied() {
+        use wgpu::CompositeAlphaMode as M;
+        assert_eq!(
+            pick_alpha(&[M::Opaque, M::PostMultiplied]),
+            Some(M::PostMultiplied)
+        );
+        assert_eq!(
+            pick_alpha(&[M::Opaque, M::PostMultiplied, M::PreMultiplied]),
+            Some(M::PreMultiplied)
+        );
+        assert_eq!(pick_alpha(&[M::Opaque, M::Inherit]), Some(M::Inherit));
+        assert_eq!(pick_alpha(&[M::Opaque]), None);
     }
 
     #[test]
