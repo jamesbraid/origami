@@ -54,6 +54,17 @@ fn fixture_tuned(observer: Option<Arc<dyn Observer>>, tune: impl FnOnce(&mut Con
     Fixture { root, engine, core }
 }
 
+/// A second core over the library of an earlier fixture.
+fn fixture_in(root: &Path) -> Fixture {
+    let engine = Arc::new(FakeEngine::new());
+    let core = Core::new(Config::new(root), vec![engine.clone()], None).unwrap();
+    Fixture {
+        root: tempfile::tempdir().unwrap(),
+        engine,
+        core,
+    }
+}
+
 fn fixture() -> Fixture {
     fixture_with(None, 1 << 20)
 }
@@ -911,4 +922,46 @@ fn cpu_load_follows_the_engine_and_is_empty_when_the_machine_is_not_running() {
     let (a, b) = (report.cpus[0], report.cpus[1]);
     assert!(near(a.user_pct, 30.0) && near(a.sys_pct, 10.0), "{a:?}");
     assert!(near(b.user_pct, 60.0) && near(b.sys_pct, 5.0), "{b:?}");
+}
+
+#[test]
+fn offerings_and_machines_say_what_they_are_called_and_whether_they_have_a_display() {
+    let f = fixture();
+    let offerings = f.core.catalogue().unwrap();
+    // The fake catalogue names no topology; an engine says for itself whether
+    // an offering has a display, so one with heads does and a blind one not.
+    assert_eq!(
+        (
+            offerings[0].topology_name.as_str(),
+            offerings[0].has_display
+        ),
+        ("fake", true)
+    );
+    let blind = offerings.iter().find(|o| o.id == "fakeblind.1").unwrap();
+    assert!(!blind.has_display);
+    let key = f.create("m", "fake.1");
+    let summary = |f: &Fixture| f.core.list_machines().unwrap().remove(0);
+    assert_eq!(summary(&f).topology_name.as_deref(), Some("fake"));
+    assert!(!summary(&f).has_display);
+    assert!(!f.core.open_machine(&key).unwrap().view().has_display);
+    // A machine file with a pipe has a display, whatever the engine says.
+    let toml = Path::new(&key).join("machine.toml");
+    let text = std::fs::read_to_string(&toml).unwrap();
+    std::fs::write(
+        &toml,
+        text + "\n[[pipe]]\nslot = \"widget-13\"\nfamily = \"odyssey\"\nproduct = \"v12\"\n",
+    )
+    .unwrap();
+    assert!(summary(&f).has_display);
+    // The view of the same machine, opened by a fresh core, agrees.
+    let again = fixture_in(f.root.path());
+    assert!(again.core.open_machine(&key).unwrap().view().has_display);
+    // A topology the name table knows reaches the summary by its real name.
+    let text = std::fs::read_to_string(&toml).unwrap();
+    std::fs::write(
+        &toml,
+        text.replace("topology = \"fake\"", "topology = \"origin200\""),
+    )
+    .unwrap();
+    assert_eq!(summary(&f).topology_name.as_deref(), Some("Origin 200"));
 }

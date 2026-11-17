@@ -37,7 +37,8 @@ const NAMES: &[(&str, &str)] = &[
     ("tezro-one-processor", "Tezro"),
 ];
 
-pub(crate) fn machine_name(topology: &str) -> &str {
+/// The name a person knows a topology by, or the topology itself.
+pub fn machine_name(topology: &str) -> &str {
     NAMES
         .iter()
         .find(|(name, _)| *name == topology)

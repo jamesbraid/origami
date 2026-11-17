@@ -849,6 +849,8 @@ mod engine_tests {
             engine: engine.into(),
             product: String::new(),
             topology: String::new(),
+            topology_name: String::new(),
+            has_display: false,
             nodes: 1,
             cpus: 1,
             memory_default_mib: 0,

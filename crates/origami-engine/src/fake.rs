@@ -110,7 +110,7 @@ fn catalogue() -> Catalogue {
             "scsi-adapters": [{"bus": "scsi.0", "targets": [1, 2, 3, 4]}],
             "consoles": [{"kind": "console", "node": 0, "name": "ttyS0"}],
             "engines": [ID],
-            "engine": {ID: {"heads": heads}},
+            "engine": {ID: {"heads": heads, "display": heads > 0}},
         })
     };
     serde_json::from_value(json!({

@@ -155,6 +155,10 @@ pub struct OrigamiOffering {
     pub engine: String,
     pub product: String,
     pub topology: String,
+    /// What a person calls the topology, such as `Origin 200`.
+    pub topology_name: String,
+    /// Whether a machine made with the defaults has a graphics head.
+    pub has_display: bool,
     pub nodes: u32,
     pub cpus: u32,
     pub memory_default_mib: u32,
@@ -168,6 +172,9 @@ pub struct OrigamiMachineSummary {
     pub product: String,
     pub product_label: String,
     pub topology: Option<String>,
+    pub topology_name: Option<String>,
+    /// Whether the machine has a graphics head, from its file.
+    pub has_display: bool,
     pub nodes: u32,
     pub memory_per_node_mib: u32,
     pub state: OrigamiMachineState,
@@ -399,6 +406,9 @@ pub struct OrigamiMachineView {
     pub name: String,
     pub product: String,
     pub engine: String,
+    /// Whether the machine has a graphics head by its configuration, as
+    /// against a serial-only machine whose display is not up yet.
+    pub has_display: bool,
     pub state: OrigamiMachineState,
     pub exit_code: Option<i32>,
     /// How the engine's program ended, once the state is `Exited`.
@@ -419,6 +429,7 @@ impl From<f::MachineView> for OrigamiMachineView {
             name: v.name,
             product: v.product,
             engine: v.engine,
+            has_display: v.has_display,
             state: v.state.into(),
             exit_code: v.exit_code,
             exit_reason: v.exit_reason.map(Into::into),
@@ -652,6 +663,8 @@ impl OrigamiCore {
                 engine: o.engine,
                 product: o.product,
                 topology: o.topology,
+                topology_name: o.topology_name,
+                has_display: o.has_display,
                 nodes: o.nodes,
                 cpus: o.cpus,
                 memory_default_mib: o.memory_default_mib,
@@ -672,6 +685,8 @@ impl OrigamiCore {
                 product: m.product,
                 product_label: m.product_label,
                 topology: m.topology,
+                topology_name: m.topology_name,
+                has_display: m.has_display,
                 nodes: m.nodes,
                 memory_per_node_mib: m.memory_per_node_mib,
                 state: m.state.into(),

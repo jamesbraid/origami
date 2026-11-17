@@ -155,6 +155,7 @@ mod tests {
             name: "o2".into(),
             product: "o2".into(),
             engine: "qemu".into(),
+            has_display: true,
             state: MachineState::Running,
             exit_code: None,
             exit_reason: None,

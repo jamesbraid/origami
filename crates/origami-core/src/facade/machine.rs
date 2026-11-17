@@ -77,6 +77,9 @@ pub struct MachineView {
     pub name: String,
     pub product: String,
     pub engine: String,
+    /// Whether the machine has a graphics head by its configuration, so a
+    /// serial-only machine is told from a display that is not up yet.
+    pub has_display: bool,
     pub state: MachineState,
     pub exit_code: Option<i32>,
     /// Why the engine's program ended, once it has.
@@ -768,12 +771,17 @@ impl MachineInner {
                 (MachineState::Exited, how)
             }
         };
+        let (product, has_display) = {
+            let model = self.model.lock().unwrap();
+            (model.product.clone(), !model.graphics.is_empty())
+        };
         let (connected, down_reason, total) = self.console.status();
         MachineView {
             key: self.key.clone(),
             name: self.name.clone(),
-            product: self.model.lock().unwrap().product.clone(),
+            product,
             engine: self.engine.info().id,
+            has_display,
             state,
             exit_code,
             exit_reason,

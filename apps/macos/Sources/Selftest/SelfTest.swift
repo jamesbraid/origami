@@ -263,7 +263,7 @@ func runSelfTest(library: String, out: String) {
     check("ui-hero-renders", hero.ok && hero.colours > 20, ["distinct_colours_sampled": hero.colours])
     // An O2's summary pane in dark and light, at 2x, for looking at the tint fade by eye.
     if let tint = ProcessInfo.processInfo.environment["ORIGAMI_TINT_PNG"] {
-        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", nodes: 1,
+        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", hasDisplay: true, nodes: 1,
                                                              memoryPerNodeMib: 512, state: .notRunning, problem: nil),
                               host: host, defaultPointer: .follow)
         let size = CGSize(width: 800, height: 600)

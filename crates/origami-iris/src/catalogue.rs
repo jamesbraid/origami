@@ -95,6 +95,7 @@ pub fn catalogue() -> Catalogue {
                 "bank_sizes": sizes,
                 "banks": 2,
                 "console": "b",
+                "display": true,
             }},
         })
     };
@@ -135,6 +136,7 @@ pub fn catalogue() -> Catalogue {
             "bank_sizes": octane_sizes,
             "banks": 2,
             "console": "a",
+            "display": true,
             "board": "v12",
         }},
     });
@@ -166,6 +168,13 @@ mod tests {
         assert_eq!(banks_for(32, &sizes, 2), Some(vec![32]));
         assert_eq!(banks_for(384, &sizes, 2), None);
         assert_eq!(banks_for(4, &sizes, 2), None);
+    }
+
+    #[test]
+    fn every_iris_offering_says_it_has_a_display() {
+        for offering in &catalogue().offerings {
+            assert_eq!(offering.engine[ENGINE]["display"], true, "{}", offering.id);
+        }
     }
 
     #[test]

@@ -278,6 +278,19 @@ pub fn starter(name: &str) -> Option<&'static Profile> {
     STARTERS.iter().find(|profile| profile.id == name)
 }
 
+/// Whether a machine made from `offering` (preset `name`, if it has one) has a
+/// graphics pipe by default; false for one that is serial only by design. A
+/// catalogue that cannot say is an error, not a headless machine.
+pub fn has_default_display(
+    machines: &crate::Machines,
+    name: &str,
+    offering: &crate::Offering,
+) -> crate::Result<bool> {
+    let request = graphics_request(name, None, None, Default::default(), None);
+    crate::graphics::select(machines, &offering.topology, offering.nodes, &request)
+        .map(|pipes| !pipes.is_empty())
+}
+
 /// The graphics request a preset makes, with `product`, `slot` and
 /// `settings` from the command line in place of its own.
 pub fn graphics_request<'a>(
@@ -392,6 +405,34 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("tezro-ip53"), "{error}");
+    }
+
+    #[test]
+    fn a_serial_only_preset_has_no_default_display_and_others_have_one() {
+        let machines = crate::test_machines();
+        for (name, display) in [
+            ("origin200-1", false),
+            ("origin200-rad4", true),
+            ("fuel-1", true),
+        ] {
+            let offering = preset(&machines, name).unwrap();
+            assert_eq!(
+                has_default_display(&machines, name, offering).unwrap(),
+                display,
+                "{name}"
+            );
+        }
+        // Every offering the catalogue lists can say, with or without a preset.
+        for offering in &machines.offerings {
+            let preset = presets(&machines)
+                .into_iter()
+                .find(|(_, o)| o.id == offering.id)
+                .map_or(String::new(), |(name, _)| name);
+            has_default_display(&machines, &preset, offering)
+                .unwrap_or_else(|e| panic!("{}: {e}", offering.id));
+        }
+        assert_eq!(crate::listing::machine_name("origin200"), "Origin 200");
+        assert_eq!(crate::listing::machine_name("unheard-of"), "unheard-of");
     }
 
     #[test]

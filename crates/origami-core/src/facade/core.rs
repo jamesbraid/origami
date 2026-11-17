@@ -51,6 +51,11 @@ pub struct OfferingSummary {
     pub engine: String,
     pub product: String,
     pub topology: String,
+    /// What a person calls the topology, such as `Origin 200`.
+    pub topology_name: String,
+    /// Whether a machine made with the defaults has a graphics head, as
+    /// against a serial console only.
+    pub has_display: bool,
     pub nodes: u32,
     pub cpus: u32,
     pub memory_default_mib: u32,
@@ -67,6 +72,11 @@ pub struct MachineSummary {
     /// The product's SGI name, such as "Origin 200", for showing to people.
     pub product_label: String,
     pub topology: Option<String>,
+    /// What a person calls the topology; the topology itself where the
+    /// catalogue has no name for it.
+    pub topology_name: Option<String>,
+    /// Whether the machine has a graphics head, from its file.
+    pub has_display: bool,
     pub nodes: u32,
     pub memory_per_node_mib: u32,
     /// Known only for a machine opened through this core.
@@ -195,12 +205,34 @@ impl Core {
         let mut out = Vec::new();
         for index in 0..self.inner.engines.len() {
             let id = self.inner.engines[index].info().id;
-            for o in &self.inner.catalogue(index)?.offerings {
+            let catalogue = self.inner.catalogue(index)?;
+            for o in &catalogue.offerings {
+                // An engine with no graphics records says so in its own data.
+                let declared = o.engine.get(&id).and_then(|data| data["display"].as_bool());
+                // One offering the catalogue cannot describe must not hide the rest.
+                let has_display = match declared.map_or_else(
+                    || {
+                        origami_machine::profiles::has_default_display(
+                            &catalogue,
+                            &preset_of(&catalogue, o),
+                            o,
+                        )
+                    },
+                    Ok,
+                ) {
+                    Ok(shown) => shown,
+                    Err(error) => {
+                        eprintln!("origami: skipping offering {}: {error}", o.id);
+                        continue;
+                    }
+                };
                 out.push(OfferingSummary {
                     id: o.id.clone(),
                     engine: id.clone(),
                     product: o.product.clone(),
                     topology: o.topology.clone(),
+                    topology_name: origami_machine::listing::machine_name(&o.topology).into(),
+                    has_display,
                     nodes: o.nodes,
                     cpus: o.cpus,
                     memory_default_mib: origami_machine::profiles::default_memory(o),
@@ -250,6 +282,12 @@ impl Core {
                         file.machine.topology.as_deref(),
                     ),
                     product: file.machine.model,
+                    topology_name: file
+                        .machine
+                        .topology
+                        .as_deref()
+                        .map(|t| origami_machine::listing::machine_name(t).into()),
+                    has_display: !file.pipe.is_empty(),
                     topology: file.machine.topology,
                     nodes: file.machine.nodes,
                     memory_per_node_mib: file
@@ -267,6 +305,8 @@ impl Core {
                     product: String::new(),
                     product_label: String::new(),
                     topology: None,
+                    topology_name: None,
+                    has_display: false,
                     nodes: 0,
                     memory_per_node_mib: 0,
                     state,
