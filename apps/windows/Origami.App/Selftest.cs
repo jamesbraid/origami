@@ -245,6 +245,28 @@ public static class Selftest
 
         Check("quit: a running machine is named from live state", w.UpNames.Count == 1, string.Join(",", w.UpNames));
 
+        // --- diagnostics ---
+        w.ClearSelectionForTest();
+        Check("diagnostics: nothing is selected", await Until(() => w.SelectedKey == null, 2000), w.SelectedKey ?? "");
+        w.Invoke("window.diagnostics");
+        Check("diagnostics: with nothing selected the command says to select a machine", w.StatusForTest == "Select a machine first.", w.StatusForTest);
+        w.SelectForTest(key);
+        await Until(() => w.SelectedKey == key, 2000);
+        w.Invoke("window.diagnostics");
+        var diag = await Until(() => w.DiagnosticsForTest(key) != null, 3000) ? w.DiagnosticsForTest(key) : null;
+        Check("diagnostics: the window opens", diag != null);
+        if (diag != null)
+        {
+            Check("diagnostics: the report fills in", await Until(() => diag.ReportText.Contains("wake-ups"), 3000));
+            var rt = diag.ReportText;
+            Check("diagnostics: the report shows the engine, state, heads and screen counts", rt.Contains("fake") && rt.Contains("Running") && rt.Contains("64x48") && rt.Contains("wake-ups"), rt.Replace("\r", "").Replace("\n", " | "));
+            diag.Copy();
+            string clip = "";
+            try { clip = await Windows.ApplicationModel.DataTransfer.Clipboard.GetContent().GetTextAsync(); } catch (Exception e) { clip = "clipboard: " + e.Message; }
+            Check("diagnostics: Copy Report puts the report on the clipboard", clip == diag.ReportText, clip.Length > 80 ? clip[..80] : clip);
+            diag.Close();
+        }
+
         // --- pause and resume ---
         w.Invoke("machine.pause");
         Check("pause: the machine is Paused", await Until(() => core.Status(key).State == MachineState.Paused, 3000), core.Status(key).Reason);

@@ -34,6 +34,7 @@ public interface ICoreClient : IDisposable
     bool CommandEnabled(string id, MachineState? state);
 
     DisplayInfo Display(string key, int head);
+    MachineDiag Diagnostics(string key);
     IFrames OpenFrames(string key);
 
     /// <summary>Never blocks.</summary>

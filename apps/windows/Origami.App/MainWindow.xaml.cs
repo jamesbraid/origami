@@ -119,13 +119,6 @@ public sealed partial class MainWindow : Window
         return Color.FromArgb(255, (byte)(80 + h % 120), (byte)(80 + (h >> 8) % 120), (byte)(80 + (h >> 16) % 120));
     }
 
-    static Color ToneColor(string tone) => tone switch
-    {
-        "green" => Color.FromArgb(255, 0x2E, 0x8B, 0x57),
-        "amber" => Color.FromArgb(255, 0xB5, 0x7A, 0x00),
-        "red" => Color.FromArgb(255, 0xC0, 0x39, 0x2B),
-        _ => Color.FromArgb(255, 0x6E, 0x6E, 0x78),
-    };
 
     readonly Dictionary<string, (Border Pill, TextBlock Text)> _pills = new();
 
@@ -234,6 +227,8 @@ public sealed partial class MainWindow : Window
         if (key != null) state = _core.Status(key).State;
         // The core gives Pause and Resume one shortcut and enables only one of them: pressing it toggles.
         if (id == "machine.pause" && state == MachineState.Paused) id = "machine.resume";
+        // Diagnostics needs a machine; the shared gate would drop the command silently, so say why first.
+        if (id == "window.diagnostics" && key == null) { StatusText.Text = "Select a machine first."; return; }
         if (!_core.CommandEnabled(id, state)) return;
         switch (id)
         {
@@ -265,7 +260,8 @@ public sealed partial class MainWindow : Window
             case "view.library": LibraryColumn.Width = LibraryColumn.Width.Value > 0 ? new GridLength(0) : new GridLength(260); break;
             case "window.console" when key != null: OpenConsole(key); break;
             case "machine.new" when !_newOpen: _ = RunAsync(NewMachineAsync); break;
-            case "machine.eject-cd": case "window.diagnostics":
+            case "window.diagnostics" when key != null: OpenDiagnostics(key); break;
+            case "machine.eject-cd":
                 StatusText.Text = "Not built yet: " + _commands.First(c => c.Id == id).Title; break;
             case "app.quit": Close(); break;
         }
@@ -289,6 +285,22 @@ public sealed partial class MainWindow : Window
         _prefsOpen = false;
         Reload();
         Library.SelectedItem = Library.Items.Cast<ListViewItem>().FirstOrDefault(i => (string?)i.Tag == key) ?? Library.SelectedItem;
+    }
+
+    public void ClearSelectionForTest() => Library.SelectedItem = null;
+    public void SelectForTest(string key) { foreach (ListViewItem i in Library.Items) if ((string?)i.Tag == key) Library.SelectedItem = i; }
+    readonly Dictionary<string, DiagnosticsWindow> _diags = new();
+    public DiagnosticsWindow? DiagnosticsForTest(string key) => _diags.GetValueOrDefault(key);
+
+    void OpenDiagnostics(string key)
+    {
+        if (!_diags.TryGetValue(key, out var w))
+        {
+            w = new DiagnosticsWindow(_core, key, () => (Display.Wakes, Display.Presents));
+            w.Closed += (_, _) => _diags.Remove(key);
+            _diags[key] = w;
+        }
+        w.Activate();
     }
 
     void OpenConsole(string key)
@@ -319,7 +331,7 @@ public sealed partial class MainWindow : Window
         {
             if (!_pills.TryGetValue(m.Key, out var p)) continue;
             p.Text.Text = Pill.Text(m.State);
-            p.Pill.Background = new SolidColorBrush(ToneColor(Pill.Tone(m.State)));
+            p.Pill.Background = new SolidColorBrush(Tones.For(Pill.Tone(m.State)));
         }
 
         var key = SelectedKey;
@@ -331,7 +343,7 @@ public sealed partial class MainWindow : Window
         var st = _core.Status(key);
         TitleText.Text = info.Name;
         PillText.Text = Pill.Text(st.State);
-        PillBorder.Background = new SolidColorBrush(ToneColor(Pill.Tone(st.State)));
+        PillBorder.Background = new SolidColorBrush(Tones.For(Pill.Tone(st.State)));
         StatusText.Text = st.LastError is { Length: > 0 } e ? st.Reason + " " + e : st.Reason;
         foreach (var (cid, mi) in _menuItems) mi.IsEnabled = _core.CommandEnabled(cid, st.State);
         StartButton.IsEnabled = HeroStart.IsEnabled = _core.CommandEnabled("machine.start", st.State);

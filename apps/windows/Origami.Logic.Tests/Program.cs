@@ -160,5 +160,18 @@ Test("new machine: labels, default model and when Create is offered", () =>
     Eq(true, NewMachine.CanCreate(" x ", 0), "name and model");
 });
 
+Test("diagnostics report: lists engine, state, heads, console and screen counts", () =>
+{
+    var d = new MachineDiag("Octane2", "qemu", MachineState.Running, "The machine is running.", null,
+        new[] { new HeadDiag(0, 1280, 1024, true, 42) }, true, null, 1234);
+    var r = DiagnosticsReport.Format(d, 17, 16);
+    foreach (var want in new[] { "Octane2", "qemu", "Running", "The machine is running.", "Last error:   none", "#0  1280x1024  picture yes  sequence 42", "connected, 1234 bytes", "17 wake-ups, 16 presents" })
+        if (!r.Contains(want)) throw new Exception("missing: " + want + "\n" + r);
+    var dead = d with { State = MachineState.Exited, LastError = "runner died", ConsoleConnected = false, ConsoleDownReason = "closed", Heads = Array.Empty<HeadDiag>() };
+    var r2 = DiagnosticsReport.Format(dead, 0, 0);
+    foreach (var want in new[] { "Stopped unexpectedly", "runner died", "none", "not connected (closed)" })
+        if (!r2.Contains(want)) throw new Exception("missing: " + want + "\n" + r2);
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;

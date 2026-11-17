@@ -277,6 +277,19 @@ public sealed class UniffiCoreClient : ICoreClient
         return h is null ? new DisplayInfo(false, 0, 0, 0) : new DisplayInfo(h.Active, (int)h.Width, (int)h.Height, h.Seq);
     }
 
+    public MachineDiag Diagnostics(string key)
+    {
+        if (TryView(key) is not { } v)
+        {
+            var listed = _snap.List.FirstOrDefault(m => m.Key == key);
+            return new MachineDiag(listed?.Name ?? key, "", listed is null ? MachineState.Stopped : Settle(key, listed.State),
+                "No information about this machine yet.", null, Array.Empty<HeadDiag>(), false, null, 0);
+        }
+        return new MachineDiag(v.Name, v.Engine, Settle(key, v.State), v.Reason, v.LastError,
+            v.Heads.Select(h => new HeadDiag((int)h.Index, (int)h.Width, (int)h.Height, h.Active, h.Seq)).ToList(),
+            v.Console.Connected, v.Console.DownReason, v.Console.Total);
+    }
+
     public IFrames OpenFrames(string key)
     {
         var handle = (IntPtr)(long)M(key).FramePlaneHandle();
