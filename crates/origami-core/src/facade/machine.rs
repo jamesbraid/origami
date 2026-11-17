@@ -38,6 +38,9 @@ pub enum MachineState {
     Stopping,
     /// The engine's program is gone; the view says how.
     Exited,
+    /// Another process runs it, such as a runner left by an earlier session.
+    /// Only the library listing says so; `start` attaches to it.
+    LeftRunning,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

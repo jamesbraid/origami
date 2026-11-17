@@ -375,6 +375,7 @@ impl MachineUi {
     pub fn compute_state(&self) -> State {
         let v = self.machine.view();
         match v.state {
+            MachineState::LeftRunning => State::LeftRunning,
             MachineState::NotRunning if self.left_running.get() => State::LeftRunning,
             MachineState::NotRunning => State::Stopped,
             MachineState::Starting => State::Starting,

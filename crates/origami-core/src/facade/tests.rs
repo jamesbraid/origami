@@ -832,3 +832,30 @@ fn a_stop_that_failed_or_a_power_button_the_guest_ignored_does_not_claim_the_exi
         Some(ExitReason::GuestPoweredOff)
     );
 }
+
+#[test]
+fn a_machine_another_process_runs_is_listed_as_left_running() {
+    let f = fixture();
+    let key = f.create("m", "fake.1");
+    let dir = Path::new(&key);
+    let state = || f.core.list_machines().unwrap()[0].state;
+    // An edit holds the lock too, but leaves no run record.
+    let lock = origami_machine::control::lock_for_edit(dir, "t").unwrap();
+    assert_eq!(state(), MachineState::NotRunning);
+    origami_machine::control::write(dir, &Default::default()).unwrap();
+    assert_eq!(state(), MachineState::LeftRunning);
+    drop(lock);
+    assert_eq!(state(), MachineState::NotRunning);
+}
+
+#[test]
+fn an_edit_of_a_machine_another_process_runs_is_busy() {
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("l", "fake.1")).unwrap();
+    let dir = Path::new(machine.key());
+    let _lock = origami_machine::control::lock_for_edit(dir, "t").unwrap();
+    origami_machine::control::write(dir, &Default::default()).unwrap();
+    let error = machine.apply_change(&Change::SetMemory(256)).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Busy);
+    assert_eq!(machine.settings().unwrap().memory_per_node_mib, 128);
+}

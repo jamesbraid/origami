@@ -235,6 +235,11 @@ impl Core {
                 .unwrap()
                 .get(&key)
                 .map_or(MachineState::NotRunning, |m| m.view().state);
+            let state = if state == MachineState::NotRunning && left_running(&path) {
+                MachineState::LeftRunning
+            } else {
+                state
+            };
             let key = key.to_string_lossy().into_owned();
             out.push(match origami_machine::read_machine(&path) {
                 Ok(file) => MachineSummary {
@@ -392,6 +397,13 @@ impl Core {
     pub fn commands(&self) -> Vec<Command> {
         commands::table()
     }
+}
+
+/// Another process's runner holds the lock and has a run record; an edit
+/// holds the lock with no record.
+fn left_running(dir: &Path) -> bool {
+    origami_machine::control::is_locked(dir).unwrap_or(false)
+        && origami_machine::control::read(dir).is_ok()
 }
 
 fn entry_name(path: &Path) -> String {

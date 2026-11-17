@@ -42,7 +42,9 @@ it under a lock the observer takes.
 
 `OrigamiCore(libraryRoot, observer?)` throws `CoreError`.
 
-- `engines()`, `catalogue()` (offerings you can create), `list_machines()`,
+- `engines()`, `catalogue()` (offerings you can create), `list_machines()`
+  (state `LeftRunning` when another process's runner holds the machine;
+  `start_machine` attaches),
   `commands()` (menu table: id, title, `enabled_when`, shortcut per platform;
   `origami_command_enabled(when, state)`).
 - `create_machine(OrigamiCreateRequest) -> OrigamiOperation`; its

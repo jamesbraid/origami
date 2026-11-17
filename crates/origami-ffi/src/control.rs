@@ -110,6 +110,7 @@ pub enum OrigamiMachineState {
     Paused,
     Stopping,
     Exited,
+    LeftRunning,
 }
 
 impl From<f::MachineState> for OrigamiMachineState {
@@ -121,6 +122,7 @@ impl From<f::MachineState> for OrigamiMachineState {
             f::MachineState::Paused => Self::Paused,
             f::MachineState::Stopping => Self::Stopping,
             f::MachineState::Exited => Self::Exited,
+            f::MachineState::LeftRunning => Self::LeftRunning,
         }
     }
 }
@@ -134,6 +136,7 @@ impl From<OrigamiMachineState> for f::MachineState {
             OrigamiMachineState::Paused => Self::Paused,
             OrigamiMachineState::Stopping => Self::Stopping,
             OrigamiMachineState::Exited => Self::Exited,
+            OrigamiMachineState::LeftRunning => Self::LeftRunning,
         }
     }
 }

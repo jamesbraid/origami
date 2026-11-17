@@ -16,7 +16,8 @@ pub enum EnabledWhen {
     Always,
     /// A machine is selected, in any state.
     MachineSelected,
-    /// Selected and not running: `NotRunning` or `Exited`.
+    /// Selected and this core is not running it: `NotRunning`, `Exited` or
+    /// `LeftRunning` (where start attaches).
     MachineStopped,
     /// Selected and running, paused or stopping.
     MachineLive,
@@ -34,7 +35,9 @@ impl EnabledWhen {
             (EnabledWhen::Always, _) => true,
             (_, None) => false,
             (EnabledWhen::MachineSelected, Some(_)) => true,
-            (EnabledWhen::MachineStopped, Some(s)) => matches!(s, NotRunning | Exited),
+            (EnabledWhen::MachineStopped, Some(s)) => {
+                matches!(s, NotRunning | Exited | LeftRunning)
+            }
             (EnabledWhen::MachineLive, Some(s)) => matches!(s, Running | Paused | Stopping),
             (EnabledWhen::MachineRunning, Some(s)) => s == Running,
             (EnabledWhen::MachinePaused, Some(s)) => s == Paused,
