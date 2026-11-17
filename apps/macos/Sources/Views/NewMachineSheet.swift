@@ -14,8 +14,12 @@ struct NewMachineSheet: View {
             if model.loading {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity)
             } else {
+                Picker("Engine", selection: $model.engine) {
+                    ForEach(model.engines, id: \.self) { Text($0).tag(String?.some($0)) }
+                }
+                .disabled(!model.canPickEngine)
                 Picker("Model", selection: $model.selected) {
-                    ForEach(model.offerings.indices, id: \.self) { Text(model.label(model.offerings[$0])).tag($0) }
+                    ForEach(model.visible, id: \.self) { Text(model.label(model.offerings[$0])).tag($0) }
                 }
                 if model.offerings.indices.contains(model.selected) {
                     let o = model.offerings[model.selected]

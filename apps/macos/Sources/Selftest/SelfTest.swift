@@ -417,6 +417,20 @@ func runSelfTest(library: String, out: String) {
         nm.name = "  \t "; let blankOff = !nm.canCreate
         nm.name = " gamma "; let namedOn = nm.canCreate
         check("new-machine-create-needs-a-trimmed-name", emptyOff && blankOff && namedOn, [:])
+        // Engines: always an explicit one, the catalogue's own; a change keeps the model when the new engine offers it.
+        let engines = nm.engines
+        let explicit = nm.engine != nil && engines.contains(nm.engine ?? "")
+        var kept = true, filtered = true
+        for e in engines {
+            let before = nm.offerings.indices.contains(nm.selected) ? nm.offerings[nm.selected].id : ""
+            let offered = nm.offerings.contains { $0.engine == e && $0.id == before }
+            nm.engine = e
+            filtered = filtered && !nm.visible.isEmpty && nm.visible.allSatisfy { nm.offerings[$0].engine == e }
+                && nm.offerings.indices.contains(nm.selected) && nm.offerings[nm.selected].engine == e
+            if offered { kept = kept && nm.offerings[nm.selected].id == before }
+        }
+        check("new-machine-engine-is-explicit-and-keeps-the-model", !engines.isEmpty && explicit && filtered && kept && nm.canPickEngine == (engines.count > 1),
+              ["engines": engines, "offerings": nm.offerings.count, "engine": nm.engine ?? "none"])
         if fake {
             nm.bootProm = library + "/prom.bin"
             var result: Bool?

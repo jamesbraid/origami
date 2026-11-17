@@ -6,6 +6,15 @@ import Foundation
 final class NewMachineModel: ObservableObject {
     @Published private(set) var offerings: [OrigamiOffering] = []
     @Published var selected = 0
+    /// The engine the machine will run on. It is always explicit; the catalogue's first engine until the person picks.
+    @Published var engine: String? {
+        didSet {
+            guard offerings.indices.contains(selected), offerings[selected].engine != engine else { return }
+            // Keep the model when the new engine offers it; otherwise take that engine's first.
+            let id = offerings[selected].id
+            selected = offerings.firstIndex { $0.engine == engine && $0.id == id } ?? offerings.firstIndex { $0.engine == engine } ?? selected
+        }
+    }
     @Published var name = ""
     @Published private(set) var error: String?
     @Published private(set) var creating = false
@@ -15,6 +24,15 @@ final class NewMachineModel: ObservableObject {
     var bootProm: String?
 
     init(app: AppModel) { self.app = app }
+
+    /// The engines the catalogue offers machines on, in the catalogue's order.
+    var engines: [String] { offerings.reduce(into: [String]()) { if !$0.contains($1.engine) { $0.append($1.engine) } } }
+
+    /// The offerings the picked engine can run, as indexes into `offerings`.
+    var visible: [Int] { offerings.indices.filter { engine == nil || offerings[$0].engine == engine } }
+
+    /// More than one engine to choose between; with one the picker is shown but cannot be changed.
+    var canPickEngine: Bool { engines.count > 1 }
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     var canCreate: Bool { !trimmedName.isEmpty && !creating && offerings.indices.contains(selected) }
@@ -33,6 +51,7 @@ final class NewMachineModel: ObservableObject {
                     case .success(let o):
                         self.offerings = o
                         self.selected = o.firstIndex { $0.id == "octane2-vpro" } ?? 0
+                        self.engine = o.indices.contains(self.selected) ? o[self.selected].engine : nil
                     case .failure(let e): self.error = "The machines could not be listed: \(e)"
                     }
                 }
@@ -44,7 +63,7 @@ final class NewMachineModel: ObservableObject {
     func create(done: @escaping @MainActor (Bool) -> Void) {
         guard canCreate, let core = app.host?.core else { return }
         let request = OrigamiCreateRequest(name: trimmedName, offering: offerings[selected].id, memoryPerNodeMib: nil,
-                                           graphics: nil, bootProm: bootProm, ioProm: nil, engine: nil)
+                                           graphics: nil, bootProm: bootProm, ioProm: nil, engine: engine ?? offerings[selected].engine)
         creating = true; error = nil
         DispatchQueue.global(qos: .userInitiated).async {
             var key: String?
