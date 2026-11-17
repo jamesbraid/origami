@@ -181,24 +181,6 @@ func runSelfTest(library: String, out: String) {
           ["machines": app.models.map(\.name), "chosen": model.name, "product": model.record.productName,
            "memory": model.record.memory, "nodes": model.record.nodes])
     check("library-not-running", model.state == .stopped, ["state": model.state.pill])
-    // A runner is gone when its lock is free or its record names a dead process; no lock is not gone.
-    do {
-        let dir = NSTemporaryDirectory() + "origami-gone-\(UUID().uuidString)"
-        try? FileManager.default.createDirectory(atPath: dir + "/state", withIntermediateDirectories: true)
-        let none = Library.runnerGone(dir)
-        FileManager.default.createFile(atPath: dir + "/state/machine.lock", contents: nil)
-        let free = Library.runnerGone(dir)
-        let held = open(dir + "/state/machine.lock", O_RDONLY); flock(held, LOCK_EX)
-        let heldNow = Library.runnerGone(dir)
-        try? #"{"pid": 2147483000, "qemu_pid": 0}"#.write(toFile: dir + "/state/run.json", atomically: true, encoding: .utf8)
-        let deadPid = Library.runnerGone(dir)
-        try? "{\"pid\": \(getpid()), \"qemu_pid\": 0}".write(toFile: dir + "/state/run.json", atomically: true, encoding: .utf8)
-        let alivePid = Library.runnerGone(dir)
-        close(held)
-        try? FileManager.default.removeItem(atPath: dir)
-        check("runner-gone-is-judged-by-lock-and-pids", !none && free && !heldNow && deadPid && !alivePid,
-              ["no_lock": none, "free_lock": free, "held_lock": heldNow, "dead_pid": deadPid, "live_pid": alivePid])
-    }
 
     // 2. The command table.
     var keys: [String: CommandID] = [:]
@@ -574,21 +556,18 @@ func runSelfTest(library: String, out: String) {
             var changes = 0
             let sink = observer.objectWillChange.sink { _ in changes += 1 }
             spin(6)
-            // The core's listing does not report a machine running under another core, so "Left
-            // running" is not reached today; the step still holds the churn to zero.
-            check("left-running-is-listed-without-churn", changes == 0,
-                  ["state": seen?.state.pill ?? "none", "objectWillChange_in_6s": changes,
-                   "core_gap": seen?.state == .leftRunning ? "none" : "the core lists a machine running in another core as stopped"])
+            // The core lists a machine another core runs as left running; listing it must not churn the UI.
+            check("left-running-is-listed-without-churn", changes == 0 && seen?.state == .leftRunning,
+                  ["state": seen?.state.pill ?? "none", "objectWillChange_in_6s": changes])
             sink.cancel()
             kill(pid_t(pid), SIGKILL)
             check("qemu-crash-shows-stopped-unexpectedly", waitFor(20) { m.state == .stoppedUnexpectedly && !(m.failure ?? "").isEmpty },
                   ["state": m.state.pill, "reason": m.failure ?? "none"])
-            let wasListed = seen?.state == .leftRunning
-            check("left-running-that-dies-is-not-clean", !wasListed || waitFor(20) { seen?.state == .stoppedUnexpectedly },
-                  ["state": seen?.state.pill ?? "none", "reason": seen?.failure ?? "none", "skipped_core_gap": !wasListed])
+            check("left-running-that-dies-is-not-clean", waitFor(20) { seen?.state == .stoppedUnexpectedly },
+                  ["state": seen?.state.pill ?? "none", "reason": seen?.failure ?? "none"])
             _ = host
         } else { check("qemu-crash-shows-stopped-unexpectedly", false, ["error": "could not start or read run.json"]) }
-        // A QMP quit: the runner engine reports no exit code, so it is unexpected until the core says why.
+        // A QMP quit nobody on the host asked for is the guest powering itself off, which the core calls a clean stop.
         if let (host, m) = freshlyStarted(), let port = record()?["qmp_port"] as? Int {
             let script = """
             import json, socket, sys
@@ -600,11 +579,11 @@ func runSelfTest(library: String, out: String) {
             p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
             p.arguments = ["-c", script, "\(port)"]
             try? p.run(); p.waitUntilExit()
-            check("qemu-exit-with-no-code-is-unexpected", waitFor(20) { m.state == .stoppedUnexpectedly && !(m.failure ?? "").isEmpty },
-                  ["state": m.state.pill, "reason": m.failure ?? "none", "core_state": "\(String(describing: m.coreView?.state))",
-                   "core_reason": m.coreView?.reason ?? "none", "core_exit": "\(String(describing: m.coreView?.exitCode))", "busy": m.busy ?? "none"])
+            check("guest-power-off-is-a-clean-stop", waitFor(20) { m.state == .stopped && m.failure == nil },
+                  ["state": m.state.pill, "failure": m.failure ?? "none", "core_state": "\(String(describing: m.coreView?.state))",
+                   "exit_reason": "\(String(describing: m.coreView?.exitReason))", "exit_detail": m.coreView?.exitDetail ?? "none", "busy": m.busy ?? "none"])
             _ = host
-        } else { check("qemu-exit-with-no-code-is-unexpected", false, ["error": "could not start or read run.json"]) }
+        } else { check("guest-power-off-is-a-clean-stop", false, ["error": "could not start or read run.json"]) }
         // The real sheet path on the real engine: the default model and a name, no firmware injected.
         do {
             let nm = NewMachineModel(app: app)
