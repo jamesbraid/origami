@@ -61,7 +61,7 @@ final class MachineModel: ObservableObject, Identifiable {
     @Published private(set) var emulatorUp = false
 
     weak var view: MachineView?
-    private var startedAt: Date?
+    private(set) var startedAt: Date?
     private var expectedStop = false
     private var noPictureTimer: DispatchWorkItem?
     var id: String { record.key }
@@ -256,7 +256,6 @@ final class MachineModel: ObservableObject, Identifiable {
     func release() { view?.endCapture() }
 }
 
-enum ScaleMode { case fit, actual }
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -407,8 +406,8 @@ final class AppModel: ObservableObject {
         case .diagnostics, .settings, .showInFinder: return m != nil
         case .closeTab: return active != nil
         case .nextTab, .previousTab: return tabs.count > 1
-        case .fit, .actualSize: return m?.state == .running
-        case .newMachine, .pasteAsTyping, .console, .integerScaling: return false
+        case .fit, .actualSize, .pointScale, .doubleScale: return m?.state == .running
+        case .newMachine, .pasteAsTyping, .console: return false
         case .chooseLibrary, .showLibrary, .library: return true
         }
     }
@@ -444,9 +443,11 @@ final class AppModel: ObservableObject {
         case .showLibrary: sidebarVisible.toggle()
         case .library: sidebarVisible = true
         case .fit: scaleMode = .fit
+        case .pointScale: scaleMode = .points
+        case .doubleScale: scaleMode = .double
         case .actualSize: scaleMode = .actual
         case .chooseLibrary: if let url = openFolderPanel() { chooseLibrary(url) }
-        case .newMachine, .pasteAsTyping, .console, .integerScaling: break
+        case .newMachine, .pasteAsTyping, .console: break
         }
     }
 

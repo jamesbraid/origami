@@ -150,7 +150,7 @@ struct OrigamiCommands: Commands {
         CommandGroup(replacing: .sidebar) {
             item(.showLibrary)
             Divider()
-            item(.fit); item(.actualSize); item(.integerScaling)
+            item(.pointScale); item(.doubleScale); item(.fit); item(.actualSize)
         }
         CommandGroup(after: .windowArrangement) {
             item(.console); item(.diagnostics); item(.library)
@@ -169,6 +169,7 @@ struct OrigamiApp: App {
             MainView()
                 .environmentObject(app)
         }
+        .defaultSize(width: 1100, height: 760)
         .commands { OrigamiCommands(app: app) }
 
         Window("Diagnostics", id: "diagnostics") {

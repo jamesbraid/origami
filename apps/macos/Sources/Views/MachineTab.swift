@@ -70,14 +70,14 @@ struct ScreenView: View {
         GeometryReader { geo in
             ZStack {
                 GraniteBackground()
-                let w = Double(model.picture?.width ?? 1280), h = Double(model.picture?.height ?? 1024)
-                let aspect = w / h
-                let actual = app.scaleMode == .actual
-                let inset = 24.0
-                let fitW = min(geo.size.width - inset * 2, (geo.size.height - inset * 2) * aspect)
-                let width = actual ? min(w / scale, geo.size.width - inset * 2) : max(fitW, 80)
+                let guest = CGSize(width: model.picture?.width ?? 1280, height: model.picture?.height ?? 1024)
+                let inset = 30.0   // granite margin and the bezel
+                let avail = CGSize(width: max(80, geo.size.width - inset * 2), height: max(80, geo.size.height - inset * 2))
+                let size = Scaling.viewSize(guest: guest, available: avail, backing: scale, mode: app.scaleMode)
+                WindowFitter(key: "\(model.id)-\(model.startedAt?.timeIntervalSince1970 ?? 0)", guest: guest, available: geo.size)
+                    .frame(width: 0, height: 0)
                 MachineDisplay(model: model)
-                    .frame(width: width, height: width / aspect)
+                    .frame(width: size.width, height: size.height)
                     .bezel()
                     .accessibilityLabel("\(model.name) screen")
                     .accessibilityHint("The machine's display. Keyboard and mouse go to the machine.")
@@ -111,8 +111,8 @@ struct Tile: View {
     let symbol: String, title: String, value: String
     var body: some View {
         VStack(spacing: 6) {
-            Image(systemName: symbol).font(.title2).foregroundStyle(.secondary).accessibilityHidden(true)
-            Text(value).font(.headline).lineLimit(1)
+            Image(systemName: symbol).font(.title2).foregroundStyle(.secondary).frame(height: 28).accessibilityHidden(true)
+            Text(value).font(.headline).lineLimit(1).minimumScaleFactor(0.8)
             Text(title).font(.caption).foregroundStyle(.secondary)
         }
         .frame(width: 140, height: 104)

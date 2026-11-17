@@ -81,6 +81,31 @@ func runSelfTest(library: String, out: String) {
         app.rescan()
     }
     #endif
+    // Picture sizing: 1 guest pixel per point where it fits, else the largest whole-number scale.
+    do {
+        let g = CGSize(width: 1280, height: 1024)
+        func size(_ w: CGFloat, _ h: CGFloat, _ b: CGFloat, _ m: ScaleMode) -> CGSize {
+            Scaling.viewSize(guest: g, available: CGSize(width: w, height: h), backing: b, mode: m)
+        }
+        let aspect = size(500, 400, 2, .points)
+        // Pointer mapping follows the picture's rectangle at 1x points, 2x points and the whole-scale fit.
+        func mapped(_ m: ScaleMode, _ w: CGFloat, _ h: CGFloat) -> Bool {
+            let v = Scaling.viewSize(guest: g, available: CGSize(width: w, height: h), backing: 2, mode: m)
+            let a = MachineView.guestPoint(CGPoint(x: v.width / 2, y: v.height / 2), view: v, head: g)
+            let b = MachineView.guestPoint(CGPoint(x: 0, y: 0), view: v, head: g)
+            let c = MachineView.guestPoint(CGPoint(x: v.width - 0.01, y: v.height - 0.01), view: v, head: g)
+            return a == (640, 512) && b == (0, 0) && c == (1279, 1023)
+        }
+        check("pointer-mapping-follows-the-scale", mapped(.points, 1500, 1100) && mapped(.double, 2600, 2100) && mapped(.fit, 1000, 700) && mapped(.points, 500, 400), [:])
+        check("scaling-modes", size(1500, 1100, 2, .points) == CGSize(width: 1280, height: 1024)
+              && size(1000, 700, 2, .points) == CGSize(width: 640, height: 512)
+              && size(2600, 2100, 2, .double) == CGSize(width: 2560, height: 2048)
+              && size(2600, 2100, 2, .actual) == CGSize(width: 640, height: 512)
+              && size(2600, 2100, 1, .fit) == CGSize(width: 2560, height: 2048)
+              && abs(aspect.width / aspect.height - 1.25) < 0.001 && aspect.height <= 400,
+              ["aspect_fit_when_too_small": "\(aspect.width)x\(aspect.height)"])
+    }
+
     // A second machine of the same product, to check selection keys rows by path.
     if fake {
         do {

@@ -8,7 +8,7 @@ enum CommandID: String, CaseIterable {
     case start, powerOff, forceQuit, reset
     case captureInput, followMouse, pasteAsTyping
     case console, diagnostics, library, settings, showInFinder
-    case showLibrary, fit, actualSize, integerScaling
+    case showLibrary, fit, actualSize, pointScale, doubleScale
     case nextTab, previousTab
 
     enum Menu: String { case file = "File", machine = "Machine", view = "View", window = "Window" }
@@ -37,9 +37,10 @@ enum CommandID: String, CaseIterable {
         case .settings: return Info(title: "Settings…", menu: .machine, key: "i", modifiers: .command)
         case .showInFinder: return Info(title: "Show in Finder", menu: .machine, key: nil, modifiers: [])
         case .showLibrary: return Info(title: "Show Library", menu: .view, key: "s", modifiers: [.control, .command])
-        case .fit: return Info(title: "Fit", menu: .view, key: "9", modifiers: .command)
-        case .actualSize: return Info(title: "Actual Size", menu: .view, key: "0", modifiers: .command)
-        case .integerScaling: return Info(title: "Integer Scaling", menu: .view, key: nil, modifiers: [], needsCore: true)
+        case .fit: return Info(title: "Fit to Window", menu: .view, key: "9", modifiers: .command)
+        case .actualSize: return Info(title: "Actual Size (1 pixel)", menu: .view, key: "0", modifiers: .command)
+        case .pointScale: return Info(title: "Scale 1× (1 point per pixel)", menu: .view, key: "1", modifiers: [.command, .option])
+        case .doubleScale: return Info(title: "Scale 2×", menu: .view, key: "2", modifiers: [.command, .option])
         case .console: return Info(title: "Console", menu: .window, key: "c", modifiers: [.command, .option], needsCore: true)
         case .diagnostics: return Info(title: "Diagnostics", menu: .window, key: "l", modifiers: [.command, .option])
         case .library: return Info(title: "Library", menu: .window, key: "l", modifiers: [.command, .shift])

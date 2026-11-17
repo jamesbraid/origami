@@ -259,11 +259,14 @@ final class MachineView: NSView {
 
     /// Guest pixels under the event; the picture fills the view.
     private func headPoint(_ e: NSEvent) -> (Int32, Int32) {
-        let p = convert(e.locationInWindow, from: nil)
         guard let h = session.cachedHead else { return (0, 0) }
-        let x = p.x * Double(h.width) / Double(max(bounds.width, 1))
-        let y = p.y * Double(h.height) / Double(max(bounds.height, 1))
-        return (Int32(max(0, min(Double(h.width - 1), x))), Int32(max(0, min(Double(h.height - 1), y))))
+        return Self.guestPoint(convert(e.locationInWindow, from: nil), view: bounds.size, head: CGSize(width: h.width, height: h.height))
+    }
+
+    /// The guest pixel under a point of the view, which is exactly the picture's rectangle.
+    static func guestPoint(_ p: CGPoint, view: CGSize, head: CGSize) -> (Int32, Int32) {
+        let x = p.x * head.width / max(view.width, 1), y = p.y * head.height / max(view.height, 1)
+        return (Int32(max(0, min(head.width - 1, x))), Int32(max(0, min(head.height - 1, y))))
     }
     private func moved(_ e: NSEvent) {
         if captured { applyMouseDelta(Double(e.deltaX), Double(e.deltaY)) }
