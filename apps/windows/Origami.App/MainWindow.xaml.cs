@@ -33,7 +33,7 @@ public sealed partial class MainWindow : Window
         BuildMenus();
         BuildLibrary();
 
-        Library.SelectionChanged += (_, _) => { if (_rebuilding) return; _prefsOpen = false; Refresh(); };
+        Library.SelectionChanged += (_, _) => { if (_rebuilding) return; _prefsOpen = false; if (SelectedKey is { } k) _tabs.Select(k); Refresh(); };
         StartButton.Click += (_, _) => Invoke("machine.start");
         HeroStart.Click += (_, _) => Invoke("machine.start");
         PowerOffButton.Click += (_, _) => Invoke("machine.stop");
@@ -172,6 +172,121 @@ public sealed partial class MainWindow : Window
             Library.Items.Add(item);
         }
     }
+
+    // ---- tabs ---------------------------------------------------------------------------------
+
+    readonly TabSet _tabs = new();
+    string _tabSig = "";
+    public int TabCount => _tabs.Keys.Count;
+    public string? ActiveTabKey => _tabs.Active;
+    public bool TabBarVisible => TabBar.Visibility == Visibility.Visible;
+
+    ListViewItem? RowFor(string key) => Library.Items.OfType<ListViewItem>().FirstOrDefault(i => (string?)i.Tag == key);
+
+    public void SelectForTabs(string key) { if (RowFor(key) is { } row) Library.SelectedItem = row; }
+
+    public void OpenInNewTab(string key)
+    {
+        _tabs.OpenNew(key);
+        if (RowFor(key) is { } row && !ReferenceEquals(Library.SelectedItem, row)) Library.SelectedItem = row; else Refresh();
+    }
+
+    /// <summary>Closing a tab never stops anything silently: a live machine asks Keep Running / Power Off / Cancel.</summary>
+    public async Task CloseTabAsync(string key, bool ask = true)
+    {
+        var m = _core.Machines().FirstOrDefault(x => x.Key == key);
+        if (ask && m is { State: MachineState.Running or MachineState.Starting or MachineState.Paused })
+        {
+            var dlg = new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot, Title = $"Close {m.Name}?",
+                Content = "The machine is running. Closing its tab can leave it running or power it off.",
+                PrimaryButtonText = "Keep Running", SecondaryButtonText = "Power Off", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary,
+            };
+            var r = await dlg.ShowAsync();
+            if (r == ContentDialogResult.None) return;
+            if (r == ContentDialogResult.Secondary && !await StopClean(m))
+            {
+                StatusText.Text = $"{m.Name} did not power off; its tab stays open.";
+                return; // the machine is still up: keep the tab
+            }
+        }
+        var next = _tabs.Close(key);
+        if (next != null && RowFor(next) is { } row) Library.SelectedItem = row; else Library.SelectedItem = null;
+        Refresh();
+    }
+
+    /// <summary>Rebuilds the tab strip when the set, the active tab or a state changes.</summary>
+    void RebuildTabs()
+    {
+        _tabs.Retain(_core.Machines().Select(x => x.Key));
+        var machines = _core.Machines().ToDictionary(x => x.Key);
+        var sig = string.Join("|", _tabs.Keys.Select(k => k + ":" + (machines.TryGetValue(k, out var mm) ? mm.State : MachineState.Stopped))) + "@" + _tabs.Active;
+        TabBar.Visibility = Visibility.Visible; // always shown, as in the other apps, even with one tab
+        if (sig == _tabSig) return;
+        _tabSig = sig;
+        TabStrip.Children.Clear();
+        foreach (var key in _tabs.Keys)
+        {
+            if (!machines.TryGetValue(key, out var info)) continue;
+            var active = key == _tabs.Active;
+            var chassis = ChassisColor(info.Product);
+            var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 8, Height = 8, Fill = new SolidColorBrush(Tones.For(Pill.Tone(info.State))), VerticalAlignment = VerticalAlignment.Center };
+            var close = new Button
+            {
+                Content = new FontIcon { Glyph = "\uE711", FontSize = 9 }, Width = 18, Height = 18, Padding = new Thickness(0),
+                Background = new SolidColorBrush(Colors.Transparent), BorderThickness = new Thickness(0),
+                Visibility = active ? Visibility.Visible : Visibility.Collapsed,
+            };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(close, "Close tab " + info.Name);
+            close.Click += async (_, _) => await CloseTabAsync(key);
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center,
+                Children = { new Border { Width = 3, Height = 16, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(chassis) }, new TextBlock { Text = info.Name, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 }, dot, close },
+            };
+            var tab = new Border
+            {
+                Height = Tokens.Size.TabHeight, CornerRadius = new CornerRadius(6), Padding = new Thickness(8, 0, 4, 0), Child = content,
+                BorderThickness = new Thickness(1), Tag = key,
+                BorderBrush = new SolidColorBrush(active ? Color.FromArgb((byte)(255 * Tokens.Chassis.TabSelectedStroke), chassis.R, chassis.G, chassis.B) : Colors.Transparent),
+                Background = new SolidColorBrush(active ? Color.FromArgb((byte)(255 * Tokens.Chassis.TabSelectedFill), chassis.R, chassis.G, chassis.B) : Colors.Transparent),
+            };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tab, "tab." + key);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(tab, info.Name);
+            tab.PointerEntered += (_, _) => close.Visibility = Visibility.Visible;
+            tab.PointerExited += (_, _) => close.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+            tab.Tapped += (_, e) => { if (RowFor(key) is { } row) Library.SelectedItem = row; };
+            TabStrip.Children.Add(tab);
+        }
+    }
+
+    /// <summary>The screen position of a library row's centre, for a real click in a self-test.</summary>
+    public (int X, int Y)? RowScreenPoint(string key)
+    {
+        if (RowFor(key) is not { } it) return null;
+        var s = Root.XamlRoot.RasterizationScale;
+        var p = it.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(it.ActualWidth / 2, it.ActualHeight / 2));
+        var pt = new Win32.POINT { X = (int)(p.X * s), Y = (int)(p.Y * s) };
+        Win32.ClientToScreen(Hwnd, ref pt);
+        return (pt.X, pt.Y);
+    }
+
+    /// <summary>The screen position of a tab's centre, for a real click in a self-test.</summary>
+    public (int X, int Y)? TabCenter(string key)
+    {
+        foreach (var b in TabStrip.Children.OfType<Border>())
+            if ((string?)b.Tag == key && b.ActualWidth > 0) // a tab built this turn has no size until it is laid out
+            {
+                var s = Root.XamlRoot.RasterizationScale;
+                var p = b.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(b.ActualWidth / 2 - 14, b.ActualHeight / 2));
+                var pt = new Win32.POINT { X = (int)(p.X * s), Y = (int)(p.Y * s) };
+                Win32.ClientToScreen(Hwnd, ref pt);
+                return (pt.X, pt.Y);
+            }
+        return null;
+    }
+
 
     // ---- menus ------------------------------------------------------------------------------
 
@@ -342,6 +457,7 @@ public sealed partial class MainWindow : Window
     void Refresh()
     {
         SyncLibrary();
+        RebuildTabs();
         foreach (var m in _core.Machines())
         {
             if (!_pills.TryGetValue(m.Key, out var p)) continue;

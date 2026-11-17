@@ -104,10 +104,10 @@ public static class Selftest
 
         // --- settings: read, edit, save, and the core's refusal while running ---
         var st0 = await core.SettingsAsync(made);
-        var other = st0.MemoryAllowed.FirstOrDefault(m => m != st0.MemoryMiB);
-        await core.ApplyChangeAsync(made, new MachineChange.SetMemory(other));
+        var otherMem = st0.MemoryAllowed.FirstOrDefault(m => m != st0.MemoryMiB);
+        await core.ApplyChangeAsync(made, new MachineChange.SetMemory(otherMem));
         var st1 = await core.SettingsAsync(made);
-        Check("settings: a memory edit is written to the machine file", other != 0 && st1.MemoryMiB == other && st0.MemoryMiB != other, $"{st0.MemoryMiB} -> {st1.MemoryMiB} of {string.Join(",", st0.MemoryAllowed)}");
+        Check("settings: a memory edit is written to the machine file", otherMem != 0 && st1.MemoryMiB == otherMem && st0.MemoryMiB != otherMem, $"{st0.MemoryMiB} -> {st1.MemoryMiB} of {string.Join(",", st0.MemoryAllowed)}");
         await core.ApplyChangeAsync(made, new MachineChange.AddForward(new Forward("ssh", "tcp", 2222, 22)));
         var st2 = await core.SettingsAsync(made);
         Check("settings: a port forward is added", st2.Forwards.Any(f => f.Name == "ssh" && f.HostPort == 2222 && f.GuestPort == 22), string.Join(",", st2.Forwards));
@@ -119,6 +119,26 @@ public static class Selftest
         await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("none"));
         var st4 = await core.SettingsAsync(made);
         Check("settings: a share is removed and the network mode set", st4.Shares.Count == 0 && st4.NetworkMode == "none", st4.NetworkMode);
+
+        // --- tabs ---
+        var rows = core.Machines().Select(x => x.Key).ToList();
+        Check("tabs: the bar is shown even with one machine open", w.TabCount == 1 && w.TabBarVisible, $"tabs {w.TabCount}, bar {w.TabBarVisible}");
+        var first = w.SelectedKey!;
+        var other = rows.First(k => k != first);
+        w.OpenInNewTab(other);
+        Check("tabs: Open in New Tab adds a tab beside the first machine's", await Until(() => w.TabCount == 2 && w.ActiveTabKey == other, 2500), $"tabs {w.TabCount}, active {w.ActiveTabKey}");
+        w.SelectForTabs(first); await Until(() => w.ActiveTabKey == first, 2000);
+        w.OpenInNewTab(first);
+        Check("tabs: opening an open machine does not add another tab", w.TabCount == 2, $"tabs {w.TabCount}");
+        await Until(() => w.TabCenter(other) != null, 3000); // the tabs were rebuilt by the select above: wait for their layout
+        if (w.TabCenter(other) is { } tc)
+        {
+            Win.MouseAbs(tc.X, tc.Y); await Task.Delay(120); Win.MouseButton(true); Win.MouseButton(false);
+            Check("tabs: clicking a tab selects its machine", await Until(() => w.SelectedKey == other && w.ActiveTabKey == other, 2500), $"selected {w.SelectedKey}");
+        }
+        else Check("tabs: a tab can be clicked", false, "no tab found");
+        await w.CloseTabAsync(other, ask: false);
+        Check("tabs: closing a tab leaves the other one active and the bar shown", w.TabCount == 1 && w.ActiveTabKey == first && w.TabBarVisible, $"tabs {w.TabCount}, active {w.ActiveTabKey}");
         key = w.SelectedKey!;
 
         // --- start ---

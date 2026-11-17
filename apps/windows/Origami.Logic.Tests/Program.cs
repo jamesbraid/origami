@@ -198,5 +198,26 @@ Test("new machine: one model per id, engines that offer it", () =>
     Eq("qemu", string.Join(",", NewMachine.EnginesFor(all, "y")), "engines of y");
 });
 
+Test("tabs: select replaces the active tab, open adds, close picks a neighbour", () =>
+{
+    var s = new TabSet();
+    s.Select("a"); Eq(1, s.Keys.Count); Eq("a", s.Active);
+    s.Select("b"); Eq(1, s.Keys.Count, "selecting another machine reuses the active tab"); Eq("b", s.Active);
+    s.OpenNew("a"); Eq(2, s.Keys.Count); Eq("a", s.Active);
+    s.OpenNew("c"); s.Select("b"); Eq("b", s.Active, "selecting a machine that has a tab goes to it"); Eq(3, s.Keys.Count);
+    Eq("a", s.Close("b"), "closing the middle tab selects its left neighbour");
+    Eq("a", s.Active);
+    s.Select("d"); Eq(true, s.Keys.SequenceEqual(new[] { "d", "c" }), "d replaced the active a");
+    Eq("d", s.Close("c") ?? "none", "closing an inactive tab keeps the active one");
+    Eq(true, s.Close("d") is null, "closing the last tab leaves none");
+    // A double click: the first click selects (replacing the active tab), the second opens a new tab and keeps the old one.
+    var d = new TabSet(); d.Select("p"); d.Select("q"); d.OpenNew("q");
+    Eq(true, d.Keys.SequenceEqual(new[] { "p", "q" }), "the replacement is undone, q gets a tab beside p"); Eq("q", d.Active);
+    var e = new TabSet(); e.Select("a"); e.OpenNew("b"); e.Select("c"); e.OpenNew("c");
+    Eq(true, e.Keys.SequenceEqual(new[] { "a", "b", "c" }), "an open right after a select that replaced b keeps b and adds c");
+    var f = new TabSet(); f.Select("a"); f.Select("a"); f.OpenNew("a"); Eq(true, f.Keys.SequenceEqual(new[] { "a" }), "reopening the active machine does not duplicate it");
+    s.OpenNew("x"); s.OpenNew("y"); s.Retain(new[] { "y" }); Eq(true, s.Keys.SequenceEqual(new[] { "y" }), "tabs for removed machines go");
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;
