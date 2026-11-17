@@ -5,7 +5,7 @@ import SwiftUI
 
 enum CommandID: String, CaseIterable {
     case newMachine, chooseLibrary, closeTab
-    case start, powerOff, forceQuit, reset, pause, resume
+    case start, powerOff, forceQuit, reset, pause, resume, screenshot
     case captureInput, followMouse, pasteAsTyping
     case console, diagnostics, library, settings, showInFinder
     case showLibrary, fit, actualSize, pointScale, doubleScale
@@ -33,6 +33,7 @@ enum CommandID: String, CaseIterable {
         case .reset: return Info(title: "Reset…", menu: .machine, key: nil, modifiers: [])
         case .pause: return Info(title: "Pause", menu: .machine, key: nil, modifiers: [])
         case .resume: return Info(title: "Resume", menu: .machine, key: nil, modifiers: [])
+        case .screenshot: return Info(title: "Save Screenshot", menu: .machine, key: "s", modifiers: [.command, .shift])
         case .captureInput: return Info(title: "Capture Input", menu: .machine, key: nil, modifiers: [])
         case .followMouse: return Info(title: "Follow My Mouse", menu: .machine, key: nil, modifiers: [])
         case .pasteAsTyping: return Info(title: "Paste as Typing", menu: .machine, key: "v", modifiers: [.command, .option], needsCore: true)

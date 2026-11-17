@@ -327,6 +327,21 @@ final class MachineModel: ObservableObject, Identifiable {
         background("Resuming…", { s in try s.machine.control(control: .resume) }, done: done)
     }
 
+    /// Save the machine's screen to `url` as a PNG.
+    func screenshot(to url: URL, done: @escaping @MainActor (Error?) -> Void) {
+        guard let s = session, state == .running || state == .paused else { done(ScreenshotError.noPicture); return }
+        let ppm = FileManager.default.temporaryDirectory.appendingPathComponent("origami-\(UUID().uuidString).ppm")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var failure: Error?
+            do {
+                try s.machine.screendump(head: 0, path: ppm.path)
+                try Screenshot.writePNG(fromPPM: ppm, to: url)
+            } catch let e { failure = e }
+            try? FileManager.default.removeItem(at: ppm)
+            DispatchQueue.main.async { MainActor.assumeIsolated { done(failure) } }
+        }
+    }
+
     // MARK: pointer
 
     /// Called by the display view whenever it captures or releases.
@@ -369,6 +384,24 @@ final class AppModel: ObservableObject {
         panel.canChooseFiles = false
         panel.message = "Choose the folder that holds your machines"
         return panel.runModal() == .OK ? panel.url : nil
+    }
+    /// Where screenshots go: the Pictures folder.
+    var screenshotFolder = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
+        ?? FileManager.default.homeDirectoryForCurrentUser
+
+    /// A line in the status bar, with a file to show in Finder when there is one.
+    struct Notice: Equatable { let text: String; let reveal: URL? }
+    @Published private(set) var notice: Notice?
+
+    func announce(_ text: String, reveal: URL? = nil) {
+        let n = Notice(text: text, reveal: reveal)
+        notice = n
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { MainActor.assumeIsolated { if self.notice == n { self.notice = nil } } }
+    }
+
+    func screenshotURL(for machine: String) -> URL {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"; f.locale = Locale(identifier: "en_US_POSIX")
+        return screenshotFolder.appendingPathComponent("\(machine) \(f.string(from: Date())).png")
     }
     var openWindow: ((String) -> Void)?
 
@@ -525,6 +558,7 @@ final class AppModel: ObservableObject {
         case .reset: return (m?.state == .running)
         case .pause: return m?.state == .running
         case .resume: return m?.state == .paused
+        case .screenshot: return (m?.state == .running || m?.state == .paused) && m?.busy == nil
         case .captureInput: return m?.state == .running && !(m?.captured ?? false)
         case .followMouse: return m != nil
         case .diagnostics, .settings, .showInFinder: return m != nil
@@ -553,6 +587,14 @@ final class AppModel: ObservableObject {
             }
         case .pause: m?.pause()
         case .resume: m?.resume()
+        case .screenshot:
+            if let m {
+                let url = screenshotURL(for: m.name)
+                m.screenshot(to: url) { [weak self] e in
+                    if let e { self?.announce("The screenshot was not saved: \(e.localizedDescription)") }
+                    else { self?.announce("Saved \(url.lastPathComponent)", reveal: url) }
+                }
+            }
         case .captureInput: m?.capture()
         case .followMouse:
             if let m {

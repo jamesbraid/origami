@@ -152,7 +152,7 @@ struct OrigamiCommands: Commands {
         CommandMenu("Machine") {
             item(.start); item(.powerOff); item(.forceQuit); item(.reset)
             Divider()
-            item(.pause); item(.resume)
+            item(.pause); item(.resume); item(.screenshot)
             Divider()
             item(.captureInput); item(.followMouse); item(.pasteAsTyping)
             Divider()

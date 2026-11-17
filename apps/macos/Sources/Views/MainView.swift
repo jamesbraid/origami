@@ -217,6 +217,7 @@ struct PowerControl: View {
                 Button("Power Off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
                 Button("Pause") { app.invoke(.pause) }.disabled(!app.isEnabled(.pause))
                 Button("Resume") { app.invoke(.resume) }.disabled(!app.isEnabled(.resume))
+                Button("Save Screenshot") { app.invoke(.screenshot) }.disabled(!app.isEnabled(.screenshot))
                 Button("Reset…") { app.invoke(.reset) }.disabled(!app.isEnabled(.reset))
                 Divider()
                 Button("Force Quit Emulator…") { app.invoke(.forceQuit) }.disabled(!app.isEnabled(.forceQuit))
@@ -241,10 +242,17 @@ struct PointerControl: View {
 
 struct StatusBar: View {
     @ObservedObject var model: MachineModel
+    @EnvironmentObject var app: AppModel
     var body: some View {
         HStack(spacing: 14) {
             StatusPill(state: model.state)
             Text(model.statusLine).foregroundStyle(.secondary).lineLimit(1)
+            if let n = app.notice {
+                Text(n.text).lineLimit(1)
+                if let url = n.reveal {
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }.buttonStyle(.link)
+                }
+            }
             Spacer()
             if model.state == .running {
                 Label(model.pointerMode == .follow ? "Follows mouse" : (model.captured ? "Captured" : "Click to capture"),

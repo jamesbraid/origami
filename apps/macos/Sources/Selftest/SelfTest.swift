@@ -726,6 +726,16 @@ func runSelfTest(library: String, out: String) {
         model.pause { e in done = .some(e) }
         check("pause", waitFor(30) { done != nil } && model.state == .paused && app.isEnabled(.resume) && !app.isEnabled(.pause),
               ["state": model.state.pill])
+        // Save Screenshot writes a PNG named for the machine and time into the folder, with no panel,
+        // and says where.
+        app.screenshotFolder = URL(fileURLWithPath: out)
+        app.invoke(.screenshot)
+        check("screenshot-saved-and-announced", waitFor(30) { app.notice?.reveal != nil }, ["notice": app.notice?.text ?? "none"])
+        if let url = app.notice?.reveal, let rep = NSBitmapImageRep(data: (try? Data(contentsOf: url)) ?? Data()) {
+            check("screenshot-is-a-png-of-the-head", url.pathExtension == "png" && url.lastPathComponent.hasPrefix("\(model.name) ")
+                  && rep.pixelsWide == model.picture?.width && rep.pixelsHigh == model.picture?.height,
+                  ["file": url.lastPathComponent, "size": "\(rep.pixelsWide)x\(rep.pixelsHigh)"])
+        } else { check("screenshot-is-a-png-of-the-head", false, ["notice": app.notice?.text ?? "none"]) }
         done = .none
         model.resume { e in done = .some(e) }
         check("resume", waitFor(30) { done != nil } && model.state == .running, ["state": model.state.pill])
