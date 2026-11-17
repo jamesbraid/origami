@@ -96,6 +96,8 @@ impl Cube {
             light_look: u32::from(granite == LIGHT),
             spin: u32::from(spin),
             reduce_motion: u32::from(reduce),
+            backdrop: ORIGAMI_CUBE_BACKDROP_GRANITE,
+            surround_rgb: ORIGAMI_CUBE_NO_COLOUR,
         };
         // SAFETY: valid cube and style.
         unsafe { ok(origami_cube_set_style(self.0, &s), "set_style") };
@@ -257,6 +259,23 @@ fn every_environment_is_drawn_and_the_pointer_and_alt_click_act() {
             );
         }
     }
+    // No backdrop: transparent around the cube, as it sits in the app.
+    let rounded = origami_cube_style {
+        size: std::mem::size_of::<origami_cube_style>() as u32,
+        env: ORIGAMI_CUBE_ENV_SCENE,
+        scene: origami_cube_about_scene(1),
+        horizon_rgb: ORIGAMI_CUBE_NO_COLOUR,
+        granite_light_rgb: DARK[0],
+        granite_dark_rgb: DARK[1],
+        light_look: 0,
+        spin: 0,
+        reduce_motion: 1,
+        backdrop: ORIGAMI_CUBE_BACKDROP_NONE,
+        surround_rgb: 0x303030,
+    };
+    // SAFETY: valid cube and style.
+    unsafe { ok(origami_cube_set_style(cube.0, &rounded), "set_style") };
+    check(&cube, "about-no-backdrop-dark");
     let (dark, light) = (origami_cube_about_scene(1), origami_cube_about_scene(0));
     assert_eq!(scene_text(dark, ORIGAMI_CUBE_SCENE_ID), "vancouver-dusk");
     assert_eq!(scene_text(light, ORIGAMI_CUBE_SCENE_ID), "howe-sound");
@@ -526,4 +545,43 @@ fn offscreen_cpu_while_turning() {
             cpu / wall * 100.0
         );
     }
+}
+
+/// A caller built before `backdrop` existed passes the 36-byte struct: only
+/// that much is read, and it gets granite as before.
+#[test]
+fn a_style_from_before_the_backdrop_field_is_read_by_its_size() {
+    let mut cube = ptr::null_mut();
+    // SAFETY: a valid out pointer.
+    let status = unsafe { origami_cube_attach_offscreen(64, 64, 1.0, &mut cube) };
+    if status == ORIGAMI_ERR_NO_GPU {
+        eprintln!("skipping: no GPU");
+        return;
+    }
+    ok(status, "attach offscreen");
+    let cube = Cube(cube);
+    // The fields of origami_cube_style up to reduce_motion, and no more.
+    let old: [u32; 9] = [
+        36,
+        ORIGAMI_CUBE_ENV_STUDIO,
+        0,
+        ORIGAMI_CUBE_NO_COLOUR,
+        0xe2e4e8,
+        0xd6d8dd,
+        0,
+        0,
+        1,
+    ];
+    // SAFETY: the pointer is readable for the 36 bytes `size` claims.
+    unsafe {
+        ok(
+            origami_cube_set_style(cube.0, old.as_ptr().cast()),
+            "old style",
+        )
+    };
+    cube.present();
+    // Granite fills the corner: opaque, unlike the new default.
+    let (w, _, rgb) = cube.shot();
+    assert_eq!(w, 64);
+    assert!(rgb[..3] == [0xe2, 0xe4, 0xe8] || rgb[..3] == [0xd6, 0xd8, 0xdd]);
 }

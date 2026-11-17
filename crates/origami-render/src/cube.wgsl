@@ -67,8 +67,10 @@ fn studio(r: vec3<f32>) -> vec3<f32> {
     return rgb;
 }
 
+// Blender's world mapping, u = 0.5 - atan2(y, x) / 2pi with x right, y away from
+// the camera and z up, so the direction to the camera is u = 0.75.
 fn equirect(r: vec3<f32>) -> vec3<f32> {
-    let uv = vec2<f32>(atan2(r.x, r.z) / (2.0 * PI) + 0.5, 0.5 - asin(clamp(r.y, -1.0, 1.0)) / PI);
+    let uv = vec2<f32>(atan2(r.z, r.x) / (2.0 * PI) + 0.5, 0.5 - asin(clamp(r.y, -1.0, 1.0)) / PI);
     return textureSampleLevel(photo, samp, uv, u.mode.y).rgb;
 }
 
@@ -76,7 +78,7 @@ fn equirect(r: vec3<f32>) -> vec3<f32> {
 // of latitude; sky and ground fade to its top and bottom rows.
 fn on_screen(r: vec3<f32>) -> vec3<f32> {
     let lat = asin(clamp(r.y, -1.0, 1.0));
-    let lon = atan2(r.x, r.z) / (2.0 * PI) + 0.5;
+    let lon = atan2(r.z, r.x) / (2.0 * PI) + 0.5;
     var top = vec3<f32>(0.0);
     var bot = vec3<f32>(0.0);
     for (var i = 0; i < 4; i++) {

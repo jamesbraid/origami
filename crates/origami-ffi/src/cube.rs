@@ -15,7 +15,7 @@ use crate::frame::{
     origami_view_counters, present, Fail, Status, ORIGAMI_DRAWN_AGAIN, ORIGAMI_DRAWN_OCCLUDED,
     ORIGAMI_DRAWN_PRESENTED, ORIGAMI_DRAWN_SKIPPED,
 };
-use origami_render::{scenes, CubeView, Drawn, Env, Gpu, Pointer, Reflection, Style};
+use origami_render::{scenes, Backdrop, CubeView, Drawn, Env, Gpu, Pointer, Reflection, Style};
 use std::sync::{Arc, Mutex};
 
 /// What the chrome reflects: the studio, a photographed scene
@@ -38,6 +38,10 @@ pub const ORIGAMI_CUBE_POINTER_RELEASE: u32 = 2;
 /// Eases the cube back to the mark pose.
 pub const ORIGAMI_CUBE_POINTER_DOUBLE_CLICK: u32 = 3;
 
+/// `origami_cube_style.backdrop` values.
+pub const ORIGAMI_CUBE_BACKDROP_NONE: u32 = 0;
+pub const ORIGAMI_CUBE_BACKDROP_GRANITE: u32 = 1;
+
 /// A colour field with this value means none.
 pub const ORIGAMI_CUBE_NO_COLOUR: u32 = 0xffff_ffff;
 
@@ -54,6 +58,10 @@ pub const ORIGAMI_CUBE_NO_COLOUR: u32 = 0xffff_ffff;
 /// - `spin`: turn at 10 rpm; without it the cube is at rest until dragged.
 /// - `reduce_motion`: draw the still pose and never spin; a drag still turns
 ///   it and it stops dead on release.
+/// - `backdrop`: `_NONE` leaves the view transparent around the cube, over the
+///   host's own (non-opaque) surface; `_GRANITE` draws the tile. `surround_rgb`
+///   fills the view where the window system gives no alpha. A smaller `size`
+///   (a host built before these fields) means granite.
 #[repr(C)]
 pub struct origami_cube_style {
     pub size: u32,
@@ -65,6 +73,8 @@ pub struct origami_cube_style {
     pub light_look: u32,
     pub spin: u32,
     pub reduce_motion: u32,
+    pub backdrop: u32,
+    pub surround_rgb: u32,
 }
 
 /// The cube view: one cube drawn into one window. Opaque to C.
@@ -206,12 +216,28 @@ pub unsafe extern "C" fn origami_cube_set_style(
     style: *const origami_cube_style,
 ) -> origami_status {
     guard(|| {
-        // SAFETY: `style` is readable when non-null.
-        let s = unsafe { style.as_ref() }
-            .ok_or_else(|| Fail(Status::NullArgument, "style is null".into()))?;
-        if (s.size as usize) < std::mem::size_of::<origami_cube_style>() {
+        if style.is_null() {
+            return fail(Status::NullArgument, "style is null");
+        }
+        // A caller built before the newest fields passes a shorter `size`:
+        // copy only that many bytes, and the rest stay zero.
+        // SAFETY: the first field is readable, and `size` says how much is.
+        let size = unsafe { style.cast::<u32>().read_unaligned() } as usize;
+        let full = std::mem::size_of::<origami_cube_style>();
+        if size < std::mem::offset_of!(origami_cube_style, backdrop) {
             return fail(Status::InvalidArgument, "style->size is too small");
         }
+        // SAFETY: all fields are plain integers, so zero is a valid value.
+        let mut s: origami_cube_style = unsafe { std::mem::zeroed() };
+        // SAFETY: `style` is readable for `size` bytes, `s` for `full`.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                style.cast::<u8>(),
+                std::ptr::from_mut(&mut s).cast::<u8>(),
+                size.min(full),
+            )
+        };
+        let rounded = size >= full;
         let env = match s.env {
             ORIGAMI_CUBE_ENV_STUDIO => Env::Studio,
             ORIGAMI_CUBE_ENV_SCENE if (s.scene as usize) < scenes::count() => {
@@ -232,6 +258,14 @@ pub unsafe extern "C" fn origami_cube_set_style(
             light_look: s.light_look != 0,
             spin: s.spin != 0,
             reduce_motion: s.reduce_motion != 0,
+            backdrop: if rounded && s.backdrop == ORIGAMI_CUBE_BACKDROP_NONE {
+                Backdrop::None
+            } else {
+                Backdrop::Granite
+            },
+            surround: colour(s.surround_rgb)
+                .filter(|_| rounded)
+                .unwrap_or([0.0; 3]),
         };
         act(cube, |c| c.view.set_style(&c.gpu, style))
     })

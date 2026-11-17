@@ -104,14 +104,15 @@ All functions return `origami_status` (`ORIGAMI_OK` = 0, negative
   before its window goes.
 
 - Cube: `origami_cube_attach(&surface, w, h, scale, &cube)`, `_resize`,
-  `_set_visible`, `_set_style` (environment, scene, horizon colour, granite
-  tones, calm spin, reduce motion), `_pointer` (press, move, release, double
+  `_set_visible`, `_set_style` (environment, scene, horizon colour, backdrop,
+  granite tones, calm spin, reduce motion), `_pointer` (press, move, release, double
   click), `_alt_click` (next scene), `_set_machine` (reflect a machine's screen),
   `_present`, `_readback`, `_stats`, `_detach`, and `origami_cube_scene_count/
   text/find` and `origami_cube_about_scene(dark)` for the scene list and its
   credits. The host owns the clock: call `_present` on each display refresh
   while it reports `moving`, stop when it does not, and call it once after any
-  other call. The cube draws its own granite backdrop over the whole view.
+  other call. The backdrop is none by default (the view is transparent around the cube,
+  over the host's non-opaque surface) or the granite tile.
   The machine's screen is copied by the view presenting that head, so it needs
   a presenting `origami_view`.
 

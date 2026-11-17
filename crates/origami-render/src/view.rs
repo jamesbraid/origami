@@ -54,6 +54,7 @@ pub struct View {
     offscreen: Option<wgpu::Texture>,
     scale: f64,
     visible: bool,
+    transparent: bool,
     /// Presents since attach, for the host's statistics.
     pub presents: u64,
     /// Wall nanoseconds in `draw` since attach: acquire, encode and submit;
@@ -77,6 +78,23 @@ impl View {
         height: u32,
         scale: f64,
     ) -> Result<View, String> {
+        // SAFETY: the caller's promise.
+        unsafe { View::attach_with(gpu, host, width, height, scale, false) }
+    }
+
+    /// [`View::attach`], asking for a premultiplied-alpha surface;
+    /// [`View::transparent`] says whether the window system gave one.
+    ///
+    /// # Safety
+    /// As [`View::attach`].
+    pub unsafe fn attach_with(
+        gpu: &Gpu,
+        host: HostSurface,
+        width: u32,
+        height: u32,
+        scale: f64,
+        transparent: bool,
+    ) -> Result<View, String> {
         // SAFETY: the caller's promise above.
         let target = match host.window {
             #[cfg(target_vendor = "apple")]
@@ -90,7 +108,7 @@ impl View {
         };
         let surface = unsafe { gpu.instance.create_surface_unsafe(target) }
             .map_err(|e| format!("cannot create a surface: {e}"))?;
-        View::from_surface(gpu, surface, width, height, scale)
+        View::from_surface(gpu, surface, width, height, scale, transparent)
     }
 
     /// Attach to a window object that keeps itself alive as long as the
@@ -106,7 +124,7 @@ impl View {
             .instance
             .create_surface(window)
             .map_err(|e| format!("cannot create a surface: {e}"))?;
-        View::from_surface(gpu, surface, width, height, scale)
+        View::from_surface(gpu, surface, width, height, scale, false)
     }
 
     fn from_surface(
@@ -115,6 +133,7 @@ impl View {
         width: u32,
         height: u32,
         scale: f64,
+        transparent: bool,
     ) -> Result<View, String> {
         if !gpu.adapter.is_surface_supported(&surface) {
             return Err(format!(
@@ -129,7 +148,19 @@ impl View {
             .ok_or("the surface has no usable configuration")?;
         config.format = format;
         config.usage = wgpu::TextureUsages::RENDER_ATTACHMENT;
+        let alpha = transparent
+            .then(|| {
+                caps.alpha_modes
+                    .iter()
+                    .copied()
+                    .find(|m| *m == wgpu::CompositeAlphaMode::PreMultiplied)
+            })
+            .flatten();
+        if let Some(mode) = alpha {
+            config.alpha_mode = mode;
+        }
         let mut view = View {
+            transparent: alpha.is_some(),
             surface,
             config,
             blit: Blit::with_format(gpu, format),
@@ -157,6 +188,11 @@ impl View {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&gpu.device, &self.config);
+    }
+
+    /// The surface composites over what is behind it (premultiplied alpha).
+    pub fn transparent(&self) -> bool {
+        self.transparent
     }
 
     /// A hidden view draws nothing and takes no image from the swapchain.

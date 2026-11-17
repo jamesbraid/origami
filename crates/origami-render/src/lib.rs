@@ -21,7 +21,9 @@ mod vulkan;
 
 pub use blit::{cursor_texture, Blit, CursorDraw, Presenter, ScaleMode};
 pub use compose::Compose;
-pub use cube::{render_image as render_cube, scenes, CubeRenderer, CubeView, Env, Pointer, Style};
+pub use cube::{
+    render_image as render_cube, scenes, Backdrop, CubeRenderer, CubeView, Env, Pointer, Style,
+};
 pub use device::Gpu;
 pub use head::HeadTexture;
 pub use import::{GpuImporter, ImportedBuffer};

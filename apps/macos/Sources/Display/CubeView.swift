@@ -99,6 +99,8 @@ final class CubeNSView: NSView {
         s.size = UInt32(MemoryLayout<origami_cube_style>.size)
         s.reduce_motion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0
         s.horizon_rgb = UInt32.max
+        // The layer is opaque until the transparency change: keep the granite tile.
+        s.backdrop = UInt32(ORIGAMI_CUBE_BACKDROP_GRANITE)
         switch look {
         case .starting(let chassis):
             s.env = UInt32(ORIGAMI_CUBE_ENV_STUDIO)

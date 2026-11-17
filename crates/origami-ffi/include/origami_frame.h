@@ -55,6 +55,11 @@
 // Eases the cube back to the mark pose.
 #define ORIGAMI_CUBE_POINTER_DOUBLE_CLICK 3
 
+// `origami_cube_style.backdrop` values.
+#define ORIGAMI_CUBE_BACKDROP_NONE 0
+
+#define ORIGAMI_CUBE_BACKDROP_GRANITE 1
+
 // A colour field with this value means none.
 #define ORIGAMI_CUBE_NO_COLOUR 4294967295
 
@@ -279,6 +284,10 @@ typedef struct origami_surface {
 // - `spin`: turn at 10 rpm; without it the cube is at rest until dragged.
 // - `reduce_motion`: draw the still pose and never spin; a drag still turns
 //   it and it stops dead on release.
+// - `backdrop`: `_NONE` leaves the view transparent around the cube, over the
+//   host's own (non-opaque) surface; `_GRANITE` draws the tile. `surround_rgb`
+//   fills the view where the window system gives no alpha. A smaller `size`
+//   (a host built before these fields) means granite.
 typedef struct origami_cube_style {
   uint32_t size;
   uint32_t env;
@@ -289,6 +298,8 @@ typedef struct origami_cube_style {
   uint32_t light_look;
   uint32_t spin;
   uint32_t reduce_motion;
+  uint32_t backdrop;
+  uint32_t surround_rgb;
 } origami_cube_style;
 
 // What a view has spent, in wall nanoseconds, since it was attached.

@@ -59,6 +59,16 @@ pub mod scenes {
     }
 }
 
+/// What is drawn behind the cube.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backdrop {
+    /// Nothing: the cube composites over the host's surface where the window
+    /// system allows it, so there is no visible view edge.
+    None,
+    /// The granite tile, in the style's two tones, over the whole view.
+    Granite,
+}
+
 /// What the chrome reflects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Env {
@@ -84,6 +94,10 @@ pub struct Style {
     pub spin: bool,
     /// Draw the still pose and never spin; a drag still turns it.
     pub reduce_motion: bool,
+    pub backdrop: Backdrop,
+    /// What fills the view where the window system gives no transparency and
+    /// there is no granite: the host's own background.
+    pub surround: [f32; 3],
 }
 
 impl Default for Style {
@@ -96,6 +110,8 @@ impl Default for Style {
             light_look: false,
             spin: false,
             reduce_motion: false,
+            backdrop: Backdrop::None,
+            surround: [0.0; 3],
         }
     }
 }
@@ -241,6 +257,9 @@ pub struct CubeRenderer {
     reflection: Option<Arc<Reflection>>,
     bind: Option<wgpu::BindGroup>,
     targets: Option<Targets>,
+    /// The target composites over what is behind it, so the cleared
+    /// background is transparent.
+    pub(crate) transparent: bool,
 }
 
 fn decode_granite() -> Result<Vec<u8>, String> {
@@ -357,6 +376,10 @@ fn photo_view(gpu: &Gpu, scene: usize) -> Result<wgpu::TextureView, String> {
             .flat_map(|p| [p[0], p[1], p[2], 255])
             .collect()
     };
+    Ok(photo_from_rgba(gpu, rgba, w, h))
+}
+
+fn photo_from_rgba(gpu: &Gpu, rgba: Vec<u8>, w: u32, h: u32) -> wgpu::TextureView {
     let chain = mip_chain(rgba, w, h);
     let t = texture_2d(
         gpu,
@@ -368,7 +391,7 @@ fn photo_view(gpu: &Gpu, scene: usize) -> Result<wgpu::TextureView, String> {
     for (level, (size, data)) in chain.iter().enumerate() {
         upload(gpu, &t, level as u32, *size, 4, data);
     }
-    Ok(t.create_view(&Default::default()))
+    t.create_view(&Default::default())
 }
 
 impl CubeRenderer {
@@ -524,6 +547,7 @@ impl CubeRenderer {
             reflection: None,
             bind: None,
             targets: None,
+            transparent: true,
         })
     }
 
@@ -682,7 +706,14 @@ impl CubeRenderer {
         gpu.queue
             .write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&u));
         let bind = self.bind_group(gpu);
+        let transparent = self.transparent;
         let targets = self.targets(gpu, size);
+        let clear = if style.backdrop == Backdrop::None && !transparent {
+            let [r, g, b] = style.surround.map(f64::from);
+            wgpu::Color { r, g, b, a: 1.0 }
+        } else {
+            wgpu::Color::TRANSPARENT
+        };
         let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("cube"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -690,7 +721,7 @@ impl CubeRenderer {
                 depth_slice: None,
                 resolve_target: Some(target),
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    load: wgpu::LoadOp::Clear(clear),
                     store: wgpu::StoreOp::Discard,
                 },
             })],
@@ -707,8 +738,10 @@ impl CubeRenderer {
             multiview_mask: None,
         });
         pass.set_bind_group(0, &bind, &[]);
-        pass.set_pipeline(&self.backdrop);
-        pass.draw(0..3, 0..1);
+        if style.backdrop == Backdrop::Granite {
+            pass.set_pipeline(&self.backdrop);
+            pass.draw(0..3, 0..1);
+        }
         pass.set_pipeline(&self.cube);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
@@ -919,8 +952,9 @@ impl CubeView {
         scale: f64,
     ) -> Result<CubeView, String> {
         // SAFETY: the caller's promise.
-        let view = unsafe { View::attach(gpu, host, width, height, scale) }?;
-        let renderer = CubeRenderer::new(gpu, view.format())?;
+        let view = unsafe { View::attach_with(gpu, host, width, height, scale, true) }?;
+        let mut renderer = CubeRenderer::new(gpu, view.format())?;
+        renderer.transparent = view.transparent();
         Ok(CubeView::new(Output::Surface(Box::new(view)), renderer))
     }
 
@@ -1200,12 +1234,187 @@ mod tests {
         assert_eq!(chain[1].1, vec![128, 0, 0, 255]);
     }
 
+    /// Mean error in 4 by 4 blocks of our cube against irix-theme's still of
+    /// the web cube (dark chrome, mark.svg's pose), over one backdrop.
+    fn error_against_still(gpu: &Gpu, style: &Style) -> f64 {
+        let still = include_bytes!("../../../resources/identity/cube-dark-256.webp");
+        let mut d = image_webp::WebPDecoder::new(std::io::Cursor::new(&still[..])).unwrap();
+        let mut theirs = vec![0; d.output_buffer_size().unwrap()];
+        d.read_image(&mut theirs).unwrap();
+        let n = d.dimensions().0;
+        let mut r = CubeRenderer::new(gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
+        if let Env::Scene(s) = style.env {
+            r.set_scene(gpu, Some(s)).unwrap();
+        }
+        // The still fills its frame; our cube is FILL of the view.
+        let side = (n as f32 / FILL).round() as u32;
+        let ours = render_image(
+            gpu,
+            &mut r,
+            (side, side),
+            1.0,
+            style,
+            &Motion::new(false, false),
+        )
+        .unwrap();
+        let (off, back) = ((side - n) / 2, [0x1fu32, 0x21, 0x26]);
+        let blocks = |at: &dyn Fn(u32, u32, usize) -> u32| -> Vec<u32> {
+            (0..(n / 4) * (n / 4) * 3)
+                .map(|i| {
+                    let (c, b) = ((i % 3) as usize, i / 3);
+                    let (bx, by) = (b % (n / 4), b / (n / 4));
+                    (0..16)
+                        .map(|k| at(bx * 4 + k % 4, by * 4 + k / 4, c))
+                        .sum::<u32>()
+                        / 16
+                })
+                .collect()
+        };
+        let a = blocks(&|x, y, c| {
+            let o = (((y + off) * side + x + off) * 4) as usize;
+            // Premultiplied Bgra over the backdrop.
+            u32::from(ours[o + 2 - c]) + back[c] * (255 - u32::from(ours[o + 3])) / 255
+        });
+        let b = blocks(&|x, y, c| {
+            let p = &theirs[((y * n + x) * 4) as usize..];
+            (u32::from(p[c]) * u32::from(p[3]) + back[c] * (255 - u32::from(p[3]))) / 255
+        });
+        let sum: u32 = a.iter().zip(&b).map(|(x, y)| x.abs_diff(*y)).sum();
+        f64::from(sum) / a.len() as f64
+    }
+
+    #[test]
+    fn the_studio_cube_matches_the_web_cubes_still() {
+        let Some(gpu) = gpu() else { return };
+        let mae = error_against_still(&gpu, &Style::default());
+        eprintln!("MEASURE mean block error against the still: {mae:.2} of 255");
+        assert!(
+            mae < 8.0,
+            "differs from the web cube's still: mean error {mae:.2}"
+        );
+        // The check can fail: a photograph is far from the still.
+        let dusk = Style {
+            env: Env::Scene(scenes::find("vancouver-dusk").unwrap()),
+            ..Style::default()
+        };
+        assert!(error_against_still(&gpu, &dusk) > 16.0);
+    }
+
+    /// A red patch in the environment at longitude `u` (in 32nds, 45 degrees
+    /// wide, 10 to 60 above the horizon): its pixel count and mean x on the cube.
+    fn marker_at(gpu: &Gpu, u: usize) -> (f64, f64) {
+        let (w, h) = (256usize, 128usize);
+        let mut rgba = vec![[40u8, 40, 40, 255]; w * h].concat();
+        for y in (h * 3 / 16)..(h * 7 / 16) {
+            for x in (w * u / 32 + w - w * 4 / 32)..(w * u / 32 + w + w * 4 / 32) {
+                rgba[(y * w + x % w) * 4..][..4].copy_from_slice(&[255, 0, 0, 255]);
+            }
+        }
+        let mut r = CubeRenderer::new(gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
+        r.photos[0] = Some(photo_from_rgba(gpu, rgba, w as u32, h as u32));
+        r.scene = Some(0);
+        let style = Style {
+            env: Env::Scene(0),
+            ..Style::default()
+        };
+        let side = 192usize;
+        let size = (side as u32, side as u32);
+        let img = render_image(gpu, &mut r, size, 1.0, &style, &Motion::new(false, false)).unwrap();
+        let (mut sx, mut n) = (0.0, 0.0);
+        for (i, p) in img.as_chunks::<4>().0.iter().enumerate() {
+            // Bgra: red well above blue and green.
+            if p[2] > 120 && p[2] > p[0].saturating_mul(2) && p[2] > p[1].saturating_mul(2) {
+                sx += (i % side) as f64;
+                n += 1.0;
+            }
+        }
+        (n, sx / n.max(1.0))
+    }
+
+    /// Blender puts +X (camera right) at u = 0.5 and -X at 0, so +X reflects
+    /// further right.
+    #[test]
+    fn a_marker_in_the_environment_reflects_where_blender_puts_it() {
+        let Some(gpu) = gpu() else { return };
+        let (right_n, right_x) = marker_at(&gpu, 16);
+        let (left_n, left_x) = marker_at(&gpu, 0);
+        assert!(
+            right_n > 30.0 && left_n > 30.0,
+            "a marker is not reflected: {right_n}, {left_n}"
+        );
+        assert!(
+            right_x > left_x + 8.0,
+            "+X at x {right_x}, -X at x {left_x}"
+        );
+    }
+
+    /// Where the cube shows red from a machine screen that is red on its right
+    /// or left half: mean x of the red pixels.
+    fn screen_marker(gpu: &Gpu, red_right: bool) -> f64 {
+        let update = origami_engine::FrameUpdate {
+            seq: 1,
+            width: 64,
+            height: 48,
+            runs: vec![(0, 48)],
+            resized: false,
+        };
+        // Bgra: red, or grey.
+        let pixels: Vec<u8> = (0..64 * 48)
+            .flat_map(|i| {
+                if (i % 64 >= 32) == red_right {
+                    [0, 0, 255, 255]
+                } else {
+                    [40, 40, 40, 255]
+                }
+            })
+            .collect();
+        let head = crate::HeadTexture::apply(gpu, None, &update, &pixels);
+        let reflection = Reflection::new(gpu);
+        let mut enc = gpu.device.create_command_encoder(&Default::default());
+        reflection.encode(gpu, &mut enc, &head.texture);
+        gpu.queue.submit([enc.finish()]);
+        reflection.done();
+        let mut r = CubeRenderer::new(gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
+        r.set_reflection(Some(reflection));
+        let style = Style {
+            env: Env::Screen,
+            ..Style::default()
+        };
+        let side = 192usize;
+        let size = (side as u32, side as u32);
+        let img = render_image(gpu, &mut r, size, 1.0, &style, &Motion::new(false, false)).unwrap();
+        let (mut sx, mut n) = (0.0, 0.0);
+        for (i, p) in img.as_chunks::<4>().0.iter().enumerate() {
+            if p[2] > 120 && p[2] > p[0].saturating_mul(2) && p[2] > p[1].saturating_mul(2) {
+                sx += (i % side) as f64;
+                n += 1.0;
+            }
+        }
+        assert!(n > 30.0, "the screen is not reflected: {n} red pixels");
+        sx / n
+    }
+
+    /// The right half of the screen reflects on the cube's right, as the
+    /// photographs' +X does.
+    #[test]
+    fn the_machines_screen_reflects_its_right_half_on_the_right() {
+        let Some(gpu) = gpu() else { return };
+        let (right, left) = (screen_marker(&gpu, true), screen_marker(&gpu, false));
+        assert!(
+            right > left + 8.0,
+            "red right at x {right}, red left at x {left}"
+        );
+    }
+
     #[test]
     fn the_cube_covers_the_middle_over_granite_and_turns() {
         let Some(gpu) = gpu() else { return };
         let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
         let (w, h) = (128, 96);
-        let style = Style::default();
+        let style = Style {
+            backdrop: Backdrop::Granite,
+            ..Style::default()
+        };
         let mut motion = Motion::new(true, false);
         let a = render_image(&gpu, &mut r, (w, h), 1.0, &style, &motion).unwrap();
         // The corner is granite: one of its two tones.
@@ -1227,6 +1436,27 @@ mod tests {
         assert_ne!(a, b);
         gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
         assert_eq!(gpu.errors.count(), 0);
+    }
+
+    #[test]
+    fn with_no_backdrop_the_view_is_transparent_around_the_cube() {
+        let Some(gpu) = gpu() else { return };
+        let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
+        let (w, h) = (96, 96);
+        let motion = Motion::new(false, false);
+        let img = render_image(&gpu, &mut r, (w, h), 1.0, &Style::default(), &motion).unwrap();
+        // Bgra, premultiplied: the corner has no colour and no alpha, the
+        // cube is opaque somewhere.
+        assert_eq!(&img[..4], &[0, 0, 0, 0]);
+        assert!(img.as_chunks::<4>().0.iter().any(|p| p[3] == 255));
+        // Where the window system gives no alpha, the host's background fills.
+        r.transparent = false;
+        let style = Style {
+            surround: [1.0, 0.0, 0.0],
+            ..Style::default()
+        };
+        let img = render_image(&gpu, &mut r, (w, h), 1.0, &style, &motion).unwrap();
+        assert_eq!(pixel(&img, w, 0, 0), [255, 0, 0]);
     }
 
     #[test]

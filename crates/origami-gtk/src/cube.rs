@@ -4,7 +4,7 @@
 use crate::granite::{self, tone};
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use origami_render::{scenes, CubeView, Env, Gpu, Style};
+use origami_render::{scenes, Backdrop, CubeView, Env, Gpu, Style};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -28,18 +28,20 @@ fn gpu() -> Option<&'static Gpu> {
 }
 
 /// The start screen's cube: the studio with the machine's colour on its horizon,
-/// over granite of the same hue at low chroma, turning at 10 rpm.
+/// turning at 10 rpm over the page's own tinted granite (no tile of its own).
 pub fn starting_style(chassis: u32) -> Style {
     Style {
         env: Env::Studio,
         horizon: Some(tone(chassis)),
         granite: granite::tinted(chassis),
+        backdrop: Backdrop::None,
         spin: true,
         ..Style::default()
     }
 }
 
-/// About's cube: the scene for the appearance, at rest.
+/// About's cube: the scene for the appearance, at rest, on its own granite tile
+/// (the dialog has no granite surround).
 pub fn about_style(dark: bool) -> Style {
     let (light, dark_tone) = if dark {
         (tone(0x282a30), tone(0x1f2126))
@@ -49,6 +51,7 @@ pub fn about_style(dark: bool) -> Style {
     Style {
         env: Env::Scene(scenes::about(dark)),
         granite: [light, dark_tone],
+        backdrop: Backdrop::Granite,
         light_look: !dark,
         ..Style::default()
     }
