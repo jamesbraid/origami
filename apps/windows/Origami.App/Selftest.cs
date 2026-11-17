@@ -139,6 +139,20 @@ public static class Selftest
         else Check("tabs: a tab can be clicked", false, "no tab found");
         await w.CloseTabAsync(other, ask: false);
         Check("tabs: closing a tab leaves the other one active and the bar shown", w.TabCount == 1 && w.ActiveTabKey == first && w.TabBarVisible, $"tabs {w.TabCount}, active {w.ActiveTabKey}");
+        // --- the row: a real double click opens a tab, and its context menu ---
+        var rows2 = core.Machines().Select(x => x.Key).ToList();
+        var first2 = w.SelectedKey!;
+        var other2 = rows2.First(k => k != first2);
+        if (w.RowScreenPoint(other2) is { } rcx)
+        {
+            Win.MouseAbs(rcx.X, rcx.Y); await Task.Delay(120);
+            Win.MouseButton(true); Win.MouseButton(false); await Task.Delay(90); Win.MouseButton(true); Win.MouseButton(false); // a real double click
+            Check("rows: a double click opens a tab and keeps the first machine's", await Until(() => w.TabCount == 2 && w.ActiveTabKey == other2, 2500), $"tabs {w.TabCount}, active {w.ActiveTabKey}");
+        }
+        else Check("rows: a library row can be clicked", false, "no row found");
+        Check("rows: the context menu offers Open in New Tab and Show in Explorer", w.RowMenuTexts(first2).SequenceEqual(new[] { "Open in New Tab", "Show in Explorer" }), string.Join(",", w.RowMenuTexts(first2)));
+        w.SelectForTabs(first2); await Until(() => w.SelectedKey == first2, 2000);
+        await w.CloseTabAsync(other2, ask: false);
         key = w.SelectedKey!;
 
         // --- start ---

@@ -169,6 +169,14 @@ public sealed partial class MainWindow : Window
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(item, "library." + m.Key);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, m.Name);
             _pills[m.Key] = (pill, ptext);
+            item.DoubleTapped += (_, _) => OpenInNewTab(m.Key);
+            var menu = new MenuFlyout();
+            var openTab = new MenuFlyoutItem { Text = "Open in New Tab" };
+            openTab.Click += (_, _) => OpenInNewTab(m.Key);
+            var show = new MenuFlyoutItem { Text = "Show in Explorer" };
+            show.Click += (_, _) => ShowMachineInExplorer(m.Key);
+            menu.Items.Add(openTab); menu.Items.Add(show);
+            item.ContextFlyout = menu;
             Library.Items.Add(item);
         }
     }
@@ -180,6 +188,8 @@ public sealed partial class MainWindow : Window
     public int TabCount => _tabs.Keys.Count;
     public string? ActiveTabKey => _tabs.Active;
     public bool TabBarVisible => TabBar.Visibility == Visibility.Visible;
+    public IReadOnlyList<string> RowMenuTexts(string key) =>
+        Library.Items.OfType<ListViewItem>().First(i => (string?)i.Tag == key).ContextFlyout is MenuFlyout f ? f.Items.OfType<MenuFlyoutItem>().Select(i => i.Text).ToList() : new List<string>();
 
     ListViewItem? RowFor(string key) => Library.Items.OfType<ListViewItem>().FirstOrDefault(i => (string?)i.Tag == key);
 
@@ -189,6 +199,12 @@ public sealed partial class MainWindow : Window
     {
         _tabs.OpenNew(key);
         if (RowFor(key) is { } row && !ReferenceEquals(Library.SelectedItem, row)) Library.SelectedItem = row; else Refresh();
+    }
+
+    void ShowMachineInExplorer(string key)
+    {
+        var dir = key.StartsWith(@"\\?\") ? key[4..] : key;
+        if (Directory.Exists(dir)) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
     }
 
     /// <summary>Closing a tab never stops anything silently: a live machine asks Keep Running / Power Off / Cancel.</summary>
