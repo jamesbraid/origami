@@ -110,6 +110,24 @@ mod tests {
     }
 
     #[test]
+    fn machines_of_one_product_are_told_apart_by_directory() {
+        let root = std::env::temp_dir().join(format!("origami-gtk-lib-two-{}", std::process::id()));
+        let file = "format = 5\n[machine]\nmodel = \"octane2\"\nnodes = 1\ncpus_per_node = 1\nmemory_per_node = \"256MiB\"\n[engine]\nid = \"qemu\"\n";
+        let (a, b) = (root.join("a"), root.join("b"));
+        for d in [&a, &b] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join("machine.toml"), file).unwrap();
+        }
+        let (ea, eb) = (read(&a), read(&b));
+        assert_eq!(
+            (ea.model.as_str(), eb.model.as_str()),
+            ("octane2", "octane2")
+        );
+        assert_ne!((&ea.dir, &ea.name), (&eb.dir, &eb.name));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn a_broken_machine_file_is_read_with_its_error() {
         let dir = std::env::temp_dir().join(format!("origami-gtk-lib-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

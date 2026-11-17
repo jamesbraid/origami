@@ -10,6 +10,7 @@ unset WAYLAND_DISPLAY DISPLAY || true
 export NO_AT_BRIDGE=1
 [ -n "${GSK_RENDERER:-}" ] || unset GSK_RENDERER
 [ -n "${GDK_DEBUG:-}" ] || unset GDK_DEBUG
+[ -n "${GDK_SCALE:-}" ] || unset GDK_SCALE
 if [ -n "${NVIDIA_RUN:-}" ] && [ "$MODE" != x11 ]; then
   export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
   export __GLX_VENDOR_LIBRARY_NAME=nvidia GBM_BACKEND=nvidia-drm
@@ -19,7 +20,7 @@ case $MODE in
 x11)
   # Containers share the host's abstract X sockets, so parallel runs need their own display.
   D=$((100 + $(od -An -N2 -tu2 /dev/urandom) % 800))
-  Xvfb :$D -screen 0 1600x1300x24 >"$OUT/xvfb.log" 2>&1 &
+  Xvfb :$D -screen 0 ${XVFB_SCREEN:-1600x1300}x24 >"$OUT/xvfb.log" 2>&1 &
   for _ in $(seq 50); do DISPLAY=:$D xdpyinfo >/dev/null 2>&1 && break; sleep 0.2; done
   DISPLAY=:$D xdpyinfo >/dev/null 2>&1 || { echo "Xvfb :$D did not start" >&2; exit 1; }
   export DISPLAY=:$D GDK_BACKEND=x11
@@ -35,7 +36,7 @@ weston)
 sway)
   # The one test compositor with pointer constraints, relative pointer and a
   # virtual pointer, so capture mode can be checked end to end.
-  printf 'output * resolution 1280x720\nfor_window [app_id="fans.irix.Origami"] fullscreen enable\n' > "$OUT/sway.conf"
+  printf 'output * %s\nfor_window [app_id="fans.irix.Origami"] fullscreen enable\n' "${SWAY_OUTPUT:-resolution 1280x720}" > "$OUT/sway.conf"
   export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=${WLR_RENDERER:-$([ -n "${NVIDIA_RUN:-}" ] && echo gles2 || echo pixman)}
   sway --unsupported-gpu -c "$OUT/sway.conf" >"$OUT/sway.log" 2>&1 &
   sleep 4

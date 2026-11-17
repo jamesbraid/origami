@@ -15,5 +15,5 @@ exec podman run --rm --pids-limit=-1 --network host --memory 16g $GPUARG $ENVARG
   -v "$S":"$S" -v "$W":/ci:ro -v /dev/shm:/dev/shm \
   -e APP="$S/target/release/origami-gtk" -e VPTR="$S/target/release/vptr" -e WORK="$S/work/$NAME" -e ORIGAMI_BIN="$S/target/release/origami" \
   -e ORIGAMI_RUNTIME_DIR="$S/rt/libexec/origami" -e ORIGAMI_CACHE_DIR="$S/cache" \
-  -e GDK_DEBUG="${GDK_DEBUG:-}" -e GSK_RENDERER="${GSK_RENDERER:-}" -e GTK_A11Y=none -e RUST_BACKTRACE=1 \
+  -e GDK_DEBUG="${GDK_DEBUG:-}" -e GDK_SCALE="${GDK_SCALE:-}" -e XVFB_SCREEN="${XVFB_SCREEN:-}" -e SWAY_OUTPUT="${SWAY_OUTPUT:-}" -e HIDPI_WINDOW="${HIDPI_WINDOW:-}" -e GSK_RENDERER="${GSK_RENDERER:-}" -e GTK_A11Y=none -e RUST_BACKTRACE=1 \
   localhost/app-linux-run:1 /ci/session.sh "$S/out/$NAME" "$MODE" "$@"

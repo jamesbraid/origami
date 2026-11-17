@@ -515,7 +515,118 @@ def popout():
         a.stop()
 
 
-SCENARIOS = {"popout": popout, "settings": settings, "first-light": first_light, "pointer": lambda: first_light(True)}
+def hidpi():
+    """Two machines of one product are told apart by real clicks on the
+    library, and the guest picture sits at the right scale for the display
+    (GDK_SCALE, or the compositor's scale), with the pointer mapped through it."""
+    factor = float(os.environ.get("GDK_SCALE") or 1)
+    create_machine("octane2")
+    create_machine("octane2b")
+    start_vptr()
+    a = App()
+    try:
+        s = a.wait("library", lambda: len(a.state()["library_rows"]) == 2 and a.state(), 30)
+        check("both machines are listed", bool(s), s and s["library"])
+        if s and mode == "x11":
+            # The rows are listed before the sidebar is laid out; their bounds read
+            # as a 16x0 box at x=-8 until then, and a click there misses.
+            a.wait("laid out", lambda: all(r["bounds"][2] > 50 and r["bounds"][3] > 10 for r in a.state()["library_rows"]), 10, 0.1)
+            rows = {os.path.basename(r["dir"]): r["bounds"] for r in a.state()["library_rows"]}
+            for name, tabs in [("octane2b", ["octane2b"]), ("octane2", ["octane2", "octane2b"]), ("octane2b", ["octane2", "octane2b"])]:
+                b = rows[name]
+                pointer_to((b[0] + b[2] / 2) * factor, (b[1] + b[3] / 2) * factor)
+                click()
+                time.sleep(0.6)
+                got = sorted(m["name"] for m in a.state()["machines"])
+                check("clicking the %s row opens %s, once" % (name, name), got == tabs, [got, b])
+        a.req("open octane2")
+        r = a.req("invoke window.console octane2")
+        check("the Console button's command opens the console", r.get("ok"), r)
+        time.sleep(1)
+        shot("console")
+        sh("wmctrl", "-c", ":ACTIVE:")
+        time.sleep(0.5)
+        a.req("invoke machine.start octane2")
+        c = prom_ready(a, "octane2")
+        check("first picture within 15 min", c is not None)
+        if not c:
+            return
+        win = app_window()
+        if win:
+            sh("xdotool", "windowsize", win, os.environ.get("HIDPI_WINDOW", "1500 1200").split()[0], os.environ.get("HIDPI_WINDOW", "1500 1200").split()[1])
+            time.sleep(1.5)
+        a.req("invoke view.fit octane2")
+        time.sleep(1)
+        m = a.machine("octane2")
+        pic = m["picture"]
+        env_factor = os.environ.get("GDK_SCALE")
+        if env_factor:
+            check("scale factor is seen", abs(m["scale_factor"] - float(env_factor)) < 0.01, m["scale_factor"])
+        factor = m["scale_factor"]
+        view_w, view_h = m["screen_bounds"][2], m["screen_bounds"][3]
+        guest = m["size"]
+        fit = min(view_w * factor / guest[0], view_h * factor / guest[1])
+        want = int(fit) if int(fit) >= factor else fit
+        check("fit takes the largest whole step (%s)" % want, abs(pic["step"] - want) < 1e-6 and pic["nearest"] == (want == int(want)), [pic, fit])
+        check("the picture is guest size x step / factor logical px", pic["rect"][2] == round(guest[0] * want / factor), pic)
+        shot("hidpi-fit")
+        json.dump(a.machine("octane2"), open(os.path.join(out, "geometry.json"), "w"))
+        for cmd, step in [("view.scale-1x", factor), ("view.actual-size", 1.0)]:
+            a.req("invoke %s octane2" % cmd)
+            time.sleep(0.8)
+            pic = a.machine("octane2")["picture"]
+            fits = guest[0] * step <= view_w * factor and guest[1] * step <= view_h * factor
+            check("%s: %s device px per guest px%s" % (cmd, step, "" if fits else " (does not fit: falls back to fit)"),
+                  abs(pic["step"] - (step if fits else want)) < 1e-6, pic)
+            shot("hidpi-" + cmd.split(".")[1])
+            if mode == "x11":
+                # Follow: the host pointer a quarter and three quarters across the
+                # picture lands on the same fraction of the guest's screen.
+                m = a.machine("octane2")
+                bx, by = m["screen_bounds"][0], m["screen_bounds"][1]
+                r = pic["rect"]
+                seen = []
+                for fx, fy in [(0.25, 0.25), (0.75, 0.6)]:
+                    pointer_to((bx + r[0] + fx * r[2]) * factor, (by + r[1] + fy * r[3]) * factor)
+                    time.sleep(0.4)
+                    pointer_to((bx + r[0] + fx * r[2]) * factor + 1, (by + r[1] + fy * r[3]) * factor)
+                    time.sleep(0.6)
+                    seen.append(a.machine("octane2")["pointer_at"])
+                # The window frame offsets both points alike, so compare the distance
+                # between them: half the guest's width and 35% of its height.
+                d = (seen[1][0] - seen[0][0], seen[1][1] - seen[0][1])
+                check("%s: moving across half the picture moves the guest pointer half its screen" % cmd,
+                      abs(d[0] - 0.5 * guest[0]) <= 3 and abs(d[1] - 0.35 * guest[1]) <= 3, [d, seen])
+        a.req("invoke view.fit octane2")
+        time.sleep(1)
+        st = a.req("stats")
+        json.dump(st, open(os.path.join(out, "stats.json"), "w"), indent=1)
+        print(json.dumps(st["machines"][0].get("pump_us")), json.dumps(st["machines"][0].get("gpu_copy_us")))
+    finally:
+        a.stop()
+
+
+def frames():
+    """Boot to the PROM and record what presenting cost, for comparing builds."""
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        a.req("invoke machine.start octane2")
+        c = prom_ready(a, "octane2")
+        check("first picture within 15 min", c is not None)
+        time.sleep(5)
+        st = a.req("stats")
+        json.dump(st, open(os.path.join(out, "stats.json"), "w"), indent=1)
+        m = st["machines"][0]
+        print("frames", m["frames_imported"], "rows_copied", m["rows_copied_fallback"], "pump_us", m["pump_us"], "gpu_copy_us", m["gpu_copy_us"], "cpu_s", st["cpu_s"])
+        shot("frames")
+    finally:
+        a.stop()
+
+
+SCENARIOS = {"frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

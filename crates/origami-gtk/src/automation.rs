@@ -156,7 +156,20 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 .iter()
                 .map(|e| e.name.clone())
                 .collect();
-            json!({"machines": ms, "library": lib, "windows": app.windows.borrow().len(),
+            // Where each library row is, for tests that click them.
+            let rows: Vec<Value> = app
+                .windows
+                .borrow()
+                .iter()
+                .filter(|w| w.has_library)
+                .flat_map(|w| {
+                    w.rows.borrow().iter().filter_map(|r| {
+                        let b = r.row.root().and_then(|root| r.row.compute_bounds(root.upcast_ref::<gtk::Widget>()))?;
+                        Some(json!({"dir": r.dir, "bounds": [b.x(), b.y(), b.width(), b.height()]}))
+                    }).collect::<Vec<_>>()
+                })
+                .collect();
+            json!({"machines": ms, "library": lib, "library_rows": rows, "windows": app.windows.borrow().len(),
                    "enabled": enabled, "cpu_s": cpu_seconds(),
                    "status_pills": app.windows.borrow().iter().map(|w| w.pill.label().to_string()).collect::<Vec<_>>()})
         }

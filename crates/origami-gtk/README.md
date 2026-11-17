@@ -42,6 +42,10 @@ Xvfb, wtype under cage, a virtual pointer under sway):
   (`hinv`, read back by OCR of the emulator's screendump), follow and capture,
   key release at focus loss, and idle cost.
 - `pointer`: the same up to the picture, then only the pointer checks.
+- `hidpi`: two machines of one product opened by real library clicks; the picture's
+  scale step, filter and pointer mapping under `GDK_SCALE=2` (`XVFB_SCREEN`,
+  `HIDPI_WINDOW`) or a scaled sway output (`SWAY_OUTPUT`).
+- `frames`: boot to the PROM and print what presenting cost.
 - `settings`: edits through the core on a stopped machine, refused while it runs.
 
 Capture takes the window system's pointer lock: Wayland pointer constraints
