@@ -59,7 +59,7 @@ public sealed partial class MainWindow : Window
         Activated += (_, a) => { if (a.WindowActivationState == WindowActivationState.Deactivated) Display.LoseFocus(); };
         AppWindow.Closing += OnClosing;
         Library.SelectedIndex = 0;
-        Refresh();
+        try { Refresh(); } catch (Exception e) { App.Log("first refresh failed: " + e.Message); }
     }
 
     // ---- accessors for the automation (self-test) hooks ------------------------------------
@@ -364,6 +364,14 @@ public sealed partial class MainWindow : Window
 
     // ---- quit -------------------------------------------------------------------------------
 
+    List<MachineSummary> Up() => _core.Machines()
+        .Where(m => m.State is MachineState.Running or MachineState.Starting or MachineState.Paused or MachineState.Stopping).ToList();
+
+    /// <summary>The names of the machines that are up now, read from the core (not from what the window last showed).</summary>
+    public IReadOnlyList<string> UpNames => Up().Select(m => m.Name).ToList();
+
+    bool _quitting;
+
     /// <summary>Clean stop, then Force Quit if it has not finished in a few seconds; progress shows in the status bar.</summary>
     async Task StopBounded(MachineSummary m)
     {
@@ -379,25 +387,30 @@ public sealed partial class MainWindow : Window
     async void OnClosing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
     {
         if (_closeApproved) return;
-        var running = _core.Machines().Where(m => m.State is MachineState.Running or MachineState.Starting or MachineState.Paused or MachineState.Stopping).ToList();
-        if (running.Count == 0 || !_settings.ConfirmQuitWithRunningMachines) { Display.Detach(); return; }
+        if (_quitting) { args.Cancel = true; return; } // one prompt at a time, even if closed again while powering off
+        var up = Up(); // live state, so only machines that are up right now are named
+        if (up.Count == 0 || !_settings.ConfirmQuitWithRunningMachines) { Display.Detach(); return; }
         args.Cancel = true;
-        var dlg = new ContentDialog
+        _quitting = true;
+        try
         {
-            XamlRoot = Root.XamlRoot,
-            Title = running.Count == 1 ? $"{running[0].Name} is running" : $"{running.Count} machines are running",
-            Content = "Machines keep running without the app. Power Off asks each to stop cleanly, and force quits one that does not stop in a few seconds.",
-            PrimaryButtonText = "Keep Running",
-            SecondaryButtonText = "Power Off",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Primary,
-        };
-        var r = await dlg.ShowAsync();
-        if (r == ContentDialogResult.None) return;
-        if (r == ContentDialogResult.Secondary)
-            foreach (var m in running) await StopBounded(m);
-        _closeApproved = true;
-        Display.Detach();
-        Close();
+            var dlg = new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot,
+                Title = up.Count == 1 ? $"{up[0].Name} is running" : $"{up.Count} machines are running",
+                Content = "Machines keep running without the app. Power Off asks each to stop cleanly.",
+                PrimaryButtonText = "Keep Running",
+                SecondaryButtonText = "Power Off",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Primary,
+            };
+            var r = await dlg.ShowAsync();
+            if (r == ContentDialogResult.None) return;
+            if (r == ContentDialogResult.Secondary) foreach (var m in up) await StopBounded(m);
+            _closeApproved = true;
+            Display.Detach();
+            Close();
+        }
+        finally { _quitting = false; }
     }
 }

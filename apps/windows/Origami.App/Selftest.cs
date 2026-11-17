@@ -243,6 +243,8 @@ public static class Selftest
         var stuck = core.ReleaseAllKeys(key);
         Check("capture: the core holds no key after the chord", stuck == 0, $"released={stuck}");
 
+        Check("quit: a running machine is named from live state", w.UpNames.Count == 1, string.Join(",", w.UpNames));
+
         // --- pause and resume ---
         w.Invoke("machine.pause");
         Check("pause: the machine is Paused", await Until(() => core.Status(key).State == MachineState.Paused, 3000), core.Status(key).Reason);
@@ -282,6 +284,12 @@ public static class Selftest
         Check("power off reaches Stopped", await Until(() => core.Status(key).State == MachineState.Stopped, 8000), core.Status(key).Reason);
         Check("pill says Stopped", await Until(() => w.PillTextForTest == "Stopped", 3000), w.PillTextForTest);
         Check("display detached after stop", await Until(() => !disp.Attached, 3000));
+
+        // --- stopping a machine that has already ended is not an error ---
+        string again = "ok";
+        try { await core.PowerOffAsync(key); await core.ForceQuitAsync(key); } catch (Exception e) { again = e.GetType().Name + ": " + e.Message; }
+        Check("stop: Power Off and Force Quit on an ended machine do not fail", again == "ok", again);
+        Check("quit: no machine is up, so quitting would not prompt", w.UpNames.Count == 0, string.Join(",", w.UpNames));
     }
 }
 #endif
