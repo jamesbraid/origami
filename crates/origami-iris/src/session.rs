@@ -3,8 +3,8 @@
 
 use crate::engine::IrisPlan;
 use origami_engine::{
-    ConsoleInfo, ConsoleIo, Control, DisplayEndpoint, Facts, MachineId, Result, RunState, Session,
-    Stop, Wake,
+    ConsoleInfo, ConsoleIo, Control, DisplayEndpoint, Facts, MachineId, Polled, Result, RunState,
+    Session, Stop, Wake,
 };
 use origami_machine::control::{read, Record};
 use origami_protocol::{Client, Request};
@@ -44,6 +44,9 @@ pub struct IrisSession {
     display: Option<PathBuf>,
     console_taken: AtomicBool,
     client: Mutex<Option<Client>>,
+    /// The runner's run state, kept by [`poll_state`] so `status` never waits
+    /// on the runner, which a UI thread calls.
+    polled: Arc<Polled>,
     /// The display drawn in this process, when the engine was asked to.
     #[cfg(target_os = "linux")]
     attached: Option<Arc<origami_display::v4::attach::Attached>>,
@@ -147,9 +150,17 @@ pub(crate) fn launch(
         display: plan.display.then(|| crate::display_socket(dir)),
         console_taken: AtomicBool::new(false),
         client: Mutex::new(Some(client)),
+        polled: Arc::new(Polled::new(RunState::Running)),
         #[cfg(target_os = "linux")]
         attached,
     });
+    // Asked once here, off any UI thread, so the first status is true.
+    let polled = session.polled.clone();
+    if let Ok(mut client) = Client::connect(session.record.control_port, CONNECT) {
+        polled.set_now(fetch_state(&mut client));
+    }
+    let polling = (inner.clone(), session.record.control_port, wake.clone());
+    std::thread::spawn(move || poll_state(&polling.0, &polled, polling.1, &polling.2, id));
     std::thread::spawn(move || monitor(&inner, &log_path, log_start, &wake, id));
     Ok(session)
 }
@@ -186,6 +197,52 @@ fn last_line(path: &Path, start: u64) -> Option<String> {
         .map(str::trim)
         .find(|line| !line.is_empty())
         .map(str::to_owned)
+}
+
+/// What the runner says the run state is.
+fn fetch_state(client: &mut Client) -> RunState {
+    match client.call_data_timeout(&Request::Status {}, Duration::from_secs(2)) {
+        Ok(data) => match data["state"].as_str() {
+            Some("prelaunch") => RunState::Prelaunch,
+            Some("paused") => RunState::Paused,
+            Some("unknown") | None => RunState::Unknown("the runner gave no state".into()),
+            _ => RunState::Running,
+        },
+        Err(error) => RunState::Unknown(error.to_string()),
+    }
+}
+
+/// Ask the runner for its run state until it exits, on a connection of its own
+/// and only while someone reads it, backing off when it will not connect.
+fn poll_state(inner: &Inner, polled: &Polled, port: u16, wake: &Wake, id: MachineId) {
+    let mut client: Option<Client> = None;
+    let mut wait = Duration::from_secs(1);
+    loop {
+        if polled.wanted() {
+            if client.is_none() {
+                client = Client::connect(port, CONNECT).ok();
+            }
+            match client.as_mut() {
+                Some(live) => {
+                    let generation = polled.begin();
+                    let state = fetch_state(live);
+                    // A failed call leaves the connection suspect.
+                    if matches!(state, RunState::Unknown(_)) {
+                        client = None;
+                    }
+                    wait = Duration::from_secs(1);
+                    if polled.finish(generation, state) {
+                        wake(id);
+                    }
+                }
+                None => wait = (wait * 2).min(Duration::from_secs(8)),
+            }
+        }
+        let exit = inner.exit.lock().unwrap();
+        if exit.is_some() || inner.exited.wait_timeout(exit, wait).unwrap().0.is_some() {
+            return;
+        }
+    }
 }
 
 /// Watch the runner until it exits, record how, and say so.
@@ -324,7 +381,14 @@ impl Session for IrisSession {
             Control::PowerButton => return Err("iris does not model a power button".into()),
             Control::Nmi => return Err("iris does not model an NMI".into()),
         };
-        self.call(&request).map(|_| ())
+        self.call(&request)?;
+        // The poller would say so within a second; callers expect it now.
+        match c {
+            Control::Pause => self.polled.set_now(RunState::Paused),
+            Control::Resume => self.polled.set_now(RunState::Running),
+            _ => {}
+        }
+        Ok(())
     }
 
     fn media(&self, drive: &str, image: Option<&Path>) -> Result<()> {
@@ -395,17 +459,8 @@ impl Session for IrisSession {
                 pid: None,
             };
         }
-        let state = match self.call(&Request::Status {}) {
-            Ok(data) => match data["state"].as_str() {
-                Some("prelaunch") => RunState::Prelaunch,
-                Some("paused") => RunState::Paused,
-                Some("unknown") | None => RunState::Unknown("the runner gave no state".into()),
-                _ => RunState::Running,
-            },
-            Err(error) => RunState::Unknown(error.to_string()),
-        };
         Facts {
-            state,
+            state: self.polled.get(),
             pid: Some(self.record.pid),
         }
     }

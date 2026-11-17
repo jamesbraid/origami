@@ -28,7 +28,7 @@ pub use input::{InputEvent, Key, PointerButton};
 pub use plan::{DisplayRequest, LaunchPlan, Wiring};
 pub use report::{Problem, Report, Severity};
 pub use session::{
-    ConsoleInfo, ConsoleIo, Control, DisplayEndpoint, Facts, FrameSource, RunState, Stop,
+    ConsoleInfo, ConsoleIo, Control, DisplayEndpoint, Facts, FrameSource, Polled, RunState, Stop,
 };
 pub use sink::InputSink;
 pub use stores::EngineStores;

@@ -802,6 +802,8 @@ impl OrigamiMachine {
         self.0.name().to_string()
     }
 
+    /// Never blocks: the engine's run state is a cached copy that a thread of
+    /// the engine keeps current, so a timer on the UI thread may call it.
     pub fn view(&self) -> OrigamiMachineView {
         self.0.view().into()
     }

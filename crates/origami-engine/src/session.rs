@@ -4,8 +4,9 @@ use crate::Frame;
 use crate::HeadInfo;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 /// Where a session's pictures come from.
 #[derive(Clone)]
@@ -128,4 +129,59 @@ pub struct Facts {
     pub state: RunState,
     /// The engine program's process id, while it runs.
     pub pid: Option<u32>,
+}
+
+/// A run state kept current by a thread of the session, so `status` never
+/// waits on the engine's program. The thread asks only while someone reads.
+pub struct Polled {
+    state: Mutex<RunState>,
+    generation: AtomicU64,
+    asked: Mutex<Instant>,
+}
+
+/// How long after the last read the poller keeps asking.
+const KEEP_ASKING: Duration = Duration::from_secs(5);
+
+impl Polled {
+    pub fn new(state: RunState) -> Self {
+        Self {
+            state: Mutex::new(state),
+            generation: AtomicU64::new(0),
+            asked: Mutex::new(Instant::now()),
+        }
+    }
+
+    /// The cached state; counts as a read.
+    pub fn get(&self) -> RunState {
+        *self.asked.lock().unwrap() = Instant::now();
+        self.state.lock().unwrap().clone()
+    }
+
+    /// Whether anyone has read lately enough to be worth asking the engine.
+    pub fn wanted(&self) -> bool {
+        self.asked.lock().unwrap().elapsed() < KEEP_ASKING
+    }
+
+    /// Set the state after a change of ours, which an answer already in
+    /// flight does not know about.
+    pub fn set_now(&self, state: RunState) {
+        let mut slot = self.state.lock().unwrap();
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        *slot = state;
+    }
+
+    /// The number to hand [`Polled::finish`] with an answer asked for now.
+    pub fn begin(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
+    /// Store an answer begun at `generation`, unless a newer change landed
+    /// meanwhile. True when the state changed.
+    pub fn finish(&self, generation: u64, state: RunState) -> bool {
+        let mut slot = self.state.lock().unwrap();
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return false;
+        }
+        std::mem::replace(&mut *slot, state.clone()) != state
+    }
 }

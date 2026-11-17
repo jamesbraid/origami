@@ -105,5 +105,7 @@ pub trait Session: Send + Sync {
 
     fn stop(&self, how: Stop) -> Result<()>;
 
+    /// The session's state. A UI thread polls it, so it must not wait on the
+    /// engine's program: keep it current from a thread of the session.
     fn status(&self) -> Facts;
 }

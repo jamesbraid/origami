@@ -6,8 +6,8 @@ use crate::ENGINE;
 use origami_engine::{
     Capabilities, Catalogue, ConsoleInfo, ConsoleIo, ConsoleTransport, Control, DiskFormat,
     DisplayEndpoint, DisplayKind, DisplayRequest, DriveFormats, DriveKind, Engine, EngineInfo,
-    Facts, IdentityKind, LaunchPlan, MachineId, Report, Result, RunState, Session, Stop, Wake,
-    Wiring,
+    Facts, IdentityKind, LaunchPlan, MachineId, Polled, Report, Result, RunState, Session, Stop,
+    Wake, Wiring,
 };
 use origami_machine::control::Record;
 use origami_machine::dir::MachineDir;
@@ -366,7 +366,12 @@ impl QemuEngine {
             child: Mutex::new(child),
             exit: Mutex::new(None),
             exited: Condvar::new(),
+            // Asked once here, off any UI thread, so the first status is true.
+            polled: Polled::new(query_state(&record).unwrap_or(RunState::Running)),
+            gate: Mutex::new(()),
         });
+        let poller = (inner.clone(), record.clone(), wake.clone());
+        std::thread::spawn(move || poll_state(&poller.0, &poller.1, &poller.2, id));
         let session = Arc::new(QemuSession {
             id,
             inner: inner.clone(),
@@ -395,6 +400,73 @@ struct Inner {
     child: Mutex<Child>,
     exit: Mutex<Option<Exit>>,
     exited: Condvar,
+    /// QEMU's run state, kept by [`poll_state`] so `status` never waits on QMP.
+    polled: Polled,
+    /// QMP takes one client at a time: a command holds this, and the poller
+    /// skips a round rather than take the connection from it.
+    gate: Mutex<()>,
+}
+
+/// QMP with the gate held, so the poller stays off the single connection.
+struct Leased<'a> {
+    qmp: Qmp,
+    _gate: std::sync::MutexGuard<'a, ()>,
+}
+
+impl std::ops::Deref for Leased<'_> {
+    type Target = Qmp;
+    fn deref(&self) -> &Qmp {
+        &self.qmp
+    }
+}
+
+impl std::ops::DerefMut for Leased<'_> {
+    fn deref_mut(&mut self) -> &mut Qmp {
+        &mut self.qmp
+    }
+}
+
+/// How often the run state is asked of QMP, and the longest back-off after a
+/// failed connection.
+const STATE_POLL: Duration = Duration::from_secs(1);
+const STATE_BACKOFF: Duration = Duration::from_secs(8);
+
+/// What QMP says the run state is.
+fn query_state(record: &Record) -> Result<RunState> {
+    let info = verified_qmp(record)?.execute(&qmp::query_status {})?;
+    Ok(if matches!(info.status, qmp::RunState::prelaunch) {
+        RunState::Prelaunch
+    } else if info.running {
+        RunState::Running
+    } else {
+        RunState::Paused
+    })
+}
+
+/// Keep `inner.polled` current until QEMU exits, only while someone reads
+/// it, backing off when QMP will not connect. A hung QMP stalls this thread.
+fn poll_state(inner: &Inner, record: &Record, wake: &Wake, id: MachineId) {
+    let mut wait = STATE_POLL;
+    loop {
+        if inner.polled.wanted() {
+            if let Ok(_gate) = inner.gate.try_lock() {
+                let generation = inner.polled.begin();
+                match query_state(record) {
+                    Ok(state) => {
+                        wait = STATE_POLL;
+                        if inner.polled.finish(generation, state) {
+                            wake(id);
+                        }
+                    }
+                    Err(_) => wait = (wait * 2).min(STATE_BACKOFF),
+                }
+            }
+        }
+        let exit = inner.exit.lock().unwrap();
+        if exit.is_some() || inner.exited.wait_timeout(exit, wait).unwrap().0.is_some() {
+            return;
+        }
+    }
 }
 
 /// Watch the QEMU process until it exits, record how, and say so.
@@ -482,11 +554,15 @@ impl QemuSession {
     }
 
     /// QMP is single-client, so each request connects and disconnects.
-    fn qmp(&self) -> Result<Qmp> {
+    fn qmp(&self) -> Result<Leased<'_>> {
         if self.exited() {
             return Err("the machine has exited".into());
         }
-        verified_qmp(&self.record)
+        let gate = self.inner.gate.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(Leased {
+            qmp: verified_qmp(&self.record)?,
+            _gate: gate,
+        })
     }
 
     /// Wait for the exit up to `timeout`; true when it happened.
@@ -552,6 +628,12 @@ impl Session for QemuSession {
             Control::Pause => qmp.execute(&qmp::stop {})?,
             Control::Resume => qmp.execute(&qmp::cont {})?,
         };
+        // The poller would say so within a second; callers expect it now.
+        match c {
+            Control::Pause => self.inner.polled.set_now(RunState::Paused),
+            Control::Resume => self.inner.polled.set_now(RunState::Running),
+            _ => {}
+        }
         Ok(())
     }
 
@@ -627,20 +709,8 @@ impl Session for QemuSession {
                 pid: None,
             };
         }
-        let state = self
-            .qmp()
-            .and_then(|mut qmp| Ok(qmp.execute(&qmp::query_status {})?))
-            .map_or(RunState::Running, |info| {
-                if matches!(info.status, qmp::RunState::prelaunch) {
-                    RunState::Prelaunch
-                } else if info.running {
-                    RunState::Running
-                } else {
-                    RunState::Paused
-                }
-            });
         Facts {
-            state,
+            state: self.inner.polled.get(),
             pid: Some(self.record.qemu_pid),
         }
     }
@@ -648,7 +718,8 @@ impl Session for QemuSession {
 
 #[cfg(test)]
 mod tests {
-    use super::screendump_target;
+    use super::*;
+    use std::net::TcpListener;
 
     #[test]
     fn a_head_is_dumped_with_its_display_device() {
@@ -661,5 +732,63 @@ mod tests {
         // No named device: only the primary console, and no head to give.
         assert_eq!(screendump_target(&[], 0).unwrap(), (None, None));
         assert!(screendump_target(&[], 1).is_err());
+    }
+
+    /// A UI thread asks for the status every frame, so a QMP that accepts and
+    /// never answers must not hold it up.
+    #[cfg(unix)]
+    #[test]
+    fn status_does_not_wait_for_a_qmp_that_never_answers() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let record = Record {
+            qmp_port: listener.local_addr().unwrap().port(),
+            name: "hung".into(),
+            ..Default::default()
+        };
+        // Every connection is accepted and held, none answered, for the whole test.
+        let held = Arc::new(Mutex::new(Vec::new()));
+        let keep = held.clone();
+        std::thread::spawn(move || {
+            while let Ok((stream, _)) = listener.accept() {
+                keep.lock().unwrap().push(stream);
+            }
+        });
+        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        let inner = Arc::new(Inner {
+            child: Mutex::new(child),
+            exit: Mutex::new(None),
+            exited: Condvar::new(),
+            polled: Polled::new(RunState::Running),
+            gate: Mutex::new(()),
+        });
+        let wake: Wake = Arc::new(|_| {});
+        let poller = (inner.clone(), record.clone());
+        std::thread::spawn(move || poll_state(&poller.0, &poller.1, &wake, MachineId(1)));
+        let session = QemuSession {
+            id: MachineId(1),
+            inner: inner.clone(),
+            record,
+            display: None,
+            removable: vec![],
+            heads: vec![],
+            console_taken: AtomicBool::new(false),
+        };
+        // The poller is now stuck waiting on its first answer.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while held.lock().unwrap().is_empty() {
+            assert!(Instant::now() < deadline, "the poller never connected");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // A regression would take two seconds a read, so bound the loop.
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for _ in 0..100 {
+                assert_eq!(session.status().state, RunState::Running);
+            }
+            let _ = done.send(());
+        });
+        let result = finished.recv_timeout(Duration::from_secs(2));
+        let _ = inner.child.lock().unwrap().kill();
+        assert!(result.is_ok(), "status waited on the hung QMP");
     }
 }
