@@ -2,7 +2,7 @@ using Origami.Logic;
 
 namespace Origami.App;
 
-/// <summary>Self-test checks of the identity pieces shared by the fake-engine and QEMU runs.</summary>
+/// <summary>Self-test checks of the identity pieces (cube, About) shared by the fake-engine and QEMU runs.</summary>
 static class IdentityChecks
 {
     /// <summary>A picture with real content: many distinct colours, not one flat fill.</summary>
@@ -32,4 +32,36 @@ static class IdentityChecks
     }
 
     public static string? OutDir;
+
+    /// <summary>Opens About, checks the cube drew, and closes it. Returns (name, ok, detail) steps.</summary>
+    public static async Task<List<(string, bool, string)>> About(MainWindow w, Func<Func<bool>, int, Task<bool>> until)
+    {
+        var steps = new List<(string, bool, string)>();
+        w.Invoke("app.about");
+        var about = w.AboutForTest;
+        if (about is null) { steps.Add(("about: the window opens", false, "no About window")); return steps; }
+        var attached = await until(() => about.Cube.Attached, 10_000);
+        steps.Add(("about: the cube attached to its window", attached, about.Cube.LastError ?? $"status {about.Cube.Status}"));
+        if (!attached) { about.Close(); return steps; }
+        steps.Add(("about: the cube shows a photograph, not the running machine", !about.ReflectsMachine, ""));
+        await Task.Delay(800);
+        var a = about.Cube.Readback(out var aw, out var ah);
+        steps.Add(("about: the cube draws a picture (not a flat fill)", a != null && Colours(a) > 50, a == null ? about.Cube.LastError ?? "no readback" : $"{aw}x{ah}, {Colours(a)} colours"));
+        if (a != null && OutDir != null) await Shot.Readback(a, aw, ah, aw * 4, Path.Combine(OutDir, "about-cube.png"));
+        await Task.Delay(500);
+        var b = about.Cube.Readback(out _, out _);
+        if (!about.ReflectsMachine) steps.Add(("about: the cube is at rest (two frames equal)", a != null && b != null && !Differ(a, b), ""));
+        // The egg, with real key input to the About window.
+        Win.Foreground(about.Hwnd);
+        about.FocusForKeys();
+        await Task.Delay(300);
+        foreach (var sc in new[] { 0x23, 0x17, 0x31, 0x2F }) { Win.Scan(sc, false, true); Win.Scan(sc, false, false); await Task.Delay(40); }
+        var shown = await until(() => about.HinvShown && about.HinvText.Length > 0, 15_000);
+        steps.Add(("about: typing hinv slides the host inventory over the credits", shown, about.HinvText.Split('\n')[0]));
+        Win.Scan(0x01, false, true); Win.Scan(0x01, false, false); // Esc
+        steps.Add(("about: Esc puts the credits back", await until(() => !about.HinvShown, 3000), ""));
+        about.Close();
+        steps.Add(("about: closing it leaves no window behind", await until(() => w.AboutForTest is null, 3000), ""));
+        return steps;
+    }
 }

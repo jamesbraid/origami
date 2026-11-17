@@ -24,6 +24,10 @@
     <ProjectReference Include="../Origami.Logic/Origami.Logic.csproj" />
   </ItemGroup>
   <!-- Generated/origami_ffi.cs (uniffi-bindgen-cs output, made in CI) is compiled by the default globs. -->
+  <!-- The licence About prints. -->
+  <ItemGroup>
+    <Content Include="../../../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <!-- The core's library and the fallback presenter, cross-built from Linux with mingw into native-out/. -->
   <ItemGroup>
     <None Include="native-out/*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />

@@ -410,8 +410,9 @@ public static class Selftest
             !Win.CursorHidden() && !Win.ClipIsSmall() && Win.CaptureOwner() == IntPtr.Zero && disp.KeysDown == 0,
             $"hidden={Win.CursorHidden()} clipped={Win.ClipIsSmall()} owner=0x{Win.CaptureOwner().ToInt64():x} keys={disp.KeysDown}");
 
-        // --- the starting screen's live cube ---
+        // --- About, and the starting screen's live cube ---
         IdentityChecks.OutDir = dir;
+        foreach (var (name, ok, detail) in await IdentityChecks.About(w, Until)) Check(name, ok, detail);
         w.PreviewStarting();
         var cubeStart = w.StartCubeForTest;
         Check("starting: the cube attached", await Until(() => cubeStart.Attached, 10_000), cubeStart.LastError ?? $"status {cubeStart.Status}");

@@ -340,6 +340,7 @@ public sealed partial class MainWindow : Window
         new("machine.pointer-mode", "Toggle Follow / Capture", "Ctrl+Shift+M"),
         new("view.library", "Show Library", "F9"),
         new("app.preferences", "Preferences", "Ctrl+,"),
+        new("app.about", "About Origami", null),
     };
 
     readonly List<CommandInfo> _commands = new();
@@ -430,6 +431,7 @@ public sealed partial class MainWindow : Window
             case "window.diagnostics" when key != null: OpenDiagnostics(key); break;
             case "machine.eject-cd":
                 StatusText.Text = "Not built yet: " + _commands.First(c => c.Id == id).Title; break;
+            case "app.about": OpenAbout(); break;
             case "app.quit": Close(); break;
         }
     }
@@ -477,6 +479,20 @@ public sealed partial class MainWindow : Window
         w.Activate();
     }
     public ConsoleView? ConsoleForTest(string key) => _consoles.GetValueOrDefault(key)?.View;
+
+    AboutWindow? _about;
+    public AboutWindow? AboutForTest => _about;
+
+    void OpenAbout()
+    {
+        if (_about != null) { _about.Activate(); return; }
+        // The cube shows a running machine's screen only while AboutWindow.ReflectsRunningMachine is on.
+        var key = SelectedKey;
+        var live = key != null && _core.Status(key).State is MachineState.Running && Display.Attached ? key : null;
+        _about = new AboutWindow(_core, live, Dark);
+        _about.Closed += (_, _) => _about = null;
+        _about.Activate();
+    }
 
     void OpenConsole(string key)
     {

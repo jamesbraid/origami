@@ -161,6 +161,8 @@ public static class Selftest
         File.WriteAllText(Path.Combine(dir, "ready.txt"), "ready");
         await Until(() => File.Exists(Path.Combine(dir, "done.txt")), 15_000);
 
+        IdentityChecks.OutDir = dir;
+        foreach (var (name, ok, detail) in await IdentityChecks.About(w, Until)) Add(name, ok, detail);
         // Pause and resume the real machine; the picture keeps its head.
         // Call the core directly first, so a QMP failure shows its own error and timing (the status bar hides it).
         {

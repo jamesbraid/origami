@@ -434,6 +434,8 @@ public sealed class UniffiCoreClient : ICoreClient
 
     public void ConsoleSend(string key, ReadOnlySpan<byte> bytes) => M(key).ConsoleSend(bytes.ToArray());
 
+    public string Hinv() => _core.Hinv();
+
     public void Dispose()
     {
         _stop.Cancel();

@@ -140,6 +140,20 @@ Test("accelerators: parse the core's strings", () =>
     Eq(true, Accelerator.TryParse("Alt+F4", out var q)); Eq(true, q.Alt);
 });
 
+Test("egg: hinv typed in order, any case, restarting on a wrong letter", () =>
+{
+    bool Type(WordTyped w, string s) { var hit = false; foreach (var c in s) hit |= w.Feed(c); return hit; }
+    Eq(true, Type(new WordTyped("hinv"), "hinv"), "plain");
+    Eq(true, Type(new WordTyped("hinv"), "HiNv"), "mixed case");
+    Eq(true, Type(new WordTyped("hinv"), "xxhhinv"), "a repeated first letter still counts");
+    Eq(false, Type(new WordTyped("hinv"), "hinx"), "wrong last letter");
+    Eq(false, Type(new WordTyped("hinv"), "hnv"), "missing letter");
+    var w = new WordTyped("hinv");
+    Eq(true, Type(w, "hinv"), "first");
+    Eq(false, Type(w, "inv"), "does not match again without the h");
+    Eq(true, Type(w, "hinv"), "matches again");
+});
+
 Test("commands: menu by id prefix", () =>
 {
     Eq("Machine", new CommandInfo("machine.start", "Start", null).Menu);

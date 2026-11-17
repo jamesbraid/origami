@@ -53,6 +53,9 @@ public interface ICoreClient : IDisposable
     byte[] ConsoleRead(string key, ulong from, out ulong next);
     void ConsoleSend(string key, ReadOnlySpan<byte> bytes);
 
+    /// <summary>An IRIX-style inventory of this host, for About's egg. Reads the disk and may open the GPU: call off the UI thread.</summary>
+    string Hinv();
+
     /// <summary>Raised on a core thread. Handlers must hop to the UI thread.</summary>
     event Action<MachineEvent>? Events;
 }
