@@ -27,15 +27,23 @@ pub const ENGINE: &str = "iris";
 pub use engine::IrisEngine;
 
 /// Where a machine in `dir` serves its display, in a directory of its own because the
-/// producer binds only in one nobody else can write; `/tmp` when the path is too long.
+/// producer binds only in one nobody else can write; the temp directory when the
+/// path is too long, as for QEMU's display socket.
 pub fn display_socket(dir: &std::path::Path) -> std::path::PathBuf {
     let dir = &origami_qemu::runtime::plain_path(dir);
     let own = dir.join("state").join("display").join("v4.sock");
     // A sockaddr_un holds 104 bytes on macOS and 108 on Linux.
-    if own.as_os_str().len() <= 100 {
+    if own.as_os_str().len() <= SOCKET_PATH_MAX {
         return own;
     }
-    std::path::PathBuf::from("/tmp")
-        .join(origami_qemu::runtime::shm_name(dir))
+    let base = if cfg!(windows) {
+        std::env::temp_dir()
+    } else {
+        std::path::PathBuf::from("/tmp")
+    };
+    base.join(origami_qemu::runtime::shm_name(dir))
         .join("v4.sock")
 }
+
+/// The longest socket path the hosts take: a `sockaddr_un` holds 104 bytes on macOS.
+pub(crate) const SOCKET_PATH_MAX: usize = 100;

@@ -67,6 +67,16 @@ pub fn serve(
     // A guest power-off ends the machine, not this process: the host reports it.
     iris::workstation::set_process_exit_enabled(false);
     let display = display.then(|| crate::display_socket(dir));
+    if let Some(path) = display
+        .as_ref()
+        .filter(|p| p.as_os_str().len() > crate::SOCKET_PATH_MAX)
+    {
+        return Err(format!(
+            "the display socket path {} is too long for a socket",
+            path.display()
+        )
+        .into());
+    }
     let display_protocol = if display.is_some() { 4 } else { 0 };
     let name = format!("iris-{}", std::process::id());
     origami_host::host(dir, started_by, foreground, |wake| {
