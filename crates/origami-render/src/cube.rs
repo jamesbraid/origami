@@ -1750,11 +1750,20 @@ mod tests {
     #[test]
     fn the_manifest_maps_each_time_of_day_to_its_scene() {
         let at = |h, m| scenes::SCENES[scenes::for_time(h, m)].id;
-        assert_eq!(at(6, 59), "lions-gate-night");
+        assert_eq!(at(4, 59), "lions-gate-night");
+        assert_eq!(at(5, 0), "okanagan-dawn");
+        assert_eq!(at(6, 59), "okanagan-dawn");
         assert_eq!(at(7, 0), "howe-sound");
-        assert_eq!(at(16, 59), "howe-sound");
-        assert_eq!(at(17, 0), "lions-gate-sunset");
+        assert_eq!(at(15, 59), "howe-sound");
+        assert_eq!(at(16, 0), "english-bay-golden");
+        assert_eq!(at(17, 59), "english-bay-golden");
+        assert_eq!(
+            at(18, 0),
+            "lions-gate-sunset",
+            "ties go to the first in file order"
+        );
         assert_eq!(at(19, 0), "vancouver-dusk");
+        assert_eq!(at(20, 59), "vancouver-dusk");
         assert_eq!(at(21, 0), "lions-gate-night");
         assert_eq!(at(0, 0), "lions-gate-night");
     }
@@ -1773,15 +1782,16 @@ mod tests {
         once.sort_unstable();
         assert_eq!(once, (0..scenes::count()).collect::<Vec<_>>());
         assert_eq!(walk[0], walk[scenes::count()], "round to where it began");
-        // Time of day order: day, sunset, dusk, night.
+        // Time of day order: dawn, day, golden hour, sunset, dusk, night.
         let times: Vec<&str> = scenes::ORDER
             .iter()
             .map(|&i| scenes::SCENES[i].time)
             .collect();
-        assert_eq!(
-            times,
-            ["day", "day", "day", "day", "sunset", "dusk", "night"]
-        );
+        let want = [
+            "dawn", "day", "day", "day", "day", "day", "golden", "sunset", "sunset", "dusk",
+            "night",
+        ];
+        assert_eq!(times, want);
     }
 
     fn frame_of(v: &mut CubeView, gpu: &Gpu, at: Instant) -> (Vec<u8>, bool) {

@@ -2,12 +2,20 @@
   "about": {
     "select": "time-of-day",
     "times": {
+      "dawn": [
+        5,
+        7
+      ],
       "day": [
         7,
-        17
+        16
+      ],
+      "golden": [
+        16,
+        18
       ],
       "sunset": [
-        17,
+        18,
         19
       ],
       "dusk": [
@@ -16,14 +24,18 @@
       ],
       "night": [
         21,
-        7
+        5
       ]
     },
     "order": [
+      "okanagan-dawn",
       "howe-sound",
       "horseshoe-bay-marina",
       "vancouver-coal-harbour",
       "garibaldi-lake",
+      "black-tusk",
+      "english-bay-golden",
+      "english-bay-sunset",
       "lions-gate-sunset",
       "vancouver-dusk",
       "lions-gate-night"
@@ -37,7 +49,7 @@
       "time": "day",
       "hours": [
         7,
-        17
+        16
       ],
       "credit": "Roy Luck, 2011, CC BY 2.0, via Wikimedia Commons; cropped and mirror-tiled",
       "source": "https://commons.wikimedia.org/wiki/File:Howe_Sound_from_Horseshoe_Bay_(5946423510).jpg"
@@ -49,7 +61,7 @@
       "time": "day",
       "hours": [
         7,
-        17
+        16
       ],
       "credit": "Benoit Brummer (Trougnouf), 2018, CC BY 4.0, via Wikimedia Commons; cropped and mirror-tiled",
       "source": "https://commons.wikimedia.org/wiki/File:View_towards_Garibaldi_Lake_from_Panorama_Ridge_(DSCF1842_-_DSCF1844).jpg"
@@ -73,7 +85,7 @@
       "time": "day",
       "hours": [
         7,
-        17
+        16
       ],
       "credit": "Kay Röllig, 2016, CC BY 3.0, via Wikimedia Commons; cropped and mirror-tiled",
       "source": "https://commons.wikimedia.org/wiki/File:Horseshoe_Bay_(208661883).jpeg"
@@ -85,7 +97,7 @@
       "time": "day",
       "hours": [
         7,
-        17
+        16
       ],
       "credit": "Bernard Spragg, 2012, CC0, via Wikimedia Commons; cropped and mirror-tiled",
       "source": "https://commons.wikimedia.org/wiki/File:Vancouver_Skyline._(8069298011).jpg"
@@ -96,7 +108,7 @@
       "title": "Lions Gate Bridge at sunset",
       "time": "sunset",
       "hours": [
-        17,
+        18,
         19
       ],
       "credit": "buzzard525, 2008, CC BY 3.0, via Wikimedia Commons; cropped and mirror-tiled",
@@ -109,10 +121,58 @@
       "time": "night",
       "hours": [
         21,
-        7
+        5
       ],
       "credit": "Kenny Louie, 2008, CC BY 2.0, via Wikimedia Commons; cropped and mirror-tiled",
       "source": "https://commons.wikimedia.org/wiki/File:Supernatural_(2419801077).jpg"
+    },
+    {
+      "id": "okanagan-dawn",
+      "file": "okanagan-dawn.webp",
+      "title": "Late winter sunrise on Okanagan Lake",
+      "time": "dawn",
+      "hours": [
+        5,
+        7
+      ],
+      "credit": "Extemporalist, 2015, CC0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:Late_Winter_Sunrise_on_Lake_Okanagan.JPG"
+    },
+    {
+      "id": "black-tusk",
+      "file": "black-tusk.webp",
+      "title": "The Black Tusk, Garibaldi Provincial Park",
+      "time": "day",
+      "hours": [
+        7,
+        16
+      ],
+      "credit": "Benoit Brummer (Trougnouf), 2018, CC BY 4.0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:The_Black_Tusk,_Garibaldi_Provincial_Park,_BC_(DSCF1665_-_DSCF1673).jpg"
+    },
+    {
+      "id": "english-bay-golden",
+      "file": "english-bay-golden.webp",
+      "title": "Container ships on Burrard Inlet from English Bay Beach",
+      "time": "golden",
+      "hours": [
+        16,
+        18
+      ],
+      "credit": "Isullivans, 2024, CC0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:Container_ships_on_Burrard_Inlet,_taken_from_English_Bay_Beach_in_Stanley_Park_in_Vancouver.jpg"
+    },
+    {
+      "id": "english-bay-sunset",
+      "file": "english-bay-sunset.webp",
+      "title": "English Bay sunset",
+      "time": "sunset",
+      "hours": [
+        18,
+        19
+      ],
+      "credit": "GoToVan, 2012, CC BY 2.0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:English_Bay_Sunset_(7607926454).jpg"
     }
   ]
 }

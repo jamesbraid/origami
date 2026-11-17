@@ -38,13 +38,18 @@ app's acknowledgements.
 | `vancouver-coal-harbour.webp` | Vancouver skyline from Coal Harbour | Bernard Spragg, 2012, CC0 |
 | `lions-gate-sunset.webp` | Lions Gate Bridge at sunset | buzzard525, 2008, CC BY 3.0 |
 | `lions-gate-night.webp` | Lions Gate Bridge at night | Kenny Louie, 2008, CC BY 2.0 |
+| `okanagan-dawn.webp` | Late winter sunrise on Okanagan Lake | Extemporalist, 2015, CC0 |
+| `black-tusk.webp` | The Black Tusk, Garibaldi Provincial Park | Benoit Brummer (Trougnouf), 2018, CC BY 4.0 |
+| `english-bay-golden.webp` | Container ships on Burrard Inlet from English Bay Beach | Isullivans, 2024, CC0 |
+| `english-bay-sunset.webp` | English Bay sunset | GoToVan, 2012, CC BY 2.0 |
 
-The four newer ones were licence-checked against their Commons metadata on
+The newer eight were licence-checked against their Commons metadata on
 2026-11-17; none is share-alike. Sources: `File:Horseshoe_Bay_(208661883).jpeg`,
 `File:Vancouver_Skyline._(8069298011).jpg`,
 `File:Lions_Gate_Bridge_at_sunset_-_panoramio.jpg` and
-`File:Supernatural_(2419801077).jpg`. Each scene's `time` and local `hours`
-in `scenes.json` choose it for About; `about.order` is the stepping order.
+`File:Supernatural_(2419801077).jpg`; the last four are listed with their Commons pages in `scenes.json`. Each scene's `time` and local `hours`
+in `scenes.json` choose it for About (dawn 05-07, day 07-16, golden 16-18, sunset 18-19, dusk 19-21,
+night 21-05); `about.order` is the stepping order.
 
 ## Source credit and trademark
 
