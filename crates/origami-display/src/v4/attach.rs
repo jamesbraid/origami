@@ -3,13 +3,13 @@
 //! is another process.
 
 use super::session::SessionError;
+use super::sys::UnixStream;
 use super::viewer::Viewer;
 use crate::{Importer, Taken};
 use origami_engine::{
     CursorInfo, Frame, FrameSource, FrameStats, HeadInfo, InputEvent, MachineId, Result, Wake,
 };
 use std::net::Shutdown;
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

@@ -2,12 +2,11 @@
 //! frame leases that release themselves.
 
 use super::regions::{Expect, Mapping, StateView};
+use super::sys::{self, AsSock, Passed, UnixStream};
 use super::transport::{send_all, Fault, Reader};
 use super::wire::{self, ErrorMsg, Frame, Head, Hello, Offer, Region, ToViewer, Welcome};
 use std::collections::{HashMap, VecDeque};
 use std::io;
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -65,6 +64,17 @@ pub struct HelloParams {
     pub max_height: u32,
     pub max_slot_bytes: u32,
     pub offers: Vec<Offer>,
+    /// The previous connection of this process to the same producer, so the
+    /// producer can name the handles it started and the viewer never took.
+    pub prev: Option<Previous>,
+}
+
+/// How a connection ended, for the next `HELLO` (Windows orphan recovery).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Previous {
+    pub viewer_id: u32,
+    pub session_id: u64,
+    pub handles_taken: u64,
 }
 
 impl Default for HelloParams {
@@ -78,6 +88,7 @@ impl Default for HelloParams {
             max_height: 16384,
             max_slot_bytes: 0,
             offers: vec![],
+            prev: None,
         }
     }
 }
@@ -301,28 +312,9 @@ pub struct Session {
     pub frames_received: u64,
 }
 
-fn ms(t: Option<Duration>) -> i32 {
-    t.map_or(-1, |d| d.as_millis().min(i32::MAX as u128) as i32)
-}
-
-/// Wait up to `t` for `fd` to be readable. True when it is.
-pub fn wait_readable(fd: &impl AsRawFd, t: Option<Duration>) -> io::Result<bool> {
-    let mut p = libc::pollfd {
-        fd: fd.as_raw_fd(),
-        events: libc::POLLIN,
-        revents: 0,
-    };
-    loop {
-        // SAFETY: one valid pollfd.
-        let r = unsafe { libc::poll(&mut p, 1, ms(t)) };
-        if r >= 0 {
-            return Ok(r > 0);
-        }
-        let e = io::Error::last_os_error();
-        if e.kind() != io::ErrorKind::Interrupted {
-            return Err(e);
-        }
-    }
+/// Wait up to `t` for `sock` to be readable. True when it is.
+pub fn wait_readable(sock: &impl AsSock, t: Option<Duration>) -> io::Result<bool> {
+    sys::wait_readable(sock.sock(), t)
 }
 
 impl Session {
@@ -345,19 +337,18 @@ impl Session {
             credit: p.credit,
             max_width: p.max_width,
             max_height: p.max_height,
-            prev_viewer_id: 0,
+            prev_viewer_id: p.prev.map_or(0, |v| v.viewer_id),
             max_slot_bytes: p.max_slot_bytes,
-            prev_handles_taken: 0,
-            prev_session_id: 0,
+            prev_handles_taken: p.prev.map_or(0, |v| v.handles_taken),
+            prev_session_id: p.prev.map_or(0, |v| v.session_id),
             offers: p.offers.clone(),
         };
-        #[cfg(not(target_os = "linux"))]
-        super::transport::no_sigpipe(&stream)?;
+        sys::no_sigpipe(&stream)?;
         send_all(&stream, &hello.encode(), None)?;
-        Session::handshake(stream)
+        Session::handshake(stream, p.prev.is_some())
     }
 
-    fn handshake(stream: UnixStream) -> Result<Session, SessionError> {
+    fn handshake(stream: UnixStream, named_prev: bool) -> Result<Session, SessionError> {
         let mut reader = Reader::new();
         let mut welcome: Option<Welcome> = None;
         let mut regions: HashMap<u32, (Region, Mapping)> = HashMap::new();
@@ -369,6 +360,10 @@ impl Session {
                 let Some((msg, fd)) = got else { break };
                 match msg? {
                     ToViewer::Welcome(w) => welcome = Some(w),
+                    ToViewer::Orphans(o) if named_prev && o.len() <= 32 => close_orphans(&o),
+                    ToViewer::Orphans(_) => {
+                        return Err(SessionError::Protocol("unsolicited ORPHANS".into()))
+                    }
                     ToViewer::Error(e) => return Err(SessionError::Producer(e)),
                     ToViewer::Region(r) => {
                         let m = map_region(&r, fd)?;
@@ -396,7 +391,7 @@ impl Session {
             if reader.at_eof() {
                 return Err(SessionError::Closed);
             }
-            match reader.fill(stream.as_raw_fd()) {
+            match reader.fill(stream.sock()) {
                 Ok(_) => {}
                 Err(Fault::Io(e)) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) => return Err(e.into()),
@@ -496,6 +491,11 @@ impl Session {
         &self.sock
     }
 
+    /// `HANDLE` messages whose handle this session took so far.
+    pub fn handles_taken(&self) -> u64 {
+        self.reader.handles_parsed
+    }
+
     pub fn credit(&self) -> u32 {
         self.welcome.credit
     }
@@ -525,7 +525,7 @@ impl Session {
                 None => None,
             };
             if wait_readable(&self.sock, left)? {
-                match self.reader.fill(self.sock.as_raw_fd()) {
+                match self.reader.fill(self.sock.sock()) {
                     Ok(_) => {}
                     Err(Fault::Io(e)) if e.kind() == io::ErrorKind::Interrupted => {}
                     Err(e) => return Err(e.into()),
@@ -585,7 +585,10 @@ impl Session {
                     self.pending.push_back(Event::Unknown { ty });
                 }
             }
-            ToViewer::Welcome(_) | ToViewer::Orphans(_) | ToViewer::Ready => {}
+            ToViewer::Orphans(_) => {
+                return Err(SessionError::Protocol("unsolicited ORPHANS".into()))
+            }
+            ToViewer::Welcome(_) | ToViewer::Ready => {}
         }
         if self.reader.handles_parsed != was {
             self.send_handles_seen(false)?;
@@ -645,8 +648,14 @@ impl Drop for Session {
     }
 }
 
-fn map_region(r: &Region, fd: Option<OwnedFd>) -> Result<Mapping, SessionError> {
-    let fd = fd.ok_or_else(|| SessionError::Protocol("REGION without a descriptor".into()))?;
+fn close_orphans(orphans: &[(u64, u64)]) {
+    for &(_, value) in orphans {
+        sys::close_orphan(value);
+    }
+}
+
+fn map_region(r: &Region, fd: Option<Passed>) -> Result<Mapping, SessionError> {
+    let fd = fd.ok_or_else(|| SessionError::Protocol("REGION without a handle".into()))?;
     if r.size == 0 || !r.size.is_multiple_of(wire::REGION_ALIGN) {
         return Err(SessionError::Protocol(
             "region size is not a multiple of 64 KiB".into(),
@@ -671,7 +680,7 @@ fn map_region(r: &Region, fd: Option<OwnedFd>) -> Result<Mapping, SessionError> 
 mod tests {
     use super::*;
     use std::io::Read;
-    use std::os::fd::FromRawFd;
+    use std::os::fd::{FromRawFd, OwnedFd};
 
     fn memfd(size: u64) -> Arc<Mapping> {
         // SAFETY: a fresh memfd, sized and owned here.

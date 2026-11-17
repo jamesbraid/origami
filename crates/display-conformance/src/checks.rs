@@ -2,10 +2,12 @@
 
 use crate::client::*;
 use crate::ensure;
+#[cfg(windows)]
+use origami_display::v4::regions::{Expect, Mapping};
 use origami_display::v4::session::FrameLease;
+use origami_display::v4::sys::Passed;
 use origami_display::v4::testext::{self, echo, kind, op, pattern};
 use origami_display::v4::wire::{self, Damage, ToViewer};
-use std::os::fd::AsRawFd;
 use std::time::{Duration, Instant};
 
 pub struct Ctx {
@@ -31,6 +33,8 @@ pub const CHECKS: &[(&str, Check)] = &[
     ("handles/order-and-trailing-field", handles_order),
     ("handles/window-of-32", handles_window),
     ("handles/viewer-handle-refused", handles_viewer),
+    #[cfg(windows)]
+    ("handles/orphans-after-broken-connection", handles_orphans),
     ("handles/bad-handles-seen", handles_bad_seen),
     ("regions/sizes-seals-mappings", regions_seals),
     ("lent/no-write-while-lent", lent_no_write),
@@ -290,23 +294,19 @@ fn handles_order(c: &Ctx) -> R<()> {
     for (m, _, raw, fd) in &r.received {
         if let ToViewer::Region(reg) = m {
             n += 1;
-            let fd = fd.as_ref().ok_or("REGION without a descriptor")?;
-            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            let fd = fd.as_ref().ok_or("REGION without a handle")?;
+            let got = handle_size(fd)?;
             ensure!(
-                unsafe { libc::fstat(fd.as_raw_fd(), &mut st) } == 0,
-                "fstat failed"
-            );
-            ensure!(
-                st.st_size as u64 == reg.size,
-                "region {} descriptor is {} bytes, message says {}",
+                got == reg.size,
+                "region {} handle is {got} bytes, message says {}",
                 reg.id,
-                st.st_size,
                 reg.size
             );
             let tail = u64::from_le_bytes(raw[raw.len() - 8..].try_into().unwrap());
+            ensure!(raw.len() >= 16, "HANDLE message under 16 bytes");
             ensure!(
-                tail == 0 && raw.len() >= 16,
-                "trailing handle field is {tail} on POSIX"
+                (tail != 0) == cfg!(windows),
+                "trailing handle field is {tail:#x}"
             );
         }
     }
@@ -317,6 +317,26 @@ fn handles_order(c: &Ctx) -> R<()> {
         r.reader.handles_parsed
     );
     Ok(())
+}
+
+/// The size of the shared memory `h` names.
+fn handle_size(h: &Passed) -> R<u64> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: fstat on a descriptor we hold.
+        ensure!(
+            unsafe { libc::fstat(h.as_raw_fd(), &mut st) } == 0,
+            "fstat failed"
+        );
+        Ok(st.st_size as u64)
+    }
+    #[cfg(windows)]
+    {
+        let h = h.try_clone().map_err(|e| e.to_string())?;
+        Ok(Mapping::open(h, false).map_err(|e| e.to_string())?.len() as u64)
+    }
 }
 
 fn handles_window(c: &Ctx) -> R<()> {
@@ -365,14 +385,82 @@ fn handles_viewer(c: &Ctx) -> R<()> {
     let mut r = raw_ready(c)?;
     let mut m = plain_request();
     m[2] |= wire::F_HANDLE as u8;
-    let f = std::fs::File::open("/dev/null").map_err(|e| e.to_string())?;
-    r.send_with_fd(&m, &f)?;
+    r.send_with_handle(&m)?;
     let e = r.error(WAIT)?;
     ensure!(
         e.code == wire::err::PROTOCOL,
         "expected PROTOCOL, got code {}",
         e.code
     );
+    Ok(())
+}
+
+/// A connection ends with handles started but not taken; the next `HELLO`
+/// names its taken count and `ORPHANS` lists exactly the rest.
+#[cfg(windows)]
+fn handles_orphans(c: &Ctx) -> R<()> {
+    use std::os::windows::io::IntoRawHandle;
+    let mut a = raw_ready(c)?;
+    let (viewer_id, session_id) = a
+        .received
+        .iter()
+        .find_map(|(m, ..)| match m {
+            ToViewer::Welcome(w) => Some((w.viewer_id, w.session_id)),
+            _ => None,
+        })
+        .ok_or("no WELCOME")?;
+    // Region messages in order, each with the value in its trailing field.
+    let values: Vec<u64> = a
+        .received
+        .iter()
+        .filter(|(m, ..)| matches!(m, ToViewer::Region(_)))
+        .map(|(_, _, raw, _)| u64::from_le_bytes(raw[raw.len() - 8..].try_into().unwrap()))
+        .collect();
+    let n = values.len();
+    ensure!(n >= 4, "expected at least four regions, saw {n}");
+    // The last two stand for handles this viewer never took: keep them open
+    // so the producer's naming of them can be checked.
+    let kept: Vec<_> = a
+        .received
+        .iter_mut()
+        .rev()
+        .filter_map(|r| r.3.take())
+        .take(2)
+        .collect();
+    let kept: Vec<u64> = kept
+        .into_iter()
+        .map(|h| h.into_raw_handle() as usize as u64)
+        .collect();
+    ensure!(
+        kept.len() == 2 && values[n - 2..].iter().all(|v| kept.contains(v)),
+        "kept handles are not the last two"
+    );
+    drop(a);
+    std::thread::sleep(Duration::from_millis(200));
+    let mut b = Raw::connect(&c.t)?;
+    let mut h = Raw::hello(1);
+    h.prev_viewer_id = viewer_id;
+    h.prev_session_id = session_id;
+    h.prev_handles_taken = (n - 2) as u64;
+    b.send(&h.encode())?;
+    let end = Instant::now() + WAIT;
+    while b.count(|m| matches!(m, ToViewer::Ready)) == 0 {
+        ensure!(Instant::now() < end, "no READY");
+        b.read(ms(50))?;
+    }
+    let got = b
+        .received
+        .iter()
+        .find_map(|(m, ..)| match m {
+            ToViewer::Orphans(o) => Some(o.clone()),
+            _ => None,
+        })
+        .ok_or("no ORPHANS after a HELLO naming a previous connection")?;
+    let want = vec![(n as u64 - 1, values[n - 2]), (n as u64, values[n - 1])];
+    ensure!(got == want, "ORPHANS {got:?}, expected {want:?}");
+    for v in kept {
+        origami_display::v4::sys::close_orphan(v);
+    }
     Ok(())
 }
 
@@ -398,12 +486,42 @@ fn handles_bad_seen(c: &Ctx) -> R<()> {
     Ok(())
 }
 
-fn map_rw(fd: i32, size: u64) -> bool {
+/// The region cannot be resized, and maps writable only when it should.
+#[cfg(unix)]
+fn check_region(reg: &wire::Region, h: &Passed, writable_expected: bool) -> R<()> {
+    use std::os::fd::AsRawFd;
+    let fd = h.as_raw_fd();
+    // SAFETY: fcntl and ftruncate on a descriptor we hold.
+    let seals = unsafe { libc::fcntl(fd, libc::F_GET_SEALS) };
+    ensure!(seals >= 0, "region {} is not a sealed memfd", reg.id);
+    let need = 1 | 2 | 4;
+    ensure!(
+        seals & need == need,
+        "region {} seals {seals:#x} lack SHRINK, GROW or SEAL",
+        reg.id
+    );
+    ensure!(
+        unsafe { libc::ftruncate(fd, (reg.size / 2) as libc::off_t) } != 0,
+        "region {} can be shrunk",
+        reg.id
+    );
+    ensure!(
+        unsafe { libc::ftruncate(fd, (reg.size * 2) as libc::off_t) } != 0,
+        "region {} can be grown",
+        reg.id
+    );
+    let ro = seals & 16 != 0;
+    ensure!(
+        ro != writable_expected,
+        "region {} kind {} FUTURE_WRITE seal is {ro}",
+        reg.id,
+        reg.kind
+    );
     // SAFETY: a probe mapping, unmapped at once.
-    unsafe {
+    let writable = unsafe {
         let p = libc::mmap(
             std::ptr::null_mut(),
-            size as usize,
+            reg.size as usize,
             libc::PROT_READ | libc::PROT_WRITE,
             libc::MAP_SHARED,
             fd,
@@ -412,10 +530,34 @@ fn map_rw(fd: i32, size: u64) -> bool {
         if p == libc::MAP_FAILED {
             false
         } else {
-            libc::munmap(p, size as usize);
+            libc::munmap(p, reg.size as usize);
             true
         }
-    }
+    };
+    ensure!(
+        writable == writable_expected,
+        "region {} kind {}: writable mapping {writable} (expected {writable_expected})",
+        reg.id,
+        reg.kind
+    );
+    Ok(())
+}
+
+/// A section has a fixed size by construction; what is left to check is the
+/// handle's access.
+#[cfg(windows)]
+fn check_region(reg: &wire::Region, h: &Passed, writable_expected: bool) -> R<()> {
+    let dup = || h.try_clone().map_err(|e| e.to_string());
+    Mapping::map(dup()?, reg.size, false, Expect::Nothing)
+        .map_err(|e| format!("region {}: {e}", reg.id))?;
+    let writable = Mapping::map(dup()?, reg.size, true, Expect::Nothing).is_ok();
+    ensure!(
+        writable == writable_expected,
+        "region {} kind {}: writable mapping {writable} (expected {writable_expected})",
+        reg.id,
+        reg.kind
+    );
+    Ok(())
 }
 
 fn regions_seals(c: &Ctx) -> R<()> {
@@ -440,45 +582,13 @@ fn regions_seals(c: &Ctx) -> R<()> {
                 reg.id,
                 reg.size
             );
-            let fd = fd.as_ref().unwrap().as_raw_fd();
-            // SAFETY: fcntl and ftruncate on a descriptor we hold.
-            let seals = unsafe { libc::fcntl(fd, libc::F_GET_SEALS) };
-            ensure!(seals >= 0, "region {} is not a sealed memfd", reg.id);
-            let need = 1 | 2 | 4;
-            ensure!(
-                seals & need == need,
-                "region {} seals {seals:#x} lack SHRINK, GROW or SEAL",
-                reg.id
-            );
-            ensure!(
-                unsafe { libc::ftruncate(fd, (reg.size / 2) as libc::off_t) } != 0,
-                "region {} can be shrunk",
-                reg.id
-            );
-            ensure!(
-                unsafe { libc::ftruncate(fd, (reg.size * 2) as libc::off_t) } != 0,
-                "region {} can be grown",
-                reg.id
-            );
+            let h = fd.as_ref().ok_or("REGION without a handle")?;
             let writable_expected =
                 reg.kind == wire::KIND_FEEDBACK || (reg.kind == wire::KIND_SLOT && rw);
             if reg.kind == wire::KIND_SLOT {
                 slots += 1;
             }
-            let ro = seals & 16 != 0;
-            ensure!(
-                ro != writable_expected,
-                "region {} kind {} FUTURE_WRITE seal is {ro}",
-                reg.id,
-                reg.kind
-            );
-            ensure!(
-                map_rw(fd, reg.size) == writable_expected,
-                "region {} kind {}: writable mapping {} (expected {writable_expected})",
-                reg.id,
-                reg.kind,
-                !writable_expected
-            );
+            check_region(reg, h, writable_expected)?;
         }
         ensure!(slots >= 2, "fewer than 2 slots");
     }
@@ -1336,15 +1446,7 @@ fn state_record(c: &Ctx) -> R<()> {
     Ok(())
 }
 
-fn now_ns() -> u64 {
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: valid out-pointer.
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
-    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
-}
+use origami_display::v4::sys::now_ns;
 
 fn time_stamps(c: &Ctx) -> R<()> {
     let mut v = V::connect(&c.t, &Opts::default())?;
@@ -1594,6 +1696,8 @@ fn limits_overflow(c: &Ctx) -> R<()> {
     let _ = ctl.control(op::RESUME_WRITES, 0, id, 0);
     let err = match r.error(WAIT) {
         Ok(e) => e,
+        // Windows resets a connection closed with unread input, losing the ERROR.
+        Err(_) if cfg!(windows) && r.closed => return Ok(()),
         Err(_) if timed_out => {
             return Err(format!(
                 "skip: {} reports in {budget} s did not reach the 4 MiB queue limit (set CONF_OVERFLOW_SECS)",

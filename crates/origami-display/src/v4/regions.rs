@@ -1,11 +1,10 @@
 //! Checked mappings of the regions a producer passes: the state region,
 //! the viewer's feedback region and the slots.
 
-use std::fs::File;
+use super::sys::Passed;
 use std::io;
 #[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
-use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 pub const SEAL_SEAL: i32 = 1;
@@ -26,14 +25,19 @@ pub fn seals(fd: &impl AsRawFd) -> io::Result<i32> {
     }
 }
 
+#[cfg(unix)]
+type Raw = memmap2::MmapRaw;
+#[cfg(windows)]
+type Raw = win::View;
+
 /// Shared memory another process may write (the viewer's feedback region,
 /// or a producer's slot): reads and writes go through raw copies and atomics.
 pub struct Mapping {
-    raw: memmap2::MmapRaw,
+    raw: Raw,
     writable: bool,
 }
 
-// SAFETY: a MAP_SHARED mapping; every access is an atomic or a raw copy, and
+// SAFETY: a shared mapping; every access is an atomic or a raw copy, and
 // the protocol (not Rust's aliasing rules) orders accesses between processes.
 unsafe impl Send for Mapping {}
 unsafe impl Sync for Mapping {}
@@ -41,9 +45,10 @@ unsafe impl Sync for Mapping {}
 impl Mapping {
     /// Map all of `fd`, which must be exactly `size` bytes, and when a
     /// viewer is the caller (`expect`), carry the seals the contract requires.
+    #[cfg(unix)]
     #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-    pub fn map(fd: OwnedFd, size: u64, writable: bool, expect: Expect) -> io::Result<Mapping> {
-        let file = File::from(fd);
+    pub fn map(fd: Passed, size: u64, writable: bool, expect: Expect) -> io::Result<Mapping> {
+        let file = std::fs::File::from(fd);
         let actual = file.metadata()?.len();
         if actual != size {
             return Err(io::Error::other(format!(
@@ -69,6 +74,38 @@ impl Mapping {
             opts.map_raw_read_only(&file)?
         };
         Ok(Mapping { raw, writable })
+    }
+
+    /// Map the section `h`, which must be `size` bytes; a read-only one must refuse a writable view.
+    #[cfg(windows)]
+    pub fn map(h: Passed, size: u64, writable: bool, expect: Expect) -> io::Result<Mapping> {
+        let m = Mapping::open(h, writable)?;
+        let raw = m.raw;
+        if raw.len() as u64 != size {
+            return Err(io::Error::other(format!(
+                "region is {} bytes, message says {size}",
+                raw.len()
+            )));
+        }
+        if expect == Expect::ReadOnly && raw.section_allows_write() {
+            return Err(io::Error::other("read-only section can still be written"));
+        }
+        Ok(Mapping { raw, writable })
+    }
+
+    /// Map all of the section `h`, whatever its size.
+    #[cfg(windows)]
+    pub fn open(h: Passed, writable: bool) -> io::Result<Mapping> {
+        Ok(Mapping {
+            raw: win::View::new(h, writable)?,
+            writable,
+        })
+    }
+
+    /// The section this mapping came from, for a GPU API that opens it itself.
+    #[cfg(windows)]
+    pub fn section(&self) -> &std::os::windows::io::OwnedHandle {
+        self.raw.section()
     }
 
     pub fn len(&self) -> usize {
@@ -140,7 +177,102 @@ impl Mapping {
     }
 }
 
-/// What a viewer requires of a memfd it receives.
+#[cfg(windows)]
+mod win {
+    use super::*;
+    use std::os::windows::io::{AsRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::Memory::{
+        MapViewOfFile, UnmapViewOfFile, VirtualQuery, FILE_MAP_READ, FILE_MAP_WRITE,
+        MEMORY_BASIC_INFORMATION, MEMORY_MAPPED_VIEW_ADDRESS,
+    };
+
+    /// A view of a whole section, which it keeps open.
+    pub struct View {
+        base: *mut u8,
+        len: usize,
+        section: OwnedHandle,
+    }
+
+    fn map_view(section: &OwnedHandle, access: u32) -> io::Result<MEMORY_MAPPED_VIEW_ADDRESS> {
+        // SAFETY: a file mapping handle; 0 bytes maps all of it.
+        let v = unsafe { MapViewOfFile(section.as_raw_handle() as HANDLE, access, 0, 0, 0) };
+        if v.Value.is_null() {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(v)
+        }
+    }
+
+    impl View {
+        pub fn new(section: OwnedHandle, writable: bool) -> io::Result<View> {
+            let access = if writable {
+                FILE_MAP_READ | FILE_MAP_WRITE
+            } else {
+                FILE_MAP_READ
+            };
+            let v = map_view(&section, access)?;
+            let mut info: MEMORY_BASIC_INFORMATION = unsafe { std::mem::zeroed() };
+            // SAFETY: `info` is the right size and `v` is mapped.
+            let got = unsafe {
+                VirtualQuery(
+                    v.Value,
+                    &mut info,
+                    std::mem::size_of::<MEMORY_BASIC_INFORMATION>(),
+                )
+            };
+            if got == 0 {
+                let e = io::Error::last_os_error();
+                // SAFETY: `v` is ours.
+                unsafe { UnmapViewOfFile(v) };
+                return Err(e);
+            }
+            Ok(View {
+                base: v.Value.cast(),
+                len: info.RegionSize,
+                section,
+            })
+        }
+
+        pub fn len(&self) -> usize {
+            self.len
+        }
+
+        pub fn as_mut_ptr(&self) -> *mut u8 {
+            self.base
+        }
+
+        pub fn section(&self) -> &OwnedHandle {
+            &self.section
+        }
+
+        /// Whether this handle could map the section writable.
+        pub fn section_allows_write(&self) -> bool {
+            match map_view(&self.section, FILE_MAP_WRITE) {
+                Ok(v) => {
+                    // SAFETY: the probe view just made.
+                    unsafe { UnmapViewOfFile(v) };
+                    true
+                }
+                Err(_) => false,
+            }
+        }
+    }
+
+    impl Drop for View {
+        fn drop(&mut self) {
+            // SAFETY: returned by MapViewOfFile and released once.
+            unsafe {
+                UnmapViewOfFile(MEMORY_MAPPED_VIEW_ADDRESS {
+                    Value: self.base.cast(),
+                })
+            };
+        }
+    }
+}
+
+/// What a viewer requires of a region it receives: seals on a Linux memfd,
+/// no write access on a Windows section.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Expect {
     /// Size seals, plus `FUTURE_WRITE` (the descriptor cannot be mapped writable).

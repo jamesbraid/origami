@@ -2,10 +2,10 @@
 //! an in-process producer: `cargo bench -p display-conformance`.
 
 use display_conformance::client::{Opts, Target, V};
+use origami_display::v4::sys::UnixListener;
 use origami_display::v4::testext::pattern;
 use origami_display::v4::wire::{Damage, Frame};
 use origami_display_producer::reference;
-use std::os::unix::net::UnixListener;
 use std::time::{Duration, Instant};
 
 /// A cheap timestamp: `Instant::now()` costs over a microsecond on some
@@ -29,13 +29,31 @@ fn tick_rate() -> f64 {
 }
 
 fn thread_cpu_ns() -> u64 {
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: valid out-pointer.
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
-    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+    #[cfg(unix)]
+    {
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: valid out-pointer.
+        unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) };
+        ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::FILETIME;
+        use windows_sys::Win32::System::Threading::{GetCurrentThread, GetThreadTimes};
+        let z = FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let (mut c, mut e, mut k, mut u) = (z, z, z, z);
+        // SAFETY: valid out-pointers.
+        unsafe { GetThreadTimes(GetCurrentThread(), &mut c, &mut e, &mut k, &mut u) };
+        let ft =
+            |t: FILETIME| (u64::from(t.dwHighDateTime) << 32 | u64::from(t.dwLowDateTime)) * 100;
+        ft(k) + ft(u)
+    }
 }
 
 fn pct(v: &mut [u64], p: f64, rate: f64) -> f64 {

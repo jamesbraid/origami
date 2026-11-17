@@ -2,8 +2,8 @@
 
 use display_conformance::client::Target;
 use display_conformance::{run, Outcome};
+use origami_display::v4::sys::UnixListener;
 use origami_display_producer::reference;
-use std::os::unix::net::UnixListener;
 
 fn suite(push: bool) {
     let dir = tempfile_dir(push);

@@ -1,12 +1,12 @@
 //! The product's viewer against the reference producer: pictures by their
 //! pixels, wake-ups, and what a hidden viewer asks for.
 
+use origami_display::v4::sys::{UnixListener, UnixStream};
 use origami_display::v4::testext::{self, kind, pattern, Stimulus};
 use origami_display::v4::viewer::Viewer;
 use origami_display::v4::wire;
 use origami_display::Taken;
 use origami_display_producer::reference;
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};

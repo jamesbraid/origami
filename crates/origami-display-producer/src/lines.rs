@@ -80,32 +80,17 @@ impl Lines {
 }
 
 /// Wakes the producer's thread from any other.
-pub struct Waker(pub(crate) std::os::fd::OwnedFd);
+pub struct Waker(pub(crate) crate::plat::Wake);
 
 impl Waker {
     pub fn new() -> std::io::Result<Arc<Waker>> {
-        use std::os::fd::FromRawFd;
-        // SAFETY: eventfd returns a new descriptor we own.
-        let fd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        // SAFETY: fd is valid and owned here.
-        Ok(Arc::new(Waker(unsafe {
-            std::os::fd::OwnedFd::from_raw_fd(fd)
-        })))
+        Ok(Arc::new(Waker(crate::plat::Wake::new()?)))
     }
     pub fn wake(&self) {
-        use std::os::fd::AsRawFd;
-        let one: u64 = 1;
-        // SAFETY: writing 8 bytes to an eventfd; a full counter is harmless.
-        unsafe { libc::write(self.0.as_raw_fd(), (&one as *const u64).cast(), 8) };
+        self.0.wake()
     }
     pub(crate) fn drain(&self) {
-        use std::os::fd::AsRawFd;
-        let mut v: u64 = 0;
-        // SAFETY: reading 8 bytes from a non-blocking eventfd.
-        unsafe { libc::read(self.0.as_raw_fd(), (&mut v as *mut u64).cast(), 8) };
+        self.0.drain()
     }
 }
 

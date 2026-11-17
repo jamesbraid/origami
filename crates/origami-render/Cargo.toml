@@ -40,6 +40,9 @@ block2 = "0.6"
 objc2-metal = { version = "0.3", default-features = false, features = ["std", "block2", "MTLBuffer", "MTLDevice", "MTLResource"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Memory", "Win32_System_Threading"] }
 # The version wgpu-hal's Direct3D 12 backend uses, so its device type is ours.
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi_Common", "Win32_System_Threading"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+origami-display-producer = { path = "../origami-display-producer" }

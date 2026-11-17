@@ -2,9 +2,9 @@
 
 use crate::engine::*;
 use crate::lines::Waker;
+use crate::plat;
+use origami_display::v4::sys::{AsSock, UnixListener, UnixStream};
 use std::io;
-use std::os::fd::AsRawFd;
-use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -77,22 +77,11 @@ impl Producer {
         host: Box<dyn Host>,
         waker: Arc<Waker>,
     ) -> io::Result<Producer> {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let dir = path
             .parent()
             .ok_or_else(|| io::Error::other("socket path has no directory"))?;
-        if !dir.exists() {
-            std::fs::create_dir_all(dir)?;
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-        }
-        let md = std::fs::metadata(dir)?;
-        // SAFETY: geteuid has no preconditions.
-        if md.uid() != unsafe { libc::geteuid() } || md.mode() & 0o022 != 0 {
-            return Err(io::Error::other(
-                "socket directory must be ours and not group or world writable",
-            ));
-        }
-        if std::os::unix::net::UnixStream::connect(path).is_ok() {
+        plat::private_dir(dir)?;
+        if UnixStream::connect(path).is_ok() {
             return Err(io::Error::other("socket path is in use"));
         }
         let _ = std::fs::remove_file(path);
@@ -134,54 +123,33 @@ impl Drop for Producer {
 
 fn serve(inner: Arc<Inner>, listener: UnixListener) {
     loop {
-        let mut fds = vec![
-            libc::pollfd {
-                fd: listener.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-            libc::pollfd {
-                fd: inner.waker.0.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            },
-        ];
+        let mut socks = vec![(listener.sock(), false), (inner.waker.0.sock(), false)];
         let ids: Vec<u64> = {
             let e = inner.engine.lock().unwrap();
             let mut ids = vec![];
             for v in &e.viewers {
-                let mut ev = libc::POLLIN;
-                if !v.out.is_empty() && !v.hold_writes {
-                    ev |= libc::POLLOUT;
-                }
-                fds.push(libc::pollfd {
-                    fd: v.sock.as_raw_fd(),
-                    events: ev,
-                    revents: 0,
-                });
+                socks.push((v.sock.sock(), !v.out.is_empty() && !v.hold_writes));
                 ids.push(v.serial());
             }
             ids
         };
-        // SAFETY: a valid pollfd array of the stated length.
-        let r = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
-        if r < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+        let Ok(ready) = plat::poll(&socks) else {
             return;
-        }
+        };
         if inner.stop.load(Ordering::SeqCst) {
             return;
         }
         let mut e = inner.engine.lock().unwrap();
-        if fds[1].revents != 0 {
+        if ready[1].0 {
             e.waker.drain();
         }
-        if fds[0].revents & libc::POLLIN != 0 {
+        if ready[0].0 {
             while let Ok((s, _)) = listener.accept() {
                 e.accept(s);
             }
         }
         for (k, serial) in ids.iter().enumerate() {
-            if fds[2 + k].revents & (libc::POLLIN | libc::POLLHUP | libc::POLLERR) != 0 {
+            if ready[2 + k].0 {
                 if let Some(vi) = e.viewers.iter().position(|v| v.serial() == *serial) {
                     e.on_readable(vi);
                 }

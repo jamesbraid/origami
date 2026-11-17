@@ -4,6 +4,7 @@
 pub mod attach;
 pub mod regions;
 pub mod session;
+pub mod sys;
 pub mod testext;
 pub mod transport;
 pub mod viewer;

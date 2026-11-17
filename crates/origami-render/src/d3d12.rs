@@ -162,3 +162,67 @@ pub fn open(device: &wgpu::Device, region: &Region, handle: &Handle) -> io::Resu
         keep: Some(Box::new(section)),
     })
 }
+
+/// A section handle with the producer's writable-grant rights opens as a heap.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::Foundation::{DuplicateHandle as Dup, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Memory::{CreateFileMappingW, PAGE_READWRITE};
+
+    #[test]
+    fn a_writable_grant_opens_as_a_heap() {
+        let gpu = crate::Gpu::new().expect("a Direct3D 12 adapter");
+        if probe(&gpu.device).is_err() {
+            eprintln!("D3D12 RIGHTS: adapter cannot open existing heaps");
+            return;
+        }
+        let size = 1u64 << 20;
+        // SAFETY: an anonymous pagefile-backed section.
+        let h = unsafe {
+            CreateFileMappingW(
+                INVALID_HANDLE_VALUE,
+                std::ptr::null(),
+                PAGE_READWRITE,
+                (size >> 32) as u32,
+                size as u32,
+                std::ptr::null(),
+            )
+        };
+        assert!(!h.is_null());
+        // SAFETY: a fresh handle.
+        let section = unsafe { OwnedHandle::from_raw_handle(h as _) };
+        let region = Region {
+            id: 1,
+            kind: 3,
+            backend: 0,
+            memory_type: 0,
+            size,
+            alloc_size: size,
+            flags: 0,
+            handle: 0,
+        };
+        // What a writable grant from the v4 producer carries.
+        // Must match the writable grant in the producer's plat.rs.
+        let masks = [("writable grant", 0x2_000F)];
+        for (name, mask) in masks {
+            let mut dup = std::ptr::null_mut();
+            // SAFETY: duplicating into this process with a stated mask.
+            let ok = unsafe {
+                let me = windows_sys::Win32::System::Threading::GetCurrentProcess();
+                Dup(me, section.as_raw_handle() as _, me, &mut dup, mask, 0, 0)
+            };
+            assert_ne!(ok, 0);
+            let got = open(&gpu.device, &region, &Handle::Value(dup as usize as u64));
+            eprintln!(
+                "D3D12 RIGHTS: {name}: {}",
+                got.as_ref()
+                    .map_or_else(|e| e.to_string(), |_| "opens".into())
+            );
+            assert!(got.is_ok());
+            // SAFETY: our duplicate.
+            unsafe { windows_sys::Win32::Foundation::CloseHandle(dup) };
+        }
+    }
+}

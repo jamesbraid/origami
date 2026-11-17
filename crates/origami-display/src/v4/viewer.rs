@@ -3,7 +3,10 @@
 //! frames and send input. A GPU frame carries its lease as `ImportedUpdate::hold`.
 
 use super::regions::{Mapping, StateView};
-use super::session::{Event, FrameLease, HelloParams, Session, SessionError, SessionHandle};
+use super::session::{
+    Event, FrameLease, HelloParams, Previous, Session, SessionError, SessionHandle,
+};
+use super::sys::UnixStream;
 use super::wire;
 use crate::input::{coalesce, evdev};
 use crate::{Importer, Memory, Stats, Taken};
@@ -13,7 +16,6 @@ use origami_engine::{
     PointerButton, Result,
 };
 use std::collections::HashMap;
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -83,6 +85,8 @@ pub struct Viewer {
     session: Mutex<Option<SessionHandle>>,
     state_view: Mutex<Option<Arc<StateView>>>,
     hello: HelloParams,
+    /// How the last connection ended, for the next `HELLO` on Windows.
+    prev: Mutex<Option<Previous>>,
 }
 
 impl Default for Viewer {
@@ -112,6 +116,7 @@ impl Viewer {
             session: Mutex::new(None),
             state_view: Mutex::new(None),
             hello,
+            prev: Mutex::new(None),
         }
     }
 
@@ -236,6 +241,9 @@ impl Viewer {
         {
             hello.features |= wire::feat::RW_PIXELS;
         }
+        if cfg!(windows) {
+            hello.prev = *lock(&self.prev);
+        }
         let mut session = Session::connect(stream, &hello)?;
         let handle = session.handle();
         *lock(&self.state_view) = Some(session.state.clone());
@@ -271,6 +279,11 @@ impl Viewer {
                 Err(e) => break Err(e),
             }
         };
+        *lock(&self.prev) = Some(Previous {
+            viewer_id: session.welcome.viewer_id,
+            session_id: session.welcome.session_id,
+            handles_taken: session.handles_taken(),
+        });
         *lock(&self.session) = None;
         *lock(&self.state_view) = None;
         // Leases end with a write to the socket, so they end outside the lock.
@@ -411,9 +424,30 @@ impl Viewer {
     fn import(&self, st: &mut State, lease: &FrameLease) -> Slot {
         let importer = lock(&self.importer).clone();
         let memory: Arc<dyn Memory> = Arc::new(SlotMemory(lease.slot.clone()));
-        let gpu = importer
-            .as_ref()
-            .and_then(|i| i.wrap_shm(lease.slot.len() as u64, &memory));
+        #[cfg(windows)]
+        let opened = importer.as_ref().and_then(|i| {
+            use std::os::windows::io::AsRawHandle;
+            let size = lease.slot.len() as u64;
+            let region = crate::proto::Region {
+                id: lease.frame.region,
+                kind: 0,
+                backend: 0,
+                memory_type: 0,
+                size,
+                alloc_size: size,
+                flags: 0,
+                handle: 0,
+            };
+            let section = lease.slot.section().as_raw_handle() as usize as u64;
+            i.open_section(&region, &crate::Handle::Value(section))
+        });
+        #[cfg(not(windows))]
+        let opened = None;
+        let gpu = opened.or_else(|| {
+            importer
+                .as_ref()
+                .and_then(|i| i.wrap_shm(lease.slot.len() as u64, &memory))
+        });
         st.backend = Some(match (&gpu, importer) {
             (Some(_), Some(i)) => format!("shm: {}", i.name()),
             _ => "shm: cpu upload".into(),

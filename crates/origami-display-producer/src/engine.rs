@@ -2,26 +2,18 @@
 //! send live in `flow` (frames and sets), `input` and `control`.
 
 use crate::lines::{Lines, Marks, Waker};
+use crate::plat::{self, Grant, Peer};
 use crate::storage::{self, Shm};
+use origami_display::v4::sys::{AsSock, UnixStream};
 use origami_display::v4::testext::{self, Stats, Stimulus};
 use origami_display::v4::transport::{self, Fault, Reader};
 use origami_display::v4::wire::{self, ErrorMsg, Header, Hello, ToProducer};
 use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::io;
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-pub fn now_ns() -> u64 {
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: valid timespec out-pointer.
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
-    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
-}
+pub use origami_display::v4::sys::now_ns;
 
 #[derive(Clone, Debug)]
 pub struct HeadSpec {
@@ -248,7 +240,9 @@ pub(crate) enum Tag {
 pub(crate) struct OutMsg {
     pub id: u64,
     pub bytes: Vec<u8>,
-    pub fd: Option<Arc<OwnedFd>>,
+    pub fd: Option<Grant>,
+    /// Windows: the duplicate made for the first write, kept for retries.
+    pub staged: Option<u64>,
     pub sent: usize,
     pub tag: Tag,
 }
@@ -257,6 +251,7 @@ pub(crate) struct Viewer {
     pub conn: u64,
     pub id: u32,
     pub sock: UnixStream,
+    pub peer: Option<Peer>,
     pub reader: Reader,
     pub live: bool,
     pub hello: Option<Hello>,
@@ -267,6 +262,9 @@ pub(crate) struct Viewer {
     pub out_bytes: usize,
     pub handles_started: u64,
     pub handles_acked: u64,
+    /// Windows: `(ordinal, value)` of each handle whose message started and
+    /// the viewer has not acknowledged, for orphan recovery.
+    pub started: Vec<(u64, u64)>,
     pub feedback: Option<Shm>,
     pub heads: Vec<VHead>,
     pub announced: HashSet<u32>,
@@ -285,6 +283,17 @@ pub(crate) struct Viewer {
 impl Viewer {
     pub(crate) fn serial(&self) -> u64 {
         self.conn
+    }
+
+    /// Windows: take back, from the viewer's process, each duplicate whose
+    /// message never started. The viewer cannot have seen the value.
+    pub(crate) fn release_staged(&mut self) {
+        let Some(peer) = &self.peer else { return };
+        for m in &mut self.out {
+            if let (0, Some(value)) = (m.sent, m.staged.take()) {
+                plat::unstage(peer, value);
+            }
+        }
     }
 }
 
@@ -306,18 +315,23 @@ pub struct Engine {
     pub(crate) owner: Option<u32>,
     pub(crate) echo_seq: u32,
     pub(crate) next_conn: u64,
+    /// Windows: ended connections, kept so a returning viewer learns its orphans.
+    pub(crate) departed: VecDeque<Departed>,
 }
 
-fn random_u64() -> u64 {
-    let mut b = [0u8; 8];
-    // SAFETY: getrandom fills our buffer.
-    let r = unsafe { libc::getrandom(b.as_mut_ptr().cast(), 8, 0) };
-    if r == 8 {
-        u64::from_le_bytes(b) | 1
-    } else {
-        now_ns() | 1
-    }
+/// What a finished connection leaves behind for orphan recovery.
+pub(crate) struct Departed {
+    pub id: u32,
+    pub pid: u32,
+    pub at: std::time::Instant,
+    pub acked: u64,
+    pub started_count: u64,
+    pub started: Vec<(u64, u64)>,
 }
+
+/// How long and how many departed connections are remembered.
+const DEPARTED_KEEP: std::time::Duration = std::time::Duration::from_secs(60);
+const DEPARTED_MAX: usize = 8;
 
 pub(crate) fn align_up(v: u64, a: u64) -> u64 {
     v.div_ceil(a) * a
@@ -331,7 +345,7 @@ impl Engine {
             65_536,
         );
         let state = storage::create(size, false)?;
-        let session_id = random_u64();
+        let session_id = plat::random_u64();
         let m = &state.map;
         m.store32(16, wire::state::HEADER as u32, Ordering::Relaxed);
         m.store32(20, wire::state::HEAD_STRIDE as u32, Ordering::Relaxed);
@@ -361,6 +375,7 @@ impl Engine {
             owner: None,
             echo_seq: 0,
             next_conn: 1,
+            departed: VecDeque::new(),
         })
         .map(|mut e| {
             e.state_region = e.alloc_region();
@@ -456,13 +471,7 @@ impl Engine {
 
     // --- output ---
 
-    pub(crate) fn queue(
-        &mut self,
-        vi: usize,
-        bytes: Vec<u8>,
-        fd: Option<Arc<OwnedFd>>,
-        tag: Tag,
-    ) -> u64 {
+    pub(crate) fn queue(&mut self, vi: usize, bytes: Vec<u8>, fd: Option<Grant>, tag: Tag) -> u64 {
         let id = self.next_msg;
         self.next_msg += 1;
         let limit = self.cfg.max_queue_bytes;
@@ -472,6 +481,7 @@ impl Engine {
             id,
             bytes,
             fd,
+            staged: None,
             sent: 0,
             tag,
         });
@@ -507,8 +517,10 @@ impl Engine {
                 // The error goes out regardless of any write hold; the rest is dropped.
                 let e = v.closing.take().unwrap();
                 // Best effort: the connection is closing whether or not the peer reads it.
-                let _ = transport::send(v.sock.as_raw_fd(), &e.encode(), None);
+                let _ = transport::send(v.sock.sock(), &e.encode(), None);
+                plat::linger(&v.sock);
                 v.gone = true;
+                v.release_staged();
                 v.out.clear();
                 return;
             }
@@ -519,22 +531,31 @@ impl Engine {
                 return;
             };
             let mut started = None;
+            let mut raw = None;
             if front.sent == 0 {
                 if front.fd.is_some() && v.handles_started - v.handles_acked >= wire::HANDLE_WINDOW
                 {
                     return;
                 }
                 started = Some((front.id, front.tag.clone()));
+                if let (Some(grant), Some(peer)) = (&front.fd, &v.peer) {
+                    match plat::stage(peer, grant, &mut front.bytes, &mut front.staged) {
+                        Ok(r) => raw = r,
+                        Err(_) => {
+                            v.gone = true;
+                            return;
+                        }
+                    }
+                }
             }
-            let fd = if front.sent == 0 {
-                front.fd.as_ref().map(|f| f.as_raw_fd())
-            } else {
-                None
-            };
-            match transport::send(v.sock.as_raw_fd(), &front.bytes[front.sent..], fd) {
+            match transport::send(v.sock.sock(), &front.bytes[front.sent..], raw) {
                 Ok(n) => {
                     if front.sent == 0 && front.fd.is_some() {
                         v.handles_started += 1;
+                        // From its first byte the handle is the viewer's.
+                        if let Some(value) = front.staged.take() {
+                            v.started.push((v.handles_started, value));
+                        }
                     }
                     front.sent += n;
                     if front.sent == front.bytes.len() {
@@ -577,8 +598,9 @@ impl Engine {
         let mut v = Viewer {
             conn: self.next_conn,
             id: 0,
+            peer: Peer::of(&sock, &self.cfg.allow_uids),
             sock,
-            reader: Reader::new(),
+            reader: Reader::for_producer(),
             live: false,
             hello: None,
             features: 0,
@@ -588,6 +610,7 @@ impl Engine {
             out_bytes: 0,
             handles_started: 0,
             handles_acked: 0,
+            started: vec![],
             feedback: None,
             heads: vec![],
             announced: HashSet::new(),
@@ -602,7 +625,7 @@ impl Engine {
             closing: None,
             gone: false,
         };
-        if !peer_allowed(&v.sock, &self.cfg.allow_uids) {
+        if v.peer.is_none() {
             v.closing = Some(ErrorMsg::new(
                 wire::err::PERMISSION,
                 "peer user not allowed",
@@ -626,7 +649,7 @@ impl Engine {
                 return;
             }
             let v = &mut self.viewers[vi];
-            let r = v.reader.fill(v.sock.as_raw_fd());
+            let r = v.reader.fill(v.sock.sock());
             match r {
                 Ok(0) => {
                     self.viewers[vi].gone = true;
@@ -658,11 +681,11 @@ impl Engine {
             }
             let got = self.viewers[vi]
                 .reader
-                .next_with(|h, m, fd| (h, ToProducer::decode(h, m), fd));
+                .next_with(|h, m, _| (h, ToProducer::decode(h, m)));
             match got {
                 Ok(None) => return true,
-                Ok(Some((h, msg, fd))) => match msg {
-                    Ok(m) => self.process(vi, h, m, fd.is_some()),
+                Ok(Some((h, msg))) => match msg {
+                    Ok(m) => self.process(vi, h, m, h.handle()),
                     Err(e) => self.fail(vi, wire::err::PROTOCOL, e.0),
                 },
                 Err(Fault::Protocol(s)) => {
@@ -708,6 +731,7 @@ impl Engine {
                     self.fail(vi, wire::err::PROTOCOL, "bad HANDLES_SEEN");
                 } else {
                     v.handles_acked = n;
+                    v.started.retain(|e| e.0 > n);
                 }
             }
             M::SetStorage { head, storage } => self.on_set_storage(vi, head, storage),
@@ -771,6 +795,14 @@ impl Engine {
                 self.viewers[vi].test_index = Some(1);
             }
         }
+        let orphans = if cfg!(windows) && hello.prev_viewer_id != 0 {
+            match self.recover_orphans(vi, &hello) {
+                Ok(o) => Some(o),
+                Err(why) => return self.fail(vi, err::PROTOCOL, why),
+            }
+        } else {
+            None
+        };
         let id = self.next_viewer;
         self.next_viewer += 1;
         let feedback_region = self.alloc_region();
@@ -812,6 +844,9 @@ impl Engine {
             accepts,
         };
         self.plain(vi, welcome.encode());
+        if let Some(o) = orphans {
+            self.plain(vi, wire::orphans(&o));
+        }
         self.announce_shm(
             vi,
             self.state_region,
@@ -835,8 +870,8 @@ impl Engine {
 
     fn announce_shm(&mut self, vi: usize, id: u32, kind: u32, access: u32, shm: Option<&Shm>) {
         let (fd, size) = match shm {
-            Some(s) => (s.fd.clone(), s.size),
-            None => (self.state.fd.clone(), self.state.size),
+            Some(s) => (s.grant(), s.size),
+            None => (self.state.grant(), self.state.size),
         };
         let r = wire::Region {
             id,
@@ -852,7 +887,7 @@ impl Engine {
 
     fn announce_fb(&mut self, vi: usize, id: u32) {
         let fb = self.viewers[vi].feedback.as_ref().unwrap();
-        let (fd, size) = (fb.fd.clone(), fb.size);
+        let (fd, size) = (fb.grant(), fb.size);
         let r = wire::Region {
             id,
             kind: wire::KIND_FEEDBACK,
@@ -881,12 +916,7 @@ impl Engine {
             payload: vec![],
         };
         self.viewers[vi].announced.insert(s.region);
-        self.queue(
-            vi,
-            r.encode(),
-            Some(s.shm.fd.clone()),
-            Tag::Region(s.region),
-        );
+        self.queue(vi, r.encode(), Some(s.shm.grant()), Tag::Region(s.region));
     }
 
     /// Remove viewer `vi` (already marked gone): release its input, retire
@@ -908,7 +938,46 @@ impl Engine {
                 hd.held_pic = None;
             }
         }
-        self.viewers.remove(vi);
+        self.viewers[vi].release_staged();
+        let v = self.viewers.remove(vi);
+        if cfg!(windows) && v.live {
+            self.departed.push_back(Departed {
+                id: v.id,
+                pid: v.peer.as_ref().map_or(0, |p| p.pid()),
+                at: std::time::Instant::now(),
+                acked: v.handles_acked,
+                started_count: v.handles_started,
+                started: v.started,
+            });
+            while self.departed.len() > DEPARTED_MAX {
+                self.departed.pop_front();
+            }
+        }
+    }
+
+    /// Windows: the handles a returning viewer never took, from the record
+    /// its previous connection left. Empty when there is no such record.
+    fn recover_orphans(
+        &mut self,
+        vi: usize,
+        hello: &Hello,
+    ) -> Result<Vec<(u64, u64)>, &'static str> {
+        self.departed.retain(|d| d.at.elapsed() < DEPARTED_KEEP);
+        let pid = self.viewers[vi].peer.as_ref().map_or(0, |p| p.pid());
+        let found = self
+            .departed
+            .iter()
+            .position(|d| d.id == hello.prev_viewer_id && d.pid == pid);
+        let Some(ix) = found.filter(|_| hello.prev_session_id == self.session_id) else {
+            return Ok(vec![]);
+        };
+        let taken = hello.prev_handles_taken;
+        let d = &self.departed[ix];
+        if taken < d.acked || taken > d.started_count {
+            return Err("HELLO taken count outside acknowledged and started");
+        }
+        let d = self.departed.remove(ix).unwrap();
+        Ok(d.started.into_iter().filter(|e| e.0 > taken).collect())
     }
 
     /// Stats for `STATS`.
@@ -937,25 +1006,4 @@ impl Engine {
     pub(crate) fn viewer_index(&self, id: u32) -> Option<usize> {
         self.viewers.iter().position(|v| v.live && v.id == id)
     }
-}
-
-fn peer_allowed(sock: &UnixStream, allow: &[u32]) -> bool {
-    let mut cred = libc::ucred {
-        pid: 0,
-        uid: 0,
-        gid: 0,
-    };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    // SAFETY: SO_PEERCRED fills a ucred of the stated size.
-    let r = unsafe {
-        libc::getsockopt(
-            sock.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&mut cred as *mut libc::ucred).cast(),
-            &mut len,
-        )
-    };
-    // SAFETY: geteuid has no preconditions.
-    r == 0 && (cred.uid == unsafe { libc::geteuid() } || allow.contains(&cred.uid))
 }

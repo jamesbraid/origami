@@ -1,6 +1,5 @@
 //! Golden bytes for version 4, written from the design's tables rather than
 //! from the encoder.
-#![cfg(unix)]
 
 use origami_display::v4::testext::{self, pattern};
 use origami_display::v4::wire::*;

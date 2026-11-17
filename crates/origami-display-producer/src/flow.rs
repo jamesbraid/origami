@@ -520,6 +520,9 @@ impl Engine {
                         m.sent == 0 && (m.tag == Tag::Region(region) || (m.tag == Tag::Head(h)));
                     if drop_it {
                         dropped += m.bytes.len();
+                        if let (Some(value), Some(peer)) = (m.staged, &v.peer) {
+                            crate::plat::unstage(peer, value);
+                        }
                     } else {
                         kept.push_back(m);
                     }

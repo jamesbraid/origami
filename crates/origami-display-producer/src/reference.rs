@@ -269,7 +269,7 @@ impl Host for PushHost {
 /// Start the reference producer on `listener`: `heads` test heads of
 /// `w` by `h`, the test extension on, pulling or pushing.
 pub fn start(
-    listener: std::os::unix::net::UnixListener,
+    listener: origami_display::v4::sys::UnixListener,
     heads: u32,
     w: u32,
     h: u32,
@@ -286,7 +286,7 @@ pub fn start(
 
 /// [`start`] with the heads' whole description, for a pixel format or a pointer mode.
 pub fn start_with(
-    listener: std::os::unix::net::UnixListener,
+    listener: origami_display::v4::sys::UnixListener,
     heads: u32,
     spec: HeadSpec,
     push: bool,

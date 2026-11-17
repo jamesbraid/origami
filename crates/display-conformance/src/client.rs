@@ -2,12 +2,11 @@
 //! socket for the checks that break the rules on purpose.
 
 use origami_display::v4::session::{Event, FrameLease, HelloParams, Session, SessionError};
+use origami_display::v4::sys::{AsSock, Passed, UnixStream};
 use origami_display::v4::testext::{self, Control, InputEcho, Stats, Stimulus};
 use origami_display::v4::transport::{send_all, Fault, Reader};
 use origami_display::v4::wire::{self, ErrorMsg, Head, Header, Hello, ToViewer};
 use std::collections::VecDeque;
-use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -334,7 +333,7 @@ impl V {
 pub struct Raw {
     pub sock: UnixStream,
     pub reader: Reader,
-    pub received: Vec<(ToViewer, Header, Vec<u8>, Option<OwnedFd>)>,
+    pub received: Vec<(ToViewer, Header, Vec<u8>, Option<Passed>)>,
     pub closed: bool,
 }
 
@@ -370,8 +369,17 @@ impl Raw {
         send_all(&self.sock, b, None).map_err(|e| e.to_string())
     }
 
-    pub fn send_with_fd(&self, b: &[u8], fd: &impl AsRawFd) -> R<()> {
-        send_all(&self.sock, b, Some(fd.as_raw_fd())).map_err(|e| e.to_string())
+    /// Send `b` with a handle riding it, as a viewer must never do. On
+    /// Windows the handle is the message's own trailing field, already in `b`.
+    pub fn send_with_handle(&self, b: &[u8]) -> R<()> {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            let f = std::fs::File::open("/dev/null").map_err(|e| e.to_string())?;
+            send_all(&self.sock, b, Some(f.as_raw_fd())).map_err(|e| e.to_string())
+        }
+        #[cfg(windows)]
+        send_all(&self.sock, b, None).map_err(|e| e.to_string())
     }
 
     /// Read until `d` passes or the stream ends, parsing what arrives.
@@ -400,7 +408,7 @@ impl Raw {
             {
                 return Ok(());
             }
-            match self.reader.fill(self.sock.as_raw_fd()) {
+            match self.reader.fill(self.sock.sock()) {
                 Ok(0) => self.closed = true,
                 Ok(_) => {}
                 Err(Fault::Io(e)) if e.kind() == std::io::ErrorKind::ConnectionReset => {

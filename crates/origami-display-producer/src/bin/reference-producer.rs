@@ -1,7 +1,7 @@
 //! The reference producer for the conformance suite: `reference-producer
 //! --socket PATH [--push] [--heads N] [--size WxH]`.
 
-use std::os::unix::net::UnixListener;
+use origami_display::v4::sys::UnixListener;
 
 fn main() {
     let mut path = None;

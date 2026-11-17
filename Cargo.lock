@@ -1503,6 +1503,7 @@ dependencies = [
  "libc",
  "origami-display",
  "origami-display-producer",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4736,6 +4737,8 @@ dependencies = [
  "memmap2",
  "origami-display",
  "origami-engine",
+ "uds_windows",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4929,6 +4932,7 @@ dependencies = [
  "libc",
  "objc2-metal 0.3.2",
  "origami-display",
+ "origami-display-producer",
  "origami-engine",
  "png",
  "pollster",

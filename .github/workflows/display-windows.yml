@@ -1,0 +1,163 @@
+name: display-windows
+
+# The display protocol version 4 session library, reference producer and
+# conformance suite on Windows. The Windows runner has no compiler, so Rust
+# is cross-built on Linux and run on Windows. Runs by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      qemu_ref:
+        description: 'Branch of jamesb/qemu to cross-build and run the suite against (empty: reference producer only)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Cross compiler and Rust
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
+            --target x86_64-pc-windows-gnu
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build the Windows test and tool binaries
+        run: |
+          cargo test --target x86_64-pc-windows-gnu --no-run --message-format=json \
+            -p origami-display -p origami-display-producer -p display-conformance \
+            -p origami-render > build.json
+          mkdir win
+          python3 - <<'PY'
+          import json, shutil
+          for line in open("build.json"):
+              if not line.startswith("{"):
+                  continue
+              m = json.loads(line)
+              exe = m.get("executable")
+              if m.get("reason") != "compiler-artifact" or not exe:
+                  continue
+              t = m["target"]
+              if m["profile"]["test"]:
+                  shutil.copy(exe, "win/%s-test.exe" % t["name"])
+              elif t["kind"] == ["bin"]:
+                  shutil.copy(exe, "win/%s.exe" % t["name"])
+          PY
+          ls -la win
+      - uses: actions/upload-artifact@v3
+        with:
+          name: display-windows
+          path: win
+          if-no-files-found: error
+          retention-days: 3
+
+  windows:
+    if: github.server_url != 'https://github.com'
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: display-windows
+          path: win
+      - name: Tests (the session library, the producer and the suite against its reference producer)
+        run: |
+          fail=0
+          for t in win/*-test.exe; do
+            echo "-- $t"
+            # The version 3 reader's unit tests assume POSIX handles; run the version 4 ones.
+            case "$t" in
+              win/origami_render-test.exe) "$t" d3d12 --nocapture || fail=1 ;;
+              win/v4_d3d12-test.exe) "$t" --nocapture || fail=1 ;;
+              win/origami_display-test.exe) "$t" v4:: --test-threads=1 || fail=1 ;;
+              *) "$t" --test-threads=1 || fail=1 ;;
+            esac
+          done
+          exit $fail
+      - name: Conformance suite against the reference producer process
+        run: |
+          sock="$RUNNER_TEMP/d.sock"
+          rm -f "$sock"
+          win/reference-producer.exe --socket "$sock" &
+          for i in $(seq 1 50); do [ -e "$sock" ] && break; sleep 0.2; done
+          win/display-conformance.exe --socket "$sock"
+
+  qemu-build:
+    if: github.server_url != 'https://github.com' && inputs.qemu_ref != ''
+    runs-on: ${{ vars.CI_RUNNER }}
+    timeout-minutes: 90
+    env:
+      CI_STEP: /tmp/ci-current-step
+    container:
+      image: ${{ vars.CI_JOB_IMAGE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: jamesb/qemu
+          ref: ${{ inputs.qemu_ref }}
+          token: ${{ secrets.DEPENDENCY_READ_TOKEN }}
+      - name: docker client
+        run: bash scripts/ci/runner-setup docker
+      - name: find the workspace volume
+        run: bash scripts/ci/runner-setup volume
+      - name: cross-compile QEMU for Windows
+        env:
+          WINDOWS_ARGS: --stage /src/win-stage
+        run: bash scripts/ci/runner-setup windows
+      - uses: actions/upload-artifact@v3
+        with:
+          name: qemu-windows
+          path: win-stage
+          if-no-files-found: error
+          retention-days: 3
+
+  windows-qemu:
+    if: github.server_url != 'https://github.com' && inputs.qemu_ref != ''
+    needs: [build, qemu-build]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: display-windows
+          path: win
+      - uses: actions/download-artifact@v3
+        with:
+          name: qemu-windows
+          path: qemu
+      - name: Conformance suite against QEMU
+        shell: powershell
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "qd"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $sock = Join-Path $dir "d.sock"
+          Remove-Item $sock -ErrorAction SilentlyContinue
+          $err = Join-Path $env:RUNNER_TEMP "qemu.err"
+          $q = Start-Process -FilePath "$PWD\qemu\qemu-system-mips64.exe" -PassThru -NoNewWindow `
+            -RedirectStandardError $err -RedirectStandardOutput "$err.out" `
+            -ArgumentList @("-machine","none","-nodefaults","-display","none","-device","display-shm,path=$sock,x-test=on,heads=16")
+          $code = 2
+          for ($i = 0; $i -lt 20 -and $code -eq 2; $i++) {
+            Start-Sleep -Seconds 1
+            if ($q.HasExited) { break }
+            & "$PWD\win\display-conformance.exe" --socket $sock
+            $code = $LASTEXITCODE
+          }
+          "qemu exited: $($q.HasExited)"
+          Get-Content $err, "$err.out" -ErrorAction SilentlyContinue
+          Get-ChildItem $dir | Out-String
+          Stop-Process -Id $q.Id -Force -ErrorAction SilentlyContinue
+          exit $code
