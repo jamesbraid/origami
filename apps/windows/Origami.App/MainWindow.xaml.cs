@@ -608,7 +608,7 @@ public sealed partial class MainWindow : Window
         var starting = key != null && !_prefsOpen && _core.Status(key).State == MachineState.Starting;
         if (!starting) StartCube.Close();
         if (key is not null || _prefsOpen) EmptyCube.Close();
-        HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Visibility.Collapsed;
+        HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Tint.Visibility = Visibility.Collapsed;
         if (_pane is not null) _pane.Visibility = Visibility.Collapsed;
         Settings.Visibility = _prefsOpen ? Visibility.Visible : Visibility.Collapsed;
         if (key is null)
@@ -658,6 +658,7 @@ public sealed partial class MainWindow : Window
             case MachineState.Exited:
             case MachineState.LeftRunning: // the hero, with Start attaching to the runner that is still up
                 Detach();
+                ShowTint(ChassisOf(info));
                 HeroPanel.Visibility = Visibility.Visible; break;
             case MachineState.Starting:
                 Detach();
@@ -699,6 +700,26 @@ public sealed partial class MainWindow : Window
         StartCube.SetStyle(Frame.CubeEnvStudio, 0, StillOf(info)?.Rgb, Dark, true, reduce, WindowBackground());
         StartCube.Show(true);
     }
+
+    Color? _tintFor;
+
+    /// <summary>The chassis colour at the token's top alpha fading to clear at the bottom, over the window colour.</summary>
+    void ShowTint(Color chassis)
+    {
+        if (_tintFor != chassis)
+        {
+            _tintFor = chassis;
+            var brush = new LinearGradientBrush { StartPoint = new Windows.Foundation.Point(0.5, 0), EndPoint = new Windows.Foundation.Point(0.5, 1) };
+            brush.GradientStops.Add(new GradientStop { Color = Color.FromArgb(PaneTint.TopAlpha, chassis.R, chassis.G, chassis.B), Offset = 0 });
+            brush.GradientStops.Add(new GradientStop { Color = Color.FromArgb(PaneTint.BottomAlpha, chassis.R, chassis.G, chassis.B), Offset = 1 });
+            Tint.Background = brush;
+        }
+        Tint.Visibility = Visibility.Visible;
+    }
+
+    public Color? TintForTest => Tint.Visibility == Visibility.Visible ? _tintFor : null;
+    public double TintTopAlphaForTest => (Tint.Background as LinearGradientBrush)?.GradientStops[0].Color.A ?? -1;
+    public double TintBottomAlphaForTest => (Tint.Background as LinearGradientBrush)?.GradientStops[1].Color.A ?? -1;
 
     /// <summary>The live cube, slowly turning, on the window's own background, while no machine is chosen.</summary>
     void ShowEmptyCube()

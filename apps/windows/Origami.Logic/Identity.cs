@@ -35,6 +35,14 @@ public sealed class StillCatalog
     }
 }
 
+/// <summary>The summary pane's backdrop: the chassis colour at the top fading to the plain window colour at the bottom, with the shared token alphas.</summary>
+public static class PaneTint
+{
+    public static byte TopAlpha => Alpha(Tokens.Pane.TintTopAlpha);
+    public static byte BottomAlpha => Alpha(Tokens.Pane.TintBottomAlpha);
+    static byte Alpha(double a) => (byte)Math.Round(Math.Clamp(a, 0, 1) * 255);
+}
+
 /// <summary>The two granite tones the app draws on, light and dark window themes.</summary>
 public static class Granite
 {

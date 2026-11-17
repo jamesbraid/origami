@@ -328,5 +328,11 @@ Test("accelerators: the four view shortcuts reach the app, bare Ctrl digits stay
     { Accelerator.TryParse(s, out var a); Eq(false, a.TakenOverGuest, s + " stays with the guest"); }
 });
 
+Test("pane tint: the shared token alphas, strongest at the top", () =>
+{
+    Eq((byte)89, PaneTint.TopAlpha, "35% at the top");
+    Eq((byte)0, PaneTint.BottomAlpha, "clear at the bottom");
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;

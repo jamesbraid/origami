@@ -512,6 +512,10 @@ public static class Selftest
         w.Invoke("machine.stop");
         Check("headless: stopping closes the pane", await Until(() => core.Status(blind).State == MachineState.Stopped && w.ConsolePaneForTest == null, 8000), core.Status(blind).Reason);
 
+        // --- the stopped machine's pane is tinted with its chassis colour, fading toward the bottom ---
+        Check("tint: the summary pane is tinted, strongest at the top", await Until(() => w.TintForTest is not null && w.TintTopAlphaForTest == PaneTint.TopAlpha && w.TintBottomAlphaForTest == PaneTint.BottomAlpha, 3000),
+            $"tint {w.TintForTest}, alpha {w.TintTopAlphaForTest} -> {w.TintBottomAlphaForTest}");
+
         // --- nothing chosen: the live cube turns under "Choose a machine" ---
         w.ClearSelectionForTest();
         var cubeEmpty = w.EmptyCubeForTest;

@@ -62,6 +62,8 @@
                       Background="{ThemeResource LayerFillColorDefaultBrush}"/>
 
             <Grid x:Name="Stage" Grid.Column="1" Grid.Row="1">
+                <Border x:Name="Tint" Visibility="Collapsed" IsHitTestVisible="False"/>
+
                 <!-- Stopped: the hero with Start. -->
                 <StackPanel x:Name="HeroPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
                     <Image x:Name="HeroImage" Width="240" Height="180" Stretch="Uniform" AutomationProperties.AutomationId="hero.image"/>
