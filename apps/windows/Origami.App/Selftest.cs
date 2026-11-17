@@ -59,6 +59,11 @@ public static class Selftest
         Finish();
     }
 
+    static string? SavedViewMode(string dir)
+    {
+        try { return File.ReadAllText(Path.Combine(dir, "view.txt")).Trim(); } catch (IOException) { return null; }
+    }
+
     static CancellationTokenSource StartGuest(UniffiCoreClient core, string key, out Task task)
     {
         var cts = new CancellationTokenSource();
@@ -358,6 +363,7 @@ public static class Selftest
             await Task.Delay(100);
             bool digitLeaked; lock (log) digitLeaked = log.Any(e => e.Kind == InputKind.Key && e.A == digit);
             Check($"shortcut: {name} over the screen sets {mode} and the digit does not reach the guest", took && !digitLeaked, $"mode={w.CurrentViewMode} leaked={digitLeaked}");
+            Check($"view: {mode} is saved beside the settings", await Until(() => SavedViewMode(dir) == mode.ToString(), 2000), SavedViewMode(dir) ?? "no view.txt");
         }
 
         // --- follow-the-mouse ---

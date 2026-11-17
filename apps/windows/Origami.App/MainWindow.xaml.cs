@@ -20,12 +20,16 @@ public sealed partial class MainWindow : Window
     string? _attachedKey, _modeKey;
     int _refreshQueued;
 
+    readonly ViewModeStore _viewStore;
+
     public MainWindow(ICoreClient core, SettingsStore store)
     {
         _core = core; _store = store; _settings = store.Load();
+        _viewStore = new ViewModeStore(App.ArgValue("--settings") ?? SettingsStore.DefaultPath());
         _ui = DispatcherQueue.GetForCurrentThread();
         InitializeComponent();
         Title = "Origami";
+        Display.ViewMode = _viewStore.Load();
         Display.WindowHandle = () => WinRT.Interop.WindowNative.GetWindowHandle(this);
         Display.PointerModeChanged = RefreshPointerUi;
         Display.Shortcut = OnDisplayShortcut;
@@ -550,7 +554,7 @@ public sealed partial class MainWindow : Window
 
     void SetViewMode(ViewMode mode)
     {
-        Display.ViewMode = mode;
+        Display.ViewMode = mode; _viewStore.Save(mode);
         StatusText.Text = "Picture size: " + mode switch { ViewMode.FitToWindow => "fit to window", ViewMode.Scale1x => "scale 1x", ViewMode.Scale2x => "scale 2x", _ => "actual size" };
     }
 

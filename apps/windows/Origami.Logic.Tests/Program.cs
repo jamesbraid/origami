@@ -320,6 +320,23 @@ Test("view scale: 1x and 2x are DIPs per guest pixel and fall back to fit; actua
     Eq(1.0, ViewScale.Factor(ViewMode.ActualSize, 1280, 1024, 3000, 2200, 2.0), "actual size is one device pixel");
 });
 
+Test("view mode store: defaults to fit, round-trips, ignores junk and unreadable files", () =>
+{
+    var dir = Path.Combine(Path.GetTempPath(), "origami-vm-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        var st = new ViewModeStore(Path.Combine(dir, "settings.json"));
+        Eq(ViewMode.FitToWindow, st.Load(), "no file");
+        st.Save(ViewMode.Scale2x); Eq(ViewMode.Scale2x, st.Load(), "round trip");
+        foreach (var junk in new[] { "nonsense", "7", "Scale1x,Scale2x", "" })
+        { File.WriteAllText(Path.Combine(dir, "view.txt"), junk); Eq(ViewMode.FitToWindow, st.Load(), "junk '" + junk + "'"); }
+        File.Delete(Path.Combine(dir, "view.txt"));
+        Directory.CreateDirectory(Path.Combine(dir, "view.txt")); // a file that cannot be read or written
+        Eq(ViewMode.FitToWindow, st.Load(), "unreadable"); st.Save(ViewMode.Scale1x);
+    }
+    finally { Directory.Delete(dir, true); }
+});
+
 Test("accelerators: the four view shortcuts reach the app, bare Ctrl digits stay with the guest", () =>
 {
     foreach (var s in new[] { "Ctrl+9", "Ctrl+0", "Ctrl+Alt+1", "Ctrl+Alt+2" })
