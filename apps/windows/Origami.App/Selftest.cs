@@ -85,6 +85,17 @@ public static class Selftest
         var key = w.SelectedKey!;
         Check("a machine is selected", !string.IsNullOrEmpty(key), key);
 
+        // --- new machine: the catalogue, a create, and the core's refusal of a bad name ---
+        var offers = core.Catalogue();
+        Check("new machine: the catalogue offers machines", offers.Count > 0 && NewMachine.DefaultIndex(offers) < offers.Count, string.Join(",", offers.Select(NewMachine.Label)));
+        var made = await core.CreateMachineAsync("Selftest created", offers[NewMachine.DefaultIndex(offers)].Id);
+        w.Reload();
+        Check("new machine: create returns a key and the library lists the machine", made.Length > 0 && w.LibraryCount == 3 && core.Machines().Any(m => m.Key == made && m.Name == "Selftest created"), $"key={made} count={w.LibraryCount}");
+        string refused = "";
+        try { await core.CreateMachineAsync("a/b", offers[0].Id); } catch (Exception e) { refused = e.Message; }
+        Check("new machine: a name with a slash is refused with a reason", refused.Length > 0 && w.LibraryCount == 3, refused);
+        key = w.SelectedKey!;
+
         // --- start ---
         w.Invoke("machine.start");
         Check("start reaches Running", await Until(() => core.Status(key).State == MachineState.Running, 15_000), core.Status(key).Reason);

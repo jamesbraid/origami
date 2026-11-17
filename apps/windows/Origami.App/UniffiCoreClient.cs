@@ -47,13 +47,14 @@ public sealed class UniffiCoreClient : ICoreClient
     public string EngineIds => string.Join(",", _core.Engines().Select(e => e.Id));
 
 #if ORIGAMI_FAKE
+    string? _fakeProm; // the fake engine cannot fetch firmware, so creates hand it this file
     /// <summary>Builds with only the fake engine start with an empty library; make two machines to show.</summary>
     public void SeedFake(string scratchDir)
     {
-        if (_core.ListMachines().Length > 0) return;
         Directory.CreateDirectory(scratchDir);
-        var prom = Path.Combine(scratchDir, "prom.bin");
+        var prom = _fakeProm = Path.Combine(scratchDir, "prom.bin");
         File.WriteAllBytes(prom, new byte[16]);
+        if (_core.ListMachines().Length > 0) return;
         foreach (var name in new[] { "Octane2 (fake)", "O2 (fake)" })
         {
             var op = _core.CreateMachine(new OrigamiCreateRequest(name, "fake.1", null, null, prom, null));
@@ -75,6 +76,30 @@ public sealed class UniffiCoreClient : ICoreClient
         return op.ResultMachine() ?? "";
     }
 #endif
+
+    public IReadOnlyList<Offering> Catalogue() => _core.Catalogue()
+        .Select(o => new Offering(o.Id, o.Engine, o.Product, o.Topology, (int)o.Nodes, (int)o.Cpus)).ToList();
+
+    public Task<string> CreateMachineAsync(string name, string offeringId, CancellationToken ct = default) => Task.Run(() =>
+    {
+#if ORIGAMI_FAKE
+        var prom = _fakeProm;
+#else
+        string? prom = null;
+#endif
+        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null));
+        var reg = ct.Register(() => op.Cancel());
+        try
+        {
+            switch (op.Wait(null))
+            {
+                case OrigamiOperationState.Failed f: throw new InvalidOperationException(f.Message);
+                case OrigamiOperationState.Cancelled: throw new OperationCanceledException();
+            }
+            return op.ResultMachine() ?? throw new InvalidOperationException("the core created the machine but gave no key");
+        }
+        finally { reg.Dispose(); }
+    }, ct);
 
     public string Heads(string key) => string.Join("; ", M(key).View().Heads.Select(h => $"#{h.Index} {h.Width}x{h.Height} active={h.Active} seq={h.Seq}"));
 

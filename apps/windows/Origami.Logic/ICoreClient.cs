@@ -15,6 +15,11 @@ public interface ICoreClient : IDisposable
     IReadOnlyList<MachineSummary> Machines();
     MachineStatus Status(string key);
 
+    /// <summary>What can be created. The first call may start an engine's program: call it off the UI thread.</summary>
+    IReadOnlyList<Offering> Catalogue();
+    /// <summary>Creates a machine from an offering and returns its key; the core fetches any firmware.</summary>
+    Task<string> CreateMachineAsync(string name, string offeringId, CancellationToken ct = default);
+
     Task StartAsync(string key, CancellationToken ct = default);
     /// <summary>Clean stop. Can take minutes while a disk folds.</summary>
     Task PowerOffAsync(string key, CancellationToken ct = default);

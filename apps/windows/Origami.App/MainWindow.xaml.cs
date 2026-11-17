@@ -245,7 +245,8 @@ public sealed partial class MainWindow : Window
                 }
             case "view.library": LibraryColumn.Width = LibraryColumn.Width.Value > 0 ? new GridLength(0) : new GridLength(260); break;
             case "window.console" when key != null: OpenConsole(key); break;
-            case "machine.new": case "machine.eject-cd": case "window.diagnostics":
+            case "machine.new" when !_newOpen: _ = RunAsync(NewMachineAsync); break;
+            case "machine.eject-cd": case "window.diagnostics":
                 StatusText.Text = "Not built yet: " + _commands.First(c => c.Id == id).Title; break;
             case "app.quit": Close(); break;
         }
@@ -255,6 +256,20 @@ public sealed partial class MainWindow : Window
     {
         try { await f(); }
         catch (Exception e) { StatusText.Text = "Error: " + e.Message; }
+    }
+
+    bool _newOpen; // one ContentDialog at a time
+
+    async Task NewMachineAsync()
+    {
+        _newOpen = true;
+        string? made;
+        try { made = await NewMachineDialog.ShowAsync(Root.XamlRoot, _core); }
+        finally { _newOpen = false; }
+        if (made is not { } key) return;
+        _prefsOpen = false;
+        Reload();
+        Library.SelectedItem = Library.Items.Cast<ListViewItem>().FirstOrDefault(i => (string?)i.Tag == key) ?? Library.SelectedItem;
     }
 
     void OpenConsole(string key)
