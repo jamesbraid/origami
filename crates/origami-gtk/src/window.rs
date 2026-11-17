@@ -466,11 +466,40 @@ fn close_popout(app: &Rc<App>, w: &Rc<Win>) -> glib::Propagation {
     glib::Propagation::Stop
 }
 
+/// A machine's still at `pt` points, or the generic glyph tile when it has none.
+fn machine_mark(art: Option<&'static str>, pt: i32, icon: i32) -> gtk::Widget {
+    if let Some(id) = art {
+        let image = crate::art::small_image(id, pt);
+        image.set_halign(gtk::Align::Center);
+        image.set_valign(gtk::Align::Center);
+        return image.upcast();
+    }
+    let g = gtk::Box::builder()
+        .css_classes(["glyph"])
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .width_request(pt)
+        .height_request(pt)
+        .build();
+    g.append(
+        &gtk::Image::builder()
+            .icon_name("computer-symbolic")
+            .pixel_size(icon)
+            .hexpand(true)
+            .vexpand(true)
+            .build(),
+    );
+    g.upcast()
+}
+
 pub fn add_tab(app: &Rc<App>, m: &Rc<MachineUi>) {
     let Some(w) = active(app) else { return };
     let page = w.tv.append(&m.root);
     page.set_title(&m.name);
     page.set_tooltip(&m.dir.display().to_string());
+    if let Some(id) = m.entry.borrow().art {
+        crate::art::tab_icon(&page, id);
+    }
     *m.page.borrow_mut() = Some(page.clone());
     w.stack.set_visible_child_name("tabs");
     w.tv.set_selected_page(&page);
@@ -816,19 +845,7 @@ pub fn rebuild_library(app: &Rc<App>) {
             }
         }
         for e in entries {
-            let glyph = gtk::Image::builder()
-                .icon_name(e.chassis.icon())
-                .pixel_size(18)
-                .halign(gtk::Align::Center)
-                .valign(gtk::Align::Center)
-                .build();
-            let g = gtk::Box::builder()
-                .css_classes(["glyph", e.chassis.css()])
-                .halign(gtk::Align::Center)
-                .valign(gtk::Align::Center)
-                .build();
-            g.append(&glyph);
-            g.set_halign(gtk::Align::Center);
+            let g = machine_mark(e.art, 34, 18);
             let title = gtk::Label::builder()
                 .label(&e.name)
                 .xalign(0.0)
@@ -882,20 +899,11 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
     let state = m.state.get();
     let (word, class) = state.pill();
 
-    let g = gtk::Box::builder()
-        .css_classes(["glyph", e.chassis.css()])
-        .valign(gtk::Align::Center)
-        .build();
-    g.append(
-        &gtk::Image::builder()
-            .icon_name(e.chassis.icon())
-            .pixel_size(40)
-            .margin_top(14)
-            .margin_bottom(14)
-            .margin_start(14)
-            .margin_end(14)
-            .build(),
-    );
+    let g: gtk::Widget = match e.art.and_then(|id| crate::art::framed(id, "hero")) {
+        Some(hero) => hero.upcast(),
+        None => machine_mark(None, 72, 36),
+    };
+    g.set_valign(gtk::Align::Center);
     let name = gtk::Label::builder()
         .label(&e.name)
         .css_classes(["title-1"])
@@ -974,6 +982,9 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
         .spacing(20)
         .css_classes(["hero"])
         .build();
+    if let Some(id) = e.art {
+        card.add_css_class(&format!("wash-{id}"));
+    }
     card.append(&g);
     card.append(&text);
     m.hero.append(&card);

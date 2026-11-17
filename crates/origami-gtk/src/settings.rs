@@ -704,6 +704,27 @@ fn new_machine_dialog(
             .unwrap_or(0) as u32,
     );
     let name = adw::EntryRow::builder().title("Name").build();
+    let preview = gtk::Box::builder().halign(gtk::Align::Center).build();
+    let show = {
+        let (preview, offerings) = (preview.clone(), offerings.clone());
+        move |combo: &adw::ComboRow| {
+            let o = offerings.get(combo.selected() as usize);
+            let id = o.and_then(|o| crate::art::of(&o.product, Some(&o.topology)));
+            let card = id.and_then(|id| crate::art::framed(id, "card"));
+            if let Some(old) = preview.first_child() {
+                preview.remove(&old);
+            }
+            preview.set_visible(card.is_some());
+            if let Some(card) = card {
+                preview.append(&card);
+            }
+        }
+    };
+    show(&combo);
+    combo.connect_selected_notify(show);
+    let shown = adw::PreferencesGroup::new();
+    shown.add(&preview);
+    page.add(&shown);
     g.add(&combo);
     g.add(&name);
     let err = gtk::Label::builder()

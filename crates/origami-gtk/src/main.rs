@@ -7,12 +7,14 @@
 //! picture is a memory texture.
 
 mod app;
+mod art;
 mod automation;
 mod commands;
 mod config;
 mod console;
 mod cube;
 mod display;
+mod granite;
 mod input;
 mod keys;
 mod library;

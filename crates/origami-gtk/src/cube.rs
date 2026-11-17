@@ -1,7 +1,7 @@
 //! The SGI cube drawn offscreen by the core's renderer: GTK 4 hosts no native
 //! child surface, so each frame is copied out as a texture.
 
-use crate::library::Chassis;
+use crate::granite::{self, tone};
 use adw::prelude::*;
 use gtk::{gdk, glib};
 use origami_render::{scenes, CubeView, Env, Gpu, Pointer, Style};
@@ -27,32 +27,13 @@ fn gpu() -> Option<&'static Gpu> {
     .as_ref()
 }
 
-fn tone(hex: u32) -> [f32; 3] {
-    [16, 8, 0].map(|s| ((hex >> s) & 0xff) as f32 / 255.0)
-}
-
-/// The start screen's cube: the studio with the chassis colour on its horizon,
+/// The start screen's cube: the studio with the machine's colour on its horizon,
 /// over granite of the same hue at low chroma, turning at 10 rpm.
-pub fn starting_style(chassis: Chassis) -> Style {
-    let hex = match chassis {
-        Chassis::Octane => 0x1f9e8f,
-        Chassis::Octane2 => 0x3b6fd4,
-        Chassis::O2 => 0x6a58d6,
-        Chassis::Fuel => 0xcf3b36,
-        Chassis::Tezro => 0x7a4aa6,
-        Chassis::Origin => 0x5b6068,
-        Chassis::Onyx => 0x44525f,
-        Chassis::Other => 0x7b7b84,
-    };
-    let c = tone(hex);
-    let granite = |k: f32| {
-        let grey = [0.13, 0.14, 0.16];
-        std::array::from_fn(|i| (0.22 * c[i] + 0.78 * grey[i]) * k)
-    };
+pub fn starting_style(chassis: u32) -> Style {
     Style {
         env: Env::Studio,
-        horizon: Some(c),
-        granite: [granite(1.0), granite(0.8)],
+        horizon: Some(tone(chassis)),
+        granite: granite::tinted(chassis),
         spin: true,
         ..Style::default()
     }
@@ -279,7 +260,7 @@ mod tests {
         let (min, nat, _, _) = image.measure(gtk::Orientation::Horizontal, -1);
         assert_eq!((min, nat), (96, 96));
 
-        let Some(cube) = Cube::new(96, starting_style(Chassis::Octane)) else {
+        let Some(cube) = Cube::new(96, starting_style(0x2a6574)) else {
             eprintln!("skipping the free check: no hardware GPU");
             return;
         };

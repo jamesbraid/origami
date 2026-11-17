@@ -9,7 +9,8 @@ pub struct Entry {
     pub dir: PathBuf,
     pub name: String,
     pub model: String,
-    pub chassis: Chassis,
+    /// The machine's still, when the product art has one.
+    pub art: Option<&'static str>,
     /// Why the machine file could not be read, when it could not.
     pub error: Option<String>,
     pub summary: Summary,
@@ -27,61 +28,13 @@ pub struct Summary {
     pub shares: usize,
 }
 
-/// A product's colour. It is identity, not state: it never carries meaning
-/// on its own.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Chassis {
-    Octane,
-    Octane2,
-    O2,
-    Fuel,
-    Tezro,
-    Origin,
-    Onyx,
-    Other,
-}
+/// The grey a machine with no still is tinted with.
+const NO_ART: u32 = 0x7b7b84;
 
-impl Chassis {
-    pub fn of(model: &str) -> Chassis {
-        let m = model.to_ascii_lowercase();
-        // Octane2 before Octane, Onyx before Origin's shared prefix.
-        if m.contains("octane2") {
-            Chassis::Octane2
-        } else if m.contains("octane") || m.contains("ip30") {
-            Chassis::Octane
-        } else if m.contains("o2") || m.contains("ip32") {
-            Chassis::O2
-        } else if m.contains("fuel") {
-            Chassis::Fuel
-        } else if m.contains("tezro") {
-            Chassis::Tezro
-        } else if m.contains("onyx") {
-            Chassis::Onyx
-        } else if m.contains("origin") {
-            Chassis::Origin
-        } else {
-            Chassis::Other
-        }
-    }
-
-    pub fn css(self) -> &'static str {
-        match self {
-            Chassis::Octane => "chassis-octane",
-            Chassis::Octane2 => "chassis-octane2",
-            Chassis::O2 => "chassis-o2",
-            Chassis::Fuel => "chassis-fuel",
-            Chassis::Tezro => "chassis-tezro",
-            Chassis::Origin => "chassis-origin",
-            Chassis::Onyx => "chassis-onyx",
-            Chassis::Other => "chassis-other",
-        }
-    }
-
-    pub fn icon(self) -> &'static str {
-        match self {
-            Chassis::Origin | Chassis::Onyx => "network-server-symbolic",
-            _ => "computer-symbolic",
-        }
+impl Entry {
+    /// The machine's measured body colour, for tints and washes.
+    pub fn colour(&self) -> u32 {
+        self.art.map_or(NO_ART, crate::art::colour)
     }
 }
 
@@ -118,7 +71,7 @@ pub fn read(dir: &Path) -> Entry {
                 dir: dir.to_path_buf(),
                 name,
                 model: m.model.clone(),
-                chassis: Chassis::of(&m.model),
+                art: crate::art::of(&m.model, m.topology.as_deref()),
                 error: None,
                 summary: Summary {
                     processor: m.processor.clone().unwrap_or_default(),
@@ -136,7 +89,7 @@ pub fn read(dir: &Path) -> Entry {
             dir: dir.to_path_buf(),
             name,
             model: String::new(),
-            chassis: Chassis::Other,
+            art: None,
             error: Some(e.to_string()),
             summary: Summary::default(),
         },
@@ -148,13 +101,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chassis_follows_the_model_name() {
-        assert_eq!(Chassis::of("octane2"), Chassis::Octane2);
-        assert_eq!(Chassis::of("Octane"), Chassis::Octane);
-        assert_eq!(Chassis::of("o2"), Chassis::O2);
-        assert_eq!(Chassis::of("origin350"), Chassis::Origin);
-        assert_eq!(Chassis::of("onyx2"), Chassis::Onyx);
-        assert_eq!(Chassis::of("mystery"), Chassis::Other);
+    fn a_machine_without_a_still_gets_the_neutral_tint() {
+        let mut e = read(Path::new("/nonexistent"));
+        assert_eq!(e.art, None);
+        assert_eq!(e.colour(), NO_ART);
+        e.art = Some("octane2");
+        assert_eq!(e.colour(), 0x2e354e);
     }
 
     #[test]

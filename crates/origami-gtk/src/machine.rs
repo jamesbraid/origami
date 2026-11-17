@@ -156,7 +156,7 @@ impl MachineUi {
             .wrap(true)
             .max_width_chars(60)
             .justify(gtk::Justification::Center)
-            .css_classes(["title-3"])
+            .css_classes(["title-3", "plate", "on-dark"])
             .halign(gtk::Align::Center)
             .valign(gtk::Align::Center)
             .visible(false)
@@ -169,14 +169,22 @@ impl MachineUi {
             .visible(false)
             .can_target(false)
             .build();
-        let screen = gtk::Overlay::builder()
+        // The offload paints black over its whole area, so it takes the
+        // picture's aspect and the letterbox around it stays granite (at 1:1 the
+        // frame still fills the window, so that mode shows none).
+        let framed = gtk::AspectFrame::builder()
+            .obey_child(true)
             .child(&offload)
+            .build();
+        let screen = gtk::Overlay::builder()
+            .child(&framed)
             .focusable(true)
             .focus_on_click(true)
             .hexpand(true)
             .vexpand(true)
-            .css_classes(["screen-surround"])
             .build();
+        let letterbox = crate::granite::Granite::new(crate::granite::neutral());
+        letterbox.append(&screen);
         screen.add_overlay(&status);
         screen.add_overlay(&hud);
         screen.update_property(&[gtk::accessible::Property::Label(&format!(
@@ -194,10 +202,12 @@ impl MachineUi {
             .spacing(14)
             .halign(gtk::Align::Center)
             .valign(gtk::Align::Center)
-            .css_classes(["screen-surround"])
             .hexpand(true)
             .vexpand(true)
+            .css_classes(["plate"])
             .build();
+        let surround = crate::granite::Granite::new(crate::granite::tinted(entry.colour()));
+        surround.append(&starting);
         let spinner: gtk::Widget = gtk::Spinner::builder()
             .spinning(true)
             .width_request(48)
@@ -222,8 +232,8 @@ impl MachineUi {
                 .build(),
             Some("hero"),
         );
-        root.add_named(&starting, Some("starting"));
-        root.add_named(&screen, Some("screen"));
+        root.add_named(&surround, Some("starting"));
+        root.add_named(&letterbox, Some("screen"));
 
         let pointer = app.prefs.borrow().pointer_for(&entry.dir);
         Rc::new(MachineUi {
@@ -313,7 +323,7 @@ impl MachineUi {
         let mut cube = self.cube.borrow_mut();
         match (starting, cube.is_some()) {
             (true, false) => {
-                let style = crate::cube::starting_style(self.entry.borrow().chassis);
+                let style = crate::cube::starting_style(self.entry.borrow().colour());
                 if let Some(c) = crate::cube::Cube::new(108, style) {
                     self.spinner.set_visible(false);
                     self.starting.prepend(&c.widget);
