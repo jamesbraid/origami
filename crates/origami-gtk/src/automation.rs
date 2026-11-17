@@ -218,6 +218,8 @@ fn describe(m: &MachineUi) -> Value {
             "copy_bounds": d.copy.root().and_then(|r| d.copy.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),
         })),
         "console": m.console.borrow().as_ref().map(|c| c.probe()),
+        "console_tab": m.console_tab.borrow().as_ref().map(|c| c.probe()),
+        "page": m.root.visible_child_name().map(|n| n.to_string()),
         "cards": cards.iter().filter_map(|c| c.parent()).map(|c| size(&c)).collect::<Vec<_>>(),
         "presents_while_hidden": m.stats.borrow().presents_while_hidden,
         "screen_bounds": m.screen.root().and_then(|r| m.screen.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),

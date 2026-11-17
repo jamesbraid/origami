@@ -126,12 +126,16 @@ impl View {
 /// An open Console window, for the automation scenarios to read.
 #[derive(Clone)]
 pub struct Open {
-    pub win: adw::Window,
+    pub win: Option<adw::Window>,
     area: gtk::DrawingArea,
     view: Rc<View>,
 }
 
 impl Open {
+    pub fn focus(&self) {
+        self.area.grab_focus();
+    }
+
     pub fn probe(&self) -> serde_json::Value {
         let t = self.view.term.borrow();
         let (rows, cols) = t.size();
@@ -147,11 +151,9 @@ impl Open {
     }
 }
 
-pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
-    if let Some(w) = m.console.borrow().as_ref() {
-        w.win.present();
-        return;
-    }
+/// The terminal widget over a machine's console, with what it shows. The
+/// Console window and a headless machine's tab both use one.
+fn terminal(app: &Rc<App>, m: &Rc<MachineUi>) -> (gtk::DrawingArea, Rc<View>) {
     let area = gtk::DrawingArea::builder()
         .hexpand(true)
         .vexpand(true)
@@ -319,7 +321,15 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
         });
     }
     area.add_controller(drag);
+    (area, view)
+}
 
+pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
+    if let Some(Some(w)) = m.console.borrow().as_ref().map(|o| o.win.clone()) {
+        w.present();
+        return;
+    }
+    let (area, view) = terminal(app, m);
     let status = adw::WindowTitle::new(&format!("{} Console", m.name), "");
     let header = adw::HeaderBar::new();
     header.set_title_widget(Some(&status));
@@ -336,7 +346,7 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
         win.set_transient_for(Some(&p.win));
     }
     *m.console.borrow_mut() = Some(Open {
-        win: win.clone(),
+        win: Some(win.clone()),
         area: area.clone(),
         view: view.clone(),
     });
@@ -348,20 +358,34 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
             glib::Propagation::Proceed
         });
     }
-    // Pull what the guest printed whenever the core says there is more.
-    let pull = {
-        let (m, view, area, status) = (m.clone(), view.clone(), area.clone(), status);
-        move || {
-            let chunk = m.machine.console_read(view.next.get(), 1 << 16);
-            view.next.set(chunk.next);
-            if !chunk.bytes.is_empty() {
-                let start = chunk.next - chunk.bytes.len() as u64;
-                let replies = view.term.borrow_mut().feed_at(start, &chunk.bytes);
-                if !replies.is_empty() {
-                    let _ = m.machine.console_send(&replies);
-                }
-                area.queue_draw();
+    let pull = puller(m, &view, &area, Some(status));
+    pull();
+    *m.console_notify.borrow_mut() = Some(Box::new(pull));
+    win.present();
+    area.grab_focus();
+}
+
+/// Pull what the guest printed whenever the core says there is more; with a
+/// title, show there that the console is not connected.
+fn puller(
+    m: &Rc<MachineUi>,
+    view: &Rc<View>,
+    area: &gtk::DrawingArea,
+    status: Option<adw::WindowTitle>,
+) -> impl Fn() + 'static {
+    let (m, view, area) = (m.clone(), view.clone(), area.clone());
+    move || {
+        let chunk = m.machine.console_read(view.next.get(), 1 << 16);
+        view.next.set(chunk.next);
+        if !chunk.bytes.is_empty() {
+            let start = chunk.next - chunk.bytes.len() as u64;
+            let replies = view.term.borrow_mut().feed_at(start, &chunk.bytes);
+            if !replies.is_empty() {
+                let _ = m.machine.console_send(&replies);
             }
+            area.queue_draw();
+        }
+        if let Some(status) = &status {
             let c = m.machine.view().console;
             let sub = if c.connected {
                 String::new()
@@ -372,11 +396,22 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
                 status.set_subtitle(&sub);
             }
         }
-    };
+    }
+}
+
+/// A headless machine's tab: its console, with the window's own view. Added
+/// to the machine's page stack as "console".
+pub fn add_tab(app: &Rc<App>, m: &Rc<MachineUi>) {
+    let (area, view) = terminal(app, m);
+    let pull = puller(m, &view, &area, None);
     pull();
-    *m.console_notify.borrow_mut() = Some(Box::new(pull));
-    win.present();
-    area.grab_focus();
+    *m.console_tab_notify.borrow_mut() = Some(Box::new(pull));
+    *m.console_tab.borrow_mut() = Some(Open {
+        win: None,
+        area: area.clone(),
+        view,
+    });
+    m.root.add_named(&area, Some("console"));
 }
 
 fn pangocairo_show(cr: &gtk::cairo::Context, l: &pango::Layout) {

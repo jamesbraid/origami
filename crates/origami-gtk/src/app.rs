@@ -323,6 +323,9 @@ pub fn open(app: &Rc<App>, entry: &Entry) -> Option<Rc<MachineUi>> {
             }
         });
     }
+    if !m.machine.view().has_display {
+        crate::console::add_tab(app, &m);
+    }
     app.machines.borrow_mut().push(m.clone());
     window::add_tab(app, &m);
     m.apply_state();
@@ -406,6 +409,9 @@ fn handle(app: &Rc<App>, msg: Msg) {
                 let Some(m) = by_key(app, &key) else { return };
                 if ev.kinds.contains(&EventKind::Console) {
                     if let Some(f) = m.console_notify.borrow().as_ref() {
+                        f();
+                    }
+                    if let Some(f) = m.console_tab_notify.borrow().as_ref() {
                         f();
                     }
                 }

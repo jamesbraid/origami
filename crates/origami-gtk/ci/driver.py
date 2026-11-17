@@ -1001,7 +1001,28 @@ def cube():
         a.stop()
 
 
-SCENARIOS = {"cube": cube, "hinv": hinv, "about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+def headless():
+    """A machine with no display opens to its console: the running tab shows
+    the console page, with the guest's serial output on it."""
+    create_machine("origin200", "origin200-1")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open origin200")
+        r = a.req("invoke machine.start origin200")
+        check("start accepted", r.get("ok"), r)
+        up = a.wait("Running", lambda: (a.machine("origin200") or {}).get("state") == "Running", 120, 0.5)
+        check("a machine with no display runs without waiting for a picture", up is not None, a.machine("origin200"))
+        m = a.machine("origin200")
+        check("its tab shows the console page", m and m["page"] == "console", m and m["page"])
+        got = a.wait("serial output", lambda: (a.machine("origin200")["console_tab"] or {}).get("received", 0) > 0, 600, 3)
+        check("the guest's serial output is on it", got is not None, (a.machine("origin200")["console_tab"] or {}).get("screen"))
+        shot("headless")
+    finally:
+        a.stop()
+
+
+SCENARIOS = {"headless": headless, "cube": cube, "hinv": hinv, "about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

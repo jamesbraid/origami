@@ -105,6 +105,9 @@ pub struct MachineUi {
     pub hook: Cell<Option<HookId>>,
     /// Called when the console has news; the Console window sets it.
     pub console_notify: RefCell<Option<Box<dyn Fn()>>>,
+    /// A headless machine's console page, and its own update hook.
+    pub console_tab: RefCell<Option<crate::console::Open>>,
+    pub console_tab_notify: RefCell<Option<Box<dyn Fn()>>>,
     pub error: RefCell<Option<String>>,
 
     // widgets
@@ -273,6 +276,8 @@ impl MachineUi {
             wake_pending: Arc::new(AtomicBool::new(false)),
             hook: Cell::new(None),
             console_notify: RefCell::new(None),
+            console_tab: RefCell::new(None),
+            console_tab_notify: RefCell::new(None),
             error: RefCell::new(None),
             root,
             hero,
@@ -412,6 +417,8 @@ impl MachineUi {
                     State::Crashed
                 }
             }
+            // A machine with no display has no picture to wait for.
+            MachineState::Running if !v.has_display => State::Running,
             MachineState::Running => {
                 let active = v.heads.first().is_some_and(|h| h.active);
                 if active && self.size.get() != (0, 0) {
@@ -458,13 +465,23 @@ impl MachineUi {
         // The first picture takes the keyboard, so typing works without a
         // click first (and in a compositor with no pointer to click with).
         if state == State::Running && before != State::Running && self.root.is_mapped() {
-            self.screen.grab_focus();
+            match self.console_tab.borrow().as_ref() {
+                Some(c) => c.focus(),
+                None => {
+                    self.screen.grab_focus();
+                }
+            }
         }
         self.read_operation();
         self.show_cube(state == State::Starting);
         let page = match state {
             State::Stopped | State::Crashed | State::LeftRunning | State::Stopping => "hero",
             State::Starting => "starting",
+            State::Running | State::NoPicture | State::Paused
+                if !self.machine.view().has_display =>
+            {
+                "console"
+            }
             State::Running | State::NoPicture | State::Paused => "screen",
         };
         // Stopping keeps the last picture's place; the hero says Saving.
