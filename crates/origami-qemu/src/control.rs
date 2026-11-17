@@ -11,10 +11,17 @@ use std::net::{SocketAddrV4, TcpStream};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-fn connect(record: &Record) -> Result<TcpStream> {
+/// How long a command waits for QEMU's reply: QEMU greets only when its main
+/// loop runs, which a busy host can delay by more than a few seconds.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a liveness probe waits. UIs probe on their own thread, so a hung
+/// QEMU must not hold them for the command timeout.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn connect(record: &Record, read_timeout: Duration) -> Result<TcpStream> {
     let address = SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, record.qmp_port);
     let stream = TcpStream::connect_timeout(&address.into(), Duration::from_secs(2))?;
-    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    stream.set_read_timeout(Some(read_timeout))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
     Ok(stream)
 }
@@ -25,7 +32,11 @@ pub type Qmp = qapi::Qmp<qapi::Stream<BufReader<TcpStream>, TcpStream>>;
 /// Connect to the QMP endpoint in `record` and check that it belongs to
 /// that machine's QEMU, not another process that reused the port.
 pub fn verified_qmp(record: &Record) -> Result<Qmp> {
-    let stream = connect(record)?;
+    verified_qmp_within(record, COMMAND_TIMEOUT)
+}
+
+fn verified_qmp_within(record: &Record, read_timeout: Duration) -> Result<Qmp> {
+    let stream = connect(record, read_timeout)?;
     let mut qmp = Qmp::new(qapi::Stream::new(
         BufReader::new(stream.try_clone()?),
         stream,
@@ -42,7 +53,9 @@ pub fn verified_qmp(record: &Record) -> Result<Qmp> {
 /// the moment QEMU exits, so a second read can find nothing.
 pub fn running(dir: &Path) -> Result<Option<Record>> {
     match read(dir) {
-        Ok(record) => Ok(verified_qmp(&record).is_ok().then_some(record)),
+        Ok(record) => Ok(verified_qmp_within(&record, PROBE_TIMEOUT)
+            .is_ok()
+            .then_some(record)),
         Err(error)
             if error
                 .downcast_ref::<io::Error>()
