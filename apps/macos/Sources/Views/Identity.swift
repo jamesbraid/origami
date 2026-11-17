@@ -1,16 +1,9 @@
-// Origami's look, kept inside the content and never a setting: Indigo accent,
-// chassis colours, granite behind the screen and the bezel.
+// Origami's look, kept inside the content and never a setting: chassis colours,
+// granite behind the screen and the bezel. Buttons and selection use the system accent.
 
 import SwiftUI
 
 extension Color {
-    /// #4a52c4 in light mode, #7c83f2 in dark.
-    static let indigoAccent = Color(nsColor: NSColor(name: nil) { appearance in
-        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return dark ? NSColor(srgbRed: 0x7c / 255, green: 0x83 / 255, blue: 0xf2 / 255, alpha: 1)
-                    : NSColor(srgbRed: 0x4a / 255, green: 0x52 / 255, blue: 0xc4 / 255, alpha: 1)
-    })
-
     init(rgb: UInt32) {
         self.init(.sRGB, red: Double((rgb >> 16) & 255) / 255, green: Double((rgb >> 8) & 255) / 255,
                   blue: Double(rgb & 255) / 255, opacity: 1)

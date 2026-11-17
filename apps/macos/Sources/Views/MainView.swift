@@ -40,7 +40,6 @@ struct MainView: View {
             .navigationTitle(app.current?.name ?? "Origami")
             .toolbar { MachineToolbar() }
         }
-        .tint(.indigoAccent)
         .frame(minWidth: 820, minHeight: 560)
         .onAppear { app.openWindow = { openWindow(id: $0) } }
         .onChange(of: app.wantSettings) { _, want in
