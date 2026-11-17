@@ -10,7 +10,7 @@ use slint::ComponentHandle;
 use super::Ui;
 use crate::core::logs::{self, is_error_line, Follower, LogSelection};
 use crate::core::status::{self, Facts, Reason};
-use crate::core::terminal::Terminal;
+use crate::core::terminal::{Colour, Terminal};
 use crate::core::{ConsoleKind, ConsoleLink, Key, Power};
 use crate::pointer::{AbsThrottle, PointerMode, RelAccum};
 use crate::termkeys::{self, KeyAction, Mods};
@@ -169,11 +169,11 @@ impl Extra {
     }
 }
 
-fn paint_colour(c: vt100::Color, default: textgrid::Rgb) -> textgrid::Rgb {
+fn paint_colour(c: Colour, default: textgrid::Rgb) -> textgrid::Rgb {
     match c {
-        vt100::Color::Default => default,
-        vt100::Color::Idx(i) => textgrid::indexed(i),
-        vt100::Color::Rgb(r, g, b) => [r, g, b],
+        Colour::Default => default,
+        Colour::Idx(i) => textgrid::indexed(i),
+        Colour::Rgb(r, g, b) => [r, g, b],
     }
 }
 
@@ -298,32 +298,30 @@ impl Ui {
     fn paint_serial(&mut self, mi: usize, w: u32, h: u32) -> Vec<u8> {
         let term = &self.machines[mi].x.term;
         let (rows, cols) = self.painter.grid_for(w, h);
-        let screen = term.screen();
-        let cursor =
-            (term.scrolled() == 0 && !screen.hide_cursor()).then(|| screen.cursor_position());
+        let cursor = (term.scrolled() == 0 && term.cursor_visible()).then(|| term.cursor());
         self.painter.paint(
             w,
             h,
             rows,
             cols,
             |r, c| {
-                let Some(cell) = screen.cell(r, c) else {
+                let Some(cell) = term.cell(r, c) else {
                     return Cell::plain(' ');
                 };
-                let mut fg = paint_colour(cell.fgcolor(), textgrid::DEFAULT_FG);
-                let mut bg = paint_colour(cell.bgcolor(), textgrid::DEFAULT_BG);
-                if cell.inverse() ^ term.is_selected(r, c) {
+                let mut fg = paint_colour(cell.fg, textgrid::DEFAULT_FG);
+                let mut bg = paint_colour(cell.bg, textgrid::DEFAULT_BG);
+                if cell.inverse ^ term.is_selected(r, c) {
                     std::mem::swap(&mut fg, &mut bg);
                 }
-                if cell.dim() {
+                if cell.dim {
                     fg = fg.map(|v| (u32::from(v) * 2 / 3) as u8);
                 }
                 Cell {
-                    ch: cell.contents().chars().next().unwrap_or(' '),
+                    ch: cell.text.chars().next().unwrap_or(' '),
                     fg,
                     bg,
-                    bold: cell.bold(),
-                    underline: cell.underline(),
+                    bold: cell.bold,
+                    underline: cell.underline,
                 }
             },
             cursor,
@@ -599,14 +597,24 @@ impl Ui {
     /// Take what the serial console has sent into the terminal.
     pub fn feed_console(&mut self, mi: usize) {
         let m = &mut self.machines[mi];
+        if m.x.term.history_end().is_none() {
+            // What the console holds now is history: its queries get no answer.
+            m.x.term
+                .set_history_end(m.fm.console_read(u64::MAX, 0).next);
+        }
         let mut chunk = m.fm.console_read(m.x.console_from, CONSOLE_READ);
         if chunk.next < m.x.console_from {
             // The machine started again and its offsets began from zero.
             chunk = m.fm.console_read(0, CONSOLE_READ);
+            m.x.term.set_history_end(0);
         }
         m.x.console_from = chunk.next;
         if !chunk.bytes.is_empty() {
-            m.x.term.feed(&chunk.bytes);
+            let start = chunk.next - chunk.bytes.len() as u64;
+            let replies = m.x.term.feed_at(start, &chunk.bytes);
+            if !replies.is_empty() {
+                let _ = m.fm.console_send(&replies);
+            }
             m.x.text_dirty = true;
             self.render_text(mi);
         }
@@ -1139,7 +1147,7 @@ impl Ui {
                         "notice": m.x.notice,
                         "console_kind": m.x.console_kind.map(|k| if k == ConsoleKind::Serial { "serial" } else { "graphics" }),
                         "serial_connected": m.x.console == ConsoleLink::Connected,
-                        "serial_screen": m.x.term.screen().contents(),
+                        "serial_screen": m.x.term.screen_text(),
                         "serial_received": m.x.term.received,
                         "serial_scrolled": m.x.term.scrolled(),
                         "serial_history": m.x.term.history(),

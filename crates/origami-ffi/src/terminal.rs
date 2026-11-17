@@ -4,7 +4,7 @@
 
 use crate::control::{CoreError, OrigamiMachine};
 use origami_core::facade as f;
-use origami_terminal::{key_bytes as term_key_bytes, Key, KeyModes, Terminal};
+use origami_terminal::{key_bytes as term_key_bytes, Colour, Key, KeyModes, Terminal};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,12 +30,12 @@ pub enum OrigamiTerminalColour {
     Rgb { r: u8, g: u8, b: u8 },
 }
 
-impl From<vt100::Color> for OrigamiTerminalColour {
-    fn from(c: vt100::Color) -> Self {
+impl From<Colour> for OrigamiTerminalColour {
+    fn from(c: Colour) -> Self {
         match c {
-            vt100::Color::Default => Self::Default,
-            vt100::Color::Idx(index) => Self::Indexed { index },
-            vt100::Color::Rgb(r, g, b) => Self::Rgb { r, g, b },
+            Colour::Default => Self::Default,
+            Colour::Idx(index) => Self::Indexed { index },
+            Colour::Rgb(r, g, b) => Self::Rgb { r, g, b },
         }
     }
 }
@@ -140,9 +140,17 @@ impl State {
         self.refresh(true);
     }
 
+    #[cfg(test)]
     fn feed(&mut self, bytes: &[u8]) {
         self.term.feed(bytes);
         self.refresh(false);
+    }
+
+    /// Feed output at console offset `offset`; the bytes to answer it with.
+    fn feed_at(&mut self, offset: u64, bytes: &[u8]) -> Vec<u8> {
+        let replies = self.term.feed_at(offset, bytes);
+        self.refresh(false);
+        replies
     }
 
     fn resize(&mut self, rows: u16, cols: u16) {
@@ -167,17 +175,12 @@ impl State {
             self.row_seq = vec![0; usize::from(rows)];
             self.full_seq = stamp;
         }
-        let screen = self.term.screen();
-        let cursor = (!screen.hide_cursor()).then(|| screen.cursor_position());
+        let cursor = self.term.cursor_visible().then(|| self.term.cursor());
         for r in 0..rows {
             let mut h = DefaultHasher::new();
             for c in 0..cols {
-                if let Some(cell) = screen.cell(r, c) {
-                    let (fg, bg): (OrigamiTerminalColour, OrigamiTerminalColour) =
-                        (cell.fgcolor().into(), cell.bgcolor().into());
-                    (cell.contents(), fg, bg).hash(&mut h);
-                    (cell.bold(), cell.dim(), cell.italic(), cell.underline()).hash(&mut h);
-                    cell.inverse().hash(&mut h);
+                if let Some(cell) = self.term.cell(r, c) {
+                    cell.hash(&mut h);
                 }
             }
             cursor.filter(|p| p.0 == r).hash(&mut h);
@@ -194,20 +197,19 @@ impl State {
     }
 
     fn row(&self, row: u16) -> Vec<OrigamiTerminalCell> {
-        let screen = self.term.screen();
         (0..self.term.size().1)
-            .map(|c| match screen.cell(row, c) {
+            .map(|c| match self.term.cell(row, c) {
                 Some(cell) => OrigamiTerminalCell {
-                    text: cell.contents().to_string(),
-                    fg: cell.fgcolor().into(),
-                    bg: cell.bgcolor().into(),
-                    bold: cell.bold(),
-                    dim: cell.dim(),
-                    italic: cell.italic(),
-                    underline: cell.underline(),
-                    inverse: cell.inverse(),
-                    wide: cell.is_wide(),
-                    continuation: cell.is_wide_continuation(),
+                    text: cell.text,
+                    fg: cell.fg.into(),
+                    bg: cell.bg.into(),
+                    bold: cell.bold,
+                    dim: cell.dim,
+                    italic: cell.italic,
+                    underline: cell.underline,
+                    inverse: cell.inverse,
+                    wide: cell.wide,
+                    continuation: cell.continuation,
                 },
                 None => OrigamiTerminalCell {
                     text: String::new(),
@@ -279,6 +281,8 @@ fn key_bytes(
 
 struct Shared {
     machine: Arc<OrigamiMachine>,
+    /// Input for the console's writer.
+    tx: SyncSender<Vec<u8>>,
     state: Mutex<State>,
     closed: AtomicBool,
 }
@@ -307,7 +311,12 @@ impl Shared {
                     s.reset();
                 }
                 s.next = chunk.next;
-                s.feed(&chunk.bytes);
+                // Answers to the guest's queries (device attributes and the like).
+                let start = chunk.next - chunk.bytes.len() as u64;
+                let replies = s.feed_at(start, &chunk.bytes);
+                if !replies.is_empty() {
+                    let _ = self.tx.try_send(replies);
+                }
                 if chunk.bytes.len() < CHUNK {
                     break;
                 }
@@ -338,12 +347,18 @@ impl OrigamiTerminal {
     /// console already holds is replayed into it.
     #[uniffi::constructor]
     pub fn new(machine: Arc<OrigamiMachine>, rows: u16, cols: u16) -> Res<Arc<OrigamiTerminal>> {
+        let (tx, rx) = sync_channel(QUEUE);
+        let mut state = State::new(rows, cols);
+        // What the console holds now is history: its queries get no answer.
+        state
+            .term
+            .set_history_end(machine.console_read(u64::MAX, 0).next);
         let shared = Arc::new(Shared {
             machine,
-            state: Mutex::new(State::new(rows, cols)),
+            tx: tx.clone(),
+            state: Mutex::new(state),
             closed: AtomicBool::new(false),
         });
-        let (tx, rx) = sync_channel(QUEUE);
         let (pump, machine) = (shared.clone(), shared.machine.clone());
         let spawn = |name: &str, run: Box<dyn FnOnce() + Send>| {
             std::thread::Builder::new()
@@ -382,12 +397,11 @@ impl OrigamiTerminal {
 
     pub fn cursor(&self) -> OrigamiTerminalCursor {
         let s = self.0.lock();
-        let screen = s.term.screen();
-        let (row, col) = screen.cursor_position();
+        let (row, col) = s.term.cursor();
         OrigamiTerminalCursor {
             row,
             col,
-            visible: !screen.hide_cursor(),
+            visible: s.term.cursor_visible(),
         }
     }
 
@@ -515,7 +529,7 @@ mod tests {
         let row = s.row(0);
         assert_eq!(text(&row), "hi");
         assert_eq!(row[0].fg, OrigamiTerminalColour::Indexed { index: 1 });
-        assert_eq!(s.term.screen().cursor_position(), (0, 2));
+        assert_eq!(s.term.cursor(), (0, 2));
     }
 
     #[test]
@@ -554,7 +568,11 @@ mod tests {
         for i in 0..20_000 {
             s.feed(format!("{i}\r\n").as_bytes());
         }
-        assert_eq!(s.term.history(), origami_terminal::SCROLLBACK);
+        // Ghostty trims history a page (about 750 lines) at a time.
+        let kept = s.term.history();
+        assert!(
+            (origami_terminal::SCROLLBACK - 1000..=origami_terminal::SCROLLBACK).contains(&kept)
+        );
     }
 
     #[test]
@@ -566,7 +584,7 @@ mod tests {
             s.feed(format!("x\x1b[4294967295{seq}\x1b[99999999999;99999999999{seq}").as_bytes());
         }
         s.feed(b"\x1b[65535;65535H\x1b[999999r\x1b[1;999999;999999;999999$z");
-        let (r, c) = s.term.screen().cursor_position();
+        let (r, c) = s.term.cursor();
         assert!(r < MAX_ROWS && c < MAX_COLS);
     }
 

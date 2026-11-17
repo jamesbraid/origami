@@ -2,35 +2,45 @@
 //! selection over it, and the bytes a key sends. Nothing here draws or
 //! touches a window.
 
-use std::num::NonZeroU16;
+mod engine;
+mod vt100_engine;
 
-/// Lines of history kept above the screen.
-pub const SCROLLBACK: usize = 5000;
+pub use engine::{CellInfo, Colour, Engine, EngineKind};
+pub use vt100_engine::SCROLLBACK;
 
-fn nz(n: u16) -> NonZeroU16 {
-    NonZeroU16::new(n.max(1)).unwrap_or(NonZeroU16::MIN)
-}
+pub use vt100_engine::Vt100;
 
 /// A cell of the visible screen, row first.
 pub type Cell = (u16, u16);
 
 pub struct Terminal {
-    parser: vt100::Parser,
+    engine: Box<dyn Engine>,
     /// Where a drag started and where it is now, in visible cells.
     selection: Option<(Cell, Cell)>,
     /// Whether Backspace sends ^H (SGI consoles erase on BS) instead of DEL.
     pub backspace_sends_bs: bool,
     /// Bytes the guest has sent.
     pub received: u64,
+    /// Console offset below which output was already there when this
+    /// terminal opened; None until a reader says (see `feed_at`).
+    history_end: Option<u64>,
 }
 
 impl Terminal {
     pub fn new(rows: u16, cols: u16) -> Self {
+        Self::with_engine(EngineKind::default(), rows, cols)
+    }
+
+    pub fn with_engine(kind: EngineKind, rows: u16, cols: u16) -> Self {
+        let engine: Box<dyn Engine> = match kind {
+            EngineKind::Vt100 => Box::new(Vt100::new(rows, cols)),
+        };
         Terminal {
-            parser: vt100::Parser::new(nz(rows), nz(cols), SCROLLBACK),
+            engine,
             selection: None,
             backspace_sends_bs: true,
             received: 0,
+            history_end: None,
         }
     }
 
@@ -50,34 +60,96 @@ impl Terminal {
         // New output moves the text under a selection, and a viewer that has
         // scrolled back stays where it is looking (vt100 keeps the offset).
         self.selection = None;
-        self.parser.process(bytes);
+        self.engine.feed(bytes);
+    }
+
+    /// Output before console offset `end` is history: `feed_at` answers none
+    /// of its queries.
+    pub fn set_history_end(&mut self, end: u64) {
+        self.history_end = Some(end);
+    }
+
+    pub fn history_end(&self) -> Option<u64> {
+        self.history_end
+    }
+
+    /// Feed output that starts at console offset `offset`; returns the bytes
+    /// to send the guest in reply to the part after the history, so a
+    /// replayed query does not type a reply into a guest that has moved on.
+    pub fn feed_at(&mut self, offset: u64, bytes: &[u8]) -> Vec<u8> {
+        let end = self.history_end.unwrap_or(0);
+        let split = end.saturating_sub(offset).min(bytes.len() as u64) as usize;
+        self.feed(&bytes[..split]);
+        drop(self.engine.take_replies());
+        self.feed(&bytes[split..]);
+        self.engine.take_replies()
     }
 
     pub fn resize(&mut self, rows: u16, cols: u16) {
         let (r, c) = self.size();
         if (r, c) != (rows.max(1), cols.max(1)) {
             self.selection = None;
-            self.parser.set_size(nz(rows), nz(cols));
+            self.engine.resize(rows.max(1), cols.max(1));
         }
     }
 
     /// (rows, columns)
     pub fn size(&self) -> (u16, u16) {
-        let (r, c) = self.parser.screen().size();
-        (r.get(), c.get())
+        self.engine.size()
     }
 
-    pub fn screen(&self) -> &vt100::Screen {
-        self.parser.screen()
+    pub fn cell(&self, row: u16, col: u16) -> Option<CellInfo> {
+        self.engine.cell(row, col)
+    }
+
+    /// (row, column) on the live screen.
+    pub fn cursor(&self) -> (u16, u16) {
+        self.engine.cursor()
+    }
+
+    pub fn cursor_visible(&self) -> bool {
+        self.engine.cursor_visible()
+    }
+
+    pub fn hyperlink(&self, row: u16, col: u16) -> Option<String> {
+        self.engine.hyperlink(row, col)
+    }
+
+    /// Bytes the emulator wants sent to the guest, such as a device
+    /// attributes reply.
+    pub fn take_replies(&mut self) -> Vec<u8> {
+        self.engine.take_replies()
+    }
+
+    /// The view as text: rows joined by newlines, trailing blank rows cut.
+    pub fn screen_text(&self) -> String {
+        let rows = (0..self.size().0).map(|r| self.row_text(r));
+        let text = rows.collect::<Vec<_>>().join("\n");
+        text.trim_end_matches('\n').to_string()
+    }
+
+    /// A row of the view as text, blanks as spaces, trailing blanks cut.
+    pub fn row_text(&self, row: u16) -> String {
+        let (_, cols) = self.size();
+        let mut s = String::new();
+        for c in 0..cols {
+            match self.cell(row, c) {
+                Some(cell) if cell.text.is_empty() && !cell.continuation => s.push(' '),
+                Some(cell) => s.push_str(&cell.text),
+                None => {}
+            }
+        }
+        s.truncate(s.trim_end().len());
+        s
     }
 
     /// Lines of history above what the screen shows now (0 when at the end).
     pub fn scrolled(&self) -> usize {
-        self.parser.screen().scrollback()
+        self.engine.scrolled()
     }
 
     pub fn history(&self) -> usize {
-        self.parser.screen().scrollback_len()
+        self.engine.history()
     }
 
     /// Scroll `rows` lines back into history (negative: forward).
@@ -86,7 +158,7 @@ impl Terminal {
         let to = (now + rows).clamp(0, self.history() as isize) as usize;
         if to != self.scrolled() {
             self.selection = None;
-            self.parser.screen_mut().set_scrollback(to);
+            self.engine.set_scrolled(to);
         }
     }
 
@@ -95,11 +167,11 @@ impl Terminal {
     }
 
     pub fn app_cursor(&self) -> bool {
-        self.parser.screen().application_cursor()
+        self.engine.app_cursor()
     }
 
     pub fn bracketed_paste(&self) -> bool {
-        self.parser.screen().bracketed_paste()
+        self.engine.bracketed_paste()
     }
 
     pub fn select_from(&mut self, cell: Cell) {
@@ -135,10 +207,7 @@ impl Terminal {
     pub fn selected_text(&self) -> Option<String> {
         let ((r0, c0), (r1, c1)) = self.selection()?;
         let (_, cols) = self.size();
-        let text = self
-            .parser
-            .screen()
-            .contents_between(r0, c0, r1, (c1 + 1).min(cols));
+        let text = self.engine.text_between(r0, c0, r1, (c1 + 1).min(cols));
         let text = text
             .split('\n')
             .map(str::trim_end)
@@ -282,67 +351,81 @@ mod tests {
         }
     }
 
+    fn each(f: impl Fn(EngineKind)) {
+        f(EngineKind::Vt100);
+    }
+
     #[test]
     fn output_lands_on_the_screen_and_old_lines_go_to_scrollback() {
-        let mut t = Terminal::new(5, 20);
-        for i in 0..30 {
-            t.feed(format!("line {i}\r\n").as_bytes());
-        }
-        assert!(t.history() >= 25);
-        assert_eq!(t.scrolled(), 0);
-        t.scroll(10);
-        assert_eq!(t.scrolled(), 10);
-        let top = t.screen().rows(0, 20).next().unwrap();
-        assert!(top.starts_with("line "), "{top}");
-        t.scroll_to_end();
-        assert_eq!(t.scrolled(), 0);
-        // Never further than there is history.
-        t.scroll(1_000_000);
-        assert_eq!(t.scrolled(), t.history());
+        each(|k| {
+            let mut t = Terminal::with_engine(k, 5, 20);
+            for i in 0..30 {
+                t.feed(format!("line {i}\r\n").as_bytes());
+            }
+            assert!(t.history() >= 25);
+            assert_eq!(t.scrolled(), 0);
+            t.scroll(10);
+            assert_eq!(t.scrolled(), 10);
+            let top = t.row_text(0);
+            assert!(top.starts_with("line "), "{top}");
+            t.scroll_to_end();
+            assert_eq!(t.scrolled(), 0);
+            // Never further than there is history.
+            t.scroll(1_000_000);
+            assert_eq!(t.scrolled(), t.history());
+        });
     }
 
     #[test]
     fn a_selection_yields_its_text_and_clears_on_new_output() {
-        let mut t = Terminal::new(5, 20);
-        t.feed(b"hello world\r\nsecond line\r\n");
-        t.select_from((0, 6));
-        t.select_to((0, 10));
-        assert_eq!(t.selected_text().as_deref(), Some("world"));
-        assert!(t.is_selected(0, 8));
-        assert!(!t.is_selected(0, 5));
-        // Dragging up and left selects the same cells.
-        t.select_from((1, 5));
-        t.select_to((0, 6));
-        assert_eq!(t.selected_text().as_deref(), Some("world\nsecond"));
-        t.feed(b"x");
-        assert_eq!(t.selected_text(), None);
+        each(|k| {
+            let mut t = Terminal::with_engine(k, 5, 20);
+            t.feed(b"hello world\r\nsecond line\r\n");
+            t.select_from((0, 6));
+            t.select_to((0, 10));
+            assert_eq!(t.selected_text().as_deref(), Some("world"));
+            assert!(t.is_selected(0, 8));
+            assert!(!t.is_selected(0, 5));
+            // Dragging up and left selects the same cells.
+            t.select_from((1, 5));
+            t.select_to((0, 6));
+            assert_eq!(t.selected_text().as_deref(), Some("world\nsecond"));
+            t.feed(b"x");
+            assert_eq!(t.selected_text(), None);
+        });
     }
 
     #[test]
     fn a_click_without_a_drag_selects_nothing() {
-        let mut t = Terminal::new(5, 20);
-        t.feed(b"abc");
-        t.select_from((0, 1));
-        assert_eq!(t.selection(), None);
-        assert_eq!(t.selected_text(), None);
+        each(|k| {
+            let mut t = Terminal::with_engine(k, 5, 20);
+            t.feed(b"abc");
+            t.select_from((0, 1));
+            assert_eq!(t.selection(), None);
+            assert_eq!(t.selected_text(), None);
+        });
     }
 
     #[test]
     fn a_paste_ends_lines_with_carriage_returns_and_brackets_when_asked() {
-        let mut t = Terminal::new(5, 20);
-        assert_eq!(t.paste_bytes("ls\nls -l\r\n"), b"ls\rls -l\r");
-        t.feed(b"\x1b[?2004h");
-        assert_eq!(t.paste_bytes("a"), b"\x1b[200~a\x1b[201~");
-        assert_eq!(t.paste_bytes("a\x1b[201~b"), b"\x1b[200~a[201~b\x1b[201~");
+        each(|k| {
+            let mut t = Terminal::with_engine(k, 5, 20);
+            assert_eq!(t.paste_bytes("ls\nls -l\r\n"), b"ls\rls -l\r");
+            t.feed(b"\x1b[?2004h");
+            assert_eq!(t.paste_bytes("a"), b"\x1b[200~a\x1b[201~");
+            assert_eq!(t.paste_bytes("a\x1b[201~b"), b"\x1b[200~a[201~b\x1b[201~");
+        });
     }
 
     #[test]
     fn resizing_keeps_the_text() {
-        let mut t = Terminal::new(5, 20);
-        t.feed(b"abc");
-        t.resize(10, 40);
-        assert_eq!(t.size(), (10, 40));
-        assert!(t.screen().contents().starts_with("abc"));
+        each(|k| {
+            let mut t = Terminal::with_engine(k, 5, 20);
+            t.feed(b"abc");
+            t.resize(10, 40);
+            assert_eq!(t.size(), (10, 40));
+            assert!(t.row_text(0).starts_with("abc"));
+        });
     }
 
     #[test]

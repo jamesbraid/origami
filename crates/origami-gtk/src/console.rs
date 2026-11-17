@@ -1,5 +1,5 @@
 //! The Console window: a machine's serial console as a terminal, drawn with
-//! cairo and Pango over the core's terminal model (vt100 screen, scrollback,
+//! cairo and Pango over the core's terminal model (screen, scrollback,
 //! selection, paste). One window per machine, pulled when the core says the
 //! console has news, so a closed or quiet console costs nothing.
 
@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::machine::MachineUi;
 use adw::prelude::*;
 use gtk::{gdk, glib, pango};
-use origami_terminal::{key_bytes as term_key_bytes, Key, KeyModes, Terminal};
+use origami_terminal::{key_bytes as term_key_bytes, Colour, Key, KeyModes, Terminal};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -51,11 +51,11 @@ fn palette(i: u8) -> (f64, f64, f64) {
     )
 }
 
-fn colour(c: vt100::Color, default: (f64, f64, f64)) -> (f64, f64, f64) {
+fn colour(c: Colour, default: (f64, f64, f64)) -> (f64, f64, f64) {
     match c {
-        vt100::Color::Default => default,
-        vt100::Color::Idx(i) => palette(i),
-        vt100::Color::Rgb(r, g, b) => (
+        Colour::Default => default,
+        Colour::Idx(i) => palette(i),
+        Colour::Rgb(r, g, b) => (
             f64::from(r) / 255.0,
             f64::from(g) / 255.0,
             f64::from(b) / 255.0,
@@ -141,7 +141,7 @@ impl Open {
             .and_then(|r| self.area.compute_bounds(r.upcast_ref::<gtk::Widget>()));
         serde_json::json!({
             "rows": rows, "cols": cols, "received": t.received, "scrolled": t.scrolled(), "history": t.history(),
-            "selected": t.selected_text(), "sent": self.view.sent.as_ref().map(|s| String::from_utf8_lossy(&s.borrow()).into_owned()), "screen": t.screen().contents(), "cell": self.view.cell.get(),
+            "selected": t.selected_text(), "sent": self.view.sent.as_ref().map(|s| String::from_utf8_lossy(&s.borrow()).into_owned()), "screen": t.screen_text(), "cell": self.view.cell.get(),
             "bounds": b.map(|b| [b.x(), b.y(), b.width(), b.height()]),
         })
     }
@@ -162,8 +162,11 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
         "{} console",
         m.name
     ))]);
+    let mut term = Terminal::new(24, 80);
+    // What the console holds now is history: its queries get no answer.
+    term.set_history_end(m.machine.console_read(u64::MAX, 0).next);
     let view = Rc::new(View {
-        term: RefCell::new(Terminal::new(24, 80)),
+        term: RefCell::new(term),
         cell: std::cell::Cell::new((9.0, 18.0)),
         next: std::cell::Cell::new(0),
         sent: app.cfg.automation.as_ref().map(|_| RefCell::default()),
@@ -187,17 +190,16 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
                 view.term.borrow_mut().resize(rows, cols);
             }
             let term = view.term.borrow();
-            let screen = term.screen();
             let (bg, fg) = ((0.07, 0.07, 0.08), (0.85, 0.85, 0.85));
             cr.set_source_rgb(bg.0, bg.1, bg.2);
             let _ = cr.paint();
             for r in 0..rows {
                 for c in 0..cols {
-                    let Some(cell) = screen.cell(r, c) else {
+                    let Some(cell) = term.cell(r, c) else {
                         continue;
                     };
-                    let (mut f, mut b) = (colour(cell.fgcolor(), fg), colour(cell.bgcolor(), bg));
-                    if cell.inverse() ^ term.is_selected(r, c) {
+                    let (mut f, mut b) = (colour(cell.fg, fg), colour(cell.bg, bg));
+                    if cell.inverse ^ term.is_selected(r, c) {
                         std::mem::swap(&mut f, &mut b);
                     }
                     let (x, y) = (f64::from(c) * cw, f64::from(r) * ch);
@@ -206,11 +208,11 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
                         cr.rectangle(x, y, cw, ch);
                         let _ = cr.fill();
                     }
-                    let text = cell.contents();
+                    let text = cell.text.as_str();
                     if !text.is_empty() && text != " " {
                         let l = area.create_pango_layout(Some(text));
                         let mut fd = font.clone();
-                        if cell.bold() {
+                        if cell.bold {
                             fd.set_weight(pango::Weight::Bold);
                         }
                         l.set_font_description(Some(&fd));
@@ -220,8 +222,8 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
                     }
                 }
             }
-            if !screen.hide_cursor() && term.scrolled() == 0 {
-                let (cr_r, cr_c) = screen.cursor_position();
+            if term.cursor_visible() && term.scrolled() == 0 {
+                let (cr_r, cr_c) = term.cursor();
                 cr.set_source_rgba(0.9, 0.9, 0.9, 0.6);
                 cr.rectangle(f64::from(cr_c) * cw, f64::from(cr_r) * ch, cw, ch);
                 let _ = cr.fill();
@@ -353,7 +355,11 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
             let chunk = m.machine.console_read(view.next.get(), 1 << 16);
             view.next.set(chunk.next);
             if !chunk.bytes.is_empty() {
-                view.term.borrow_mut().feed(&chunk.bytes);
+                let start = chunk.next - chunk.bytes.len() as u64;
+                let replies = view.term.borrow_mut().feed_at(start, &chunk.bytes);
+                if !replies.is_empty() {
+                    let _ = m.machine.console_send(&replies);
+                }
                 area.queue_draw();
             }
             let c = m.machine.view().console;

@@ -34,7 +34,6 @@ origami-iris = { path = "../origami-iris", optional = true }
 origami-render = { path = "../origami-render", optional = true }
 origami-terminal = { path = "../origami-terminal" }
 thiserror = "2"
-vt100 = "0.18"
 # The version origami-render pins, for the cursor texture upload.
 wgpu = { version = "30", optional = true }
 uniffi = { version = "0.32.2", features = ["cli"] }
