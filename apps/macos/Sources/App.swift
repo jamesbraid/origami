@@ -188,6 +188,12 @@ struct OrigamiApp: App {
         }
         .defaultSize(width: 640, height: 400)
 
+        WindowGroup("Console", id: "console", for: String.self) { $key in
+            if let key { ConsoleWindow(key: key).environmentObject(app) }
+        }
+        .defaultSize(width: 700, height: 440)
+        .commandsRemoved()
+
         Window("About Origami", id: "about") {
             AboutView().environmentObject(app)
         }

@@ -41,7 +41,10 @@ struct MainView: View {
             .toolbar { MachineToolbar() }
         }
         .frame(minWidth: 820, minHeight: 560)
-        .onAppear { app.openWindow = { openWindow(id: $0) } }
+        .onAppear {
+            app.openWindow = { openWindow(id: $0) }
+            app.openConsole = { openWindow(id: "console", value: $0) }
+        }
         .onChange(of: app.wantSettings) { _, want in
             if want { settingsFor = app.current; app.wantSettings = false }
         }

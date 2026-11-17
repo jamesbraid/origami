@@ -152,6 +152,27 @@ func runSelfTest(library: String, out: String) {
               ["first_line": String(text.split(separator: "\n").first ?? "")])
     }
 
+    // Console keys: what a serial terminal is sent, and Option as Meta only when asked for.
+    do {
+        func k(_ code: UInt16, _ ch: String, _ ign: String? = nil, _ flags: NSEvent.ModifierFlags = [], meta: Bool = false) -> ConsoleKeys.Mapped? {
+            ConsoleKeys.key(keyCode: code, chars: ch, ignoring: ign ?? ch, flags: flags, optionAsMeta: meta)
+        }
+        let plain = k(0, "a") == .init(key: .text(text: "a"))
+        let special = k(126, "")?.key == .up && k(36, "\r")?.key == .enter && k(51, "")?.key == .backspace && k(122, "")?.key == .function(number: 1)
+            && k(48, "\t", nil, .shift)?.key == .backTab && k(0, "a", nil, .command) == nil
+        let ctrl = k(8, "\u{3}", "c", .control) == .init(key: .text(text: "c"), ctrl: true)
+        let optionOff = k(3, "ƒ", "f", .option) == .init(key: .text(text: "ƒ"))
+        let optionOn = k(3, "ƒ", "f", .option, meta: true) == .init(key: .text(text: "f"), alt: true)
+        let commandKept = k(126, "", nil, .command) == nil && k(51, "", nil, .command) == nil
+        let wholeString = k(0, "ab") == .init(key: .text(text: "ab")) && k(0, "\u{F700}") == nil
+        let arrowMeta = k(126, "", nil, .option, meta: true) == .init(key: .up, alt: true) && k(126, "", nil, .option) == .init(key: .up)
+            && k(126, "", nil, [.shift, .control]) == .init(key: .up, shift: true, ctrl: true) && k(48, "\t", nil, .shift)?.shift == false
+        check("console-keys", plain && special && ctrl && optionOff && optionOn && commandKept && wholeString && arrowMeta
+              && !UserDefaults.standard.bool(forKey: ConsoleKeys.optionAsMetaKey),
+              ["plain": plain, "special": special, "ctrl": ctrl, "option_composes_when_off": optionOff, "option_is_meta_when_on": optionOn,
+               "command_chords_left_to_the_app": commandKept, "whole_typed_string": wholeString, "arrow_meta": arrowMeta])
+    }
+
     let wanted = ProcessInfo.processInfo.environment["ORIGAMI_TEST_MACHINE"]
     guard let model = (wanted.flatMap { app.model(named: $0) } ?? app.models.first) else {
         check("library", false, ["error": "no machines in \(library)"]); finish()
@@ -499,6 +520,15 @@ func runSelfTest(library: String, out: String) {
             session.key(MacKeys.table[code]!.rawValue, down: true); session.key(MacKeys.table[code]!.rawValue, down: false)
         }
         check("qemu-keys-sent-and-released", session.releaseAll() == 0, ["note": "no guest-visible effect is checked"])
+        // The serial console on the real engine: input is accepted. What comes back depends on the PROM's console setting.
+        do {
+            let console = model.console()
+            console.attach(rows: 24, cols: 80)
+            console.send(.enter)
+            console.drainInput(); spin(2)
+            check("qemu-console-accepts-input", console.terminal != nil && console.error == nil, ["error": console.error ?? "none"])
+            console.detach()
+        }
         app.confirm = { _, _, _ in true }
         var stopped: Error?? = .none
         model.stop { e in stopped = .some(e) }
@@ -589,6 +619,38 @@ func runSelfTest(library: String, out: String) {
     check("frame-copy-path", taken != nil && taken!.frame.width == 64 && taken!.frame.height == 48 && taken!.frame.bytes_used == 64 * 48 * 4,
           ["bytes_used": taken.map { Int($0.frame.bytes_used) } ?? -1])
     check("frame-copy-path-then-none", session.takeCopy(into: &pixels) == nil, [:])
+    // A console view takes the size it has been given, not a placeholder, when it first attaches.
+    do {
+        let own = ConsoleModel(machine: model)
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 440), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        let v = ConsoleNSView(console: own)
+        w.contentView = v
+        v.frame = NSRect(x: 0, y: 0, width: 700, height: 440)
+        _ = waitFor(5) { own.terminal != nil }
+        let want = (Int(440 / v.cell.height), Int(700 / v.cell.width))
+        check("console-view-attaches-at-its-real-size", own.firstAttach.map { $0 == want } ?? false,
+              ["first": "\(String(describing: own.firstAttach))", "want": "\(want)"])
+        w.contentView = NSView()
+        check("console-ends-with-its-last-view", waitFor(5) { own.terminal == nil }, [:])
+    }
+    // The console window: output the core holds reaches the terminal, only changed rows are reported, input goes back.
+    do {
+        let console = model.console()
+        console.attach(rows: 24, cols: 80)
+        func text(_ r: Int) -> String { ((try? console.terminal?.row(index: UInt16(r))) ?? []).map { $0.text.isEmpty ? " " : $0.text }.joined() }
+        func screen() -> String { (0..<24).map(text).joined(separator: "\n") }
+        _ = console.damage()
+        do { try host.core.fakeSay(key: key, text: "PROM says hello\r\n") } catch { check("fake-say", false, ["error": "\(error)"]) }
+        check("console-output-arrives", waitFor(10) { screen().contains("PROM says hello") }, ["screen_head": String(screen().prefix(80))])
+        let dirty = console.damage()
+        check("console-redraws-only-changed-rows", dirty != nil && !(dirty ?? []).isEmpty && (dirty ?? []).count < 24 && console.damage() == [],
+              ["rows": "\(String(describing: dirty))"])
+        console.send(.text(text: "h")); console.send(.enter); console.paste("hinv\r")
+        console.drainInput(); spin(0.2)
+        check("console-send-accepted", console.error == nil, ["error": console.error ?? "none"])
+        console.detach()
+    }
 
     // The display view in a window that is never shown.
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 512),

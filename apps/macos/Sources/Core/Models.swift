@@ -62,6 +62,13 @@ final class MachineModel: ObservableObject, Identifiable {
     @Published private(set) var emulatorUp = false
 
     weak var view: MachineView?
+    /// The serial console model, made when its window first opens.
+    private(set) var consoleModel: ConsoleModel?
+    func console() -> ConsoleModel {
+        if let c = consoleModel { return c }
+        let c = ConsoleModel(machine: self); consoleModel = c; return c
+    }
+    func openSession() throws -> MachineSession { try open() }
     private(set) var startedAt: Date?
     private var expectedStop = false
     private var noPictureTimer: DispatchWorkItem?
@@ -405,6 +412,7 @@ final class AppModel: ObservableObject {
         return screenshotFolder.appendingPathComponent("\(machine) \(f.string(from: Date())).png")
     }
     var openWindow: ((String) -> Void)?
+    var openConsole: ((String) -> Void)?
 
     private var forwards: [AnyCancellable] = []
     private var watchdog: Timer?
