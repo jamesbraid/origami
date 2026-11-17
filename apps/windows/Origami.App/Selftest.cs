@@ -153,6 +153,7 @@ public static class Selftest
         Check("rows: the context menu offers Open in New Tab and Show in Explorer", w.RowMenuTexts(first2).SequenceEqual(new[] { "Open in New Tab", "Show in Explorer" }), string.Join(",", w.RowMenuTexts(first2)));
         w.SelectForTabs(first2); await Until(() => w.SelectedKey == first2, 2000);
         await w.CloseTabAsync(other2, ask: false);
+        Check("cards: Memory, Nodes and Topology show on the stopped machine's card", w.CardsText.Contains("Memory") && w.CardsText.Contains("Node") && w.CardsText.Contains("Topology"), w.CardsText);
         key = w.SelectedKey!;
 
         // --- start ---

@@ -64,6 +64,7 @@
                     <Rectangle x:Name="HeroBand" Height="6" Width="260" RadiusX="3" RadiusY="3"/>
                     <TextBlock x:Name="HeroName" Style="{ThemeResource TitleTextBlockStyle}" HorizontalAlignment="Center"/>
                     <TextBlock x:Name="HeroDetail" Opacity="0.7" HorizontalAlignment="Center"/>
+                    <StackPanel x:Name="Cards" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"/>
                     <Button x:Name="HeroStart" Content="Start" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
                             AutomationProperties.AutomationId="hero.start" MinWidth="120"/>
                 </StackPanel>

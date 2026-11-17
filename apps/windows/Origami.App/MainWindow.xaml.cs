@@ -190,6 +190,7 @@ public sealed partial class MainWindow : Window
     public bool TabBarVisible => TabBar.Visibility == Visibility.Visible;
     public IReadOnlyList<string> RowMenuTexts(string key) =>
         Library.Items.OfType<ListViewItem>().First(i => (string?)i.Tag == key).ContextFlyout is MenuFlyout f ? f.Items.OfType<MenuFlyoutItem>().Select(i => i.Text).ToList() : new List<string>();
+    public string CardsText => string.Join(" | ", Cards.Children.OfType<Border>().Select(b => ((StackPanel)b.Child).Children.OfType<TextBlock>().Select(t => t.Text).Aggregate((a, c) => a + " " + c)));
 
     ListViewItem? RowFor(string key) => Library.Items.OfType<ListViewItem>().FirstOrDefault(i => (string?)i.Tag == key);
 
@@ -303,6 +304,30 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>Memory, Nodes and Topology as fixed 140x104 cards with a fixed icon box, centred as a group.</summary>
+    string _cardsFor = "";
+
+    void BuildCards(MachineSummary m)
+    {
+        var sig = $"{m.Key}|{m.MemoryPerNodeMiB}|{m.Nodes}|{m.Topology}|{m.Product}";
+        if (sig == _cardsFor) return; // rebuilt only when the summary changes
+        _cardsFor = sig;
+        Cards.Children.Clear();
+        foreach (var (glyph, value, label) in new[] { ("\uE950", $"{m.MemoryPerNodeMiB} MB", "Memory"), ("\uE80F", m.Nodes.ToString(), m.Nodes == 1 ? "Node" : "Nodes"), ("\uE9D9", m.Topology ?? m.Product, "Topology") })
+        {
+            var icon = new Border { Width = 32, Height = 32, Child = new FontIcon { Glyph = glyph, FontSize = 20, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
+            var body = new StackPanel
+            {
+                Spacing = 4, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                Children = { icon, new TextBlock { Text = value, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 120 }, new TextBlock { Text = label, FontSize = 11, Opacity = 0.7, TextAlignment = TextAlignment.Center } },
+            };
+            Cards.Children.Add(new Border
+            {
+                Width = Tokens.Size.CardW, Height = Tokens.Size.CardH, CornerRadius = new CornerRadius(8), Child = body,
+                Background = new SolidColorBrush(Color.FromArgb(24, 128, 128, 128)), BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Color.FromArgb(48, 128, 128, 128)),
+            });
+        }
+    }
 
     // ---- menus ------------------------------------------------------------------------------
 
@@ -499,6 +524,7 @@ public sealed partial class MainWindow : Window
 
         HeroName.Text = info.Name;
         HeroDetail.Text = Detail(info);
+        BuildCards(info);
         HeroBand.Fill = new SolidColorBrush(ChassisColor(info.Product));
         StageText.Text = st.Reason;
 
