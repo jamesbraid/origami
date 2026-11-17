@@ -235,6 +235,17 @@ optionally `ORIGAMI_TEST_DISK_SHA256`. Run it with `cargo test -p origami-ffi
 --release --features iris --test iris_boot -- --ignored --nocapture`; the
 numbers it prints start with `MEASURE`.
 
+`crates/origami-ffi/tests/cube_view.rs` draws the cube in an X11 window through
+the same functions with a fake machine: it reads back each scene in both
+appearances, drives the pointer and Alt-click, reflects the fake machine's
+screen, and measures CPU while turning, flung, at rest and hidden. It is
+ignored by default and needs a Vulkan device and an X server. Run it with
+`cargo test -p origami-ffi --release --features fake --test cube_view --
+--ignored --nocapture`; `ORIGAMI_CUBE_SHOTS` names a directory for PNG
+screenshots and `ORIGAMI_CUBE_SECS` the length of the turning measurement. The
+GPU time of the cube pass is `cargo test -p origami-render --release gpu_time --
+--ignored --nocapture`. Both print lines starting with `MEASURE`.
+
 ## Licenses and dependency sources
 
 The Origami CLI, Instigator and original Origami additions to QEMU use

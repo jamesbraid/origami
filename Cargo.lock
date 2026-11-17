@@ -4761,6 +4761,7 @@ dependencies = [
  "origami-protocol",
  "origami-qemu",
  "origami-render",
+ "png",
  "tempfile",
  "thiserror 2.0.21",
  "uniffi",

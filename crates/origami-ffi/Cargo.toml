@@ -47,4 +47,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 origami-machine = { path = "../origami-machine" }
 origami-engine = { path = "../origami-engine", features = ["fake"] }
 tempfile = "3"
+# Writes the cube test's screenshots.
+png = "0.18"
 origami-protocol = { path = "../origami-protocol" }

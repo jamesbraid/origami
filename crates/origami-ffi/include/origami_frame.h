@@ -27,6 +27,37 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// What the chrome reflects: the studio, a photographed scene
+// (`origami_cube_style.scene` names which) or the screen of the machine
+// given to `origami_cube_set_machine`.
+#define ORIGAMI_CUBE_ENV_STUDIO 0
+
+#define ORIGAMI_CUBE_ENV_SCENE 1
+
+#define ORIGAMI_CUBE_ENV_MACHINE 2
+
+// `origami_cube_scene_text` fields.
+#define ORIGAMI_CUBE_SCENE_ID 0
+
+#define ORIGAMI_CUBE_SCENE_TITLE 1
+
+#define ORIGAMI_CUBE_SCENE_CREDIT 2
+
+#define ORIGAMI_CUBE_SCENE_SOURCE 3
+
+// `origami_cube_pointer` phases.
+#define ORIGAMI_CUBE_POINTER_PRESS 0
+
+#define ORIGAMI_CUBE_POINTER_MOVE 1
+
+#define ORIGAMI_CUBE_POINTER_RELEASE 2
+
+// Eases the cube back to the mark pose.
+#define ORIGAMI_CUBE_POINTER_DOUBLE_CLICK 3
+
+// A colour field with this value means none.
+#define ORIGAMI_CUBE_NO_COLOUR 4294967295
+
 // The version of this ABI, as `origami_frame_abi_version` returns it.
 #define ORIGAMI_FRAME_ABI_VERSION 1
 
@@ -203,6 +234,9 @@ typedef uint32_t origami_key;
 // crate of that name.
 typedef struct origami_core origami_core;
 
+// The cube view: one cube drawn into one window. Opaque to C.
+typedef struct origami_cube origami_cube;
+
 // A machine as the frame plane sees it. Opaque to C.
 typedef struct origami_machine origami_machine;
 
@@ -212,6 +246,64 @@ typedef struct origami_view origami_view;
 // What a frame-plane call returns: `ORIGAMI_OK` (zero) or a negative
 // `ORIGAMI_ERR_*` code.
 typedef int32_t origami_status;
+
+// Where to draw. Fields by `kind`:
+// COCOA_VIEW: `window` is the `NSView*`.
+// CA_METAL_LAYER: `window` is the `CAMetalLayer*`.
+// WIN32_HWND: `window` is the `HWND`.
+// XLIB_WINDOW: `window_id` is the `Window`, `display` the `Display*`,
+// `screen` the screen number.
+// XCB_WINDOW: `window_id` is the `xcb_window_t`, `display` the
+// `xcb_connection_t*`, `screen` the screen number.
+// WAYLAND_SURFACE: `window` is the `wl_surface*`, `display` the `wl_display*`.
+// The caller sets `size` to `sizeof(origami_surface)`.
+typedef struct origami_surface {
+  uint32_t size;
+  uint32_t kind;
+  void *window;
+  void *display;
+  uint64_t window_id;
+  int32_t screen;
+} origami_surface;
+
+// How the cube looks and moves. Colours are `0xRRGGBB`; the caller sets
+// `size` to `sizeof(origami_cube_style)`.
+// - `env`: `ORIGAMI_CUBE_ENV_*`. The machine's screen shows the studio until
+//   its first picture has been copied.
+// - `scene`: for `ORIGAMI_CUBE_ENV_SCENE`, an index below
+//   `origami_cube_scene_count`; `origami_cube_about_scene` gives About's.
+// - `horizon_rgb`: the studio's horizon band colour (a machine's chassis
+//   colour on the start screen), or `ORIGAMI_CUBE_NO_COLOUR`.
+// - `granite_light_rgb`, `granite_dark_rgb`: the backdrop tile's two tones.
+// - `light_look`: the lighter chrome studio, for a light window.
+// - `spin`: turn at 10 rpm; without it the cube is at rest until dragged.
+// - `reduce_motion`: draw the still pose and never spin; a drag still turns
+//   it and it stops dead on release.
+typedef struct origami_cube_style {
+  uint32_t size;
+  uint32_t env;
+  uint32_t scene;
+  uint32_t horizon_rgb;
+  uint32_t granite_light_rgb;
+  uint32_t granite_dark_rgb;
+  uint32_t light_look;
+  uint32_t spin;
+  uint32_t reduce_motion;
+} origami_cube_style;
+
+// What a view has spent, in wall nanoseconds, since it was attached.
+typedef struct origami_view_counters {
+  uint32_t size;
+  uint32_t reserved;
+  // Pictures drawn and presented.
+  uint64_t presents;
+  // Taking the frame from the display client and updating the cursor.
+  uint64_t take_ns;
+  // Acquiring the window's image, drawing the picture and the head into it.
+  uint64_t draw_ns;
+  // Handing the image to the window system, which can make it large.
+  uint64_t present_ns;
+} origami_view_counters;
 
 typedef struct origami_head_info {
   uint32_t width;
@@ -300,39 +392,6 @@ typedef struct origami_input_event {
   int32_t y;
 } origami_input_event;
 
-// Where to draw. Fields by `kind`:
-// COCOA_VIEW: `window` is the `NSView*`.
-// CA_METAL_LAYER: `window` is the `CAMetalLayer*`.
-// WIN32_HWND: `window` is the `HWND`.
-// XLIB_WINDOW: `window_id` is the `Window`, `display` the `Display*`,
-// `screen` the screen number.
-// XCB_WINDOW: `window_id` is the `xcb_window_t`, `display` the
-// `xcb_connection_t*`, `screen` the screen number.
-// WAYLAND_SURFACE: `window` is the `wl_surface*`, `display` the `wl_display*`.
-// The caller sets `size` to `sizeof(origami_surface)`.
-typedef struct origami_surface {
-  uint32_t size;
-  uint32_t kind;
-  void *window;
-  void *display;
-  uint64_t window_id;
-  int32_t screen;
-} origami_surface;
-
-// What a view has spent, in wall nanoseconds, since it was attached.
-typedef struct origami_view_counters {
-  uint32_t size;
-  uint32_t reserved;
-  // Pictures drawn and presented.
-  uint64_t presents;
-  // Taking the frame from the display client and updating the cursor.
-  uint64_t take_ns;
-  // Acquiring the window's image, drawing the picture and the head into it.
-  uint64_t draw_ns;
-  // Handing the image to the window system, which can make it large.
-  uint64_t present_ns;
-} origami_view_counters;
-
 #define ORIGAMI_OK 0
 
 #define ORIGAMI_ERR_NULL_ARGUMENT -1
@@ -364,6 +423,105 @@ typedef struct origami_view_counters {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+// Draw a cube into the window `surface` names, `width` by `height` physical
+// pixels at `scale` (2.0 on a Retina display). The cube fills 90% of the
+// shorter side, on granite over the whole view, so size the view for it. The
+// window must outlive the cube: call `origami_cube_detach` first when it
+// closes. Needs a GPU; returns `NoGpu` without one. The cube starts in the
+// studio with no spin; call `origami_cube_set_style`. Call a cube's functions
+// from one thread at a time: they wait for the GPU.
+origami_status origami_cube_attach(const struct origami_surface *surface,
+                                   uint32_t width,
+                                   uint32_t height,
+                                   double scale,
+                                   struct origami_cube **out);
+
+// The window changed size (physical pixels) or moved to a display of another
+// scale. Call `origami_cube_present` after it.
+origami_status origami_cube_resize(struct origami_cube *cube,
+                                   uint32_t width,
+                                   uint32_t height,
+                                   double scale);
+
+// A hidden cube draws nothing and takes nothing from the swapchain.
+// Hide it when its window is hidden, covered or minimised, and when the first
+// picture of the machine arrives. Showing it again needs an
+// `origami_cube_present`.
+origami_status origami_cube_set_visible(struct origami_cube *cube, uint32_t visible);
+
+// Set how the cube looks and moves. Call `origami_cube_present` after it.
+origami_status origami_cube_set_style(struct origami_cube *cube,
+                                      const struct origami_cube_style *style);
+
+// A pointer event at `x`, `y` in points (logical pixels) from the view's top
+// left, `phase` an `ORIGAMI_CUBE_POINTER_*` and `time_ms` from any steady
+// clock. Dragging tumbles the cube; releasing a fast drag flings it. Call
+// `origami_cube_present` after it.
+origami_status origami_cube_pointer(struct origami_cube *cube,
+                                    uint32_t phase,
+                                    float x,
+                                    float y,
+                                    uint64_t time_ms);
+
+// Alt-click (Option-click): switch to the next scene in the order of
+// `origami_cube_scene_text`'s indexes, then the machine's screen if
+// `origami_cube_set_machine` gave one, then the first scene again. Call
+// `origami_cube_present` after it.
+origami_status origami_cube_alt_click(struct origami_cube *cube);
+
+// How many scenes there are: photographs embedded from
+// `resources/identity/scenes/scenes.json`.
+uint32_t origami_cube_scene_count(void);
+
+// The index of the scene About shows in the dark (`dark` non-zero) or the
+// light appearance, as the manifest names it.
+uint32_t origami_cube_about_scene(uint32_t dark);
+
+// The index of the scene whose id is `id`, or -1.
+int32_t origami_cube_scene_find(const char *id);
+
+// Copy a scene's text (`ORIGAMI_CUBE_SCENE_*`: its id, title, credit line or
+// source URL) into `buf`, NUL terminated and truncated to fit, and return its
+// full length without the NUL; 0 for an unknown scene or field. The credit
+// line is what About's acknowledgements must show.
+size_t origami_cube_scene_text(uint32_t index, uint32_t field, char *buf, size_t cap);
+
+// Reflect `head` of `machine` when the style's env is
+// `ORIGAMI_CUBE_ENV_MACHINE`: the view presenting that head copies its
+// picture into a 256 by 256 texture on the GPU at most ten times a second.
+// The machine needs a presenting `origami_view` (call `origami_view_present`
+// once after this so a still head is copied); one cube per head. A NULL
+// `machine` stops the copying. Call `origami_cube_present` after it.
+origami_status origami_cube_set_machine(struct origami_cube *cube,
+                                        const struct origami_machine *machine,
+                                        uint32_t head);
+
+// Draw a frame when the cube changed or is moving, and present it. `drawn`
+// (may be NULL) gets `ORIGAMI_DRAWN_*`. `moving` (may be NULL) gets 1 while
+// the cube is turning or settling: call again on the next display refresh.
+// It gets 0 at rest: stop your timer and draw nothing more until you change
+// the cube. Frames come at most 60 times a second whatever the refresh rate
+// (30 while only the calm spin turns it), and the cube turns by wall time,
+// so a skipped refresh never slows it.
+origami_status origami_cube_present(struct origami_cube *cube, uint32_t *drawn, uint32_t *moving);
+
+// Copy the cube as it is now, drawn again offscreen, into `buf` as tight
+// 4-byte pixels (blue, green, red, unused), top row first. Sizes and errors
+// as `origami_view_readback`. It waits for the GPU: for self-tests.
+origami_status origami_cube_readback(struct origami_cube *cube,
+                                     uint8_t *buf,
+                                     size_t cap,
+                                     uint32_t *width,
+                                     uint32_t *height,
+                                     uint32_t *stride);
+
+// What a cube has spent since it was attached: `presents`, `draw_ns` and
+// `present_ns` as for a view; `take_ns` stays 0.
+origami_status origami_cube_stats(struct origami_cube *cube, struct origami_view_counters *out);
+
+// Destroy the cube and let go of the window. Null is ignored.
+void origami_cube_detach(struct origami_cube *cube);
 
 // Copy the text of the calling thread's last failure into `buf` (NUL
 // terminated, truncated to fit) and return its full length without the NUL.

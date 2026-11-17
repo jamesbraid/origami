@@ -51,7 +51,7 @@ pub const ORIGAMI_ERR_IO: origami_status = -11;
 pub const ORIGAMI_ERR_INTERNAL: origami_status = -12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Status {
+pub(crate) enum Status {
     NullArgument = -1,
     InvalidArgument = -2,
     NotRunning = -3,
@@ -73,7 +73,7 @@ impl Status {
     }
 }
 
-struct Fail(Status, String);
+pub(crate) struct Fail(pub(crate) Status, pub(crate) String);
 
 impl From<CoreError> for Fail {
     fn from(e: CoreError) -> Fail {
@@ -93,7 +93,7 @@ impl From<CoreError> for Fail {
     }
 }
 
-fn fail<T>(status: Status, message: &str) -> Result<T, Fail> {
+pub(crate) fn fail<T>(status: Status, message: &str) -> Result<T, Fail> {
     Err(Fail(status, message.into()))
 }
 
@@ -101,7 +101,7 @@ thread_local! {
     static LAST_ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
-fn guard(body: impl FnOnce() -> Result<(), Fail>) -> origami_status {
+pub(crate) fn guard(body: impl FnOnce() -> Result<(), Fail>) -> origami_status {
     let (status, message) = match catch_unwind(AssertUnwindSafe(body)) {
         Ok(Ok(())) => return ORIGAMI_OK,
         Ok(Err(Fail(status, message))) => (status, message),
@@ -174,6 +174,26 @@ pub struct origami_machine {
     scratch: Mutex<Scratch>,
     wake: Mutex<WakeState>,
     callback: Arc<RwLock<Option<Callback>>>,
+    /// The small picture a cube reflects, drawn by the view that presents the head.
+    #[cfg(feature = "render")]
+    pub(crate) reflection: Mutex<Option<(u32, Weak<origami_render::Reflection>)>>,
+}
+
+#[cfg(feature = "render")]
+impl origami_machine {
+    /// The cube picture of `head`, when a cube wants one.
+    pub(crate) fn reflection(&self, head: u32) -> Option<Arc<origami_render::Reflection>> {
+        let mut slot = self.reflection.lock().unwrap_or_else(|e| e.into_inner());
+        let (wanted, weak) = slot.as_ref()?;
+        if *wanted != head {
+            return None;
+        }
+        let found = weak.upgrade();
+        if found.is_none() {
+            *slot = None;
+        }
+        found
+    }
 }
 
 impl Drop for origami_machine {
@@ -210,6 +230,8 @@ fn frame_machine(machine: &Machine) -> Arc<origami_machine> {
         scratch: Mutex::default(),
         wake: Mutex::default(),
         callback: Arc::default(),
+        #[cfg(feature = "render")]
+        reflection: Mutex::default(),
     });
     registry.insert(machine.key().to_string(), Arc::downgrade(&made));
     made
@@ -221,7 +243,9 @@ pub fn retain_machine(machine: &Machine) -> *const origami_machine {
     Arc::into_raw(frame_machine(machine))
 }
 
-unsafe fn machine_ref<'a>(p: *const origami_machine) -> Result<&'a origami_machine, Fail> {
+pub(crate) unsafe fn machine_ref<'a>(
+    p: *const origami_machine,
+) -> Result<&'a origami_machine, Fail> {
     // SAFETY: a non-null pointer came from `Arc::into_raw` and is live until released.
     unsafe { p.as_ref() }.ok_or_else(|| Fail(Status::NullArgument, "machine is null".into()))
 }
@@ -1147,7 +1171,7 @@ pub unsafe extern "C" fn origami_view_detach(view: *mut origami_view) {
 }
 
 #[cfg(feature = "render")]
-mod present {
+pub(crate) mod present {
     use super::*;
     use origami_render::raw_window_handle::{
         AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle,
@@ -1175,7 +1199,7 @@ mod present {
         scale: f64,
     }
 
-    fn gpu() -> Result<Gpu, Fail> {
+    pub(crate) fn gpu() -> Result<Gpu, Fail> {
         crate::engines::gpu::shared().map_err(|e| Fail(Status::NoGpu, e))
     }
 
@@ -1183,7 +1207,7 @@ mod present {
         NonNull::new(p).ok_or_else(|| Fail(Status::NullArgument, format!("{what} is null")))
     }
 
-    fn host(s: &origami_surface) -> Result<HostSurface, Fail> {
+    pub(crate) fn host(s: &origami_surface) -> Result<HostSurface, Fail> {
         if (s.size as usize) < std::mem::size_of::<origami_surface>() {
             return fail(Status::InvalidArgument, "surface->size is too small");
         }
@@ -1396,12 +1420,14 @@ mod present {
             // changed lines the producer will not send again.
             self.refresh_cursor()?;
             let mut pending = None;
+            let mut fresh = false;
             match self
                 .machine
                 .machine
                 .take_frame(self.head as usize, &mut self.pixels)?
             {
                 Some(Frame::Rows(update)) => {
+                    fresh = true;
                     self.texture = Some(HeadTexture::apply(
                         &self.gpu,
                         self.texture.take(),
@@ -1410,6 +1436,7 @@ mod present {
                     ));
                 }
                 Some(Frame::Imported(imported)) => {
+                    fresh = true;
                     self.texture = Some(HeadTexture::prepare(
                         &self.gpu,
                         self.texture.take(),
@@ -1426,6 +1453,11 @@ mod present {
             let draw = cursor_draw(&self.cursor, &self.cursor_tex);
             // The picture's rows and the window's pass go in one submit.
             let (gpu, compose) = (&self.gpu, &self.compose);
+            let wanted = self.machine.reflection(self.head);
+            if let Some(r) = &wanted {
+                r.set_source(&texture.texture);
+            }
+            let reflect = wanted.filter(|r| fresh && r.take_due());
             let mut rows = None;
             let drawn = self
                 .view
@@ -1433,8 +1465,14 @@ mod present {
                     if let Some(frame) = &pending {
                         rows = Some(texture.encode_imported(gpu, compose, enc, frame));
                     }
+                    if let Some(r) = &reflect {
+                        r.encode(gpu, enc, &texture.texture);
+                    }
                 })
                 .map_err(|e| Fail(Status::Internal, e))?;
+            if let Some(r) = &reflect {
+                r.done();
+            }
             if let (Some(rows), Some(frame), Some(texture)) =
                 (rows, &pending, self.texture.as_mut())
             {
