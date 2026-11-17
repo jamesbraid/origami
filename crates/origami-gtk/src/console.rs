@@ -98,9 +98,10 @@ pub fn key_bytes(key: gdk::Key, state: gdk::ModifierType, app_cursor: bool) -> O
             Key::Char(ch)
         }
     };
+    let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
     let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
     let alt = state.contains(gdk::ModifierType::ALT_MASK);
-    term_key_bytes(named, ctrl, alt, app_cursor)
+    term_key_bytes(named, shift, ctrl, alt, app_cursor)
 }
 
 struct View {
@@ -333,4 +334,26 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
 
 fn pangocairo_show(cr: &gtk::cairo::Context, l: &pango::Layout) {
     pangocairo::functions::show_layout(cr, l);
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn modifiers_on_navigation_keys_use_the_xterm_forms() {
+        let m = gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK;
+        assert_eq!(
+            key_bytes(gdk::Key::Right, m, false),
+            Some(b"\x1b[1;6C".to_vec())
+        );
+        assert_eq!(
+            key_bytes(gdk::Key::Page_Up, gdk::ModifierType::ALT_MASK, false),
+            Some(b"\x1b[5;3~".to_vec())
+        );
+        assert_eq!(
+            key_bytes(gdk::Key::Up, gdk::ModifierType::empty(), true),
+            Some(b"\x1bOA".to_vec())
+        );
+    }
 }

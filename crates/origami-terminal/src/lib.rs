@@ -178,11 +178,43 @@ pub enum Key {
 }
 
 /// The bytes `key` sends, or None when it sends nothing. `alt` prefixes an
-/// ESC; `app_cursor` is the guest's cursor-key mode.
-pub fn key_bytes(key: Key, ctrl: bool, alt: bool, app_cursor: bool) -> Option<Vec<u8>> {
+/// ESC except on keys that carry it as an xterm modifier; `app_cursor` is the
+/// guest's cursor-key mode.
+pub fn key_bytes(
+    key: Key,
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    app_cursor: bool,
+) -> Option<Vec<u8>> {
+    let md = 1 + u8::from(shift) + 2 * u8::from(alt) + 4 * u8::from(ctrl);
     let csi = |s: &str| format!("\x1b[{s}").into_bytes();
     let ss3 = |s: &str| format!("\x1bO{s}").into_bytes();
-    let cursor = |c: &str| if app_cursor { ss3(c) } else { csi(c) };
+    let letter = |f: &str, ss3_plain: bool| match (md, ss3_plain) {
+        (1, true) => ss3(f),
+        (1, false) => csi(f),
+        _ => csi(&format!("1;{md}{f}")),
+    };
+    let tilde = |n: u8| match md {
+        1 => csi(&format!("{n}~")),
+        _ => csi(&format!("{n};{md}~")),
+    };
+    let cursor = |c: &str| letter(c, app_cursor);
+    let modified = md > 1
+        && matches!(
+            key,
+            Key::Up
+                | Key::Down
+                | Key::Left
+                | Key::Right
+                | Key::Home
+                | Key::End
+                | Key::PageUp
+                | Key::PageDown
+                | Key::Insert
+                | Key::Delete
+                | Key::F(1..=12)
+        );
     let mut out = match key {
         Key::Up => cursor("A"),
         Key::Down => cursor("B"),
@@ -190,10 +222,10 @@ pub fn key_bytes(key: Key, ctrl: bool, alt: bool, app_cursor: bool) -> Option<Ve
         Key::Left => cursor("D"),
         Key::Home => cursor("H"),
         Key::End => cursor("F"),
-        Key::PageUp => csi("5~"),
-        Key::PageDown => csi("6~"),
-        Key::Insert => csi("2~"),
-        Key::Delete => csi("3~"),
+        Key::PageUp => tilde(5),
+        Key::PageDown => tilde(6),
+        Key::Insert => tilde(2),
+        Key::Delete => tilde(3),
         Key::BackTab => csi("Z"),
         Key::Enter => b"\r".to_vec(),
         // DEL, as xterm and the Linux console send.
@@ -201,10 +233,8 @@ pub fn key_bytes(key: Key, ctrl: bool, alt: bool, app_cursor: bool) -> Option<Ve
         Key::Tab => b"\t".to_vec(),
         Key::Escape => vec![0x1b],
         Key::F(n) => match n {
-            1..=4 => ss3(["P", "Q", "R", "S"][usize::from(n) - 1]),
-            5..=12 => {
-                csi(["15~", "17~", "18~", "19~", "20~", "21~", "23~", "24~"][usize::from(n) - 5])
-            }
+            1..=4 => letter(["P", "Q", "R", "S"][usize::from(n) - 1], true),
+            5..=12 => tilde([15, 17, 18, 19, 20, 21, 23, 24][usize::from(n) - 5]),
             _ => return None,
         },
         Key::Char(c) if (c as u32) < 0x20 => vec![c as u8],
@@ -221,7 +251,7 @@ pub fn key_bytes(key: Key, ctrl: bool, alt: bool, app_cursor: bool) -> Option<Ve
         }],
         Key::Char(c) => c.to_string().into_bytes(),
     };
-    if alt {
+    if alt && !modified {
         out.insert(0, 0x1b);
     }
     Some(out)
@@ -296,7 +326,7 @@ mod tests {
 
     #[test]
     fn keys_send_what_a_serial_terminal_expects() {
-        let k = |key, ctrl, alt, app| key_bytes(key, ctrl, alt, app);
+        let k = |key, ctrl, alt, app| key_bytes(key, false, ctrl, alt, app);
         assert_eq!(k(Key::Char('a'), true, false, false), Some(vec![1]));
         assert_eq!(
             k(Key::Char('x'), false, true, false),
@@ -310,5 +340,27 @@ mod tests {
             Some(b"\x1b[15~".to_vec())
         );
         assert_eq!(k(Key::F(13), false, false, false), None);
+    }
+
+    #[test]
+    fn modified_navigation_and_function_keys_use_the_xterm_forms() {
+        let k = |key, shift, ctrl, alt, app| key_bytes(key, shift, ctrl, alt, app).unwrap();
+        // mod = 1 + shift + 2 alt + 4 ctrl
+        assert_eq!(k(Key::Up, true, false, false, false), b"\x1b[1;2A");
+        assert_eq!(k(Key::Left, false, false, true, false), b"\x1b[1;3D");
+        assert_eq!(k(Key::Right, false, true, false, false), b"\x1b[1;5C");
+        assert_eq!(k(Key::Home, true, true, true, false), b"\x1b[1;8H");
+        // Application cursor mode only changes the unmodified form.
+        assert_eq!(k(Key::Up, false, true, false, true), b"\x1b[1;5A");
+        assert_eq!(k(Key::Up, false, false, false, true), b"\x1bOA");
+        assert_eq!(k(Key::PageUp, false, true, false, false), b"\x1b[5;5~");
+        assert_eq!(k(Key::Delete, true, false, false, false), b"\x1b[3;2~");
+        assert_eq!(k(Key::F(1), true, false, false, false), b"\x1b[1;2P");
+        assert_eq!(k(Key::F(5), false, true, false, false), b"\x1b[15;5~");
+        assert_eq!(k(Key::F(12), false, false, true, false), b"\x1b[24;3~");
+        // No modifier, and keys that are not modified this way, are as before.
+        assert_eq!(k(Key::F(2), false, false, false, false), b"\x1bOQ");
+        assert_eq!(k(Key::PageDown, false, false, false, false), b"\x1b[6~");
+        assert_eq!(k(Key::Char('x'), true, false, true, false), b"\x1bx");
     }
 }

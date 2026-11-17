@@ -239,7 +239,13 @@ impl State {
     }
 }
 
-fn key_bytes(key: &OrigamiTerminalKey, ctrl: bool, alt: bool, app_cursor: bool) -> Option<Vec<u8>> {
+fn key_bytes(
+    key: &OrigamiTerminalKey,
+    shift: bool,
+    ctrl: bool,
+    alt: bool,
+    app_cursor: bool,
+) -> Option<Vec<u8>> {
     use OrigamiTerminalKey as K;
     let key = match key {
         K::Text { text } => {
@@ -268,7 +274,7 @@ fn key_bytes(key: &OrigamiTerminalKey, ctrl: bool, alt: bool, app_cursor: bool) 
         K::Delete => Key::Delete,
         K::Function { number } => Key::F(*number),
     };
-    term_key_bytes(key, ctrl, alt, app_cursor)
+    term_key_bytes(key, shift, ctrl, alt, app_cursor)
 }
 
 struct Shared {
@@ -425,10 +431,22 @@ impl OrigamiTerminal {
     }
 
     /// Send a key to the guest. `ctrl` and `alt` apply to `Text`. Never
-    /// blocks: a full queue is `Busy`.
+    /// blocks: a full queue is `Busy`. Same as `send_key_with` without Shift.
     pub fn send_key(&self, key: OrigamiTerminalKey, ctrl: bool, alt: bool) -> Res<()> {
+        self.send_key_with(key, false, ctrl, alt)
+    }
+
+    /// `send_key` with Shift, which matters for cursor, editing and function
+    /// keys (xterm's modified forms).
+    pub fn send_key_with(
+        &self,
+        key: OrigamiTerminalKey,
+        shift: bool,
+        ctrl: bool,
+        alt: bool,
+    ) -> Res<()> {
         let app_cursor = self.0.lock().term.app_cursor();
-        match key_bytes(&key, ctrl, alt, app_cursor) {
+        match key_bytes(&key, shift, ctrl, alt, app_cursor) {
             Some(bytes) => self.queue(bytes),
             None => Ok(()),
         }
@@ -544,13 +562,20 @@ mod tests {
     #[test]
     fn text_keys_map_to_the_shared_key_table() {
         let t = |s: &str| OrigamiTerminalKey::Text { text: s.into() };
-        assert_eq!(key_bytes(&t("a"), true, false, false), Some(vec![1]));
+        assert_eq!(key_bytes(&t("a"), false, true, false, false), Some(vec![1]));
         assert_eq!(
-            key_bytes(&t("ab"), false, false, false),
+            key_bytes(&t("ab"), false, false, false, false),
             Some(b"ab".to_vec())
         );
-        assert_eq!(key_bytes(&t("ab"), true, false, false), None);
+        assert_eq!(key_bytes(&t("ab"), false, true, false, false), None);
         let up = OrigamiTerminalKey::Up;
-        assert_eq!(key_bytes(&up, false, false, true), Some(b"\x1bOA".to_vec()));
+        assert_eq!(
+            key_bytes(&up, false, false, false, true),
+            Some(b"\x1bOA".to_vec())
+        );
+        assert_eq!(
+            key_bytes(&up, true, false, false, true),
+            Some(b"\x1b[1;2A".to_vec())
+        );
     }
 }

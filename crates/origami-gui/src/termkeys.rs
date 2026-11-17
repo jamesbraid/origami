@@ -109,7 +109,7 @@ pub fn key_action(text: &str, mods: Mods, app_cursor: bool) -> KeyAction {
 
     if single {
         if let Some(key) = special(c) {
-            let send = key.and_then(|k| key_bytes(k, false, mods.alt, app_cursor));
+            let send = key.and_then(|k| key_bytes(k, mods.shift, mods.ctrl, mods.alt, app_cursor));
             return send.map_or(KeyAction::Ignore, KeyAction::Send);
         }
         if is_key_code(c) {
@@ -133,7 +133,7 @@ pub fn key_action(text: &str, mods: Mods, app_cursor: bool) -> KeyAction {
             '\t' => Key::Tab,
             c => Key::Char(c),
         };
-        return key_bytes(key, ctrl, alt, false).map_or(KeyAction::Ignore, KeyAction::Send);
+        return key_bytes(key, false, ctrl, alt, false).map_or(KeyAction::Ignore, KeyAction::Send);
     }
     // Several characters at once (an input method's commit).
     if text.chars().any(is_key_code) {
@@ -229,6 +229,32 @@ mod tests {
                 }
             ),
             sent(b"\x1bx")
+        );
+    }
+
+    #[test]
+    fn modifiers_on_navigation_keys_use_the_xterm_forms() {
+        let m = |ctrl, alt, shift| Mods {
+            ctrl,
+            alt,
+            shift,
+            ..Mods::default()
+        };
+        assert_eq!(
+            press(&key(K::UpArrow), m(true, false, false)),
+            sent(b"\x1b[1;5A")
+        );
+        assert_eq!(
+            press(&key(K::LeftArrow), m(false, true, false)),
+            sent(b"\x1b[1;3D")
+        );
+        assert_eq!(
+            press(&key(K::F5), m(false, false, true)),
+            sent(b"\x1b[15;2~")
+        );
+        assert_eq!(
+            press(&key(K::Delete), m(true, true, false)),
+            sent(b"\x1b[3;7~")
         );
     }
 
