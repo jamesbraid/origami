@@ -121,30 +121,42 @@ struct Tile: View {
     }
 }
 
+/// The summary pane's backdrop: the chassis colour at 35% over the window colour at the top, fading
+/// linearly to the plain window colour at the bottom. No edges; the top stays dark or light enough for
+/// primary text, and secondary text is drawn at 70% of the primary colour for contrast.
+struct TintFade: View {
+    let colour: Color
+    static let topOpacity = 0.35
+
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            LinearGradient(stops: [.init(color: colour.opacity(Self.topOpacity), location: 0), .init(color: colour.opacity(0), location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+    }
+}
+
 struct Hero: View {
     @ObservedObject var model: MachineModel
     @EnvironmentObject var app: AppModel
 
     var body: some View {
         let r = model.record
-        let colour = Color(rgb: r.product.colour)
         VStack(spacing: 0) {
-            ZStack {
-                LinearGradient(colors: [colour.opacity(0.55), colour.opacity(0.12)], startPoint: .top, endPoint: .bottom)
-                VStack(spacing: 14) {
-                    HeroArt(product: r.product)
-                    Text(r.name).font(.largeTitle.weight(.semibold))
-                    Text(r.product.name).font(.title3).foregroundStyle(.secondary)
-                    Button {
-                        app.invoke(.start)
-                    } label: {
-                        Label("Start", systemImage: "play.fill").font(.title3).padding(.horizontal, 22).padding(.vertical, 4)
-                    }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
-                    .accessibilityLabel("Start \(r.name)")
+            VStack(spacing: 14) {
+                HeroArt(product: r.product)
+                Text(r.name).font(.largeTitle.weight(.semibold))
+                Text(r.product.name).font(.title3).foregroundStyle(.primary.opacity(0.7))
+                Button {
+                    app.invoke(.start)
+                } label: {
+                    Label("Start", systemImage: "play.fill").font(.title3).padding(.horizontal, 22).padding(.vertical, 4)
                 }
-                .padding(.vertical, 32)
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .accessibilityLabel("Start \(r.name)")
             }
+            .padding(.vertical, 32)
             .frame(maxHeight: 340)
             HStack(spacing: 12) {
                 ForEach(r.cards, id: \.title) { Tile(symbol: $0.symbol, title: $0.title, value: $0.value) }
@@ -153,6 +165,8 @@ struct Hero: View {
             .padding(24)
             Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(TintFade(colour: Color(rgb: r.product.colour)))
     }
 }
 

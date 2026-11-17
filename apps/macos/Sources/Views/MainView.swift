@@ -148,7 +148,6 @@ struct TabBar: View {
         .padding(.horizontal, 8)
         .frame(height: 34)
         .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottom) { Divider() }
     }
 }
 
