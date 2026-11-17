@@ -33,7 +33,7 @@ public sealed partial class MainWindow : Window
         BuildMenus();
         BuildLibrary();
 
-        Library.SelectionChanged += (_, _) => { _prefsOpen = false; Refresh(); };
+        Library.SelectionChanged += (_, _) => { if (_rebuilding) return; _prefsOpen = false; Refresh(); };
         StartButton.Click += (_, _) => Invoke("machine.start");
         HeroStart.Click += (_, _) => Invoke("machine.start");
         PowerOffButton.Click += (_, _) => Invoke("machine.stop");
@@ -125,12 +125,15 @@ public sealed partial class MainWindow : Window
     static string Detail(MachineSummary m) =>
         $"{m.ProductLabel}, {m.Nodes} node{(m.Nodes == 1 ? "" : "s")}, {m.MemoryPerNodeMiB} MB";
 
+    // Clearing the list raises SelectionChanged, which would refresh and rebuild again mid-Clear (COMException 0x8000FFFF).
+    bool _rebuilding;
+
     /// <summary>Rebuilds the library list after machines were added.</summary>
     public void Reload()
     {
-        Library.Items.Clear(); _pills.Clear();
-        BuildLibrary();
-        Library.SelectedIndex = 0;
+        _rebuilding = true;
+        try { Library.Items.Clear(); _pills.Clear(); BuildLibrary(); Library.SelectedIndex = 0; }
+        finally { _rebuilding = false; }
         Refresh();
     }
 
@@ -141,9 +144,14 @@ public sealed partial class MainWindow : Window
         var shown = Library.Items.OfType<ListViewItem>().Select(i => (string?)i.Tag).ToList();
         if (keys.SequenceEqual(shown!)) return;
         var sel = SelectedKey;
-        Library.Items.Clear(); _pills.Clear();
-        BuildLibrary();
-        Library.SelectedIndex = sel is not null && keys.IndexOf(sel) is var at and >= 0 ? at : (keys.Count > 0 ? 0 : -1);
+        _rebuilding = true;
+        try
+        {
+            Library.Items.Clear(); _pills.Clear();
+            BuildLibrary();
+            Library.SelectedIndex = sel is not null && keys.IndexOf(sel) is var at and >= 0 ? at : (keys.Count > 0 ? 0 : -1);
+        }
+        finally { _rebuilding = false; }
     }
 
     void BuildLibrary()
