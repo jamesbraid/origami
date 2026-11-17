@@ -45,7 +45,7 @@ expect(core.engines().first?.id == "fake", "the fake engine")
 expect(core.commands().contains { $0.id == "machine.start" }, "a Start command")
 
 let create = try core.createMachine(request: OrigamiCreateRequest(
-    name: "alpha", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil))
+    name: "alpha", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil))
 expect(create.wait(timeoutMs: 10_000) == .succeeded, "the machine is created")
 let machines = try core.listMachines()
 print("machines:", machines.map { $0.name })

@@ -179,6 +179,9 @@ pub struct OrigamiCreateRequest {
     pub graphics: Option<String>,
     pub boot_prom: Option<String>,
     pub io_prom: Option<String>,
+    /// An `OrigamiEngineInfo::id` that lists the offering; without it the
+    /// first engine that does. The machine keeps it for life.
+    pub engine: Option<String>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -497,6 +500,7 @@ impl OrigamiCore {
             graphics: request.graphics,
             boot_prom: request.boot_prom.map(PathBuf::from),
             io_prom: request.io_prom.map(PathBuf::from),
+            engine: request.engine,
         })?;
         Ok(Arc::new(OrigamiOperation(operation)))
     }

@@ -46,7 +46,9 @@ it under a lock the observer takes.
   `commands()` (menu table: id, title, `enabled_when`, shortcut per platform;
   `origami_command_enabled(when, state)`).
 - `create_machine(OrigamiCreateRequest) -> OrigamiOperation`; its
-  `result_machine()` is the new key.
+  `result_machine()` is the new key. `engine` names the engine that makes the
+  machine (an `OrigamiEngineInfo.id`); without it the first engine that lists
+  the offering does, and an unknown one fails the operation with `NotFound`.
 - `open_machine(key) -> OrigamiMachine` (same machine, same object state);
   `start_machine(key)` opens, starts and waits.
 - `hinv()`: the About egg's text, an IRIX-style inventory of the host and library.

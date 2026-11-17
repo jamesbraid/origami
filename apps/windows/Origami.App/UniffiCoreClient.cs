@@ -57,7 +57,7 @@ public sealed class UniffiCoreClient : ICoreClient
         if (_core.ListMachines().Length > 0) return;
         foreach (var name in new[] { "Octane2 (fake)", "O2 (fake)" })
         {
-            var op = _core.CreateMachine(new OrigamiCreateRequest(name, "fake.1", null, null, prom, null));
+            var op = _core.CreateMachine(new OrigamiCreateRequest(name, "fake.1", null, null, prom, null, null));
             if (op.Wait(30_000) is not OrigamiOperationState.Succeeded) throw new InvalidOperationException("could not create " + name);
         }
     }
@@ -71,7 +71,7 @@ public sealed class UniffiCoreClient : ICoreClient
     public string CreateFrom(string name, string product, string? graphics = null)
     {
         var o = _core.Catalogue().First(x => x.Product.Contains(product, StringComparison.OrdinalIgnoreCase));
-        var op = _core.CreateMachine(new OrigamiCreateRequest(name, o.Id, null, graphics, null, null));
+        var op = _core.CreateMachine(new OrigamiCreateRequest(name, o.Id, null, graphics, null, null, null));
         if (op.Wait(300_000) is not OrigamiOperationState.Succeeded) throw new InvalidOperationException("create failed: " + op.State());
         return op.ResultMachine() ?? "";
     }

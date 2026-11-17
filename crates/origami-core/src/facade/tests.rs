@@ -597,3 +597,37 @@ fn a_start_applies_the_pending_first_boot_settings_first() {
     assert!(matches!(state, OperationState::Succeeded), "{state:?}");
     assert_ne!(machine.view().state, MachineState::NotRunning);
 }
+
+#[test]
+fn a_create_names_its_engine_or_takes_the_first_that_offers_the_offering() {
+    let f = fixture();
+    let prom = f.root.path().join("prom.bin");
+    std::fs::write(&prom, [0u8; 16]).unwrap();
+    let create = |name: &str, offering: &str, engine: Option<&str>| {
+        let op = f
+            .core
+            .create_machine(CreateRequest {
+                name: name.into(),
+                offering: offering.into(),
+                engine: engine.map(Into::into),
+                boot_prom: Some(prom.clone()),
+                ..Default::default()
+            })
+            .unwrap();
+        op.wait(Some(WAIT))
+    };
+    assert_eq!(create("a", "fake.1", None), OperationState::Succeeded);
+    assert_eq!(
+        create("b", "fake.1", Some("fake")),
+        OperationState::Succeeded
+    );
+    let failed = |state| match state {
+        OperationState::Failed(error) => (error.kind, error.detail),
+        other => panic!("{other:?}"),
+    };
+    let unknown = failed(create("c", "fake.1", Some("nope")));
+    assert_eq!(unknown, (ErrorKind::NotFound, Some("engine".into())));
+    let wrong = failed(create("d", "no.such", Some("fake")));
+    assert_eq!(wrong, (ErrorKind::NotFound, Some("offering".into())));
+    assert!(!f.core.root().join("c").exists());
+}

@@ -79,6 +79,9 @@ pub struct CreateRequest {
     pub name: String,
     /// An [`OfferingSummary::id`].
     pub offering: String,
+    /// An [`EngineSummary::id`] that lists the offering; without it the
+    /// first engine that does. The machine keeps this engine for life.
+    pub engine: Option<String>,
     pub memory_per_node_mib: Option<u32>,
     /// A graphics product, or `none`; without it the topology's default pipe.
     pub graphics: Option<String>,
@@ -280,7 +283,8 @@ impl Core {
             .inner
             .operation("Create machine", None, true, slot, move |control| {
                 let dir = inner.config.root.join(&request.name);
-                let (index, offering) = inner.find_offering(&request.offering)?;
+                let (index, offering) =
+                    inner.find_offering(&request.offering, request.engine.as_deref())?;
                 let engine = inner.engines[index].clone();
                 if control.is_cancelled() {
                     return Err(CoreError::new(
@@ -401,16 +405,34 @@ impl CoreInner {
         Ok(cache[index].get_or_insert(loaded).clone())
     }
 
-    fn find_offering(&self, id: &str) -> CoreResult<(usize, origami_machine::Offering)> {
-        for index in 0..self.engines.len() {
+    fn find_offering(
+        &self,
+        id: &str,
+        engine: Option<&str>,
+    ) -> CoreResult<(usize, origami_machine::Offering)> {
+        let indexes: Vec<usize> = match engine {
+            None => (0..self.engines.len()).collect(),
+            Some(wanted) => match self.engines.iter().position(|e| e.info().id == wanted) {
+                Some(index) => vec![index],
+                None => {
+                    return Err(CoreError::new(
+                        ErrorKind::NotFound,
+                        format!("there is no engine {wanted}"),
+                    )
+                    .with_detail("engine"))
+                }
+            },
+        };
+        for index in indexes {
             if let Some(o) = self.catalogue(index)?.offerings.iter().find(|o| o.id == id) {
                 return Ok((index, o.clone()));
             }
         }
-        Err(
-            CoreError::new(ErrorKind::NotFound, format!("no engine offers {id}"))
-                .with_detail("offering"),
-        )
+        let message = match engine {
+            Some(engine) => format!("{engine} does not offer {id}"),
+            None => format!("no engine offers {id}"),
+        };
+        Err(CoreError::new(ErrorKind::NotFound, message).with_detail("offering"))
     }
 
     /// The model of `file` and the index of the first engine that offers it.

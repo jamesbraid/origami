@@ -287,3 +287,32 @@ fn views_report_what_they_cannot_do_instead_of_crashing() {
         origami_machine_release(m);
     }
 }
+
+#[test]
+fn a_create_may_name_an_engine() {
+    let lab = Lab::new(None);
+    let prom = lab.root.path().join("prom.bin");
+    let create = |name: &str, engine: Option<&str>| {
+        lab.core
+            .create_machine(OrigamiCreateRequest {
+                name: name.into(),
+                offering: "fake.1".into(),
+                memory_per_node_mib: None,
+                graphics: None,
+                boot_prom: Some(prom.to_str().unwrap().into()),
+                io_prom: None,
+                engine: engine.map(Into::into),
+            })
+            .unwrap()
+            .wait(Some(10_000))
+    };
+    assert_eq!(create("a", None), OrigamiOperationState::Succeeded);
+    assert_eq!(create("b", Some("fake")), OrigamiOperationState::Succeeded);
+    assert!(matches!(
+        create("c", Some("nope")),
+        OrigamiOperationState::Failed {
+            kind: OrigamiErrorKind::NotFound,
+            ..
+        }
+    ));
+}

@@ -28,6 +28,7 @@ impl Lab {
                 graphics: None,
                 boot_prom: Some(prom.to_str().unwrap().into()),
                 io_prom: None,
+                engine: None,
             })
             .unwrap();
         assert_eq!(op.wait(Some(10_000)), OrigamiOperationState::Succeeded);

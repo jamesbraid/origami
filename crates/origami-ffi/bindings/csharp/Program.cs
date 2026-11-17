@@ -60,7 +60,7 @@ internal static class Program
         Expect(core.Engines().First().id == "fake", "the fake engine");
         Expect(core.Commands().Any(c => c.Id == "machine.start"), "a Start command");
 
-        var create = core.CreateMachine(new OrigamiCreateRequest("alpha", "fake.1", null, null, prom, null));
+        var create = core.CreateMachine(new OrigamiCreateRequest("alpha", "fake.1", null, null, prom, null, null));
         Expect(create.Wait(10_000) is OrigamiOperationState.Succeeded, "the machine is created");
         var machines = core.ListMachines();
         Console.WriteLine("machines: " + string.Join(", ", machines.Select(m => m.Name)));
