@@ -511,6 +511,19 @@ public static class Selftest
         }
         w.Invoke("machine.stop");
         Check("headless: stopping closes the pane", await Until(() => core.Status(blind).State == MachineState.Stopped && w.ConsolePaneForTest == null, 8000), core.Status(blind).Reason);
+
+        // --- nothing chosen: the live cube turns under "Choose a machine" ---
+        w.ClearSelectionForTest();
+        var cubeEmpty = w.EmptyCubeForTest;
+        Check("empty: the view asks to choose a machine", await Until(() => w.EmptyTitleForTest == "Choose a machine", 3000), w.EmptyTitleForTest);
+        Check("empty: the cube attached", await Until(() => cubeEmpty.Attached, 10_000), cubeEmpty.LastError ?? $"status {cubeEmpty.Status}");
+        await Task.Delay(800);
+        var e1 = cubeEmpty.Readback(out var ew, out var eh);
+        var eTurns = e1 != null && await IdentityChecks.Turns(cubeEmpty, e1);
+        Check("empty: the cube draws and turns by itself", e1 != null && eTurns && IdentityChecks.Colours(e1) > 50, e1 == null ? cubeEmpty.LastError ?? "no readback" : $"{ew}x{eh}, {IdentityChecks.Colours(e1)} colours");
+        if (e1 != null) await Shot.Readback(e1, ew, eh, ew * 4, Path.Combine(dir, "empty-cube.png"));
+        w.SelectForTest(key);
+        Check("empty: the cube is detached once a machine is chosen", await Until(() => !cubeEmpty.Attached, 3000));
     }
 }
 #endif

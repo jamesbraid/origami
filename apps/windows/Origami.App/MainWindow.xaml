@@ -78,9 +78,9 @@
 
                 <!-- No machines yet. -->
                 <StackPanel x:Name="EmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
-                    <Image x:Name="EmptyImage" Width="240" Height="180" Stretch="Uniform"/>
-                    <TextBlock Text="No machines yet" Style="{ThemeResource SubtitleTextBlockStyle}" HorizontalAlignment="Center"/>
-                    <TextBlock Text="Create one with the origami command line; it appears here." Opacity="0.7" HorizontalAlignment="Center"/>
+                    <local:CubeHost x:Name="EmptyCube" Width="140" Height="140" AutomationProperties.AccessibilityView="Raw"/>
+                    <TextBlock x:Name="EmptyTitle" Style="{ThemeResource SubtitleTextBlockStyle}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="EmptyHint" Opacity="0.7" HorizontalAlignment="Center"/>
                 </StackPanel>
 
                 <!-- Starting: the live cube on granite, then the screen. -->

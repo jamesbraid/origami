@@ -607,13 +607,17 @@ public sealed partial class MainWindow : Window
         // The cube holds a child window and a GPU surface, so it lives only while the starting pane shows.
         var starting = key != null && !_prefsOpen && _core.Status(key).State == MachineState.Starting;
         if (!starting) StartCube.Close();
+        if (key is not null || _prefsOpen) EmptyCube.Close();
         HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Visibility.Collapsed;
         if (_pane is not null) _pane.Visibility = Visibility.Collapsed;
         Settings.Visibility = _prefsOpen ? Visibility.Visible : Visibility.Collapsed;
         if (key is null)
         {
             EmptyPanel.Visibility = Visibility.Visible;
-            EmptyImage.Source = Art(_stills.Resolve("octane2", null)?.Id ?? "octane2", "hero@2x.png");
+            var any = _core.Machines().Count > 0;
+            EmptyTitle.Text = any ? "Choose a machine" : "No machines yet";
+            EmptyHint.Text = any ? "Pick one in the library." : "Create one with the origami command line; it appears here.";
+            if (!_prefsOpen) ShowEmptyCube();
             return;
         }
 
@@ -695,6 +699,18 @@ public sealed partial class MainWindow : Window
         StartCube.SetStyle(Frame.CubeEnvStudio, 0, StillOf(info)?.Rgb, Dark, true, reduce, WindowBackground());
         StartCube.Show(true);
     }
+
+    /// <summary>The live cube, slowly turning, on the window's own background, while no machine is chosen.</summary>
+    void ShowEmptyCube()
+    {
+        var reduce = !new Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
+        EmptyCube.WindowHandle = () => Hwnd;
+        EmptyCube.SetStyle(Frame.CubeEnvStudio, 0, null, Dark, true, reduce, WindowBackground());
+        EmptyCube.Show(true);
+    }
+
+    public CubeHost EmptyCubeForTest => EmptyCube;
+    public string EmptyTitleForTest => EmptyTitle.Text;
 
     /// <summary>Self-test hook: the starting pane as it looks while a machine starts.</summary>
     public void PreviewStarting()
