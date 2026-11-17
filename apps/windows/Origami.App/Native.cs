@@ -93,7 +93,9 @@ public static unsafe class Frame
     [DllImport(Dll)] public static extern int origami_cube_set_visible(IntPtr cube, uint visible);
     [DllImport(Dll)] public static extern int origami_cube_set_style(IntPtr cube, ref CubeStyle style);
     [DllImport(Dll)] public static extern uint origami_cube_scene_count();
-    [DllImport(Dll)] public static extern uint origami_cube_about_scene(uint dark);
+    [DllImport(Dll)] public static extern uint origami_cube_scene_for_time(uint hour, uint minute);
+    [DllImport(Dll)] public static extern int origami_cube_next_scene(IntPtr cube);
+    [DllImport(Dll)] public static extern int origami_cube_current_scene(IntPtr cube);
     [DllImport(Dll)] public static extern nuint origami_cube_scene_text(uint index, uint field, byte* buf, nuint cap);
     [DllImport(Dll)] public static extern int origami_cube_set_machine(IntPtr cube, IntPtr machine, uint head);
     [DllImport(Dll)] public static extern int origami_cube_present(IntPtr cube, out uint drawn, out uint moving);
@@ -147,6 +149,7 @@ public static class Win32
     [DllImport("user32")] public static extern bool DestroyWindow(IntPtr hwnd);
     [DllImport("user32")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("user32")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32")] public static extern IntPtr SendMessageW(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32")] public static extern IntPtr DefWindowProcW(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32", CharSet = CharSet.Unicode)] public static extern ushort RegisterClassExW(ref WNDCLASSEX c);
     [DllImport("user32", CharSet = CharSet.Unicode)]

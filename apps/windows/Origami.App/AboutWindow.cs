@@ -76,12 +76,14 @@ public sealed class AboutWindow : Window
         grid.KeyDown += OnKeyDown;
         AppWindow.Resize(new Windows.Graphics.SizeInt32(520, 760));
 
+        Cube.ShiftClicked += () => Cube.NextScene();
         Closed += (_, _) => { _closed = true; Cube.Close(); _frames?.Dispose(); };
         grid.Loaded += (_, _) => { Style(runningKey); FocusForKeys(); };
     }
 
     void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
+        if (e.Key == Windows.System.VirtualKey.Right) { Cube.NextScene(); e.Handled = true; return; }
         if (e.Key == Windows.System.VirtualKey.Escape && HinvShown) { DismissHinv(); e.Handled = true; return; }
         if (e.Key is >= Windows.System.VirtualKey.A and <= Windows.System.VirtualKey.Z && _egg.Feed((char)e.Key)) _ = ShowHinvAsync();
     }
@@ -125,8 +127,9 @@ public sealed class AboutWindow : Window
             }
             catch (Exception e) { App.Log("about: no machine reflection: " + e.Message); _frames?.Dispose(); _frames = null; }
         }
-        // The core picks the scene for the appearance: Howe Sound by day, Vancouver at dusk.
-        Cube.SetStyle(Frame.CubeEnvScene, Frame.origami_cube_about_scene(_dark ? 1u : 0u), null, _dark, false, reduce);
+        // The scene is the one for the local time, read once when About opens.
+        var now = DateTime.Now;
+        Cube.SetStyle(Frame.CubeEnvScene, Frame.origami_cube_scene_for_time((uint)now.Hour, (uint)now.Minute), null, _dark, false, reduce);
     }
 
     static string ReadLicence()

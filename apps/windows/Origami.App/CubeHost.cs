@@ -9,7 +9,8 @@ namespace Origami.App;
 /// and a timer draws only while the cube moves.</summary>
 public sealed class CubeHost : Grid
 {
-    const uint WM_ERASEBKGND = 0x14;
+    const uint WM_ERASEBKGND = 0x14, WM_LBUTTONDOWN = 0x201;
+    const long MK_SHIFT = 0x4;
     const string ClassName = "OrigamiCube";
     static Win32.WndProc? s_proc;
     static bool s_registered;
@@ -20,6 +21,11 @@ public sealed class CubeHost : Grid
     (int, int, int, int, double) _last;
     Frame.CubeStyle _style;
     (uint, uint, uint?, bool, bool, bool, uint?)? _styleKey;
+
+    static readonly Dictionary<IntPtr, CubeHost> s_hosts = new();
+
+    /// <summary>A left click with Shift held, on the cube.</summary>
+    public event Action? ShiftClicked;
 
     public Func<IntPtr> WindowHandle { get; set; } = () => IntPtr.Zero;
     public bool Attached => _cube != IntPtr.Zero;
@@ -55,6 +61,20 @@ public sealed class CubeHost : Grid
         if (_cube != IntPtr.Zero) { Frame.origami_cube_set_style(_cube, ref _style); Pump(); }
     }
 
+    /// <summary>Fades to the next photograph; the scene on show changes at once.</summary>
+    public void NextScene()
+    {
+        if (_cube == IntPtr.Zero) return;
+        Frame.origami_cube_next_scene(_cube);
+        Pump();
+    }
+
+    /// <summary>The photograph on show, an index into the core's scenes; -1 for none.</summary>
+    public int CurrentScene => _cube == IntPtr.Zero ? -1 : Frame.origami_cube_current_scene(_cube);
+
+    /// <summary>Self-test hook: a left click on the cube's window, with or without Shift.</summary>
+    public void ClickForTest(bool shift) { if (_hwnd != IntPtr.Zero) Win32.SendMessageW(_hwnd, WM_LBUTTONDOWN, new IntPtr(shift ? MK_SHIFT : 0), IntPtr.Zero); }
+
     public void SetMachine(IntPtr machine)
     {
         if (_cube != IntPtr.Zero) { Frame.origami_cube_set_machine(_cube, machine, 0); Pump(); }
@@ -85,7 +105,7 @@ public sealed class CubeHost : Grid
         _visible = false; // a layout pass after this must not make the window again
         _timer?.Stop(); _timer = null;
         if (_cube != IntPtr.Zero) { Frame.origami_cube_detach(_cube); _cube = IntPtr.Zero; }
-        if (_hwnd != IntPtr.Zero) { Win32.DestroyWindow(_hwnd); _hwnd = IntPtr.Zero; }
+        if (_hwnd != IntPtr.Zero) { s_hosts.Remove(_hwnd); Win32.DestroyWindow(_hwnd); _hwnd = IntPtr.Zero; }
     }
 
     // ---- placement --------------------------------------------------------------------------
@@ -147,6 +167,7 @@ public sealed class CubeHost : Grid
         }
         _hwnd = Win32.CreateWindowExW(0, ClassName, null, 0x40000000 | 0x04000000 | 0x02000000, 0, 0, 16, 16, parent, IntPtr.Zero, Win32.GetModuleHandleW(null), IntPtr.Zero);
         if (_hwnd == IntPtr.Zero) { LastError = "CreateWindowEx failed"; return false; }
+        s_hosts[_hwnd] = this;
         return true;
     }
 
@@ -174,6 +195,10 @@ public sealed class CubeHost : Grid
         return t;
     }
 
-    static IntPtr Proc(IntPtr hwnd, uint msg, IntPtr w, IntPtr l) =>
-        msg == WM_ERASEBKGND ? new IntPtr(1) : Win32.DefWindowProcW(hwnd, msg, w, l);
+    static IntPtr Proc(IntPtr hwnd, uint msg, IntPtr w, IntPtr l)
+    {
+        if (msg == WM_ERASEBKGND) return new IntPtr(1);
+        if (msg == WM_LBUTTONDOWN && (w.ToInt64() & MK_SHIFT) != 0 && s_hosts.TryGetValue(hwnd, out var host)) host.ShiftClicked?.Invoke();
+        return Win32.DefWindowProcW(hwnd, msg, w, l);
+    }
 }
