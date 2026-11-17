@@ -17,10 +17,11 @@ struct AboutView: View {
         return app.models.first { $0.state == .running && $0.view?.isPresenting == true }
     }
 
+    @State private var qemuVersion: String?
+
     private var version: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        let q = app.host?.core.engines().first(where: { $0.id == "qemu" })?.version
-        return "Version \(v)" + (q.map { " · QEMU \($0)" } ?? "")
+        return "Version \(v)" + (qemuVersion.map { " · QEMU \($0)" } ?? "")
     }
 
     var body: some View {
@@ -41,6 +42,11 @@ struct AboutView: View {
         }
         .frame(width: 360)
         .sheet(isPresented: $acknowledgements) { Acknowledgements() }
+        .task {
+            // The core is asked off the main actor; the line fills in when it answers.
+            guard let core = app.host?.core else { return }
+            qemuVersion = await Task.detached { core.engines().first(where: { $0.id == "qemu" })?.version }.value
+        }
     }
 }
 
