@@ -12,6 +12,7 @@
 mod change;
 mod create;
 mod first_boot;
+pub mod hinv;
 mod inspect;
 mod install;
 mod report;

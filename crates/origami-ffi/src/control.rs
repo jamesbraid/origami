@@ -688,7 +688,8 @@ impl OrigamiCore {
             .list_machines()
             .ok()
             .map(|l| l.into_iter().map(|m| (m.name, m.product)).collect());
-        crate::hinv::format(&crate::hinv::gather(self.core.root(), machines))
+        let gpu = crate::engines::gpu_name();
+        origami_core::hinv::format(&origami_core::hinv::gather(self.core.root(), machines, gpu))
     }
 
     /// Long. The finished operation's `result_machine` is the new key.

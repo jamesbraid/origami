@@ -1,11 +1,12 @@
 //! The About window's `hinv` egg: an IRIX-style inventory of this host,
 //! read locally and built here so all three apps show the same text.
+//! The GPU name is passed in because this crate opens no GPU.
 
 use std::path::Path;
 
 /// What the host reports. `None` means the platform would not say.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct Host {
+pub struct Host {
     pub cpus: usize,
     pub model: Option<String>,
     pub mhz: Option<u32>,
@@ -16,7 +17,7 @@ pub(crate) struct Host {
     pub machines: Option<Vec<(String, String)>>,
 }
 
-pub(crate) fn format(h: &Host) -> String {
+pub fn format(h: &Host) -> String {
     let plural = if h.cpus == 1 { "" } else { "s" };
     let mut out = format!("{} ", h.cpus.max(1));
     if let Some(mhz) = h.mhz {
@@ -46,15 +47,20 @@ pub(crate) fn format(h: &Host) -> String {
     out
 }
 
-/// Reads the host. Touches the disk and the GPU: call off the UI thread.
-pub(crate) fn gather(library: &Path, machines: Option<Vec<(String, String)>>) -> Host {
+/// Reads the host. Touches the disk: call off the UI thread. `gpu` is the
+/// graphics adapter's name, when the caller has one.
+pub fn gather(
+    library: &Path,
+    machines: Option<Vec<(String, String)>>,
+    gpu: Option<String>,
+) -> Host {
     let (model, mhz) = os::cpu();
     Host {
         cpus: std::thread::available_parallelism().map_or(1, |n| n.get()),
         model: model.map(|m| collapse(&m)).filter(|m| !m.is_empty()),
         mhz,
         memory_bytes: os::memory(),
-        gpu: gpu(),
+        gpu,
         free_bytes: os::free(library),
         machines,
     }
@@ -65,17 +71,6 @@ fn collapse(s: &str) -> String {
     let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     s.strip_suffix(" Processor")
         .map_or(s.clone(), str::to_string)
-}
-
-#[cfg(feature = "render")]
-fn gpu() -> Option<String> {
-    let gpu = crate::engines::gpu::shared().ok()?;
-    Some(gpu.adapter.get_info().name)
-}
-
-#[cfg(not(feature = "render"))]
-fn gpu() -> Option<String> {
-    None
 }
 
 #[cfg(target_os = "linux")]
@@ -319,7 +314,7 @@ mod tests {
     #[test]
     fn reads_this_host() {
         let dir = std::env::temp_dir();
-        let h = gather(&dir, Some(vec![]));
+        let h = gather(&dir, Some(vec![]), None);
         assert!(h.cpus >= 1);
         assert!(h.memory_bytes.is_some_and(|b| b > 0));
         assert!(h.free_bytes.is_some());

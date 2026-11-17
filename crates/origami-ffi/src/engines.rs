@@ -44,6 +44,17 @@ pub(crate) fn build() -> Result<Engines, CoreError> {
     Ok(Engines { list })
 }
 
+/// The adapter's name for the About egg, when the GPU can be opened.
+#[cfg(feature = "render")]
+pub(crate) fn gpu_name() -> Option<String> {
+    Some(gpu::shared().ok()?.adapter.get_info().name)
+}
+
+#[cfg(not(feature = "render"))]
+pub(crate) fn gpu_name() -> Option<String> {
+    None
+}
+
 /// The one GPU device of the process: views draw with it and the display
 /// client imports the guest's picture into it.
 #[cfg(feature = "render")]
