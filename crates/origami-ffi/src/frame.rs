@@ -985,16 +985,19 @@ pub unsafe extern "C" fn origami_input_release_all(
 pub const ORIGAMI_SURFACE_COCOA_VIEW: u32 = 1;
 pub const ORIGAMI_SURFACE_CA_METAL_LAYER: u32 = 2;
 pub const ORIGAMI_SURFACE_WIN32_HWND: u32 = 3;
-/// Not supported yet: give a child window's HWND instead.
 pub const ORIGAMI_SURFACE_WIN32_SWAPCHAIN_PANEL: u32 = 4;
 pub const ORIGAMI_SURFACE_XLIB_WINDOW: u32 = 5;
 pub const ORIGAMI_SURFACE_XCB_WINDOW: u32 = 6;
 pub const ORIGAMI_SURFACE_WAYLAND_SURFACE: u32 = 7;
+pub const ORIGAMI_SURFACE_WIN32_COMPOSITION_VISUAL: u32 = 8;
 
 /// Where to draw. Fields by `kind`:
 /// COCOA_VIEW: `window` is the `NSView*`.
 /// CA_METAL_LAYER: `window` is the `CAMetalLayer*`.
-/// WIN32_HWND: `window` is the `HWND`.
+/// WIN32_HWND: `window` is the `HWND`; its swap chain is opaque.
+/// WIN32_SWAPCHAIN_PANEL: `window` is the panel's `ISwapChainPanelNative*`.
+/// WIN32_COMPOSITION_VISUAL: `window` is an `IDCompositionVisual*`. Both blend
+/// over what is behind them (a cube asks for premultiplied alpha).
 /// XLIB_WINDOW: `window_id` is the `Window`, `display` the `Display*`,
 /// `screen` the screen number.
 /// XCB_WINDOW: `window_id` is the `xcb_window_t`, `display` the
@@ -1249,7 +1252,8 @@ pub(crate) mod present {
         XcbDisplayHandle, XcbWindowHandle, XlibDisplayHandle, XlibWindowHandle,
     };
     use origami_render::{
-        cursor_texture, Compose, CursorDraw, Drawn, Gpu, HeadTexture, HostSurface, ScaleMode, View,
+        cursor_texture, Compose, Composition, CursorDraw, Drawn, Gpu, HeadTexture, Host,
+        HostSurface, ScaleMode, View,
     };
     use std::ptr::NonNull;
 
@@ -1278,10 +1282,26 @@ pub(crate) mod present {
         NonNull::new(p).ok_or_else(|| Fail(Status::NullArgument, format!("{what} is null")))
     }
 
-    pub(crate) fn host(s: &origami_surface) -> Result<HostSurface, Fail> {
+    pub(crate) fn host(s: &origami_surface) -> Result<Host, Fail> {
         if (s.size as usize) < std::mem::size_of::<origami_surface>() {
             return fail(Status::InvalidArgument, "surface->size is too small");
         }
+        let composition = match s.kind {
+            ORIGAMI_SURFACE_WIN32_SWAPCHAIN_PANEL => Some(Composition::SwapChainPanel(s.window)),
+            ORIGAMI_SURFACE_WIN32_COMPOSITION_VISUAL => Some(Composition::Visual(s.window)),
+            _ => None,
+        };
+        if let Some(c) = composition {
+            if !cfg!(windows) {
+                return fail(Status::Unsupported, "a composition target needs Windows");
+            }
+            pointer(s.window, "window")?;
+            return Ok(Host::Composition(c));
+        }
+        window_host(s).map(Host::Window)
+    }
+
+    fn window_host(s: &origami_surface) -> Result<HostSurface, Fail> {
         Ok(match s.kind {
             ORIGAMI_SURFACE_COCOA_VIEW | ORIGAMI_SURFACE_CA_METAL_LAYER => HostSurface {
                 display: Some(RawDisplayHandle::AppKit(AppKitDisplayHandle::new())),
@@ -1298,12 +1318,6 @@ pub(crate) mod present {
                     window: RawWindowHandle::Win32(Win32WindowHandle::new(hwnd)),
                     metal_layer: false,
                 }
-            }
-            ORIGAMI_SURFACE_WIN32_SWAPCHAIN_PANEL => {
-                return fail(
-                    Status::Unsupported,
-                    "a SwapChainPanel is not supported yet; give a child window's HWND",
-                );
             }
             ORIGAMI_SURFACE_XLIB_WINDOW => HostSurface {
                 display: Some(RawDisplayHandle::Xlib(XlibDisplayHandle::new(
@@ -1350,7 +1364,7 @@ pub(crate) mod present {
         let host = host(surface)?;
         let gpu = gpu()?;
         // SAFETY: the caller promises the handles stay valid until detach.
-        let view = unsafe { View::attach(&gpu, host, width, height, scale) }
+        let view = unsafe { View::attach_to(&gpu, host, width, height, scale, false) }
             .map_err(|e| Fail(Status::NoGpu, e))?;
         Ok(origami_view {
             inner: Mutex::new(Inner {
@@ -1603,11 +1617,13 @@ pub(crate) mod present {
         #[test]
         fn cocoa_and_win32_surfaces_carry_a_display_handle() {
             for kind in [ORIGAMI_SURFACE_COCOA_VIEW, ORIGAMI_SURFACE_WIN32_HWND] {
-                let host = host(&surface(kind)).ok().unwrap();
+                let host = window_host(&surface(kind)).ok().unwrap();
                 assert!(host.display.is_some(), "kind {kind}");
                 assert!(!host.metal_layer);
             }
-            let layer = host(&surface(ORIGAMI_SURFACE_CA_METAL_LAYER)).ok().unwrap();
+            let layer = window_host(&surface(ORIGAMI_SURFACE_CA_METAL_LAYER))
+                .ok()
+                .unwrap();
             assert!(layer.display.is_some() && layer.metal_layer);
         }
     }

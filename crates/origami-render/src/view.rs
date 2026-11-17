@@ -26,6 +26,23 @@ pub struct HostSurface {
     pub metal_layer: bool,
 }
 
+/// A DirectComposition target (Windows), where the host composites the swap
+/// chain itself: the only way to a surface that blends over what is behind it.
+#[derive(Clone, Copy, Debug)]
+pub enum Composition {
+    /// An `ISwapChainPanelNative*`: a WinUI `SwapChainPanel`.
+    SwapChainPanel(*mut std::ffi::c_void),
+    /// An `IDCompositionVisual*`.
+    Visual(*mut std::ffi::c_void),
+}
+
+/// Where a view draws: a window handle or a composition target.
+#[derive(Clone, Copy, Debug)]
+pub enum Host {
+    Window(HostSurface),
+    Composition(Composition),
+}
+
 /// How a [`View::draw`] ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Drawn {
@@ -80,6 +97,62 @@ impl View {
     ) -> Result<View, String> {
         // SAFETY: the caller's promise.
         unsafe { View::attach_with(gpu, host, width, height, scale, false) }
+    }
+
+    /// [`View::attach_with`] on either kind of host. A composition target needs
+    /// Windows.
+    ///
+    /// # Safety
+    /// As [`View::attach`]; a composition pointer is a live COM interface.
+    pub unsafe fn attach_to(
+        gpu: &Gpu,
+        host: Host,
+        width: u32,
+        height: u32,
+        scale: f64,
+        transparent: bool,
+    ) -> Result<View, String> {
+        match host {
+            // SAFETY: the caller's promise.
+            Host::Window(w) => unsafe {
+                View::attach_with(gpu, w, width, height, scale, transparent)
+            },
+            // SAFETY: as above.
+            Host::Composition(c) => unsafe {
+                View::attach_composition(gpu, c, width, height, scale, transparent)
+            },
+        }
+    }
+
+    #[cfg(windows)]
+    unsafe fn attach_composition(
+        gpu: &Gpu,
+        c: Composition,
+        width: u32,
+        height: u32,
+        scale: f64,
+        transparent: bool,
+    ) -> Result<View, String> {
+        let target = match c {
+            Composition::SwapChainPanel(p) => wgpu::SurfaceTargetUnsafe::SwapChainPanel(p),
+            Composition::Visual(p) => wgpu::SurfaceTargetUnsafe::CompositionVisual(p),
+        };
+        // SAFETY: the caller's promise.
+        let surface = unsafe { gpu.instance.create_surface_unsafe(target) }
+            .map_err(|e| format!("cannot create a surface: {e}"))?;
+        View::from_surface(gpu, surface, width, height, scale, transparent)
+    }
+
+    #[cfg(not(windows))]
+    unsafe fn attach_composition(
+        _: &Gpu,
+        _: Composition,
+        _: u32,
+        _: u32,
+        _: f64,
+        _: bool,
+    ) -> Result<View, String> {
+        Err("a composition target needs Windows".into())
     }
 
     /// [`View::attach`], asking for a premultiplied-alpha surface;
@@ -502,6 +575,31 @@ mod tests {
         assert_eq!(pick_format(&[]), None);
     }
 
+    /// A visual of our own gives a surface that blends over what is behind it.
+    #[cfg(windows)]
+    #[test]
+    fn a_composition_visual_gives_a_transparent_surface() {
+        use windows::core::{IUnknown, Interface};
+        use windows::Win32::Graphics::DirectComposition::{
+            DCompositionCreateDevice2, IDCompositionDevice,
+        };
+        let Some(gpu) = gpu() else { return };
+        // SAFETY: plain COM calls; the visual outlives the view.
+        let (device, view) = unsafe {
+            let device: IDCompositionDevice = DCompositionCreateDevice2(None::<&IUnknown>).unwrap();
+            let visual = device.CreateVisual().unwrap();
+            let host = Host::Composition(Composition::Visual(visual.as_raw()));
+            (
+                device,
+                View::attach_to(&gpu, host, 64, 64, 1.0, true).unwrap(),
+            )
+        };
+        assert!(view.transparent());
+        drop((view, device));
+    }
+
+    // wgpu-hal asserts on a non-Windows display handle under DX12 instead of erroring.
+    #[cfg_attr(windows, ignore)]
     #[test]
     fn a_handle_no_backend_can_draw_to_is_an_error_not_a_crash() {
         let Some(gpu) = gpu() else { return };

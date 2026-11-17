@@ -1,0 +1,52 @@
+name: render-windows
+# The renderer's tests on a Windows runner, which has no compiler: they are cross-built
+# here and run there (WARP, no GPU). Dispatch it by hand.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Cross compiler and Rust
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
+            --target x86_64-pc-windows-gnu
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build the test executable
+        run: |
+          mkdir -p out
+          cargo test --locked --release --target x86_64-pc-windows-gnu -p origami-render --lib --no-run \
+            --message-format json | grep '"executable":"' | sed 's/.*"executable":"\([^"]*\)".*/\1/' \
+            | grep -v 'build-script' | head -1 | xargs -I{} cp {} out/render-tests.exe
+          ls -la out
+      - uses: actions/upload-artifact@v3
+        with:
+          name: render-tests
+          path: out
+          if-no-files-found: error
+          retention-days: 3
+
+  windows:
+    if: github.server_url != 'https://github.com'
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          name: render-tests
+          path: out
+      - name: Run the renderer tests
+        run: ./out/render-tests.exe --nocapture

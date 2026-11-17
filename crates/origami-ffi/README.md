@@ -113,9 +113,9 @@ All functions return `origami_status` (`ORIGAMI_OK` = 0, negative
 - Presenting: `origami_view_attach(machine, head, &surface, w, h, scale, &view)`,
   `_resize`, `_set_scale`, `_set_visible`, `_present`, `_detach`. Surfaces:
   Cocoa `NSView`/`CAMetalLayer`, Win32 `HWND`, X11 (Xlib or XCB), Wayland.
-  A WinUI `SwapChainPanel` is refused for now
-  (`ORIGAMI_ERR_UNSUPPORTED`): give a child window's `HWND`. Detach the view
-  before its window goes.
+  A Win32 `HWND` swap chain is opaque; a WinUI `SwapChainPanel` or a
+  DirectComposition visual blends (the cube asks for premultiplied alpha).
+  Detach the view before its window goes.
 
 - Cube: `origami_cube_attach(&surface, w, h, scale, &cube)`, `_resize`,
   `_set_visible`, `_set_style` (environment, scene, horizon colour, backdrop,

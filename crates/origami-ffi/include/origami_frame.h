@@ -98,7 +98,6 @@
 
 #define ORIGAMI_SURFACE_WIN32_HWND 3
 
-// Not supported yet: give a child window's HWND instead.
 #define ORIGAMI_SURFACE_WIN32_SWAPCHAIN_PANEL 4
 
 #define ORIGAMI_SURFACE_XLIB_WINDOW 5
@@ -106,6 +105,8 @@
 #define ORIGAMI_SURFACE_XCB_WINDOW 6
 
 #define ORIGAMI_SURFACE_WAYLAND_SURFACE 7
+
+#define ORIGAMI_SURFACE_WIN32_COMPOSITION_VISUAL 8
 
 // The surface was presented, was skipped (hidden, zero size, no picture
 // yet), or was rebuilt and needs another call.
@@ -265,7 +266,10 @@ typedef int32_t origami_status;
 // Where to draw. Fields by `kind`:
 // COCOA_VIEW: `window` is the `NSView*`.
 // CA_METAL_LAYER: `window` is the `CAMetalLayer*`.
-// WIN32_HWND: `window` is the `HWND`.
+// WIN32_HWND: `window` is the `HWND`; its swap chain is opaque.
+// WIN32_SWAPCHAIN_PANEL: `window` is the panel's `ISwapChainPanelNative*`.
+// WIN32_COMPOSITION_VISUAL: `window` is an `IDCompositionVisual*`. Both blend
+// over what is behind them (a cube asks for premultiplied alpha).
 // XLIB_WINDOW: `window_id` is the `Window`, `display` the `Display*`,
 // `screen` the screen number.
 // XCB_WINDOW: `window_id` is the `xcb_window_t`, `display` the

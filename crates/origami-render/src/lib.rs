@@ -30,4 +30,4 @@ pub use import::{GpuImporter, ImportedBuffer};
 pub use motion::Motion;
 pub use raw_window_handle;
 pub use reflect::Reflection;
-pub use view::{render_image, Drawn, HostSurface, View};
+pub use view::{render_image, Composition, Drawn, Host, HostSurface, View};

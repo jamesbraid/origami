@@ -8,7 +8,7 @@
 
 use crate::motion::Motion;
 use crate::reflect::Reflection;
-use crate::{Drawn, Gpu, HostSurface, View};
+use crate::{Drawn, Gpu, Host, View};
 use std::f32::consts::FRAC_1_SQRT_2;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1034,13 +1034,13 @@ impl CubeView {
     /// As [`View::attach`]: the handles stay valid until the view is dropped.
     pub unsafe fn attach(
         gpu: &Gpu,
-        host: HostSurface,
+        host: Host,
         width: u32,
         height: u32,
         scale: f64,
     ) -> Result<CubeView, String> {
         // SAFETY: the caller's promise.
-        let view = unsafe { View::attach_with(gpu, host, width, height, scale, true) }?;
+        let view = unsafe { View::attach_to(gpu, host, width, height, scale, true) }?;
         let mut renderer = CubeRenderer::new(gpu, view.format())?;
         renderer.transparent = view.transparent();
         Ok(CubeView::new(Output::Surface(Box::new(view)), renderer))
