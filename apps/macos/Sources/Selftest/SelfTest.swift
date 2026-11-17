@@ -291,6 +291,30 @@ func runSelfTest(library: String, out: String) {
         check("about-cube-detaches-when-its-view-goes", waitFor(10) { CubeNSView.attachedCount == 0 }, ["attached": CubeNSView.attachedCount])
     }
 
+    // The machine's tab, hosted before the start the way the app has it, so the first picture arrives into a
+    // live layout. Its display must fill the fit rect for that picture at once, not after a reset.
+    let tabWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
+                             backing: .buffered, defer: false)
+    tabWindow.isReleasedWhenClosed = false
+    // The fake engine's frames are for the copy test below, which a hosted display would take; QEMU only.
+    let tabHost = NSHostingView(rootView: fake ? AnyView(EmptyView()) : AnyView(MachineTab(model: model).environmentObject(app)))
+    tabWindow.contentView = tabHost
+    func displayViews(_ v: NSView) -> [MachineView] { (v as? MachineView).map { [$0] } ?? v.subviews.flatMap(displayViews) }
+    func checkTabFillsTheFitRect(_ name: String) {
+        guard let picture = model.picture else { check(name, false, ["error": "no picture"]); return }
+        let ok = waitFor(10) {
+            tabHost.layoutSubtreeIfNeeded()
+            guard let v = displayViews(tabHost).first else { return false }
+            let avail = CGSize(width: max(80, tabHost.bounds.width - 60), height: max(80, tabHost.bounds.height - 60))
+            let want = Scaling.viewSize(guest: CGSize(width: picture.width, height: picture.height), available: avail,
+                                        backing: tabWindow.backingScaleFactor, mode: app.scaleMode)
+            return abs(v.frame.width - want.width) < 1.5 && abs(v.frame.height - want.height) < 1.5
+        }
+        let got = displayViews(tabHost).first?.frame.size ?? .zero
+        check(name, ok, ["view": "\(Int(got.width))x\(Int(got.height))", "host": "\(Int(tabHost.bounds.width))x\(Int(tabHost.bounds.height))",
+                        "picture": "\(picture.width)x\(picture.height)", "mode": "\(app.scaleMode)"])
+    }
+
     // 4. Start it the way the Start command does. Events drive every state change.
     var startError: Error?? = .none
     model.start { e in startError = .some(e) }
@@ -304,6 +328,9 @@ func runSelfTest(library: String, out: String) {
         let picture = waitFor(30) { model.hasPicture }
         check("qemu-picture-reported", picture, ["heads": session.machine.view().heads.count,
               "picture": "\(String(describing: model.picture))", "state": model.state.pill])
+        _ = waitFor(10) { model.state == .running }
+        checkTabFillsTheFitRect("tab-display-fills-the-fit-rect-on-the-first-picture")
+        tabWindow.contentView = NSView()
         // Pixel compare: what the core's renderer drew into our layer, read back from the
         // GPU, against QEMU's own screendump once the guest holds still.
         if let h = session.head, picture {
