@@ -19,7 +19,7 @@ jobs:
       - name: Cross compiler and Rust
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
             --target x86_64-pc-windows-gnu
@@ -29,6 +29,17 @@ jobs:
         run: cargo build --locked --release --target x86_64-pc-windows-gnu
       - name: Build the core's FFI library (fake engine)
         run: cargo build --locked --release --target x86_64-pc-windows-gnu -p origami-ffi --features fake
+      # libchdman-rs has no prebuilt for MinGW, so it builds from source. Its FLAC needs HAVE_FSEEKO and a 64-bit
+      # off_t to match MinGW's fseeko64, and the posix thread model for libgcc to link.
+      - name: Build the runner with iris
+        env:
+          LIBCHDMAN_FORCE_SOURCE: '1'
+          CFLAGS_x86_64_pc_windows_gnu: -D_FILE_OFFSET_BITS=64 -DHAVE_FSEEKO=1
+          CXXFLAGS_x86_64_pc_windows_gnu: -D_FILE_OFFSET_BITS=64 -DHAVE_FSEEKO=1
+          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc-posix
+          CXX_x86_64_pc_windows_gnu: x86_64-w64-mingw32-g++-posix
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-g++-posix
+        run: cargo build --locked --release --target x86_64-pc-windows-gnu --features iris --bin origami
       - name: Install the C# generator
         run: |
           cargo install uniffi-bindgen-cs --locked \
@@ -45,6 +56,12 @@ jobs:
           cp target/x86_64-pc-windows-gnu/release/origami_ffi.dll out/native-out/
           cp apps/windows/native/target/x86_64-pc-windows-gnu/release/origami_present.dll out/native-out/
           ls -la out out/*
+      - uses: actions/upload-artifact@v3
+        with:
+          name: windows-iris-runner
+          path: target/x86_64-pc-windows-gnu/release/origami.exe
+          if-no-files-found: error
+          retention-days: 3
       - uses: actions/upload-artifact@v3
         with:
           name: windows-native
@@ -68,6 +85,12 @@ jobs:
         with:
           name: windows-native
           path: apps/windows/Origami.App
+      - uses: actions/download-artifact@v3
+        with:
+          name: windows-iris-runner
+          path: iris-runner
+      - name: The runner with iris starts
+        run: iris-runner/origami.exe version
       - name: Install the .NET SDK (user level)
         shell: powershell
         run: |
