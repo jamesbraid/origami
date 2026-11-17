@@ -869,6 +869,7 @@ pub fn start_background_with(
     }
     fs::create_dir_all(dir.join("logs"))?;
     let log_path = dir.join("logs/runner.log");
+    crate::quiet::rotate(&log_path);
     let log = OpenOptions::new()
         .create(true)
         .append(true)
@@ -1162,7 +1163,12 @@ pub fn launch(
         .collect();
     let heads = head_devices(machines, offering, file);
     let mut command = Command::new(qemu);
-    command.args(args).current_dir(dir).stdin(Stdio::null());
+    // QEMU's error output goes through `quiet::relay`, which collapses repeats.
+    command
+        .args(args)
+        .current_dir(dir)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped());
     // The listening socket is made close-on-exec; QEMU is told its number.
     #[cfg(unix)]
     if let Display::ShmV4 { fd: Some(fd) } = display {
@@ -1178,6 +1184,9 @@ pub fn launch(
         }
     }
     let mut child = command.spawn()?;
+    if let Some(stderr) = child.stderr.take() {
+        std::thread::spawn(move || crate::quiet::relay(stderr));
+    }
     let probe = run_record::Record {
         pid: std::process::id(),
         qmp_port,

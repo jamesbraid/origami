@@ -16,7 +16,6 @@ use origami_machine::stores::{FirmwareSet, StorePreparer};
 use origami_machine::Offering;
 use qapi::qmp;
 use serde::{Deserialize, Serialize};
-use std::io::{BufRead, BufReader};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -270,12 +269,15 @@ impl Engine for QemuEngine {
         let pump = child.stderr.take().map(|stderr| {
             let last_error = last_error.clone();
             std::thread::spawn(move || {
-                for line in BufReader::new(stderr).lines().map_while(|line| line.ok()) {
-                    eprintln!("{line}");
+                let mut collapse = crate::quiet::Collapse::default();
+                let mut out = |line: &str| eprintln!("{line}");
+                crate::quiet::lines_lossy(stderr, |line| {
+                    collapse.line(&line, &mut out);
                     if !line.trim().is_empty() {
                         *last_error.lock().unwrap() = Some(line);
                     }
-                }
+                });
+                collapse.flush(&mut out);
             })
         });
         let record = Record {

@@ -15,6 +15,7 @@ pub mod graphics;
 pub mod init;
 #[cfg(test)]
 mod preset_tests;
+mod quiet;
 pub mod runner_engine;
 pub mod runtime;
 pub mod settings;
