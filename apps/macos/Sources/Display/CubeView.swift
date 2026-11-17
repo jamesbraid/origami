@@ -175,7 +175,9 @@ final class CubeNSView: NSView {
     func present() -> (drawn: UInt32, moving: Bool) {
         // Attach only once the view is in a window, so the swapchain has the right size,
         // scale and screen.
-        guard visible, !detached, window != nil else { return (0, false) }
+        guard visible, !detached, let window else { return (0, false) }
+        // Keep the layer at the screen's backing scale (2x on Retina) so the cube is drawn in physical pixels.
+        if metalLayer.contentsScale != window.backingScaleFactor { resize() }
         if cube == nil && !attach() { return (0, false) }
         guard let cube else { return (0, false) }
         var drawn: UInt32 = 0, moving: UInt32 = 0
@@ -214,6 +216,9 @@ final class CubeNSView: NSView {
         observers = []
         resize()
         guard let window else { return }
+        // A move to a screen of another scale redraws at that scale.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.resize() })
         // Hidden, minimised or occluded: draw nothing and take nothing from the swapchain.
         observers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
