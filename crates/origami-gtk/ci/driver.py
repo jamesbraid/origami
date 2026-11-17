@@ -534,7 +534,7 @@ def first_light(quick=False):
             wayland_pointer(a)
         if mode == "x11" and pos:
             n0 = a.machine("octane2")["inputs"]
-            check("default pointer mode is follow", a.machine("octane2")["pointer"] == "follow")
+            check("default pointer mode is follow", a.machine("octane2")["pointer"] == "follow", a.machine("octane2"))
             for dx in range(0, 120, 20):
                 pointer_to(pos[0] + dx, pos[1] + dx / 2)
                 time.sleep(0.05)
@@ -600,6 +600,21 @@ def first_light(quick=False):
             sh("xdotool", "keyup", "a")
             check("a key held while focus leaves is released", left == 0, left)
             key("Escape")
+        if mode == "x11":
+            # The CPU panel: a real click on the toolbar button shows it, and the
+            # numbers arrive twice a second once two readings exist.
+            b = a.state()["cpu_btn"]
+            pointer_to(b[0] + b[2] / 2, b[1] + b[3] / 2)
+            click()
+            got = a.wait("CPU rows", lambda: (a.machine("octane2")["cpu_panel"]["rows"] or None), 20, 0.5)
+            panel = a.machine("octane2")["cpu_panel"]
+            check("the CPU button shows one bar per CPU", panel["visible"] and got and [r[0] for r in got] == [0], panel)
+            check("each bar's user and system time are percentages", all(0 <= r[1] <= 100 and 0 <= r[2] <= 100 and r[1] + r[2] <= 100.01 for r in got or []), panel)
+            check("the panel is titled as measured on the host", panel["title"] == "Emulated CPU load (measured on the host)")
+            shot("cpu-panel")
+            click()
+            time.sleep(0.5)
+            check("the button hides it again", not a.machine("octane2")["cpu_panel"]["visible"])
         if quick:
             return
         # Idle: the PROM's command monitor is static, so the app should cost

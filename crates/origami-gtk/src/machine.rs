@@ -125,6 +125,7 @@ pub struct MachineUi {
     place: Cell<Place>,
     pub status: gtk::Label,
     pub hud: gtk::Label,
+    pub cpu: crate::cpu_panel::Panel,
     pub page: RefCell<Option<adw::TabPage>>,
     /// The state the hero card was last built for.
     pub hero_state: Cell<Option<State>>,
@@ -199,6 +200,7 @@ impl MachineUi {
         screen.add_overlay(&offload);
         screen.add_overlay(&status);
         screen.add_overlay(&hud);
+        let cpu = crate::cpu_panel::Panel::new();
         screen.update_property(&[gtk::accessible::Property::Label(&format!(
             "{} screen",
             entry.name
@@ -245,7 +247,13 @@ impl MachineUi {
             Some("hero"),
         );
         root.add_named(&surround, Some("starting"));
-        root.add_named(&letterbox, Some("screen"));
+        // The CPU panel sits under the picture, not over it: a native view
+        // cannot be drawn over on every platform.
+        letterbox.set_vexpand(true);
+        let with_panel = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        with_panel.append(&letterbox);
+        with_panel.append(&cpu.root);
+        root.add_named(&with_panel, Some("screen"));
 
         let pointer = app.prefs.borrow().pointer_for(&entry.dir);
         let view = app
@@ -280,6 +288,7 @@ impl MachineUi {
             place: Cell::new(Place::default()),
             status,
             hud,
+            cpu,
             page: RefCell::new(None),
             hero_state: Cell::new(None),
             scanout: RefCell::new(None),

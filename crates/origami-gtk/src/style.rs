@@ -23,6 +23,7 @@ tabbar tab:hover { background: alpha(@window_fg_color, 0.07); }
 .hero { padding: 24px; }
 tabbar.flat .box { box-shadow: none; }
 .plate { padding: 14px 22px; border-radius: 14px; background: alpha(black, 0.55); }
+.cpu-panel { background: #1c1c20; padding: 8px 14px; }
 .on-dark { color: #f2f3f5; }
 .hud { background: alpha(black, 0.65); color: white; padding: 8px 14px; border-radius: 10px; }
 ";

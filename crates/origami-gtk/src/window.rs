@@ -33,6 +33,7 @@ pub struct Win {
     pub pill: gtk::Label,
     pub power_btn: gtk::Button,
     pub pause_btn: gtk::Button,
+    pub cpu_btn: gtk::ToggleButton,
     pub pointer_btn: gtk::MenuButton,
     pub stack: gtk::Stack,
     pub list: gtk::ListBox,
@@ -189,6 +190,10 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .tooltip_text("Pause")
         .action_name("win.machine.pause")
         .build();
+    let cpu_btn = gtk::ToggleButton::builder()
+        .label("CPU")
+        .tooltip_text("Show the emulated CPUs' load")
+        .build();
     let pointer_btn = gtk::MenuButton::builder()
         .icon_name("input-mouse-symbolic")
         .tooltip_text("Pointer mode")
@@ -231,6 +236,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     header.pack_end(&settings_btn);
     header.pack_end(&console_btn);
     header.pack_end(&pointer_btn);
+    header.pack_end(&cpu_btn);
 
     let content = adw::ToolbarView::new();
     content.add_top_bar(&header);
@@ -310,6 +316,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         pill,
         power_btn,
         pause_btn,
+        cpu_btn,
         pointer_btn,
         stack,
         list: list.clone(),
@@ -320,6 +327,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     });
     register_actions(app, &w);
     wire_tabs(app, &w);
+    wire_cpu_panel(app, &w);
     wire_row_menu(app, &w);
     {
         let (app, weak) = (app.clone(), Rc::downgrade(&w));
@@ -479,6 +487,35 @@ fn popup_row_menu(w: &Win, row: &gtk::ListBoxRow, x: i32, y: i32) {
     w.row_menu.popup();
 }
 
+/// The CPU button shows or hides the selected machine's panel; the load is
+/// read twice a second only while it is shown.
+fn wire_cpu_panel(app: &Rc<App>, w: &Rc<Win>) {
+    let (app, weak) = (app.clone(), Rc::downgrade(w));
+    w.cpu_btn.connect_toggled(move |_| {
+        if let Some(w) = weak.upgrade() {
+            sync_cpu_panel(&app, &w);
+        }
+    });
+}
+
+/// Show the panel on the selected tab's machine when the button is down, and
+/// hide every other one; start polling for it.
+pub fn sync_cpu_panel(app: &Rc<App>, w: &Rc<Win>) {
+    let on = w.cpu_btn.is_active();
+    let current = current(app, w);
+    for m in machines_in(app, w) {
+        let show = on && current.as_ref().is_some_and(|c| Rc::ptr_eq(c, &m));
+        if m.cpu.root.is_visible() != show {
+            m.cpu.root.set_visible(show);
+            if show {
+                m.cpu.show(&m.machine.cpu_load());
+                let (m2, btn) = (m.clone(), w.cpu_btn.clone());
+                crate::cpu_panel::poll(move || btn.is_active() && m2.cpu.root.is_visible(), m);
+            }
+        }
+    }
+}
+
 fn wire_tabs(app: &Rc<App>, w: &Rc<Win>) {
     let tv = &w.tv;
     {
@@ -571,6 +608,7 @@ fn wire_tabs(app: &Rc<App>, w: &Rc<Win>) {
                         m.screen.grab_focus();
                     }
                 }
+                sync_cpu_panel(&app, &w);
             }
             refresh(&app);
         });

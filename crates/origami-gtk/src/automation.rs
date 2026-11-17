@@ -208,6 +208,7 @@ fn describe(m: &MachineUi) -> Value {
         "imported": m.stats.borrow().imported, "inputs": m.inputs.get(),
         "visible": m.root.is_mapped(), "captured": m.captured.get(), "motion_total": [m.motion_total.get().0, m.motion_total.get().1], "pointer_locked": m.lock.borrow().is_some(),
         "pointer": format!("{:?}", m.pointer.get()).to_lowercase(),
+        "cpu_panel": json!({"visible": m.cpu.root.is_visible(), "rows": m.cpu.shown(), "note": m.cpu.note(), "title": crate::cpu_panel::TITLE}),
         "pointer_at": [m.pointer_at.get().0, m.pointer_at.get().1],
         "view": format!("{:?}", m.view.get()).to_lowercase(),
         "scale_factor": m.scale_factor(),
@@ -261,7 +262,12 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                     }).collect::<Vec<_>>()
                 })
                 .collect();
-            json!({"machines": ms, "library": lib, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
+            let cpu_btn = window::active(app).and_then(|w| {
+                let root = w.cpu_btn.root()?;
+                let b = w.cpu_btn.compute_bounds(root.upcast_ref::<gtk::Widget>())?;
+                Some(json!([b.x(), b.y(), b.width(), b.height()]))
+            });
+            json!({"machines": ms, "library": lib, "cpu_btn": cpu_btn, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
                    "enabled": enabled, "cpu_s": cpu_seconds(),
                    "pause_tip": window::active(app).and_then(|w| w.pause_btn.tooltip_text()).map(|t| t.to_string()),
                    "status_pills": app.windows.borrow().iter().map(|w| w.pill.label().to_string()).collect::<Vec<_>>()})

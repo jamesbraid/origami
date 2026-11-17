@@ -12,6 +12,7 @@ mod automation;
 mod commands;
 mod config;
 mod console;
+mod cpu_panel;
 mod crisp;
 mod cube;
 mod diagnostics;
