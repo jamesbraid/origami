@@ -51,7 +51,7 @@ public static class Selftest
         try { await Scenario(w, core, dir); }
         catch (Exception e) { Add("exception", false, e.ToString()); }
         // A machine outlives the app by design: do not leave one running behind a failed test.
-        foreach (var m in core.Machines().Where(m => m.State is MachineState.Running or MachineState.Starting or MachineState.Paused))
+        foreach (var m in core.Machines().Where(m => m.State is MachineState.LeftRunning or MachineState.Running or MachineState.Starting or MachineState.Paused))
             try { await core.ForceQuitAsync(m.Key); } catch { }
         Finish();
     }

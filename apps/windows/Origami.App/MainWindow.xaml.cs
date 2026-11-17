@@ -335,6 +335,7 @@ public sealed partial class MainWindow : Window
         StatusText.Text = st.LastError is { Length: > 0 } e ? st.Reason + " " + e : st.Reason;
         foreach (var (cid, mi) in _menuItems) mi.IsEnabled = _core.CommandEnabled(cid, st.State);
         StartButton.IsEnabled = HeroStart.IsEnabled = _core.CommandEnabled("machine.start", st.State);
+        HeroStart.Content = st.State == MachineState.LeftRunning ? "Reconnect" : "Start";
         PowerOffButton.IsEnabled = _core.CommandEnabled("machine.stop", st.State);
 
         HeroName.Text = info.Name;
@@ -347,6 +348,7 @@ public sealed partial class MainWindow : Window
         {
             case MachineState.Stopped:
             case MachineState.Exited:
+            case MachineState.LeftRunning: // the hero, with Start attaching to the runner that is still up
                 Detach();
                 HeroPanel.Visibility = Visibility.Visible; break;
             case MachineState.Starting:
@@ -372,7 +374,7 @@ public sealed partial class MainWindow : Window
     // ---- quit -------------------------------------------------------------------------------
 
     List<MachineSummary> Up() => _core.Machines()
-        .Where(m => m.State is MachineState.Running or MachineState.Starting or MachineState.Paused or MachineState.Stopping).ToList();
+        .Where(m => m.State is MachineState.Running or MachineState.Starting or MachineState.Paused or MachineState.Stopping or MachineState.LeftRunning).ToList();
 
     /// <summary>The names of the machines that are up now, read from the core (not from what the window last showed).</summary>
     public IReadOnlyList<string> UpNames => Up().Select(m => m.Name).ToList();

@@ -111,6 +111,7 @@ Test("pill: words and tones", () =>
     Eq("Console only", Pill.Text(MachineState.Running, true));
     Eq("Saving", Pill.Text(MachineState.Stopping, false));
     Eq("red", Pill.Tone(MachineState.Exited));
+    Eq("Left running", Pill.Text(MachineState.LeftRunning)); Eq("amber", Pill.Tone(MachineState.LeftRunning));
 });
 
 Test("guest keys: ordinals follow the core's key order", () =>

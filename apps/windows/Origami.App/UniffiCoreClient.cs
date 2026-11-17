@@ -173,6 +173,7 @@ public sealed class UniffiCoreClient : ICoreClient
         OrigamiMachineState.Running => MachineState.Running,
         OrigamiMachineState.Paused => MachineState.Paused,
         OrigamiMachineState.Stopping => MachineState.Stopping,
+        OrigamiMachineState.LeftRunning => MachineState.LeftRunning, // a runner from an earlier session is still up: not an exit, so not Settle's business
         _ => MachineState.Exited,
     };
 
@@ -264,6 +265,7 @@ public sealed class UniffiCoreClient : ICoreClient
             MachineState.Running => OrigamiMachineState.Running,
             MachineState.Paused => OrigamiMachineState.Paused,
             MachineState.Stopping => OrigamiMachineState.Stopping,
+            MachineState.LeftRunning => OrigamiMachineState.LeftRunning,
             _ => OrigamiMachineState.Exited,
         };
         return OrigamiFfiMethods.OrigamiCommandEnabled(when, s);

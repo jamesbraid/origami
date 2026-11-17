@@ -2,7 +2,7 @@ namespace Origami.Logic;
 
 public enum MachineControl { Reset, PowerButton, Nmi, Pause, Resume }
 
-public enum MachineState { Stopped, Starting, Running, Paused, Stopping, Exited }
+public enum MachineState { Stopped, Starting, Running, Paused, Stopping, Exited, LeftRunning }
 
 public sealed record MachineSummary(
     string Key,
@@ -48,6 +48,7 @@ public static class Pill
         MachineState.Paused => "Paused",
         MachineState.Stopping => "Saving",
         MachineState.Exited => "Stopped unexpectedly",
+        MachineState.LeftRunning => "Left running",
         _ => "Unknown",
     };
 
@@ -55,7 +56,7 @@ public static class Pill
     public static string Tone(MachineState s) => s switch
     {
         MachineState.Stopped => "grey",
-        MachineState.Starting or MachineState.Stopping => "amber",
+        MachineState.Starting or MachineState.Stopping or MachineState.LeftRunning => "amber",
         MachineState.Running or MachineState.Paused => "green",
         MachineState.Exited => "red",
         _ => "grey",
