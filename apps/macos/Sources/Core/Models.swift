@@ -330,10 +330,13 @@ final class AppModel: ObservableObject {
                 next.append(MachineModel(summary: s, host: host, defaultPointer: defaultPointer))
             }
         }
-        models = next
-        // A change in any machine redraws what shows the app's state: menus, toolbar.
-        forwards = models.map { m in m.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() } }
-        tabs = tabs.filter { id in models.contains { $0.id == id } }
+        if next.map(\.id) != models.map(\.id) {
+            models = next
+            // A change in any machine redraws what shows the app's state: menus, toolbar.
+            forwards = models.map { m in m.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() } }
+            let kept = tabs.filter { id in models.contains { $0.id == id } }
+            if kept != tabs { tabs = kept }
+        }
         if active == nil || !tabs.contains(active!) { active = tabs.first }
     }
 

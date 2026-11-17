@@ -11,6 +11,7 @@
 // since CI runners are noisy.
 
 import AppKit
+import Combine
 import Foundation
 import OrigamiFrame
 import SwiftUI
@@ -423,6 +424,25 @@ func runSelfTest(library: String, out: String) {
         view.setVisible(true)
     }
 
+    // A running machine in a background tab must not make the UI re-render (a storm of
+    // redraws would drop sidebar clicks) or touch the host pointer.
+    do {
+        var changes = 0
+        let sink = app.objectWillChange.sink { _ in changes += 1 }
+        let pointer0 = NSEvent.mouseLocation
+        if let other = app.models.first(where: { $0.id != model.id }) { app.select(other.id) }
+        for i in 0..<100 {
+            advance()
+            do { try host.core.fakeSay(key: key, text: "line \(i)\n") } catch { check("fake-say", false, ["error": "\(error)"]); break }
+            spin(0.01)
+        }
+        spin(0.5)
+        // The pointer is the person's real one, so its position is reported, not asserted.
+        check("background-machine-causes-no-ui-churn", changes <= 2,
+              ["objectWillChange": changes, "events_sent": 200, "host_pointer_moved_by_the_user": NSEvent.mouseLocation != pointer0])
+        sink.cancel()
+        app.select(model.id)
+    }
     // 6. Input. Keys go through the view's own handlers.
     view.keyDown(with: keyEvent(0, down: true))   // 'a' down
     view.keyDown(with: keyEvent(56, down: true))  // shift
