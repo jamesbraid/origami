@@ -1,0 +1,29 @@
+[package]
+name = "origami_present"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "D3D12 fallback presenter for the Windows app, used where the core renderer finds no Vulkan GPU"
+
+# Not a member of the product workspace: this builds with the Windows app until the
+# core's renderer exposes the same attach calls.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+panic = "unwind"
+opt-level = 3
+
+[dependencies.windows]
+version = "0.62"
+features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Threading",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D12",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+]
