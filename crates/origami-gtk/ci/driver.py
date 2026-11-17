@@ -277,6 +277,59 @@ def wayland_pointer(a):
     check("the capture command releases the pointer", a.wait("release", lambda: not a.machine("octane2")["captured"], 5, 0.2) is not None)
 
 
+def diagnostics_window(a, name):
+    """The open Diagnostics window's report, its Copy Report button clicked
+    with a real click, and what lands on the clipboard (X11 only)."""
+    got = a.wait("diagnostics window", lambda: (a.machine(name) or {}).get("diagnostics"), 10, 0.2)
+    if not check("the Diagnostics window opens", got):
+        return None
+    # The button has a size once the window has been laid out.
+    got = a.wait("laid out", lambda: ((a.machine(name) or {}).get("diagnostics") or {}).get("copy_bounds", [0, 0, 0])[2] > 60 and a.machine(name)["diagnostics"], 5, 0.2) or got
+    wins = sh("xdotool", "search", "--onlyvisible", "--name", "Diagnostics").stdout.split()
+    if wins and got.get("copy_bounds"):
+        b = got["copy_bounds"]
+        sh("xdotool", "mousemove", "--window", wins[-1], str(int(b[0] + b[2] / 2)), str(int(b[1] + b[3] / 2)))
+        click()
+        time.sleep(0.5)
+        text = a.req("clipboard").get("text")
+        check("Copy Report puts the report on the clipboard", text and text.strip() == got["report"].strip(), text)
+    else:
+        skip("Copy Report", "no Diagnostics window or button to click")
+    return got["report"]
+
+
+def diagnostics():
+    """The Diagnostics window from the library's row menu, on a stopped machine."""
+    if mode != "x11":
+        skip("diagnostics", "needs XTest")
+        return
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        b = a.state()["chrome"]["rows"][0]["bounds"]
+        pointer_to(b[0] + b[2] / 2, b[1] + b[3] / 2)
+        click(3)
+        a.wait("row menu", lambda: a.state()["chrome"]["row_menu"], 5, 0.2)
+        check("the row menu has Diagnostics", "Diagnostics" in a.state()["chrome"]["row_menu_items"])
+        key("Down")
+        key("Down")
+        key("Return")
+        report = diagnostics_window(a, "octane2")
+        if report:
+            shot("diagnostics")
+            for want in ("Machine:      octane2", "Engine:       ", "State:        Stopped (NotRunning)", "Last error:   none", "Heads:", "Console:      ", "Screen:       "):
+                check("report has " + want.strip(), want in report, report)
+        a.req("invoke window.diagnostics octane2")
+        time.sleep(0.5)
+        n = len(sh("xdotool", "search", "--onlyvisible", "--name", "Diagnostics").stdout.split())
+        check("the command raises the same window, one per machine", n == 1, n)
+        sh("wmctrl", "-c", "Diagnostics")
+        check("closing it forgets it", a.wait("closed", lambda: not a.machine("octane2")["diagnostics"], 5, 0.2) is not None)
+    finally:
+        a.stop()
+
+
 def first_light(quick=False):
     create_machine("octane2")
     start_vptr()
@@ -308,6 +361,14 @@ def first_light(quick=False):
         check("and the button becomes Resume", a.state()["pause_tip"] == "Resume", a.state()["pause_tip"])
         a.req("invoke machine.resume octane2")
         check("Resume runs it again", a.wait("Running", lambda: a.machine("octane2")["state"] == "Running", 15, 0.2) is not None, a.machine("octane2")["state"])
+        if mode == "x11":
+            # Closing the window needs wmctrl; under a compositor it would
+            # stay open over the app and take the pointer checks' clicks.
+            a.req("invoke window.diagnostics octane2")
+            w, h = c["width"], c["height"]
+            report = diagnostics_window(a, "octane2")
+            check("diagnostics: a running machine shows its head and state", report and "State:        Running\n" in report and "%dx%d  picture yes" % (w, h) in report, report)
+            sh("wmctrl", "-c", "Diagnostics")
         st = a.req("stats")["machines"][0]
         sc = st.get("scanout")
         if sc:
@@ -680,7 +741,7 @@ def sidebar():
         row("octane2-c")
         click(3)
         shown = a.wait("row menu", lambda: chrome()["row_menu"], 20, 0.2)
-        check("a right click shows the row menu with its items", shown and chrome()["row_menu_items"] == ["Open in New Tab", "Show in Files"], chrome())
+        check("a right click shows the row menu with its items", shown and chrome()["row_menu_items"] == ["Open in New Tab", "Show in Files", "Diagnostics"], chrome())
         shot("sidebar-menu")
         key("Return")
         a.wait("tab", lambda: len(opened()) == 3, 20, 0.2)
@@ -697,7 +758,7 @@ def sidebar():
         a.stop()
 
 
-SCENARIOS = {"sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

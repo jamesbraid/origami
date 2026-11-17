@@ -83,6 +83,9 @@ pub struct FrameStats {
     pub pump_us: Vec<u32>,
     pub first_picture: Option<Instant>,
     pub presents_while_hidden: u64,
+    /// Frame wake-ups the engine posted, and pictures shown.
+    pub wakes: u64,
+    pub presents: u64,
 }
 
 pub struct MachineUi {
@@ -154,6 +157,7 @@ pub struct MachineUi {
     /// A control call is in flight on a worker; no second one starts until it ends.
     pub busy: Cell<bool>,
     pub console: RefCell<Option<adw::Window>>,
+    pub diagnostics: RefCell<Option<crate::diagnostics::Window>>,
 }
 
 impl MachineUi {
@@ -299,6 +303,7 @@ impl MachineUi {
             hud_timer: RefCell::new(None),
             busy: Cell::new(false),
             console: RefCell::new(None),
+            diagnostics: RefCell::new(None),
         });
         m.place_picture();
         m

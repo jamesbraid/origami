@@ -14,6 +14,7 @@ mod config;
 mod console;
 mod crisp;
 mod cube;
+mod diagnostics;
 mod display;
 mod granite;
 mod input;

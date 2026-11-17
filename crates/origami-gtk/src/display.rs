@@ -102,6 +102,7 @@ fn shown(m: &MachineUi, w: u32, h: u32, seq: u64) {
     }
     m.seq.set(seq);
     m.last_frame.set(Instant::now());
+    m.stats.borrow_mut().presents += 1;
     if !m.root.is_mapped() {
         m.stats.borrow_mut().presents_while_hidden += 1;
     }

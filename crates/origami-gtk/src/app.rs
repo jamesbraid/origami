@@ -369,6 +369,7 @@ fn handle(app: &Rc<App>, msg: Msg) {
     match msg {
         Msg::Wake(key) => {
             if let Some(m) = by_key(app, &key) {
+                m.stats.borrow_mut().wakes += 1;
                 let t0 = std::time::Instant::now();
                 let before = m.state.get();
                 display::pump(app, &m);

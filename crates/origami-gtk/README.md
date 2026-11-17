@@ -48,10 +48,12 @@ Xvfb, wtype under cage, a virtual pointer under sway):
 - `frames`: boot to the PROM and print what presenting cost.
 - `sidebar`: real clicks on the library (select, open, row menu), the tab bar and
   the summary cards.
+- `diagnostics`: the Diagnostics window from the row menu, Copy Report and the
+  clipboard; `first-light` and `pointer` also check a running machine's report.
 - `settings`: edits through the core on a stopped machine, refused while it runs.
 
 Capture takes the window system's pointer lock: Wayland pointer constraints
 with relative pointer (sway), or warp-to-centre on X11. Cage has no pointer
 constraints, so there it falls back to differencing positions.
 
-Not covered yet: weston screenshots, IRIX, CD swap and the Diagnostics window.
+Not covered yet: weston screenshots, IRIX and CD swap.

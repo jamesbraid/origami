@@ -9,6 +9,7 @@
 //!   ping | state | stats | cursor [MACHINE] | release-keys [MACHINE]
 //!   invoke COMMAND [MACHINE]      run a command as a menu item would
 //!   open MACHINE | select MACHINE
+//!   clipboard                      the text on the clipboard
 //!   change memory N | cpus N | network MODE | forward NAME HOST GUEST | share NAME DIR
 //!   compare NAME [MACHINE]        the picture shown, against QMP screendump
 //!   quit                          stop every machine and exit
@@ -81,6 +82,20 @@ pub fn serve(app: &Rc<App>, sock: std::path::PathBuf) {
 }
 
 pub fn handle(app: &Rc<App>, req: Request) {
+    if req.line.trim() == "clipboard" {
+        // The read is asynchronous, so the answer is sent when it completes.
+        let cb = gtk::gdk::Display::default().map(|d| d.clipboard());
+        gtk::glib::spawn_future_local(async move {
+            let text = match cb {
+                Some(cb) => cb.read_text_future().await.ok().flatten(),
+                None => None,
+            };
+            let _ = req
+                .reply
+                .send(json!({"text": text.map(|t| t.to_string())}).to_string());
+        });
+        return;
+    }
     let v = run(app, req.line.trim());
     let _ = req.reply.send(v.to_string());
 }
@@ -187,6 +202,10 @@ fn describe(m: &MachineUi) -> Value {
         "view": format!("{:?}", m.view.get()).to_lowercase(),
         "scale_factor": m.scale_factor(),
         "picture": m.layout().map(|l| json!({"rect": [l.alloc().0, l.alloc().1, l.alloc().2, l.alloc().3], "device": [l.dev.0, l.dev.1, l.dev.2, l.dev.3], "step": l.step, "nearest": l.nearest})),
+        "diagnostics": m.diagnostics.borrow().as_ref().map(|d| json!({
+            "report": d.report.label().to_string(),
+            "copy_bounds": d.copy.root().and_then(|r| d.copy.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),
+        })),
         "cards": cards.iter().filter_map(|c| c.parent()).map(|c| size(&c)).collect::<Vec<_>>(),
         "presents_while_hidden": m.stats.borrow().presents_while_hidden,
         "screen_bounds": m.screen.root().and_then(|r| m.screen.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),

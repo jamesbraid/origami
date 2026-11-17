@@ -295,6 +295,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     let menu = gio::Menu::new();
     menu.append(Some("Open in New Tab"), Some("row.open"));
     menu.append(Some("Show in Files"), Some("row.show"));
+    menu.append(Some("Diagnostics"), Some("row.diagnostics"));
     let row_menu = gtk::PopoverMenu::from_model(Some(&menu));
     row_menu.set_parent(&list_host);
     row_menu.set_has_arrow(false);
@@ -408,8 +409,20 @@ fn wire_row_menu(app: &Rc<App>, w: &Rc<Win>) {
             show_in_files(&w.win, dir.join("machine.toml"));
         });
     }
+    let diag = gio::SimpleAction::new("diagnostics", None);
+    {
+        let (app, weak) = (app.clone(), Rc::downgrade(w));
+        diag.connect_activate(move |_, _| {
+            let dir = weak.upgrade().and_then(|w| w.row_dir.borrow().clone());
+            let entry = dir.and_then(|d| app.library.borrow().iter().find(|e| e.dir == d).cloned());
+            if let Some(m) = entry.and_then(|e| app::open(&app, &e)) {
+                crate::diagnostics::present(&app, &m);
+            }
+        });
+    }
     actions.add_action(&open);
     actions.add_action(&show);
+    actions.add_action(&diag);
     {
         // Hand the keyboard back to the row, so the menu key works again.
         let weak = Rc::downgrade(w);
@@ -817,6 +830,7 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
             }
         }
         ("window.console", Some(m)) => crate::console::present(app, &m),
+        ("window.diagnostics", Some(m)) => crate::diagnostics::present(app, &m),
         ("view.show-library", _) => w.split.set_show_sidebar(!w.split.shows_sidebar()),
         ("view.full-screen", _) => w.win.set_fullscreened(!w.win.is_fullscreen()),
         (id, Some(m)) if ViewScale::from_command(id).is_some() => {
@@ -913,11 +927,8 @@ pub fn enabled(app: &App, w: &Win, id: &str) -> bool {
     {
         return false;
     }
-    // Not built yet: the Diagnostics window, CD changes and the shortcuts sheet.
-    if matches!(
-        id,
-        "window.diagnostics" | "machine.eject-cd" | "app.shortcuts"
-    ) {
+    // Not built yet: CD changes and the shortcuts sheet.
+    if matches!(id, "machine.eject-cd" | "app.shortcuts") {
         return false;
     }
     // The core's commands say when they apply, with the library's selection
