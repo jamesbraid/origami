@@ -200,10 +200,9 @@ struct StartingCard: View {
         ZStack {
             GraniteBackground()
             VStack(spacing: 18) {
-                // 96 pt of cube: it fills 90% of its view, which carries its own granite.
+                // 96 pt of cube: it fills 90% of its view, and composites over the card's granite.
                 CubeHost(look: .starting(chassis: model.record.product.colour))
                     .frame(width: 108, height: 108)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
                     .accessibilityHidden(true)
                 Text("Starting up the system…").font(.title3).foregroundStyle(.white)
                 HStack(spacing: 28) {

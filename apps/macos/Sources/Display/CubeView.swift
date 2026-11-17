@@ -8,7 +8,7 @@ import SwiftUI
 
 /// What a cube shows and where.
 enum CubeLook: Equatable {
-    /// Studio with the chassis colour on the horizon, over tinted granite, turning.
+    /// Studio with the chassis colour on the horizon, over the window, turning.
     case starting(chassis: UInt32)
     /// The scene for the appearance, at rest, or the running machine's screen.
     case about
@@ -104,30 +104,22 @@ final class CubeNSView: NSView {
         s.size = UInt32(MemoryLayout<origami_cube_style>.size)
         s.reduce_motion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0
         s.horizon_rgb = UInt32.max
-        // The layer is opaque until the transparency change: keep the granite tile.
-        s.backdrop = UInt32(ORIGAMI_CUBE_BACKDROP_GRANITE)
+        // The cube composites over its host. Metal gives the layer no premultiplied alpha, so the core
+        // fills the view with `surround_rgb`, the host's own colour. Only About draws the granite tile.
+        s.backdrop = UInt32(ORIGAMI_CUBE_BACKDROP_NONE)
+        s.surround_rgb = Self.windowColour(dark: dark)
         switch look {
         case .starting(let chassis):
+            s.surround_rgb = Granite.neutral.1   // the start card's granite, flat
             s.env = UInt32(ORIGAMI_CUBE_ENV_STUDIO)
             s.horizon_rgb = chassis
             s.spin = 1
-            // Granite of the chassis hue at low chroma.
-            func mix(_ k: Double) -> UInt32 {
-                let grey = [0.13, 0.14, 0.16]
-                let c = [Double((chassis >> 16) & 255), Double((chassis >> 8) & 255), Double(chassis & 255)].map { $0 / 255 }
-                let v = (0..<3).map { UInt32(max(0, min(255, (0.22 * c[$0] + 0.78 * grey[$0]) * k * 255))) }
-                return v[0] << 16 | v[1] << 8 | v[2]
-            }
-            s.granite_light_rgb = mix(1.0); s.granite_dark_rgb = mix(0.8)
         case .empty:
-            // The core always draws a granite backdrop until it can omit it; both tones the window's
-            // colour make it invisible. The layer is non-opaque for when the backdrop can be dropped.
-            let tones = Self.windowColour(dark: dark)
-            s.granite_light_rgb = tones; s.granite_dark_rgb = tones
             s.env = UInt32(ORIGAMI_CUBE_ENV_STUDIO)
             s.light_look = dark ? 0 : 1
             s.spin = 1   // slowly turning; the view takes no pointer input
         case .about:
+            s.backdrop = UInt32(ORIGAMI_CUBE_BACKDROP_GRANITE)
             let tones = dark ? Granite.neutral : Granite.light
             s.granite_light_rgb = tones.0; s.granite_dark_rgb = tones.1
             s.light_look = dark ? 0 : 1
@@ -142,7 +134,7 @@ final class CubeNSView: NSView {
     }
 
     /// The window background as 0xRRGGBB in the given appearance.
-    private static func windowColour(dark: Bool) -> UInt32 {
+    static func windowColour(dark: Bool) -> UInt32 {
         var rgb: UInt32 = 0
         NSAppearance(named: dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
             let c = NSColor.windowBackgroundColor.usingColorSpace(.sRGB) ?? .black

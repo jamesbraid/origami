@@ -246,9 +246,13 @@ func runSelfTest(library: String, out: String) {
         cube.configure(look: .empty, dark: true, machine: nil)
         let emptyView = cube.present()
         let emptyPic = cube.readback()
-        // The core's renderer makes the layer opaque when it attaches; transparency needs its backdrop-none option.
-        check("empty-library-cube-is-studio-and-turning", emptyView.moving && emptyPic != nil && colours(emptyPic) > 8,
-              ["turning": emptyView.moving, "opaque_layer_until_core_can_omit_backdrop": cube.metalLayer.isOpaque])
+        // No backdrop: the view's corner is either clear or exactly the window's colour, so no square shows.
+        let win = CubeNSView.windowColour(dark: true)
+        let px = emptyPic.map { Array($0.bgra[0..<4]) } ?? [1, 2, 3, 255]
+        let clear = px[3] == 0
+        let window = abs(Int(px[2]) - Int((win >> 16) & 255)) <= 1 && abs(Int(px[1]) - Int((win >> 8) & 255)) <= 1 && abs(Int(px[0]) - Int(win & 255)) <= 1
+        check("empty-library-cube-is-studio-turning-and-has-no-square", emptyView.moving && emptyPic != nil && colours(emptyPic) > 8 && (clear || window),
+              ["turning": emptyView.moving, "corner_bgra": px, "clear": clear, "window_colour": window, "opaque_layer": cube.metalLayer.isOpaque])
         cube.configure(look: .about, dark: true, machine: nil)
         let dusk = cube.present()
         let duskPic = cube.readback()
