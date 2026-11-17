@@ -8,6 +8,9 @@ struct AboutView: View {
     @EnvironmentObject var app: AppModel
     @State private var acknowledgements = false
 
+    /// Reflecting a running machine's screen is off for now; the code stays for when it returns.
+    static let reflectsRunningMachine = false
+
     /// The machine whose screen the chrome reflects: the one on show if it runs, else any that does.
     private var running: MachineModel? {
         if let c = app.current, c.state == .running, c.view?.isPresenting == true { return c }
@@ -23,7 +26,7 @@ struct AboutView: View {
     var body: some View {
         VStack(spacing: 0) {
             // The view is the band: the cube fills 90% of its height on granite across the width.
-            CubeHost(look: .about, machine: running)
+            CubeHost(look: .about, machine: Self.reflectsRunningMachine ? running : nil)
                 .frame(width: 360, height: 180)
                 .accessibilityLabel("The SGI cube")
             VStack(spacing: 6) {
