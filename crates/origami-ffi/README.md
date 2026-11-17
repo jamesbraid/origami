@@ -57,7 +57,8 @@ it under a lock the observer takes.
 
 `OrigamiMachine`: `key()`, `name()`, `view()` (state `NotRunning | Starting |
 Running | Paused | Stopping | Exited`, exit code and last error, `heads`,
-`console`, `operation`), `start()`, `stop(Clean | Force)` (a clean stop cannot
+`console`, `operation`, and once exited `exit_reason`: `GuestPoweredOff |
+HostStopped | Crashed | RunnerError`, and `exit_detail`), `start()`, `stop(Clean | Force)` (a clean stop cannot
 be cancelled and can take minutes), `control(Reset | PowerButton | Nmi | Pause |
 Resume)`, `change_media(drive, image?)`, `screendump(head, path)`,
 `settings()` (the machine file: processor, CPUs and memory with the values the

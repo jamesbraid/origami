@@ -379,6 +379,7 @@ impl Session for LocalSession {
             Phase::Paused => RunState::Paused,
             Phase::Exited { code, last_error } => RunState::Exited {
                 code: *code,
+                signal: None,
                 last_error: last_error.clone(),
             },
         };

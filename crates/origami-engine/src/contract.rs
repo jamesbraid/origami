@@ -110,7 +110,9 @@ fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
 
 fn exited(session: &dyn Session) -> Option<(Option<i32>, Option<String>)> {
     match session.status().state {
-        RunState::Exited { code, last_error } => Some((code, last_error)),
+        RunState::Exited {
+            code, last_error, ..
+        } => Some((code, last_error)),
         _ => None,
     }
 }

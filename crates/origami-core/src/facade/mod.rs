@@ -24,8 +24,8 @@ pub use error::{CoreError, CoreResult, ErrorKind};
 pub use event::{Event, EventKind, Observer};
 pub use lease::{connect as connect_install_console, Cancel, InstallStart, Starter};
 pub use machine::{
-    ConsoleChunk, ConsoleView, FrameHook, HeadView, HookId, Machine, MachineState, MachineView,
-    StopKind,
+    ConsoleChunk, ConsoleView, ExitReason, FrameHook, HeadView, HookId, Machine, MachineState,
+    MachineView, StopKind,
 };
 pub use operation::{Operation, OperationState};
 pub use settings::{DriveSetting, MachineSettings, PipeSetting, ShareSetting};

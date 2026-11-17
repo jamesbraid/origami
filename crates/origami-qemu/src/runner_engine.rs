@@ -73,6 +73,8 @@ struct Shown {
     stop: AtomicBool,
     /// Set once the machine is gone.
     gone: AtomicBool,
+    /// How the machine ended, read once when `gone` is seen.
+    ended: std::sync::OnceLock<machine_control::Exit>,
     paused: AtomicBool,
     input: Mutex<Option<Sender<InputEvent>>>,
     /// Ends the display thread's blocked read when the session drops.
@@ -426,6 +428,7 @@ impl Engine for RunnerEngine {
             wake,
             stop: AtomicBool::new(false),
             gone: AtomicBool::new(false),
+            ended: std::sync::OnceLock::new(),
             paused: AtomicBool::new(false),
             input: Mutex::new(Some(tx)),
             interrupt: Mutex::new(None),
@@ -574,9 +577,16 @@ impl Session for RunnerSession {
 
     fn status(&self) -> Facts {
         let state = if self.shown.gone.load(Ordering::Acquire) {
+            // The runner writes how QEMU ended before the machine is gone, so
+            // read it once; a status call is made on a UI thread.
+            let ended = self
+                .shown
+                .ended
+                .get_or_init(|| machine_control::read_exit(&self.shown.dir).unwrap_or_default());
             RunState::Exited {
-                code: None,
-                last_error: None,
+                code: ended.code,
+                signal: ended.signal,
+                last_error: ended.last_error.clone(),
             }
         } else if self.shown.paused.load(Ordering::Acquire) {
             RunState::Paused

@@ -741,3 +741,81 @@ fn a_start_racing_an_edit_launches_the_edited_file_or_is_refused() {
         assert_eq!(machine.settings().unwrap().memory_per_node_mib, want);
     }
 }
+
+#[test]
+fn an_exit_says_why_the_machine_ended() {
+    let f = fixture();
+    let n = std::cell::Cell::new(0);
+    let ended = |stop: Option<StopKind>, end: &dyn Fn(&FakeSession)| {
+        n.set(n.get() + 1);
+        let (machine, session) = f.started(&format!("m{}", n.get()));
+        if let Some(how) = stop {
+            machine.stop(how).unwrap().wait(Some(WAIT));
+        }
+        end(&session);
+        let view = machine.view();
+        (view.exit_reason, view.exit_detail)
+    };
+    let guest = ended(None, &|s| s.shut_down());
+    assert_eq!(guest, (Some(ExitReason::GuestPoweredOff), None));
+    let host = ended(Some(StopKind::Clean), &|_| {});
+    assert_eq!(host.0, Some(ExitReason::HostStopped));
+    assert_eq!(ended(Some(StopKind::Force), &|_| {}).0, host.0);
+    let crash = ended(None, &|s| s.crash(3, "bus error"));
+    assert_eq!(crash, (Some(ExitReason::Crashed), Some("bus error".into())));
+    let killed = ended(None, &|s| s.kill(9));
+    assert_eq!(killed, (Some(ExitReason::Crashed), Some("signal 9".into())));
+    assert_eq!(
+        ended(None, &|s| s.vanish()).0,
+        Some(ExitReason::RunnerError)
+    );
+    let (machine, _) = f.started("running");
+    assert_eq!(machine.view().exit_reason, None);
+}
+
+#[test]
+fn a_stop_another_process_asked_for_is_still_a_host_stop() {
+    let f = fixture();
+    let ended = |name: &str, requested: Option<&str>, end: &dyn Fn(&FakeSession)| {
+        let (machine, session) = f.started(name);
+        let note = origami_machine::control::Exit {
+            requested: requested.map(Into::into),
+            ..Default::default()
+        };
+        origami_machine::control::write_exit(Path::new(machine.key()), &note).unwrap();
+        end(&session);
+        machine.view().exit_reason
+    };
+    assert_eq!(
+        ended("a", Some("stop"), &|s| s.shut_down()),
+        Some(ExitReason::HostStopped)
+    );
+    assert_eq!(
+        ended("b", Some("force"), &|s| s.kill(9)),
+        Some(ExitReason::HostStopped)
+    );
+    assert_eq!(ended("c", None, &|s| s.kill(9)), Some(ExitReason::Crashed));
+}
+
+#[test]
+fn a_stop_that_failed_or_a_power_button_the_guest_ignored_does_not_claim_the_exit() {
+    let f = fixture_tuned(None, |config| {
+        config.stop_patience = Duration::from_millis(100)
+    });
+    let (machine, session) = f.started("stuck");
+    session.ignore_clean_stop();
+    let op = machine.stop(StopKind::Clean).unwrap();
+    assert!(matches!(op.wait(Some(WAIT)), OperationState::Failed(_)));
+    session.shut_down();
+    assert_eq!(
+        machine.view().exit_reason,
+        Some(ExitReason::GuestPoweredOff)
+    );
+    let (machine, session) = f.started("button");
+    machine.pressed_power_button_at(std::time::Instant::now() - Duration::from_secs(600));
+    session.shut_down();
+    assert_eq!(
+        machine.view().exit_reason,
+        Some(ExitReason::GuestPoweredOff)
+    );
+}

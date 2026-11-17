@@ -398,7 +398,22 @@ impl FakeSession {
 
     /// The guest dies with `code`, having said `message` last.
     pub fn crash(&self, code: i32, message: &str) {
-        self.exit(Some(code), Some(message.into()));
+        self.exit(Some(code), None, Some(message.into()));
+    }
+
+    /// The guest shuts itself down.
+    pub fn shut_down(&self) {
+        self.exit(Some(0), None, None);
+    }
+
+    /// The guest's program is gone and left no word of how.
+    pub fn vanish(&self) {
+        self.exit(None, None, None);
+    }
+
+    /// The guest's program is killed by `signal`.
+    pub fn kill(&self, signal: i32) {
+        self.exit(None, Some(signal), None);
     }
 
     /// Text the guest prints on its console.
@@ -431,13 +446,17 @@ impl FakeSession {
         self.record.lock().unwrap().screendumps.clone()
     }
 
-    fn exit(&self, code: Option<i32>, last_error: Option<String>) {
+    fn exit(&self, code: Option<i32>, signal: Option<i32>, last_error: Option<String>) {
         {
             let mut record = self.record.lock().unwrap();
             if matches!(record.state, RunState::Exited { .. }) {
                 return;
             }
-            record.state = RunState::Exited { code, last_error };
+            record.state = RunState::Exited {
+                code,
+                signal,
+                last_error,
+            };
         }
         self.console.close();
         (self.wake)(self.id);
@@ -493,7 +512,7 @@ impl Session for FakeSession {
         drop(record);
         // The power button makes the guest shut down and exit.
         if c == Control::PowerButton {
-            self.exit(Some(0), None);
+            self.exit(Some(0), None, None);
         }
         Ok(())
     }
@@ -533,8 +552,8 @@ impl Session for FakeSession {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
             }
-            Stop::Clean { .. } => self.exit(Some(0), None),
-            Stop::Force => self.exit(None, None),
+            Stop::Clean { .. } => self.exit(Some(0), None, None),
+            Stop::Force => self.exit(None, Some(9), None),
         }
         Ok(())
     }

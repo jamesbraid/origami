@@ -77,6 +77,7 @@ pub fn running(dir: &Path) -> Result<Option<Record>> {
 /// lives.
 pub fn stop(dir: &Path) -> Result<()> {
     let record = read(dir)?;
+    origami_machine::control::note_stop(dir, "stop");
     // No runner holds the lock: QEMU outlived it, so there is no runner to
     // wait for and no one to remove the record.
     let runner_gone = record.qemu_pid != 0 && !is_locked(dir)?;
@@ -159,6 +160,7 @@ pub fn force_stop(dir: &Path) -> Result<()> {
     if record.qemu_pid == 0 {
         return Err("this machine's run record does not name QEMU's process (an older origami started it); use stop".into());
     }
+    origami_machine::control::note_stop(dir, "force");
     kill(record.qemu_pid)?;
     let deadline = Instant::now() + Duration::from_secs(30);
     while is_locked(dir)? {

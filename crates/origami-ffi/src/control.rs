@@ -370,6 +370,26 @@ pub struct OrigamiConsoleView {
     pub total: u64,
 }
 
+/// Why the engine's program ended. A guest power-off is a clean stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum OrigamiExitReason {
+    GuestPoweredOff,
+    HostStopped,
+    Crashed,
+    RunnerError,
+}
+
+impl From<f::ExitReason> for OrigamiExitReason {
+    fn from(r: f::ExitReason) -> Self {
+        match r {
+            f::ExitReason::GuestPoweredOff => Self::GuestPoweredOff,
+            f::ExitReason::HostStopped => Self::HostStopped,
+            f::ExitReason::Crashed => Self::Crashed,
+            f::ExitReason::RunnerError => Self::RunnerError,
+        }
+    }
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiMachineView {
     pub key: String,
@@ -378,6 +398,10 @@ pub struct OrigamiMachineView {
     pub engine: String,
     pub state: OrigamiMachineState,
     pub exit_code: Option<i32>,
+    /// How the engine's program ended, once the state is `Exited`.
+    pub exit_reason: Option<OrigamiExitReason>,
+    /// What it said or how it ended, such as `signal 9` or its last error.
+    pub exit_detail: Option<String>,
     pub last_error: Option<String>,
     pub reason: String,
     pub heads: Vec<OrigamiHeadView>,
@@ -394,6 +418,8 @@ impl From<f::MachineView> for OrigamiMachineView {
             engine: v.engine,
             state: v.state.into(),
             exit_code: v.exit_code,
+            exit_reason: v.exit_reason.map(Into::into),
+            exit_detail: v.exit_detail,
             last_error: v.last_error,
             reason: v.reason,
             heads: v

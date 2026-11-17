@@ -170,6 +170,7 @@ pub fn host(
         started_by: started_by.into(),
         display_protocol: hosted.display_protocol,
     };
+    record::clear_exit(dir);
     if let Err(e) = record::write(dir, &rec) {
         let _ = session.stop(Stop::Force);
         return Err(e);
@@ -182,10 +183,20 @@ pub fn host(
         .transpose()?;
 
     let mut shown = state_text(&session.status().state);
-    let code = loop {
+    let ended = loop {
         let facts = session.status();
-        if let RunState::Exited { code, .. } = facts.state {
-            break code;
+        if let RunState::Exited {
+            code,
+            signal,
+            last_error,
+        } = facts.state
+        {
+            break record::Exit {
+                code,
+                signal,
+                last_error,
+                requested: record::read_stop_note(dir),
+            };
         }
         let now = state_text(&facts.state);
         if now != shown {
@@ -202,6 +213,7 @@ pub fn host(
         }
         *flag = false;
     };
+    let _ = record::write_exit(dir, &ended);
     // Remove the record before the lock goes: anyone who sees the machine
     // stopped must not find a record of it.
     record::clear_if_current(dir, &rec);
@@ -212,5 +224,5 @@ pub fn host(
         t.finish();
     }
     drop(hosted.keep);
-    Ok(Exit { code })
+    Ok(Exit { code: ended.code })
 }

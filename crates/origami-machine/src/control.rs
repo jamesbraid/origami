@@ -34,6 +34,52 @@ pub struct Record {
     pub display_protocol: u32,
 }
 
+/// How a runner's machine ended, left in `state/exit.json` for a viewer; the
+/// next run removes it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Exit {
+    pub code: Option<i32>,
+    pub signal: Option<i32>,
+    pub last_error: Option<String>,
+    /// `stop` or `force` when something asked for the end, from any process.
+    #[serde(default)]
+    pub requested: Option<String>,
+}
+
+fn stop_note_path(dir: &Path) -> std::path::PathBuf {
+    dir.join("state/stop-request")
+}
+
+/// Record that a process is about to stop the machine, `stop` or `force`, so
+/// the runner can say so when it leaves its exit note.
+pub fn note_stop(dir: &Path, how: &str) {
+    if let Err(error) = fs::write(stop_note_path(dir), how) {
+        eprintln!("origami: cannot note the stop request: {error}");
+    }
+}
+
+/// The stop a process asked for during this run, if any.
+pub fn read_stop_note(dir: &Path) -> Option<String> {
+    fs::read_to_string(stop_note_path(dir)).ok()
+}
+
+fn exit_path(dir: &Path) -> std::path::PathBuf {
+    dir.join("state/exit.json")
+}
+
+pub fn write_exit(dir: &Path, exit: &Exit) -> Result<()> {
+    Ok(fs::write(exit_path(dir), serde_json::to_vec(exit)?)?)
+}
+
+pub fn read_exit(dir: &Path) -> Option<Exit> {
+    serde_json::from_slice(&fs::read(exit_path(dir)).ok()?).ok()
+}
+
+pub fn clear_exit(dir: &Path) {
+    let _ = fs::remove_file(exit_path(dir));
+    let _ = fs::remove_file(stop_note_path(dir));
+}
+
 pub fn free_port() -> Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
@@ -106,6 +152,23 @@ pub fn is_locked(dir: &Path) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_exit_note_is_read_back_and_cleared() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("state")).unwrap();
+        assert_eq!(read_exit(root.path()), None);
+        let exit = Exit {
+            code: None,
+            signal: Some(9),
+            last_error: Some("killed".into()),
+            requested: Some("force".into()),
+        };
+        write_exit(root.path(), &exit).unwrap();
+        assert_eq!(read_exit(root.path()), Some(exit));
+        clear_exit(root.path());
+        assert_eq!(read_exit(root.path()), None);
+    }
 
     /// A child forked by another thread shares the lock until it execs.
     #[cfg(unix)]

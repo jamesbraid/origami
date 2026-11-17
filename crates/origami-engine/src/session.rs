@@ -115,6 +115,8 @@ pub enum RunState {
     Exited {
         /// None when a signal ended it.
         code: Option<i32>,
+        /// The signal that ended it, where the platform says.
+        signal: Option<i32>,
         /// The last line it wrote to its error output, when it failed.
         last_error: Option<String>,
     },

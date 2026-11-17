@@ -387,6 +387,7 @@ impl QemuEngine {
 
 struct Exit {
     code: Option<i32>,
+    signal: Option<i32>,
     last_error: Option<String>,
 }
 
@@ -419,11 +420,37 @@ fn monitor(
     let success = status.is_some_and(|status| status.success());
     let exit = Exit {
         code: status.and_then(|status| status.code()),
+        signal: status.and_then(signal_of),
         last_error: last_error.lock().unwrap().take().filter(|_| !success),
     };
+    // The runner's stderr is runner.log: say why QEMU ended, not only what it printed.
+    eprintln!("origami: {}", exit_text(&exit));
     *inner.exit.lock().unwrap() = Some(exit);
     inner.exited.notify_all();
     wake(id);
+}
+
+#[cfg(unix)]
+fn signal_of(status: std::process::ExitStatus) -> Option<i32> {
+    std::os::unix::process::ExitStatusExt::signal(&status)
+}
+
+#[cfg(not(unix))]
+fn signal_of(_: std::process::ExitStatus) -> Option<i32> {
+    None
+}
+
+fn exit_text(exit: &Exit) -> String {
+    let how = match (exit.code, exit.signal) {
+        (Some(0), _) => "QEMU exited cleanly".to_string(),
+        (Some(code), _) => format!("QEMU exited with code {code}"),
+        (None, Some(signal)) => format!("QEMU was ended by signal {signal}"),
+        (None, None) => "QEMU ended and the system gave no status".to_string(),
+    };
+    match &exit.last_error {
+        Some(error) => format!("{how}; its last error: {error}"),
+        None => how,
+    }
 }
 
 /// QMP takes `head` only with `device`; a machine with no named display
@@ -594,6 +621,7 @@ impl Session for QemuSession {
             return Facts {
                 state: RunState::Exited {
                     code: exit.code,
+                    signal: exit.signal,
                     last_error: exit.last_error.clone(),
                 },
                 pid: None,

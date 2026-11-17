@@ -20,7 +20,7 @@ use origami_machine::model;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Called from an engine thread when a head has a new picture. It must be
 /// cheap and must not block.
@@ -75,6 +75,10 @@ pub struct MachineView {
     pub engine: String,
     pub state: MachineState,
     pub exit_code: Option<i32>,
+    /// Why the engine's program ended, once it has.
+    pub exit_reason: Option<ExitReason>,
+    /// What it said or how it ended, such as `signal 9` or its last error.
+    pub exit_detail: Option<String>,
     pub last_error: Option<String>,
     /// One sentence for a status line.
     pub reason: String,
@@ -95,6 +99,19 @@ pub struct ConsoleChunk {
     pub generation: u64,
 }
 
+/// Why the engine's program ended; `MachineView::exit_detail` says more.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExitReason {
+    /// The guest shut itself down: a clean stop, not an unexpected one.
+    GuestPoweredOff,
+    /// This core asked: Power Off, Force Quit or the power button.
+    HostStopped,
+    /// A signal or a non-zero exit status, nobody having asked.
+    Crashed,
+    /// The engine or its runner left no word of how the machine ended.
+    RunnerError,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Idle,
@@ -103,6 +120,10 @@ enum Phase {
     /// An edit is writing the file and reloading the model; a start waits.
     Editing,
 }
+
+/// How long after the power button a guest's own shutdown still counts as
+/// the answer to it.
+const POWER_BUTTON_PATIENCE: Duration = Duration::from_secs(300);
 
 /// Puts the phase back to `Idle` when an edit ends, however it ends.
 struct Editing<'a>(&'a Mutex<Run>);
@@ -120,6 +141,14 @@ struct Run {
     /// The session has a display that is not in this process.
     remote_display: bool,
     operation: Option<u64>,
+    /// This core's stop in flight or done since the last start; a failed stop
+    /// takes it back.
+    stop_requested: Option<StopKind>,
+    /// When the power button was last pressed; a guest may ignore it, so it
+    /// counts for a while only.
+    power_button: Option<Instant>,
+    /// How the runner says the machine ended, read once when it exits.
+    exit_note: Option<origami_machine::control::Exit>,
 }
 
 #[derive(Default, Clone)]
@@ -189,6 +218,9 @@ impl Machine {
                     frames: None,
                     remote_display: false,
                     operation: None,
+                    stop_requested: None,
+                    power_button: None,
+                    exit_note: None,
                 }),
                 held: Mutex::default(),
                 hooks: Mutex::new(Arc::new(Vec::new())),
@@ -234,6 +266,9 @@ impl Machine {
                 return Err(CoreError::new(ErrorKind::Busy, message));
             }
             run.phase = Phase::Starting;
+            run.stop_requested = None;
+            run.power_button = None;
+            run.exit_note = None;
         }
         inner.shared.slot.raise(&[EventKind::State]);
         let machine = self.inner.clone();
@@ -262,6 +297,7 @@ impl Machine {
             if how == StopKind::Clean {
                 run.phase = Phase::Stopping;
             }
+            run.stop_requested = Some(how);
             session
         };
         inner.shared.slot.raise(&[EventKind::State]);
@@ -283,6 +319,9 @@ impl Machine {
                     if how == StopKind::Clean {
                         run.phase = Phase::Idle;
                     }
+                    if result.is_err() {
+                        run.stop_requested = None;
+                    }
                 }
                 machine.finish_operation();
                 result?;
@@ -296,6 +335,9 @@ impl Machine {
             .session()?
             .control(control)
             .map_err(CoreError::engine)?;
+        if control == Control::PowerButton {
+            self.inner.run.lock().unwrap().power_button = Some(Instant::now());
+        }
         self.inner.shared.slot.raise(&[EventKind::State]);
         Ok(())
     }
@@ -306,6 +348,11 @@ impl Machine {
             .session()?
             .media(drive, image)
             .map_err(CoreError::engine)
+    }
+
+    #[cfg(test)]
+    pub(super) fn pressed_power_button_at(&self, at: Instant) {
+        self.inner.run.lock().unwrap().power_button = Some(at);
     }
 
     /// What the machine's file says. Reads the disk and may start the
@@ -576,6 +623,26 @@ impl MachineInner {
         }
     }
 
+    /// The stop asked for: this core's, a recent power button, or the runner's
+    /// note of another process's (read once, at the exit).
+    fn stop_requested(&self) -> Option<StopKind> {
+        let mut run = self.run.lock().unwrap();
+        let dir = self.dir.path();
+        let note = run
+            .exit_note
+            .get_or_insert_with(|| origami_machine::control::read_exit(dir).unwrap_or_default());
+        let asked = match note.requested.as_deref() {
+            Some("force") => Some(StopKind::Force),
+            Some(_) => Some(StopKind::Clean),
+            None => None,
+        };
+        let button = run
+            .power_button
+            .filter(|at| at.elapsed() < POWER_BUTTON_PATIENCE)
+            .map(|_| StopKind::Clean);
+        run.stop_requested.or(asked).or(button)
+    }
+
     fn view(&self) -> MachineView {
         let (phase, session, operation, frames) = {
             let run = self.run.lock().unwrap();
@@ -587,9 +654,43 @@ impl MachineInner {
             )
         };
         let facts = session.map(|s| s.status().state);
+        let requested = if matches!(facts, Some(RunState::Exited { .. })) {
+            self.stop_requested()
+        } else {
+            None
+        };
         let (exit_code, last_error) = match &facts {
-            Some(RunState::Exited { code, last_error }) => (*code, last_error.clone()),
+            Some(RunState::Exited {
+                code, last_error, ..
+            }) => (*code, last_error.clone()),
             Some(RunState::Unknown(why)) => (None, Some(why.clone())),
+            _ => (None, None),
+        };
+        let (exit_reason, exit_detail) = match &facts {
+            Some(RunState::Exited {
+                code,
+                signal,
+                last_error,
+            }) => {
+                let how = match (code, signal) {
+                    (Some(0), _) => None,
+                    (Some(code), _) => Some(format!("exit status {code}")),
+                    (None, Some(signal)) => Some(format!("signal {signal}")),
+                    (None, None) => None,
+                };
+                let detail = last_error.clone().or(how);
+                let reason = match (code, signal) {
+                    // A forced stop kills QEMU, so a signal after one is ours.
+                    (None, Some(_)) if requested == Some(StopKind::Force) => {
+                        ExitReason::HostStopped
+                    }
+                    (Some(0), _) if requested.is_some() => ExitReason::HostStopped,
+                    (Some(0), _) => ExitReason::GuestPoweredOff,
+                    (None, None) => ExitReason::RunnerError,
+                    _ => ExitReason::Crashed,
+                };
+                (Some(reason), detail)
+            }
             _ => (None, None),
         };
         let (state, reason) = match (phase, &facts) {
@@ -627,12 +728,15 @@ impl MachineInner {
             (_, Some(RunState::Prelaunch | RunState::Paused)) => {
                 (MachineState::Paused, "The machine is paused.".to_string())
             }
-            (_, Some(RunState::Exited { code, last_error })) => {
-                let how = match (code, last_error) {
-                    (_, Some(error)) => format!("The machine exited: {error}"),
-                    (Some(0), None) => "The machine has shut down.".to_string(),
-                    (Some(code), None) => format!("The machine exited with code {code}."),
-                    (None, None) => "The machine was ended.".to_string(),
+            (_, Some(RunState::Exited { last_error, .. })) => {
+                let how = match (&exit_reason, last_error, &exit_detail) {
+                    (_, Some(error), _) => format!("The machine exited: {error}"),
+                    (Some(ExitReason::GuestPoweredOff), ..) => "The machine has shut down.".into(),
+                    (Some(ExitReason::HostStopped), ..) => "The machine was stopped.".into(),
+                    (Some(ExitReason::Crashed), _, Some(how)) => {
+                        format!("The machine ended: {how}.")
+                    }
+                    _ => "The machine was ended.".to_string(),
                 };
                 (MachineState::Exited, how)
             }
@@ -645,6 +749,8 @@ impl MachineInner {
             engine: self.engine.info().id,
             state,
             exit_code,
+            exit_reason,
+            exit_detail,
             last_error,
             reason,
             heads: self.heads(),

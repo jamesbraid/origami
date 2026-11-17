@@ -389,6 +389,7 @@ impl Session for IrisSession {
             return Facts {
                 state: RunState::Exited {
                     code: exit.code,
+                    signal: None,
                     last_error: exit.last_error.clone(),
                 },
                 pid: None,
