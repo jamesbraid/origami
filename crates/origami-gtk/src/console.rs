@@ -109,11 +109,47 @@ struct View {
     cell: std::cell::Cell<(f64, f64)>,
     /// Where to continue reading the guest's output.
     next: std::cell::Cell<u64>,
+    /// What reached the guest, kept only when a test is driving the app.
+    sent: Option<RefCell<Vec<u8>>>,
+}
+
+impl View {
+    fn send(&self, m: &MachineUi, bytes: &[u8]) {
+        if m.machine.console_send(bytes).is_ok() {
+            if let Some(log) = &self.sent {
+                log.borrow_mut().extend_from_slice(bytes);
+            }
+        }
+    }
+}
+
+/// An open Console window, for the automation scenarios to read.
+#[derive(Clone)]
+pub struct Open {
+    pub win: adw::Window,
+    area: gtk::DrawingArea,
+    view: Rc<View>,
+}
+
+impl Open {
+    pub fn probe(&self) -> serde_json::Value {
+        let t = self.view.term.borrow();
+        let (rows, cols) = t.size();
+        let b = self
+            .area
+            .root()
+            .and_then(|r| self.area.compute_bounds(r.upcast_ref::<gtk::Widget>()));
+        serde_json::json!({
+            "rows": rows, "cols": cols, "received": t.received, "scrolled": t.scrolled(), "history": t.history(),
+            "selected": t.selected_text(), "sent": self.view.sent.as_ref().map(|s| String::from_utf8_lossy(&s.borrow()).into_owned()), "screen": t.screen().contents(), "cell": self.view.cell.get(),
+            "bounds": b.map(|b| [b.x(), b.y(), b.width(), b.height()]),
+        })
+    }
 }
 
 pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
     if let Some(w) = m.console.borrow().as_ref() {
-        w.present();
+        w.win.present();
         return;
     }
     let area = gtk::DrawingArea::builder()
@@ -130,6 +166,7 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
         term: RefCell::new(Terminal::new(24, 80)),
         cell: std::cell::Cell::new((9.0, 18.0)),
         next: std::cell::Cell::new(0),
+        sent: app.cfg.automation.as_ref().map(|_| RefCell::default()),
     });
     let font = pango::FontDescription::from_string(FONT);
 
@@ -213,7 +250,7 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
                 glib::spawn_future_local(async move {
                     if let Ok(Some(text)) = cb.read_text_future().await {
                         let bytes = view.term.borrow().paste_bytes(&text);
-                        let _ = m.machine.console_send(&bytes);
+                        view.send(&m, &bytes);
                     }
                 });
                 return glib::Propagation::Stop;
@@ -234,7 +271,7 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
             match key_bytes(keyval, state, modes) {
                 Some(b) => {
                     view.term.borrow_mut().scroll_to_end();
-                    let _ = m.machine.console_send(&b);
+                    view.send(&m, &b);
                     glib::Propagation::Stop
                 }
                 None => glib::Propagation::Proceed,
@@ -296,7 +333,11 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
     if let Some(p) = app.windows.borrow().first() {
         win.set_transient_for(Some(&p.win));
     }
-    *m.console.borrow_mut() = Some(win.clone());
+    *m.console.borrow_mut() = Some(Open {
+        win: win.clone(),
+        area: area.clone(),
+        view: view.clone(),
+    });
     {
         let m = m.clone();
         win.connect_close_request(move |_| {
@@ -307,7 +348,7 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
     }
     // Pull what the guest printed whenever the core says there is more.
     let pull = {
-        let (m, view, area, status) = (m.clone(), view, area.clone(), status);
+        let (m, view, area, status) = (m.clone(), view.clone(), area.clone(), status);
         move || {
             let chunk = m.machine.console_read(view.next.get(), 1 << 16);
             view.next.set(chunk.next);

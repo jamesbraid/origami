@@ -156,7 +156,7 @@ pub struct MachineUi {
     pub hud_timer: RefCell<Option<glib::SourceId>>,
     /// A control call is in flight on a worker; no second one starts until it ends.
     pub busy: Cell<bool>,
-    pub console: RefCell<Option<adw::Window>>,
+    pub console: RefCell<Option<crate::console::Open>>,
     pub diagnostics: RefCell<Option<crate::diagnostics::Window>>,
 }
 

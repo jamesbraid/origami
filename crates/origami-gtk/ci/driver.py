@@ -330,6 +330,118 @@ def diagnostics():
         a.stop()
 
 
+def console():
+    """The console window under real input: mouse selection, copy, scrollback,
+    and what a key or a paste sends, read back from the window. The PROM's
+    power-on diagnostics on the serial line are the output."""
+    if mode != "x11":
+        skip("console", "needs XTest")
+        return
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        # The first boot sets up the PROM's NVRAM. Changing it then leaves a
+        # checksum the PROM rejects, so the next boot prints its power-on
+        # diagnostics over the serial line.
+        a.req("invoke machine.start octane2")
+        check("the first boot reaches the PROM", prom_ready(a, "octane2") is not None)
+        a.req("invoke machine.force-quit octane2")
+        a.wait("stopped", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+        r = sh(origami, "nvram", os.path.join(lib, "octane2"), "set", "console=d")
+        check("the PROM's NVRAM is changed", r.returncode == 0, r.stderr)
+        a.req("invoke window.console octane2")
+        probe = lambda: (a.machine("octane2") or {}).get("console")
+        win = lambda: (sh("xdotool", "search", "--onlyvisible", "--name", "Console").stdout.split() or [None])[-1]
+        check("the console window opens", a.wait("console window", lambda: probe() and win(), 15, 0.3) is not None)
+        a.req("invoke window.console octane2")
+        time.sleep(0.5)
+        n = len(sh("xdotool", "search", "--onlyvisible", "--name", "Console").stdout.split())
+        check("the command raises the same window, one per machine", n == 1, n)
+        # A few rows tall, so the diagnostics overflow into scrollback.
+        sh("xdotool", "windowsize", "--sync", win(), "700", "90")
+        a.req("invoke machine.start octane2")
+        up = a.wait("the diagnostics", lambda: probe() and "Press any key" in probe()["screen"] and probe(), 600, 2)
+        check("the guest's output shows in the console", up is not None, probe() and probe()["screen"])
+        if not up:
+            return
+
+        def settled(secs=5):
+            """The screen has stopped changing: output clears a selection."""
+            last = [None, time.time()]
+
+            def f():
+                t = probe()["screen"]
+                if t != last[0]:
+                    last[0], last[1] = t, time.time()
+                return probe() if time.time() - last[1] >= secs else None
+            return a.wait("console to settle", f, 120, 1)
+
+        def at(row, col):
+            p = probe()
+            b, (cw, ch) = p["bounds"], p["cell"]
+            return win(), int(b[0] + (col + 0.5) * cw), int(b[1] + (row + 0.5) * ch)
+
+        p = settled()
+        shot("console")
+        check("output past the screen builds scrollback", p["history"] > 0, [p["rows"], p["history"], p["bounds"]])
+        sh("xdotool", "mousemove", "--window", at(1, 5)[0], *map(str, at(1, 5)[1:]))
+        sh("xdotool", "click", "--repeat", "3", "--delay", "100", "4")
+        time.sleep(0.3)
+        check("the mouse wheel scrolls back", probe()["scrolled"] > 0, probe()["scrolled"])
+        sh("xdotool", "click", "--repeat", "20", "--delay", "50", "5")
+        time.sleep(0.3)
+        check("and forward again", probe()["scrolled"] == 0, probe()["scrolled"])
+        # A click gives the window the keyboard (the wheel does not).
+        w, x, y = at(1, 5)
+        sh("xdotool", "mousemove", "--window", w, str(x), str(y))
+        click()
+        key("shift+Prior")
+        time.sleep(0.3)
+        check("Shift+Page Up scrolls back", probe()["scrolled"] > 0, probe()["scrolled"])
+        key("shift+Next")
+        time.sleep(0.3)
+        check("Shift+Page Down returns", probe()["scrolled"] == 0, probe()["scrolled"])
+
+        # Select most of the last line of text with the mouse and copy it. The
+        # drag starts inside the line: a press at the window's edge resizes it,
+        # and the window's border shifts the pointer by a few pixels.
+        lines = probe()["screen"].split("\n")
+        row = max(i for i, l in enumerate(lines) if l.strip())
+        text = lines[row].rstrip()
+        w, x0, y0 = at(row, 2)
+        _, x1, y1 = at(row, len(text) - 1)
+        sh("xdotool", "mousemove", "--window", w, str(x0), str(y0))
+        sh("xdotool", "mousedown", "1")
+        time.sleep(0.2)
+        for i in range(1, 6):
+            sh("xdotool", "mousemove", "--window", w, str(x0 + (x1 - x0) * i // 5), str(y1))
+            time.sleep(0.1)
+        sh("xdotool", "mouseup", "1")
+        time.sleep(0.3)
+        shot("console-selected")
+        sel = probe()["selected"]
+        check("a mouse drag selects the line", bool(sel) and sel in text and len(sel) >= len(text) - 4, [sel, text])
+        key("ctrl+shift+c")
+        time.sleep(0.3)
+        check("Ctrl+Shift+C copies the selection", a.req("clipboard").get("text") == sel, a.req("clipboard"))
+
+        # Keys and paste reach the guest; a pasted line end is one carriage return.
+        key("a")
+        time.sleep(0.3)
+        check("a typed key is sent", probe()["sent"] == "a", probe()["sent"])
+        a.req("clipboard-set " + json.dumps("ls\r\nls\nls\r"))
+        key("ctrl+shift+v")
+        time.sleep(0.5)
+        check("Ctrl+Shift+V pastes with each line end as one carriage return", probe()["sent"] == "als\rls\rls\r", repr(probe()["sent"]))
+        key("shift+Insert")
+        time.sleep(0.5)
+        check("Shift+Insert pastes too", probe()["sent"] == "a" + "ls\rls\rls\r" * 2, repr(probe()["sent"]))
+    finally:
+        a.stop()
+
+
 def first_light(quick=False):
     create_machine("octane2")
     start_vptr()
@@ -758,7 +870,7 @@ def sidebar():
         a.stop()
 
 
-SCENARIOS = {"diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

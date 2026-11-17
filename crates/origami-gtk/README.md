@@ -50,6 +50,8 @@ Xvfb, wtype under cage, a virtual pointer under sway):
   the summary cards.
 - `diagnostics`: the Diagnostics window from the row menu, Copy Report and the
   clipboard; `first-light` and `pointer` also check a running machine's report.
+- `console`: the Console window under real input, with the PROM's serial output
+  on screen: mouse selection, copy, paste, scrollback and one window per machine.
 - `settings`: edits through the core on a stopped machine, refused while it runs.
 
 Capture takes the window system's pointer lock: Wayland pointer constraints

@@ -9,7 +9,7 @@
 //!   ping | state | stats | cursor [MACHINE] | release-keys [MACHINE]
 //!   invoke COMMAND [MACHINE]      run a command as a menu item would
 //!   open MACHINE | select MACHINE
-//!   clipboard                      the text on the clipboard
+//!   clipboard | clipboard-set JSON_STRING   read or set the clipboard text
 //!   change memory N | cpus N | network MODE | forward NAME HOST GUEST | share NAME DIR
 //!   compare NAME [MACHINE]        the picture shown, against QMP screendump
 //!   quit                          stop every machine and exit
@@ -94,6 +94,16 @@ pub fn handle(app: &Rc<App>, req: Request) {
                 .reply
                 .send(json!({"text": text.map(|t| t.to_string())}).to_string());
         });
+        return;
+    }
+    if let Some(text) = req.line.trim().strip_prefix("clipboard-set ") {
+        // A JSON string, so the text can hold spaces and line ends.
+        let ok = serde_json::from_str::<String>(text).map(|t| {
+            if let Some(d) = gtk::gdk::Display::default() {
+                d.clipboard().set_text(&t);
+            }
+        });
+        let _ = req.reply.send(json!({"ok": ok.is_ok()}).to_string());
         return;
     }
     let v = run(app, req.line.trim());
@@ -206,6 +216,7 @@ fn describe(m: &MachineUi) -> Value {
             "report": d.report.label().to_string(),
             "copy_bounds": d.copy.root().and_then(|r| d.copy.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),
         })),
+        "console": m.console.borrow().as_ref().map(|c| c.probe()),
         "cards": cards.iter().filter_map(|c| c.parent()).map(|c| size(&c)).collect::<Vec<_>>(),
         "presents_while_hidden": m.stats.borrow().presents_while_hidden,
         "screen_bounds": m.screen.root().and_then(|r| m.screen.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),
