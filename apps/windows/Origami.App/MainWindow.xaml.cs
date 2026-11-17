@@ -473,6 +473,7 @@ public sealed partial class MainWindow : Window
         }
         w.Activate();
     }
+    public ConsoleWindow? ConsoleForTest(string key) => _consoles.GetValueOrDefault(key);
 
     void OpenConsole(string key)
     {

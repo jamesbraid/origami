@@ -229,6 +229,51 @@ public static class Selftest
         var echoed = await Until(() => Encoding.ASCII.GetString(core.ConsoleRead(key, 0, out _)).Contains("hinv"), 3000);
         Check("console: bytes sent come back", echoed);
 
+        // --- the console as a terminal: colours, typing, selection, copy, paste, scrollback, redraw only what changed ---
+        w.Invoke("window.console");
+        Check("console: the command opens a window for the machine", await Until(() => w.ConsoleForTest(key) != null, 4000));
+        var con = w.ConsoleForTest(key);
+        if (con is not null)
+        {
+            core.FakeSay(key, "\u001b[31mred\u001b[0m plain\r\n");
+            Check("terminal: guest output reaches the grid", await Until(() => con.TextForTest.Contains("red plain"), 3000), con.TextForTest.Replace("\n", " | "));
+            Check("terminal: coloured text is drawn in colour", await Until(() => con.ColourCells > 0, 2000), $"{con.ColourCells} coloured cells in the last row drawn");
+            con.Type("hinv"); con.PressEnter();
+            Check("terminal: typed keys reach the guest (the fake engine echoes them)", await Until(() => con.TextForTest.Contains("hinv"), 3000), con.TextForTest.Replace("\n", " | "));
+            var lines = con.TextForTest.Split('\n');
+            int row = Array.FindIndex(lines, l => l.Contains("red plain"));
+            con.SelectAll(row, 0, row, 8);
+            Check("terminal: a selection reads back as its text", con.SelectedText == "red plain", $"'{con.SelectedText}'");
+            con.Copy();
+            string clipText = "";
+            try { clipText = await Windows.ApplicationModel.DataTransfer.Clipboard.GetContent().GetTextAsync(); } catch (Exception e) { clipText = "clipboard: " + e.Message; }
+            Check("terminal: Copy puts the selection on the clipboard", clipText == "red plain", clipText);
+            var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage(); pkg.SetText("pasted line\r\n");
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
+            await con.PasteAsync();
+            Check("terminal: Paste sends the clipboard text", await Until(() => con.TextForTest.Contains("pasted line"), 3000), con.TextForTest.Replace("\n", " | "));
+            await Task.Delay(400);
+            var drawn0 = con.RowsDrawn;
+            await Task.Delay(600);
+            Check("terminal: an idle console redraws nothing", con.RowsDrawn == drawn0, $"rows drawn {drawn0} -> {con.RowsDrawn}");
+            core.FakeSay(key, "one more line\r\n");
+            await Until(() => con.TextForTest.Contains("one more line"), 3000);
+            await Task.Delay(300);
+            Check("terminal: new output redraws changed rows only", con.RowsDrawn - drawn0 > 0 && con.RowsDrawn - drawn0 < con.Rows, $"drew {con.RowsDrawn - drawn0} of {con.Rows} rows");
+            for (int n = 0; n < 120; n++) core.FakeSay(key, $"line {n}\r\n");
+            await Until(() => con.TextForTest.Contains("line 119"), 5000); // all of it, or new lines keep moving the offset
+            Check("terminal: output beyond the screen goes to scrollback", con.ScrollbackCount > 0, $"scrollback {con.ScrollbackCount}");
+            con.ScrollBack(5);
+            Check("terminal: scrolling back moves the view", con.ScrollOffset == 5, $"offset {con.ScrollOffset}");
+            con.Type("x");
+            Check("terminal: typing returns to the live end", con.ScrollOffset == 0, $"offset {con.ScrollOffset}");
+            core.FakeSay(key, "\r\nxy");
+            await Until(() => con.TextForTest.TrimEnd().EndsWith("xy"), 3000);
+            await Task.Delay(300);
+            int col0 = con.CursorCol; con.PressBackspace();
+            Check("terminal: Backspace goes through the core as ^H and moves the echoed cursor left", await Until(() => con.CursorCol == col0 - 1, 3000), $"column {col0} -> {con.CursorCol}");
+        }
+
         // --- keyboard, real scancodes through the OS ---
         Win.Foreground(w.Hwnd);
         disp.FocusDisplay();

@@ -370,6 +370,58 @@ public sealed class UniffiCoreClient : ICoreClient
         catch (Exception e) when (Gone(e)) { return 0; }
     }
 
+    sealed class Term : ITerminal
+    {
+        readonly OrigamiTerminal _t;
+        public Term(OrigamiTerminal t) { _t = t; }
+
+        static TermColour Col(OrigamiTerminalColour c) => c switch
+        {
+            OrigamiTerminalColour.Indexed i => TermColour.Indexed(i.Index),
+            OrigamiTerminalColour.Rgb r => TermColour.Rgb(r.R, r.G, r.B),
+            _ => TermColour.Default,
+        };
+
+        static TermCell[] Cells(OrigamiTerminalCell[] cs) =>
+            cs.Select(c => new TermCell(c.Text, Col(c.Fg), Col(c.Bg), c.Bold, c.Dim, c.Italic, c.Underline, c.Inverse, c.Wide, c.Continuation)).ToArray();
+
+        public (int Rows, int Cols) Size { get { var s = _t.Size(); return (s.Rows, s.Cols); } }
+        public void Resize(int rows, int cols) => _t.Resize((ushort)rows, (ushort)cols);
+        public TermCell[] Row(int index) => Cells(_t.Row((ushort)index));
+        public (int Row, int Col, bool Visible) Cursor { get { var c = _t.Cursor(); return (c.Row, c.Col, c.Visible); } }
+        public int ScrollbackCount => (int)_t.ScrollbackCount();
+        public TermCell[]? ScrollbackRow(int index) => _t.ScrollbackRow((uint)index) is { } r ? Cells(r) : null;
+        public void Scroll(int lines) => _t.Scroll(lines);
+        public int ScrollOffset => (int)_t.ScrollOffset();
+        public TermDamage ChangedSince(ulong since) { var d = _t.ChangedSince(since); return new TermDamage(d.Sequence, d.Full, d.Rows.Select(r => (int)r).ToList()); }
+
+        public void SendKey(TermKey key, bool shift, bool ctrl, bool alt) => _t.SendKeyWith(key.Kind switch
+        {
+            TermKeyKind.Text => new OrigamiTerminalKey.Text(key.Text),
+            TermKeyKind.Enter => new OrigamiTerminalKey.Enter(),
+            TermKeyKind.Backspace => new OrigamiTerminalKey.Backspace(),
+            TermKeyKind.Tab => new OrigamiTerminalKey.Tab(),
+            TermKeyKind.BackTab => new OrigamiTerminalKey.BackTab(),
+            TermKeyKind.Escape => new OrigamiTerminalKey.Escape(),
+            TermKeyKind.Up => new OrigamiTerminalKey.Up(),
+            TermKeyKind.Down => new OrigamiTerminalKey.Down(),
+            TermKeyKind.Left => new OrigamiTerminalKey.Left(),
+            TermKeyKind.Right => new OrigamiTerminalKey.Right(),
+            TermKeyKind.Home => new OrigamiTerminalKey.Home(),
+            TermKeyKind.End => new OrigamiTerminalKey.End(),
+            TermKeyKind.PageUp => new OrigamiTerminalKey.PageUp(),
+            TermKeyKind.PageDown => new OrigamiTerminalKey.PageDown(),
+            TermKeyKind.Insert => new OrigamiTerminalKey.Insert(),
+            TermKeyKind.Delete => new OrigamiTerminalKey.Delete(),
+            _ => new OrigamiTerminalKey.Function((byte)key.Number),
+        }, shift, ctrl, alt);
+
+        public void Paste(string text) => _t.Paste(text);
+        public void Dispose() => _t.Dispose();
+    }
+
+    public ITerminal OpenTerminal(string key, int rows, int cols) => new Term(new OrigamiTerminal(M(key), (ushort)rows, (ushort)cols));
+
     public byte[] ConsoleRead(string key, ulong from, out ulong next)
     {
         var c = M(key).ConsoleRead(from, 1 << 16);

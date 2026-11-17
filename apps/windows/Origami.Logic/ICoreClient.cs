@@ -47,6 +47,9 @@ public interface ICoreClient : IDisposable
     /// <summary>Lifts every key and button the guest thinks is down; returns how many.</summary>
     int ReleaseAllKeys(string key);
 
+    /// <summary>The console as a terminal grid, fed by the core; dispose it when its window closes.</summary>
+    ITerminal OpenTerminal(string key, int rows, int cols);
+
     byte[] ConsoleRead(string key, ulong from, out ulong next);
     void ConsoleSend(string key, ReadOnlySpan<byte> bytes);
 

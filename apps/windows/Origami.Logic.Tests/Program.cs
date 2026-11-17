@@ -219,5 +219,38 @@ Test("tabs: select replaces the active tab, open adds, close picks a neighbour",
     s.OpenNew("x"); s.OpenNew("y"); s.Retain(new[] { "y" }); Eq(true, s.Keys.SequenceEqual(new[] { "y" }), "tabs for removed machines go");
 });
 
+Test("terminal palette: ansi, cube, greys, true colour, default", () =>
+{
+    Eq(0xCD3131u, TermPalette.Indexed(1)); Eq(0xFFFFFFu, TermPalette.Indexed(15));
+    Eq(0x000000u, TermPalette.Indexed(16), "cube origin"); Eq(0xFFFFFFu, TermPalette.Indexed(231), "cube end"); Eq(0x5F0000u, TermPalette.Indexed(52), "cube red 1");
+    Eq(0x080808u, TermPalette.Indexed(232)); Eq(0xEEEEEEu, TermPalette.Indexed(255));
+    Eq(0x112233u, TermPalette.Rgb(TermColour.Rgb(0x11, 0x22, 0x33), 0));
+    Eq(0xABCDEFu, TermPalette.Rgb(TermColour.Default, 0xABCDEF));
+});
+
+Test("terminal selection: order, text, wide characters, trailing blanks", () =>
+{
+    TermCell C(string s, bool cont = false, bool wide = false) => new(s, TermColour.Default, TermColour.Default, false, false, false, false, false, wide, cont);
+    var rows = new Dictionary<int, TermCell[]>
+    {
+        [0] = new[] { C("h"), C("i"), C(""), C("") },
+        [1] = new[] { C("\u4e16", wide: true), C("", cont: true), C("x"), C("") },
+    };
+    var sel = new TermSelection();
+    Eq(false, sel.Active);
+    sel.Begin(1, 2); sel.Extend(0, 0); // dragged backwards
+    Eq("hi\n\u4e16x", sel.Text(r => rows[r], 4), "the wide character once, blanks trimmed");
+    Eq(true, sel.Contains(0, 1) && sel.Contains(1, 2) && !sel.Contains(1, 3));
+    sel.Clear(); Eq("", sel.Text(r => rows[r], 4));
+});
+
+Test("terminal keys: virtual keys that are not text", () =>
+{
+    Eq(TermKeyKind.Enter, TermKeys.FromVirtualKey(0x0D)!.Value.Kind);
+    Eq(TermKeyKind.Up, TermKeys.FromVirtualKey(0x26)!.Value.Kind);
+    Eq(12, TermKeys.FromVirtualKey(0x7B)!.Value.Number, "F12");
+    Eq(true, TermKeys.FromVirtualKey(0x41) is null, "a letter is text");
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;
