@@ -12,7 +12,7 @@ enum CubeLook: Equatable {
     case starting(chassis: UInt32)
     /// The scene for the appearance, at rest, or the running machine's screen.
     case about
-    /// The studio look at rest, over the window's own colour so no square shows.
+    /// The studio look, slowly turning, over the window's own colour so no square shows.
     case empty
 }
 
@@ -124,6 +124,7 @@ final class CubeNSView: NSView {
             s.granite_light_rgb = tones; s.granite_dark_rgb = tones
             s.env = UInt32(ORIGAMI_CUBE_ENV_STUDIO)
             s.light_look = dark ? 0 : 1
+            s.spin = 1   // slowly turning; the view takes no pointer input
         case .about:
             let tones = dark ? Granite.neutral : Granite.light
             s.granite_light_rgb = tones.0; s.granite_dark_rgb = tones.1

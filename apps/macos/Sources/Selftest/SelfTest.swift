@@ -98,7 +98,7 @@ func runSelfTest(library: String, out: String) {
         }
         check("pointer-mapping-follows-the-scale", mapped(.points, 1500, 1100) && mapped(.double, 2600, 2100) && mapped(.fit, 1000, 700) && mapped(.points, 500, 400), [:])
         check("scaling-modes", size(1500, 1100, 2, .points) == CGSize(width: 1280, height: 1024)
-              && size(1000, 700, 2, .points) == CGSize(width: 640, height: 512)
+              && abs(size(1000, 700, 2, .fit).height - 700) < 0.5 && size(1000, 700, 2, .fit).width < 1000
               && size(2600, 2100, 2, .double) == CGSize(width: 2560, height: 2048)
               && size(2600, 2100, 2, .actual) == CGSize(width: 640, height: 512)
               && size(2600, 2100, 1, .fit) == CGSize(width: 2560, height: 2048)
@@ -219,8 +219,9 @@ func runSelfTest(library: String, out: String) {
         cube.configure(look: .empty, dark: true, machine: nil)
         let emptyView = cube.present()
         let emptyPic = cube.readback()
-        check("empty-library-cube-is-studio-at-rest", !emptyView.moving && emptyPic != nil && colours(emptyPic) > 8,
-              ["at_rest": !emptyView.moving, "opaque_layer": cube.metalLayer.isOpaque])
+        // The core's renderer makes the layer opaque when it attaches; transparency needs its backdrop-none option.
+        check("empty-library-cube-is-studio-and-turning", emptyView.moving && emptyPic != nil && colours(emptyPic) > 8,
+              ["turning": emptyView.moving, "opaque_layer_until_core_can_omit_backdrop": cube.metalLayer.isOpaque])
         cube.configure(look: .about, dark: true, machine: nil)
         let dusk = cube.present()
         let duskPic = cube.readback()
@@ -486,6 +487,19 @@ func runSelfTest(library: String, out: String) {
         session.setFrameHandler(owner: view) { [weak view] in view?.redraw() }
     }
 
+    // The drawable is the guest's size and the layer fills the view, so the compositor scales it:
+    // nearest for a whole-number upscale, linear otherwise.
+    do {
+        let guest = CGSize(width: model.picture?.width ?? 0, height: model.picture?.height ?? 0)
+        let fills = view.metalLayer.frame.size == view.bounds.size
+        let whole = view.metalLayer.magnificationFilter == .nearest   // 640 pt x 2 over 64 px: 20x
+        view.setFrameSize(NSSize(width: 500, height: 400))
+        let smooth = view.metalLayer.magnificationFilter == .linear && view.metalLayer.frame.size == view.bounds.size
+        check("layer-fills-the-view-at-guest-resolution", view.metalLayer.drawableSize == guest && fills && whole && smooth,
+              ["drawable": "\(view.metalLayer.drawableSize)", "guest": "\(guest)", "layer": "\(view.metalLayer.frame.size)", "view": "\(view.bounds.size)",
+               "whole_filter_nearest": whole, "fractional_filter_linear": smooth])
+        view.setFrameSize(NSSize(width: 640, height: 512))
+    }
     // Idle: nothing changed, so nothing is drawn.
     do {
         spin(0.5)

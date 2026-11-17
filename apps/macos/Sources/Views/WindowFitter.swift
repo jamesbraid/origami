@@ -7,13 +7,14 @@ struct WindowFitter: NSViewRepresentable {
     let key: String
     let guest: CGSize
     let available: CGSize
-    private static var done = Set<String>()
+    private static var done = Set<ObjectIdentifier>()
 
     func makeNSView(context: Context) -> NSView { NSView() }
 
     func updateNSView(_ view: NSView, context: Context) {
-        guard !Self.done.contains(key), guest.width > 1, let window = view.window else { return }
-        Self.done.insert(key)
+        // At most once per window: a reset or a new picture size never grows it again.
+        guard guest.width > 1, let window = view.window, !Self.done.contains(ObjectIdentifier(window)) else { return }
+        Self.done.insert(ObjectIdentifier(window))
         let need = CGSize(width: guest.width + 60, height: guest.height + 60)
         let grow = CGSize(width: max(0, need.width - available.width), height: max(0, need.height - available.height))
         guard grow.width > 0 || grow.height > 0, let screen = window.screen ?? NSScreen.main else { return }
