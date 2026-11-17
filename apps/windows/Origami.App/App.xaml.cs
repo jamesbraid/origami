@@ -52,6 +52,7 @@ public partial class App : Application
             SetStdHandle(-12, fs.SafeFileHandle.DangerousGetHandle());
             GC.KeepAlive(fs); _stderr = fs;
         }
+        if (ArgValue("--pictures") is { } pics) Screenshots.PicturesDir = pics; // tests keep screenshots out of the real Pictures folder
         var store = new SettingsStore(ArgValue("--settings") ?? SettingsStore.DefaultPath());
         var settings = store.Load();
         var root = ArgValue("--library")

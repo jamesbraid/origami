@@ -45,6 +45,7 @@ public sealed partial class MainWindow : Window
         ConsoleButton.Click += (_, _) => Invoke("window.console");
         SettingsButton.Click += (_, _) => Invoke("machine.settings");
         PointerButton.Click += (_, _) => Invoke("machine.pointer-mode");
+        ShowShot.Click += (_, _) => ShowInExplorer();
 
         Settings.Saved += s => { _settings = s; _store.Save(s); _modeKey = null; Refresh(); };
         Settings.Closed += () => { _prefsOpen = false; Refresh(); };
@@ -475,14 +476,7 @@ public sealed partial class MainWindow : Window
             case "machine.pause" when key != null: _ = RunAsync(() => _core.ControlAsync(key, MachineControl.Pause)); break;
             case "machine.resume" when key != null: _ = RunAsync(() => _core.ControlAsync(key, MachineControl.Resume)); break;
             case "machine.release-keys" when key != null: Display.LoseFocus(); break;
-            case "machine.screenshot" when key != null:
-                {
-                    var dir = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-                    var path = Path.Combine(dir, $"Origami {DateTime.Now:yyyy-MM-dd HH-mm-ss}.ppm");
-                    _ = RunAsync(() => Task.Run(() => _core.Screendump(key, 0, path)));
-                    StatusText.Text = "Screenshot saved to " + path;
-                    break;
-                }
+            case "machine.screenshot" when key != null: _ = ScreenshotAsync(key); break;
             case "machine.settings" when key != null && !_dialogOpen: _ = RunAsync(() => MachineSettingsAsync(key)); break;
             case "app.preferences": _prefsOpen = true; Settings.Load(_settings); Refresh(); break; // load once: a refresh must not reset unsaved edits
             case "machine.pointer-mode" when key != null:
@@ -610,6 +604,28 @@ public sealed partial class MainWindow : Window
         _about = new AboutWindow(_core, live, Dark);
         _about.Closed += (_, _) => _about = null;
         _about.Activate();
+    }
+
+    string? _lastShot;
+    public string? LastScreenshot => _lastShot;
+    public bool ShowInExplorerVisible => ShowShot.Visibility == Visibility.Visible;
+
+    async Task ScreenshotAsync(string key)
+    {
+        try
+        {
+            var name = _core.Machines().FirstOrDefault(x => x.Key == key)?.Name ?? "Origami";
+            _lastShot = await Screenshots.SaveAsync(_core, key, name);
+            StatusText.Text = "Screenshot saved: " + Path.GetFileName(_lastShot);
+            ShowShot.Visibility = Visibility.Visible;
+        }
+        catch (Exception e) { StatusText.Text = "Screenshot failed: " + e.Message; }
+    }
+
+    void ShowInExplorer()
+    {
+        if (_lastShot is { } p && File.Exists(p))
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{p}\"") { UseShellExecute = true });
     }
 
     void OpenConsole(string key)

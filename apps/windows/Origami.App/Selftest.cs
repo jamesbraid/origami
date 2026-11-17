@@ -412,6 +412,22 @@ public static class Selftest
         var stuck = core.ReleaseAllKeys(key);
         Check("capture: the core holds no key after the chord", stuck == 0, $"released={stuck}");
 
+        // --- screenshot: a PNG in the Pictures folder, named for the machine and the time ---
+        var picDir = Path.Combine(dir, "pictures");
+        Screenshots.PicturesDir = picDir;
+        w.Invoke("machine.screenshot");
+        var shotOk = await Until(() => w.LastScreenshot != null && File.Exists(w.LastScreenshot), 8000);
+        Check("screenshot: a PNG appears in the Pictures folder", shotOk, w.LastScreenshot ?? w.StatusForTest);
+        if (shotOk)
+        {
+            var png = File.ReadAllBytes(w.LastScreenshot!);
+            var sig = png.Length > 24 && png[0] == 0x89 && png[1] == (byte)'P' && png[2] == (byte)'N' && png[3] == (byte)'G';
+            int shotW = sig ? png[16] << 24 | png[17] << 16 | png[18] << 8 | png[19] : 0, shotH = sig ? png[20] << 24 | png[21] << 16 | png[22] << 8 | png[23] : 0;
+            Check("screenshot: it is a PNG of the head's size", sig && shotW == 64 && shotH == 48, $"{shotW}x{shotH}");
+            Check("screenshot: named \"<machine> <date> at <time>.png\"", System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(w.LastScreenshot!), @"^.+ \d{4}-\d{2}-\d{2} at \d{2}\.\d{2}\.\d{2}( \d+)?\.png$"), Path.GetFileName(w.LastScreenshot!));
+            Check("screenshot: the status bar offers Show in Explorer", w.ShowInExplorerVisible);
+        }
+
         Check("quit: a running machine is named from live state", w.UpNames.Count == 1, string.Join(",", w.UpNames));
 
         // --- diagnostics ---

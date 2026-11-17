@@ -1,3 +1,4 @@
+using System.Text;
 using Origami.Logic;
 
 // A tiny runner: each test is a named lambda, a failure is an exception, the exit code is the
@@ -365,6 +366,27 @@ Test("pane tint: the shared token alphas, strongest at the top", () =>
     Eq((byte)89, PaneTint.TopAlpha, "35% at the top");
     Eq((byte)0, PaneTint.BottomAlpha, "clear at the bottom");
 });
+
+Test("screenshot: file name and clashes", () =>
+{
+    Eq("Octane2 2026-11-16 at 14.03.09.png", Screenshot.FileName("Octane2", new DateTime(2026, 11, 16, 14, 3, 9)));
+    Eq("a-b 2026-01-02 at 03.04.05.png", Screenshot.FileName("a/b", new DateTime(2026, 1, 2, 3, 4, 5)), "path characters replaced");
+    Eq("Origami 2026-01-02 at 03.04.05.png", Screenshot.FileName(" ", new DateTime(2026, 1, 2, 3, 4, 5)), "empty name");
+    var taken = new HashSet<string> { Path.Combine("d", "x 2026-01-02 at 03.04.05.png"), Path.Combine("d", "x 2026-01-02 at 03.04.05 2.png") };
+    Eq(Path.Combine("d", "x 2026-01-02 at 03.04.05 3.png"), Screenshot.Unique("d", "x 2026-01-02 at 03.04.05.png", taken.Contains));
+});
+
+Test("ppm: P6 to BGRX, and a short file is refused", () =>
+{
+    var ppm = Encoding.ASCII.GetBytes("P6\n2 1\n255\n").Concat(new byte[] { 1, 2, 3, 10, 20, 30 }).ToArray();
+    var (w, h, px) = Ppm.ReadBgrx(ppm);
+    Eq(2, w); Eq(1, h);
+    Eq(true, px.SequenceEqual(new byte[] { 3, 2, 1, 255, 30, 20, 10, 255 }), "red,green,blue become blue,green,red,opaque");
+    bool refused = false;
+    try { Ppm.ReadBgrx(ppm[..^2]); } catch (InvalidDataException) { refused = true; }
+    Eq(true, refused, "a truncated file");
+});
+
 
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;

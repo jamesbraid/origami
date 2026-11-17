@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.UI.Xaml;
+using Origami.Logic;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
@@ -9,7 +10,7 @@ namespace Origami.App;
 /// <summary>In-process pictures for CI evidence: XAML's own render and the GPU readback.</summary>
 public static class Shot
 {
-    static async Task SavePng(string path, byte[] bgra, int w, int h)
+    public static async Task SavePng(string path, byte[] bgra, int w, int h)
     {
         using var ms = new InMemoryRandomAccessStream();
         var enc = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, ms);
@@ -40,14 +41,5 @@ public static class Shot
     }
 
     /// <summary>Reads a binary PPM (P6) as BGRX, the layout the presenter reads back.</summary>
-    public static (int W, int H, byte[] Bgrx) ReadPpm(string path)
-    {
-        var b = File.ReadAllBytes(path);
-        int p = 0;
-        string Tok() { while (b[p] is (byte)' ' or (byte)'\n') p++; int s = p; while (b[p] is not ((byte)' ' or (byte)'\n')) p++; return Encoding.ASCII.GetString(b, s, p - s); }
-        Tok(); int w = int.Parse(Tok()), h = int.Parse(Tok()); Tok(); p++;
-        var o = new byte[w * h * 4];
-        for (int i = 0; i < w * h; i++) { o[i * 4] = b[p + i * 3 + 2]; o[i * 4 + 1] = b[p + i * 3 + 1]; o[i * 4 + 2] = b[p + i * 3]; }
-        return (w, h, o);
-    }
+    public static (int W, int H, byte[] Bgrx) ReadPpm(string path) => Ppm.ReadBgrx(File.ReadAllBytes(path));
 }
