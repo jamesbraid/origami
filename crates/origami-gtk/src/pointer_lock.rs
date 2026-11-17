@@ -28,7 +28,7 @@ use wayland_protocols::wp::relative_pointer::zv1::client::{
 use x11rb::connection::Connection as _;
 use x11rb::protocol::xproto::ConnectionExt as _;
 
-/// Relative motion in guest pointer counts.
+/// Relative motion in the window system's own units, one count each.
 pub type OnMotion = Rc<dyn Fn(f64, f64)>;
 
 pub enum PointerLock {
@@ -279,6 +279,14 @@ impl Drop for X11Lock {
     }
 }
 
+/// Device pixels per logical pixel on the widget's window.
+fn factor(widget: &impl IsA<gtk::Widget>) -> f64 {
+    widget
+        .native()
+        .and_then(|n| n.surface())
+        .map_or(1.0, |s| s.scale())
+}
+
 fn warp_centre(
     conn: &x11rb::rust_connection::RustConnection,
     window: u32,
@@ -293,9 +301,10 @@ fn warp_centre(
         // The X window's origin is the surface's, which can sit outside the
         // window widget (client-side shadow).
         let (sx, sy) = root.surface_transform();
+        let f = factor(widget);
         let (x, y) = (
-            (f64::from(p.x()) + sx).round(),
-            (f64::from(p.y()) + sy).round(),
+            ((f64::from(p.x()) + sx) * f).round(),
+            ((f64::from(p.y()) + sy) * f).round(),
         );
         let _ = conn.warp_pointer(x11rb::NONE, window, 0, 0, 0, 0, x as i16, y as i16);
         let _ = conn.flush();
