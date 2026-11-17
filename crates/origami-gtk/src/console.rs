@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::machine::MachineUi;
 use adw::prelude::*;
 use gtk::{gdk, glib, pango};
-use origami_terminal::Terminal;
+use origami_terminal::{key_bytes as term_key_bytes, Key, Terminal};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -65,70 +65,42 @@ fn colour(c: vt100::Color, default: (f64, f64, f64)) -> (f64, f64, f64) {
 
 /// The bytes a key sends a serial terminal, or None when it sends nothing.
 pub fn key_bytes(key: gdk::Key, state: gdk::ModifierType, app_cursor: bool) -> Option<Vec<u8>> {
+    let named = match key {
+        gdk::Key::Up => Key::Up,
+        gdk::Key::Down => Key::Down,
+        gdk::Key::Right => Key::Right,
+        gdk::Key::Left => Key::Left,
+        gdk::Key::Home => Key::Home,
+        gdk::Key::End => Key::End,
+        gdk::Key::Page_Up => Key::PageUp,
+        gdk::Key::Page_Down => Key::PageDown,
+        gdk::Key::Insert => Key::Insert,
+        gdk::Key::Delete => Key::Delete,
+        gdk::Key::F1 => Key::F(1),
+        gdk::Key::F2 => Key::F(2),
+        gdk::Key::F3 => Key::F(3),
+        gdk::Key::F4 => Key::F(4),
+        gdk::Key::F5 => Key::F(5),
+        gdk::Key::F6 => Key::F(6),
+        gdk::Key::F7 => Key::F(7),
+        gdk::Key::F8 => Key::F(8),
+        gdk::Key::F9 => Key::F(9),
+        gdk::Key::F10 => Key::F(10),
+        gdk::Key::F11 => Key::F(11),
+        gdk::Key::F12 => Key::F(12),
+        gdk::Key::ISO_Left_Tab => Key::BackTab,
+        gdk::Key::Return | gdk::Key::KP_Enter => Key::Enter,
+        gdk::Key::BackSpace => Key::Backspace,
+        gdk::Key::Tab => Key::Tab,
+        gdk::Key::Escape => Key::Escape,
+        _ => {
+            let ch = key.to_unicode().filter(|c| !c.is_control())?;
+            Key::Char(ch)
+        }
+    };
     let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
     let alt = state.contains(gdk::ModifierType::ALT_MASK);
-    let csi = |s: &str| Some(format!("\x1b[{s}").into_bytes());
-    let ss3 = |s: &str| Some(format!("\x1bO{s}").into_bytes());
-    let arrow = |c: &str| if app_cursor { ss3(c) } else { csi(c) };
-    let named = match key {
-        gdk::Key::Up => arrow("A"),
-        gdk::Key::Down => arrow("B"),
-        gdk::Key::Right => arrow("C"),
-        gdk::Key::Left => arrow("D"),
-        gdk::Key::Home => csi("H"),
-        gdk::Key::End => csi("F"),
-        gdk::Key::Page_Up => csi("5~"),
-        gdk::Key::Page_Down => csi("6~"),
-        gdk::Key::Insert => csi("2~"),
-        gdk::Key::Delete => csi("3~"),
-        gdk::Key::F1 => ss3("P"),
-        gdk::Key::F2 => ss3("Q"),
-        gdk::Key::F3 => ss3("R"),
-        gdk::Key::F4 => ss3("S"),
-        gdk::Key::F5 => csi("15~"),
-        gdk::Key::F6 => csi("17~"),
-        gdk::Key::F7 => csi("18~"),
-        gdk::Key::F8 => csi("19~"),
-        gdk::Key::F9 => csi("20~"),
-        gdk::Key::F10 => csi("21~"),
-        gdk::Key::F11 => csi("23~"),
-        gdk::Key::F12 => csi("24~"),
-        gdk::Key::ISO_Left_Tab => csi("Z"),
-        gdk::Key::Return | gdk::Key::KP_Enter => Some(b"\r".to_vec()),
-        gdk::Key::BackSpace => Some(vec![0x7f]),
-        gdk::Key::Tab => Some(b"\t".to_vec()),
-        gdk::Key::Escape => Some(vec![0x1b]),
-        _ => None,
-    };
-    if named.is_some() {
-        return named;
-    }
-    let ch = key.to_unicode()?;
-    if ch.is_control() {
-        return None;
-    }
-    let mut out = Vec::new();
-    if alt {
-        out.push(0x1b);
-    }
-    if ctrl && ch.is_ascii() {
-        let c = ch.to_ascii_lowercase() as u8;
-        let b = match c {
-            b'a'..=b'z' => c - b'a' + 1,
-            b'@' | b' ' | b'2' => 0,
-            b'[' => 0x1b,
-            b'\\' => 0x1c,
-            b']' => 0x1d,
-            b'^' | b'6' => 0x1e,
-            b'_' | b'/' => 0x1f,
-            _ => return None,
-        };
-        out.push(b);
-    } else {
-        let mut buf = [0u8; 4];
-        out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-    }
-    Some(out)
+    term_key_bytes(named, ctrl, alt, app_cursor)
 }
 
 struct View {

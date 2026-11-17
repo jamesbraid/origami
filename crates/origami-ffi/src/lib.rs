@@ -13,6 +13,7 @@ mod cube;
 mod engines;
 mod frame;
 mod keys;
+mod terminal;
 mod wake;
 
 pub use control::*;
@@ -20,5 +21,6 @@ pub use control::*;
 pub use cube::*;
 pub use frame::*;
 pub use keys::{origami_key, OrigamiKey};
+pub use terminal::*;
 
 uniffi::setup_scaffolding!();

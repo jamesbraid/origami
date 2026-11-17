@@ -1,5 +1,7 @@
 //! Slint key events as the bytes a serial terminal sends.
 
+use origami_terminal::{key_bytes, Key};
+
 /// Modifier keys, as the terminal's owner sees them. `command` is the key
 /// that copies and pastes where the platform has one (Command on macOS).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -24,38 +26,38 @@ pub enum KeyAction {
 }
 
 /// Slint's code for a special key, as the text of its key event.
-fn special(c: char) -> Option<&'static str> {
+fn special(c: char) -> Option<Option<Key>> {
     use slint::platform::Key as K;
-    let table: [(K, &str); 24] = [
-        (K::UpArrow, "A"),
-        (K::DownArrow, "B"),
-        (K::RightArrow, "C"),
-        (K::LeftArrow, "D"),
-        (K::Home, "H"),
-        (K::End, "F"),
-        (K::PageUp, "5~"),
-        (K::PageDown, "6~"),
-        (K::Insert, "2~"),
-        (K::Delete, "3~"),
-        (K::F1, "OP"),
-        (K::F2, "OQ"),
-        (K::F3, "OR"),
-        (K::F4, "OS"),
-        (K::F5, "15~"),
-        (K::F6, "17~"),
-        (K::F7, "18~"),
-        (K::F8, "19~"),
-        (K::F9, "20~"),
-        (K::F10, "21~"),
-        (K::F11, "23~"),
-        (K::F12, "24~"),
-        (K::Backtab, "Z"),
-        (K::Menu, ""),
+    let table: [(K, Option<Key>); 24] = [
+        (K::UpArrow, Some(Key::Up)),
+        (K::DownArrow, Some(Key::Down)),
+        (K::RightArrow, Some(Key::Right)),
+        (K::LeftArrow, Some(Key::Left)),
+        (K::Home, Some(Key::Home)),
+        (K::End, Some(Key::End)),
+        (K::PageUp, Some(Key::PageUp)),
+        (K::PageDown, Some(Key::PageDown)),
+        (K::Insert, Some(Key::Insert)),
+        (K::Delete, Some(Key::Delete)),
+        (K::F1, Some(Key::F(1))),
+        (K::F2, Some(Key::F(2))),
+        (K::F3, Some(Key::F(3))),
+        (K::F4, Some(Key::F(4))),
+        (K::F5, Some(Key::F(5))),
+        (K::F6, Some(Key::F(6))),
+        (K::F7, Some(Key::F(7))),
+        (K::F8, Some(Key::F(8))),
+        (K::F9, Some(Key::F(9))),
+        (K::F10, Some(Key::F(10))),
+        (K::F11, Some(Key::F(11))),
+        (K::F12, Some(Key::F(12))),
+        (K::Backtab, Some(Key::BackTab)),
+        (K::Menu, None),
     ];
     table
         .iter()
         .find(|(k, _)| char::from(*k) == c)
-        .map(|(_, s)| *s)
+        .map(|(_, k)| *k)
 }
 
 /// Whether `c` is one of Slint's codes for a key with no character (a
@@ -106,28 +108,9 @@ pub fn key_action(text: &str, mods: Mods, app_cursor: bool) -> KeyAction {
     }
 
     if single {
-        if let Some(seq) = special(c) {
-            if seq.is_empty() {
-                return KeyAction::Ignore;
-            }
-            let mut out = vec![0x1b];
-            let (intro, body) = match seq.strip_prefix('O') {
-                Some(rest) => (b'O', rest),
-                None => (
-                    if app_cursor && seq.len() == 1 {
-                        b'O'
-                    } else {
-                        b'['
-                    },
-                    seq,
-                ),
-            };
-            out.push(intro);
-            out.extend_from_slice(body.as_bytes());
-            if mods.alt {
-                out.insert(0, 0x1b);
-            }
-            return KeyAction::Send(out);
+        if let Some(key) = special(c) {
+            let send = key.and_then(|k| key_bytes(k, false, mods.alt, app_cursor));
+            return send.map_or(KeyAction::Ignore, KeyAction::Send);
         }
         if is_key_code(c) {
             return KeyAction::Ignore;
@@ -136,46 +119,21 @@ pub fn key_action(text: &str, mods: Mods, app_cursor: bool) -> KeyAction {
         // composes a character (a layout's `@` or `|`), the character itself
         // is what the user typed, and a held Control with it is AltGr on
         // Windows, not a control key.
-        let composed = !c.is_ascii() || (cfg!(windows) && mods.alt && mods.ctrl);
-        let mods = if cfg!(windows) && mods.alt && mods.ctrl {
-            Mods {
-                ctrl: false,
-                alt: false,
-                ..mods
-            }
+        let altgr = cfg!(windows) && mods.alt && mods.ctrl;
+        let (ctrl, alt) = if altgr || !c.is_ascii() {
+            (mods.ctrl && !altgr, false)
         } else {
-            mods
+            (mods.ctrl, mods.alt)
         };
-        let send = |mut b: Vec<u8>| {
-            if mods.alt && !composed {
-                b.insert(0, 0x1b);
-            }
-            KeyAction::Send(b)
+        let key = match c {
+            '\n' | '\r' => Key::Enter,
+            '\u{8}' => Key::Backspace,
+            '\u{7f}' => return KeyAction::Send(b"\x1b[3~".to_vec()),
+            '\u{1b}' => return KeyAction::Send(vec![0x1b]),
+            '\t' => Key::Tab,
+            c => Key::Char(c),
         };
-        return match c {
-            '\n' | '\r' => send(vec![b'\r']),
-            // Backspace sends DEL, as xterm and the Linux console do; Ctrl-H
-            // is still ^H.
-            '\u{8}' => send(vec![0x7f]),
-            '\u{7f}' => KeyAction::Send(b"\x1b[3~".to_vec()),
-            '\u{1b}' => KeyAction::Send(vec![0x1b]),
-            '\t' => send(vec![b'\t']),
-            // A control character a platform made of a held Ctrl (Linux and
-            // Windows send the letter and the modifier instead).
-            c if (c as u32) < 0x20 => send(vec![c as u8]),
-            c if mods.ctrl => match c {
-                'a'..='z' | 'A'..='Z' => send(vec![(c.to_ascii_lowercase() as u8) & 0x1f]),
-                '@' | ' ' | '2' => send(vec![0]),
-                '[' | '3' => send(vec![0x1b]),
-                '\\' | '4' => send(vec![0x1c]),
-                ']' | '5' => send(vec![0x1d]),
-                '^' | '6' => send(vec![0x1e]),
-                '_' | '7' | '/' => send(vec![0x1f]),
-                '8' => send(vec![0x7f]),
-                _ => KeyAction::Ignore,
-            },
-            c => send(c.to_string().into_bytes()),
-        };
+        return key_bytes(key, ctrl, alt, false).map_or(KeyAction::Ignore, KeyAction::Send);
     }
     // Several characters at once (an input method's commit).
     if text.chars().any(is_key_code) {

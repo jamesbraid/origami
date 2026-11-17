@@ -13,6 +13,7 @@ struct Ring {
     start: u64,
     connected: bool,
     down: Option<String>,
+    generation: u64,
 }
 
 pub(crate) struct Console {
@@ -30,6 +31,7 @@ impl Console {
                 start: 0,
                 connected: false,
                 down: Some("the machine has not started".into()),
+                generation: 0,
             }),
             writer: Mutex::new(None),
         })
@@ -41,6 +43,7 @@ impl Console {
             let mut ring = self.ring.lock().unwrap();
             ring.data.clear();
             ring.start = 0;
+            ring.generation += 1;
             ring.connected = false;
             ring.down = Some("the console is not open".into());
         }
@@ -102,6 +105,7 @@ impl Console {
             bytes,
             next: first + count as u64,
             dropped,
+            generation: ring.generation,
         }
     }
 

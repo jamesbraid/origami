@@ -154,6 +154,79 @@ impl Terminal {
     }
 }
 
+/// A key a serial terminal has bytes for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    Char(char),
+    Enter,
+    Backspace,
+    Tab,
+    BackTab,
+    Escape,
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Insert,
+    Delete,
+    /// F1 to F12.
+    F(u8),
+}
+
+/// The bytes `key` sends, or None when it sends nothing. `alt` prefixes an
+/// ESC; `app_cursor` is the guest's cursor-key mode.
+pub fn key_bytes(key: Key, ctrl: bool, alt: bool, app_cursor: bool) -> Option<Vec<u8>> {
+    let csi = |s: &str| format!("\x1b[{s}").into_bytes();
+    let ss3 = |s: &str| format!("\x1bO{s}").into_bytes();
+    let cursor = |c: &str| if app_cursor { ss3(c) } else { csi(c) };
+    let mut out = match key {
+        Key::Up => cursor("A"),
+        Key::Down => cursor("B"),
+        Key::Right => cursor("C"),
+        Key::Left => cursor("D"),
+        Key::Home => cursor("H"),
+        Key::End => cursor("F"),
+        Key::PageUp => csi("5~"),
+        Key::PageDown => csi("6~"),
+        Key::Insert => csi("2~"),
+        Key::Delete => csi("3~"),
+        Key::BackTab => csi("Z"),
+        Key::Enter => b"\r".to_vec(),
+        // DEL, as xterm and the Linux console send.
+        Key::Backspace => vec![0x7f],
+        Key::Tab => b"\t".to_vec(),
+        Key::Escape => vec![0x1b],
+        Key::F(n) => match n {
+            1..=4 => ss3(["P", "Q", "R", "S"][usize::from(n) - 1]),
+            5..=12 => {
+                csi(["15~", "17~", "18~", "19~", "20~", "21~", "23~", "24~"][usize::from(n) - 5])
+            }
+            _ => return None,
+        },
+        Key::Char(c) if (c as u32) < 0x20 => vec![c as u8],
+        Key::Char(c) if ctrl => vec![match c {
+            'a'..='z' | 'A'..='Z' => (c.to_ascii_lowercase() as u8) & 0x1f,
+            '@' | ' ' | '2' => 0,
+            '[' | '3' => 0x1b,
+            '\\' | '4' => 0x1c,
+            ']' | '5' => 0x1d,
+            '^' | '6' => 0x1e,
+            '_' | '7' | '/' => 0x1f,
+            '8' => 0x7f,
+            _ => return None,
+        }],
+        Key::Char(c) => c.to_string().into_bytes(),
+    };
+    if alt {
+        out.insert(0, 0x1b);
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,5 +292,23 @@ mod tests {
         t.resize(10, 40);
         assert_eq!(t.size(), (10, 40));
         assert!(t.screen().contents().starts_with("abc"));
+    }
+
+    #[test]
+    fn keys_send_what_a_serial_terminal_expects() {
+        let k = |key, ctrl, alt, app| key_bytes(key, ctrl, alt, app);
+        assert_eq!(k(Key::Char('a'), true, false, false), Some(vec![1]));
+        assert_eq!(
+            k(Key::Char('x'), false, true, false),
+            Some(b"\x1bx".to_vec())
+        );
+        assert_eq!(k(Key::Char('\u{e9}'), true, false, false), None);
+        assert_eq!(k(Key::Up, false, false, true), Some(b"\x1bOA".to_vec()));
+        assert_eq!(k(Key::Up, false, false, false), Some(b"\x1b[A".to_vec()));
+        assert_eq!(
+            k(Key::F(5), false, false, false),
+            Some(b"\x1b[15~".to_vec())
+        );
+        assert_eq!(k(Key::F(13), false, false, false), None);
     }
 }

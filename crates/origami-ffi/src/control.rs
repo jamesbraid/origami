@@ -249,6 +249,7 @@ pub struct OrigamiConsoleChunk {
     pub bytes: Vec<u8>,
     pub next: u64,
     pub dropped: u64,
+    pub generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
@@ -663,6 +664,7 @@ impl OrigamiMachine {
             bytes: chunk.bytes,
             next: chunk.next,
             dropped: chunk.dropped,
+            generation: chunk.generation,
         }
     }
 

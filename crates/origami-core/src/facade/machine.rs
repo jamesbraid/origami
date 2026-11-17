@@ -89,6 +89,8 @@ pub struct ConsoleChunk {
     pub next: u64,
     /// Bytes between `from` and the oldest kept that were lost.
     pub dropped: u64,
+    /// Changes when the machine restarts and the offsets begin again.
+    pub generation: u64,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

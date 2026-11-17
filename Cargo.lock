@@ -4764,10 +4764,12 @@ dependencies = [
  "origami-protocol",
  "origami-qemu",
  "origami-render",
+ "origami-terminal",
  "png",
  "tempfile",
  "thiserror 2.0.21",
  "uniffi",
+ "vt100",
  "wgpu",
  "windows-sys 0.61.2",
 ]

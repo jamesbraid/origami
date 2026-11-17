@@ -65,6 +65,13 @@ says what you missed), `console_send(bytes)`, `frame_plane_handle()`.
 Failed(kind, message) | Cancelled`), `wait(timeout_ms?)` (blocks), `cancel()`
 (false when it cannot be), `result_machine()`.
 
+`OrigamiTerminal(machine, rows, cols)` is the machine's console as a VT
+terminal; a pump thread feeds it, so the app only draws. `row(i)` gives cells
+(text, colours, attributes), `cursor()`, `scrollback_count()` and
+`scrollback_row(i)` (0 is oldest), `scroll(lines)` moves the view,
+`changed_since(sequence)` names the rows to redraw (or `full`), `resize`,
+`send_key(key, ctrl, alt)` and `paste(text)`. Grids clamp to 256x512.
+
 `CoreError` has one variant per kind, each with `message` (a sentence safe to
 show) and `detail`: `NotFound`, `Invalid`, `Busy`, `NotRunning`, `Unsupported`,
 `NeedsUpgrade`, `Io`, `Protocol`, `Engine`, `Cancelled`, `Internal`. In C# the
