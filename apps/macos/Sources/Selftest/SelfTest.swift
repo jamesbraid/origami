@@ -166,6 +166,14 @@ func runSelfTest(library: String, out: String) {
         check("tab-bar-shows-with-one-tab", !bare && app.tabs.count == 1 && app.showsTabBar, [:])
         check("summary-cards-are-memory-nodes-topology", model.record.cards.map(\.title) == ["Memory", "Nodes", "Topology"], [:])
     }
+    // A start that fails stays "Stopped unexpectedly" with its reason, through later refreshes.
+    do {
+        let victim = app.models.last!
+        victim.failStartForTest("boom: no firmware")
+        victim.refresh()
+        check("start-error-is-not-wiped-to-stopped", victim.state == .stoppedUnexpectedly && (victim.failure ?? "").contains("boom"),
+              ["state": victim.state.pill, "failure": victim.failure ?? "none"])
+    }
     app.select(model.id)
     check("commands-enabled-at-rest", app.isEnabled(.start) && !app.isEnabled(.powerOff) && !app.isEnabled(.reset)
           && !app.isEnabled(.forceQuit), [:])
@@ -344,6 +352,56 @@ func runSelfTest(library: String, out: String) {
         var stopped: Error?? = .none
         model.stop { e in stopped = .some(e) }
         check("qemu-power-off", waitFor(300) { stopped != nil } && (stopped ?? nil) == nil, ["state": model.state.pill])
+
+        // The emulator ending by itself. Each scenario starts the machine in a fresh core, because the
+        // core refuses to start a machine again after its emulator ended ("machine is already running").
+        let runJSON = libraryURL.appendingPathComponent(model.name).appendingPathComponent("state/run.json")
+        func record() -> [String: Any]? {
+            (try? JSONSerialization.jsonObject(with: Data(contentsOf: runJSON))) as? [String: Any]
+        }
+        func freshlyStarted() -> (AppModel, MachineModel)? {
+            let host = AppModel(root: libraryURL)
+            guard let m = host.model(named: model.name) else { return nil }
+            m.start()
+            return waitFor(180) { m.state == .running } ? (host, m) : nil
+        }
+        // A crash, seen by the app that started the machine and by one that found it running.
+        if let (host, m) = freshlyStarted(), let pid = record()?["qemu_pid"] as? Int {
+            let observer = AppModel(root: libraryURL)
+            let seen = observer.model(named: model.name)
+            var changes = 0
+            let sink = observer.objectWillChange.sink { _ in changes += 1 }
+            spin(6)
+            // The core's listing does not report a machine running under another core, so "Left
+            // running" is not reached today; the step still holds the churn to zero.
+            check("left-running-is-listed-without-churn", changes == 0,
+                  ["state": seen?.state.pill ?? "none", "objectWillChange_in_6s": changes,
+                   "core_gap": seen?.state == .leftRunning ? "none" : "the core lists a machine running in another core as stopped"])
+            sink.cancel()
+            kill(pid_t(pid), SIGKILL)
+            check("qemu-crash-shows-stopped-unexpectedly", waitFor(20) { m.state == .stoppedUnexpectedly && !(m.failure ?? "").isEmpty },
+                  ["state": m.state.pill, "reason": m.failure ?? "none"])
+            let wasListed = seen?.state == .leftRunning
+            check("left-running-that-dies-is-not-clean", !wasListed || waitFor(20) { seen?.state == .stoppedUnexpectedly },
+                  ["state": seen?.state.pill ?? "none", "reason": seen?.failure ?? "none", "skipped_core_gap": !wasListed])
+            _ = host
+        } else { check("qemu-crash-shows-stopped-unexpectedly", false, ["error": "could not start or read run.json"]) }
+        // A QMP quit, which is what the guest shutting down looks like: never called clean.
+        if let (host, m) = freshlyStarted(), let port = record()?["qmp_port"] as? Int {
+            let script = """
+            import json, socket, sys
+            s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=20); f = s.makefile("rw"); f.readline()
+            for c in ("qmp_capabilities", "quit"):
+                f.write(json.dumps({"execute": c}) + "\\n"); f.flush(); f.readline()
+            """
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+            p.arguments = ["-c", script, "\(port)"]
+            try? p.run(); p.waitUntilExit()
+            check("qemu-exit-by-itself-is-never-clean", waitFor(20) { m.state == .stoppedUnexpectedly && !(m.failure ?? "").isEmpty },
+                  ["state": m.state.pill, "reason": m.failure ?? "none"])
+            _ = host
+        } else { check("qemu-exit-by-itself-is-never-clean", false, ["error": "could not start or read run.json"]) }
         finish()
     }
 

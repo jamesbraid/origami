@@ -81,7 +81,12 @@ final class MachineModel: ObservableObject, Identifiable {
         record = MachineRecord(summary)
         if session == nil {
             let up = summary.state == .running || summary.state == .starting
-            set(up ? .leftRunning : .stopped)
+            if up { set(.leftRunning) }
+            else if state == .leftRunning {
+                // A machine we found running died while nobody was watching: not a clean stop.
+                failure = "The machine stopped while Origami was not watching it."
+                set(.stoppedUnexpectedly)
+            } else if state != .stoppedUnexpectedly { set(.stopped) }
         }
     }
 
@@ -107,11 +112,17 @@ final class MachineModel: ObservableObject, Identifiable {
             if active { next = .running }
             else if let startedAt, Date().timeIntervalSince(startedAt) > noPictureTimeout { next = .noPicture }
             else { next = .starting; scheduleNoPictureCheck() }
-        } else if view.state == .exited && !expectedStop {
-            failure = view.lastError ?? "The emulator exited."
-            next = .stoppedUnexpectedly
         } else if state == .stoppedUnexpectedly && !expectedStop {
-            next = state
+            next = state   // sticky: a start error or a crash stays until the next start
+        } else if [.starting, .running, .noPicture, .leftRunning].contains(state) && !expectedStop && busy == nil {
+            // It ended without being asked. Only an exit code of 0 is a clean stop; the core gives
+            // none for QEMU yet, so that case is reported as unexpected.
+            if view.exitCode == 0 {
+                next = .stopped
+            } else {
+                failure = view.lastError ?? view.exitCode.map { "The emulator exited with code \($0)." } ?? "The emulator stopped without being asked."
+                next = .stoppedUnexpectedly
+            }
         } else {
             next = .stopped
         }
@@ -183,6 +194,8 @@ final class MachineModel: ObservableObject, Identifiable {
 
     private func finished(_ error: Error?, failureState: MachineState?, done: (@MainActor (Error?) -> Void)?) {
         busy = nil
+        // Stopping a machine that has already ended is not a failure.
+        if let e = error as? CoreError, case .NotRunning = e { expectedStop = false; refresh(); done?(nil); return }
         if let error {
             failure = "\(error)"
             expectedStop = false
@@ -201,6 +214,12 @@ final class MachineModel: ObservableObject, Identifiable {
         if case .failed(_, let message) = op.wait(timeoutMs: nil) {
             throw NSError(domain: "origami", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
         }
+    }
+
+    /// For tests: a start that failed with `message`.
+    func failStartForTest(_ message: String) {
+        busy = "Starting…"; set(.starting)
+        finished(NSError(domain: "origami", code: 1, userInfo: [NSLocalizedDescriptionKey: message]), failureState: .stoppedUnexpectedly, done: nil)
     }
 
     func start(done: (@MainActor (Error?) -> Void)? = nil) {
@@ -223,6 +242,7 @@ final class MachineModel: ObservableObject, Identifiable {
     /// Always calls `done`. A stop asked for while another action runs waits for
     /// it, then runs; a force stop does not wait.
     func stop(force: Bool = false, done: (@MainActor (Error?) -> Void)? = nil) {
+        refresh()   // a machine that already ended must be seen as ended, not as stopped by us
         guard isRunning else { done?(nil); return }
         if let busy, !(force && busy != "Stopping…") {
             var queued = pendingStop ?? (force: force, done: [])
@@ -290,6 +310,7 @@ final class AppModel: ObservableObject {
     var openWindow: ((String) -> Void)?
 
     private var forwards: [AnyCancellable] = []
+    private var watchdog: Timer?
     static let defaults = UserDefaults.standard
 
     init(root: URL) {
@@ -304,6 +325,11 @@ final class AppModel: ObservableObject {
         launchError = err
         h?.onChange = { [weak self] keys, library in self?.changed(keys, library: library) }
         rescanNow()
+        // A safety net for an exit the core does not announce: look at machines that should be
+        // up every two seconds. Machines at rest cost nothing.
+        watchdog = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkLiveness() }
+        }
     }
 
     var defaultPointer: PointerMode {
@@ -364,6 +390,12 @@ final class AppModel: ObservableObject {
             if kept != tabs { tabs = kept }
         }
         if active == nil || !tabs.contains(active!) { active = tabs.first }
+    }
+
+    /// Re-read every machine that should be running, and the library if one was left running.
+    func checkLiveness() {
+        for m in models where m.session != nil && m.state.isActive { m.refresh() }
+        if models.contains(where: { $0.state == .leftRunning }) { rescan() }
     }
 
     /// The core said something changed; pull what we show.
