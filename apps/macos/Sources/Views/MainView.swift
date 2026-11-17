@@ -119,7 +119,7 @@ struct LibraryRow: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
         HStack(spacing: 8) {
-            MachineArt(product: model.record.product, pt: 34)
+            MachineArt(product: model.record.product, pt: Int(Tokens.Size.artSidebar))
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.name).lineLimit(1)
                 Text(model.record.product.name).font(.caption).foregroundStyle(.secondary)
@@ -147,7 +147,7 @@ struct TabBar: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
-        .frame(height: 34)
+        .frame(height: Tokens.Size.tabBarHeight)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }
@@ -161,7 +161,7 @@ struct TabItem: View {
     var body: some View {
         let chassis = Color(rgb: model.record.product.colour)
         HStack(spacing: 6) {
-            MachineArt(product: model.record.product, pt: 20)
+            MachineArt(product: model.record.product, pt: Int(Tokens.Size.artTab))
             Text(model.name).lineLimit(1).font(.callout)
             Circle().fill(model.state.tone.colour).frame(width: 6, height: 6).accessibilityHidden(true)
             // The close button shows on the selected tab and on hover; the space stays reserved.
@@ -170,9 +170,9 @@ struct TabItem: View {
                 .opacity(active || hover ? 1 : 0)
         }
         .padding(.horizontal, 8)
-        .frame(height: 26)
-        .background(RoundedRectangle(cornerRadius: 6).fill(active ? chassis.opacity(0.22) : (hover ? Color.primary.opacity(0.07) : .clear)))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(active ? chassis.opacity(0.5) : .clear, lineWidth: 1))
+        .frame(height: Tokens.Size.tabHeight)
+        .background(RoundedRectangle(cornerRadius: 6).fill(active ? chassis.opacity(Tokens.Chassis.tabSelectedFill) : (hover ? Color.primary.opacity(0.07) : .clear)))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(active ? chassis.opacity(Tokens.Chassis.tabSelectedStroke) : .clear, lineWidth: 1))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .onTapGesture { app.active = model.id }

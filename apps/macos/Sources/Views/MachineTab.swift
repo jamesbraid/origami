@@ -115,7 +115,7 @@ struct Tile: View {
             Text(value).font(.headline).lineLimit(1).minimumScaleFactor(0.8)
             Text(title).font(.caption).foregroundStyle(.secondary)
         }
-        .frame(width: 140, height: 104)
+        .frame(width: Tokens.Size.card.width, height: Tokens.Size.card.height)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color(nsColor: .controlBackgroundColor)))
         .accessibilityElement(children: .combine)
     }
@@ -126,12 +126,12 @@ struct Tile: View {
 /// primary text, and secondary text is drawn at 70% of the primary colour for contrast.
 struct TintFade: View {
     let colour: Color
-    static let topOpacity = 0.35
+    static let topOpacity = Tokens.Pane.tintTopAlpha
 
     var body: some View {
         ZStack {
             Color(nsColor: .windowBackgroundColor)
-            LinearGradient(stops: [.init(color: colour.opacity(Self.topOpacity), location: 0), .init(color: colour.opacity(0), location: 1)],
+            LinearGradient(stops: [.init(color: colour.opacity(Self.topOpacity), location: 0), .init(color: colour.opacity(Tokens.Pane.tintBottomAlpha), location: 1)],
                            startPoint: .top, endPoint: .bottom)
         }
     }
@@ -147,7 +147,7 @@ struct Hero: View {
             VStack(spacing: 14) {
                 HeroArt(product: r.product)
                 Text(r.name).font(.largeTitle.weight(.semibold))
-                Text(r.product.name).font(.title3).foregroundStyle(.primary.opacity(0.7))
+                Text(r.product.name).font(.title3).foregroundStyle(.primary.opacity(Tokens.Pane.productLineAlpha))
                 Button {
                     app.invoke(.start)
                 } label: {

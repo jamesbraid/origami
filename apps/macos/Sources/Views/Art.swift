@@ -64,8 +64,8 @@ struct MachineArt: View {
 struct HeroArt: View {
     let product: Product
     var body: some View {
-        if let id = product.art, let img = Art.image(id, "hero", points: NSSize(width: 240, height: 180)) {
-            Image(nsImage: img).resizable().interpolation(.high).frame(width: 240, height: 180).accessibilityHidden(true)
+        if let id = product.art, let img = Art.image(id, "hero", points: NSSize(width: Tokens.Size.artHero.width, height: Tokens.Size.artHero.height)) {
+            Image(nsImage: img).resizable().interpolation(.high).frame(width: Tokens.Size.artHero.width, height: Tokens.Size.artHero.height).accessibilityHidden(true)
         } else {
             ChassisGlyph(product: product).scaleEffect(3.2).frame(width: 240, height: 84)
         }
