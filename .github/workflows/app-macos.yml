@@ -1,0 +1,41 @@
+name: App (macOS)
+
+# The native macOS app, nightly, on GitHub only (Forgejo has no macOS runner).
+# It builds the app on the core's fake engine and runs its headless self-test;
+# the logic is in apps/macos/ci.sh.
+on:
+  schedule:
+    - cron: '41 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-macos
+  cancel-in-progress: false
+
+jobs:
+  selftest:
+    if: github.server_url == 'https://github.com'
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustc -Vv
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Build the app on the fake engine and run its self-test
+        run: apps/macos/ci.sh "$RUNNER_TEMP/origami-app-macos"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ !cancelled() }}
+        with:
+          name: app-macos-selftest
+          path: ${{ runner.temp }}/origami-app-macos/out
+          if-no-files-found: ignore
+          retention-days: 14
