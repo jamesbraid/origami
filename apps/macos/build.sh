@@ -48,6 +48,7 @@ swiftc -O -swift-version 5 -target arm64-apple-macos14.0 $swift_defines \
     -framework SwiftUI -framework AppKit -framework QuartzCore -framework Metal -framework Foundation
 
 cp $root/resources/identity/granite-tile.png $app/Contents/Resources/granite-tile.png
+cp $here/Origami.icns $app/Contents/Resources/Origami.icns
 # Machine art: the treated stills at 2x and the manifest, without the raw renders.
 if [[ -d $root/resources/identity/stills ]]; then
     rsync -a --include='*/' --include='*@2x.png' --include='manifest.json' --exclude='*' \
@@ -72,6 +73,7 @@ cat > $app/Contents/Info.plist <<PLIST
 <key>CFBundleDisplayName</key><string>Origami</string>
 <key>CFBundleIdentifier</key><string>fans.irix.origami</string>
 <key>CFBundleExecutable</key><string>OrigamiApp</string>
+<key>CFBundleIconFile</key><string>Origami</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>0</string>
 <key>CFBundleShortVersionString</key><string>0.6.0-dev</string>
