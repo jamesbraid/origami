@@ -649,6 +649,7 @@ func runSelfTest(library: String, out: String) {
         console.send(.text(text: "h")); console.send(.enter); console.paste("hinv\r")
         console.drainInput(); spin(0.2)
         check("console-send-accepted", console.error == nil, ["error": console.error ?? "none"])
+        check("console-command-enabled", app.isEnabled(.console), [:])
         console.detach()
     }
 

@@ -44,7 +44,7 @@ enum CommandID: String, CaseIterable {
         case .actualSize: return Info(title: "Actual Size", menu: .view, key: "0", modifiers: .command)
         case .pointScale: return Info(title: "Scale 1×", menu: .view, key: "1", modifiers: [.command, .option])
         case .doubleScale: return Info(title: "Scale 2×", menu: .view, key: "2", modifiers: [.command, .option])
-        case .console: return Info(title: "Console", menu: .window, key: "c", modifiers: [.command, .option], needsCore: true)
+        case .console: return Info(title: "Console", menu: .window, key: "c", modifiers: [.command, .option])
         case .diagnostics: return Info(title: "Diagnostics", menu: .window, key: "l", modifiers: [.command, .option])
         case .library: return Info(title: "Library", menu: .window, key: "l", modifiers: [.command, .shift])
         case .nextTab: return Info(title: "Show Next Tab", menu: .window, key: "]", modifiers: [.command, .shift])

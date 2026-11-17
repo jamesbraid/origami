@@ -574,8 +574,9 @@ final class AppModel: ObservableObject {
         case .closeTab: return active != nil
         case .nextTab, .previousTab: return tabs.count > 1
         case .fit, .actualSize, .pointScale, .doubleScale: return m?.state == .running
+        case .console: return m?.state == .running || m?.state == .paused
         case .newMachine: return host != nil
-        case .pasteAsTyping, .console: return false
+        case .pasteAsTyping: return false
         case .chooseLibrary, .showLibrary, .library: return true
         }
     }
@@ -625,8 +626,9 @@ final class AppModel: ObservableObject {
         case .doubleScale: scaleMode = .double
         case .actualSize: scaleMode = .actual
         case .chooseLibrary: if let url = openFolderPanel() { chooseLibrary(url) }
+        case .console: if let m { openConsole?(m.id) }
         case .newMachine: wantNewMachine = true
-        case .pasteAsTyping, .console: break
+        case .pasteAsTyping: break
         }
     }
 

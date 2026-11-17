@@ -196,6 +196,8 @@ struct MachineToolbar: ToolbarContent {
                 PowerControl(model: m)
                 PointerControl(model: m)
             }
+            Button { app.invoke(.console) } label: { Label("Console", systemImage: "terminal") }
+                .disabled(!app.isEnabled(.console)).help("Console (⌥⌘C)")
             Button { app.invoke(.diagnostics) } label: { Label("Diagnostics", systemImage: "waveform.path.ecg") }
                 .disabled(!app.isEnabled(.diagnostics)).help("Diagnostics")
             Button { app.invoke(.settings) } label: { Label("Settings", systemImage: "gearshape") }
