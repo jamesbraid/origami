@@ -31,6 +31,10 @@ struct AboutView: View {
     }
 
     @State private var qemuVersion: String?
+    @Environment(\.colorScheme) private var scheme
+    static let bandHeight: CGFloat = 240
+    /// The cube's view is a square 60% of the band tall; the cube fills 90% of it, so about 23% of the band is clear above and below.
+    static let cubeSide: CGFloat = bandHeight * 0.6
     @State private var hinv: String?
     @State private var egg = EggBuffer()
     @State private var keys: Any?
@@ -42,10 +46,15 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The view is the band: the cube fills 90% of its height on granite across the width.
-            CubeHost(look: .about, machine: Self.reflectsRunningMachine ? running : nil)
-                .frame(width: 360, height: 180)
-                .accessibilityLabel("The SGI cube")
+            // The band: granite across the width, the cube in its middle with a fifth of the band's height
+            // clear above and below it (the cube fills 90% of its own view).
+            ZStack {
+                GraniteBackground(tones: scheme == .dark ? Granite.neutral : Granite.light)
+                CubeHost(look: .about, machine: Self.reflectsRunningMachine ? running : nil)
+                    .frame(width: Self.cubeSide, height: Self.cubeSide)
+                    .accessibilityLabel("The SGI cube")
+            }
+            .frame(width: 360, height: Self.bandHeight)
             ZStack {
                 if let hinv {
                     ScrollView {

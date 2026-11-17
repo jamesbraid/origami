@@ -352,11 +352,22 @@ func runSelfTest(library: String, out: String) {
     do {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
         w.isReleasedWhenClosed = false
+        var sharp = false, sizes = ""
         autoreleasepool {
-            w.contentView = NSHostingView(rootView: CubeHost(look: .about).frame(width: 200, height: 200))
+            let host = NSHostingView(rootView: CubeHost(look: .about).frame(width: 200, height: 200))
+            w.contentView = host
             _ = waitFor(10) { CubeNSView.attachedCount == 1 }
+            func find(_ v: NSView) -> CubeNSView? { (v as? CubeNSView) ?? v.subviews.lazy.compactMap(find).first }
+            if let v = find(host) {
+                host.layoutSubtreeIfNeeded()
+                _ = waitFor(5) { v.metalLayer.drawableSize.width > 0 }
+                let s = w.backingScaleFactor
+                sharp = v.metalLayer.contentsScale == s && v.metalLayer.drawableSize == CGSize(width: v.bounds.width * s, height: v.bounds.height * s)
+                sizes = "drawable \(v.metalLayer.drawableSize) for bounds \(v.bounds.size) at scale \(v.metalLayer.contentsScale), window \(s)"
+            }
             w.contentView = NSView()
         }
+        check("about-cube-drawable-is-at-the-backing-scale", sharp, ["sizes": sizes])
         check("about-cube-detaches-when-its-view-goes", waitFor(10) { CubeNSView.attachedCount == 0 }, ["attached": CubeNSView.attachedCount])
     }
 

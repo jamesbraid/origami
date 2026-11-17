@@ -128,9 +128,9 @@ final class CubeNSView: NSView {
             s.light_look = dark ? 0 : 1
             s.spin = 1   // slowly turning; the view takes no pointer input
         case .about:
-            s.backdrop = UInt32(ORIGAMI_CUBE_BACKDROP_GRANITE)
-            let tones = dark ? Granite.neutral : Granite.light
-            s.granite_light_rgb = tones.0; s.granite_dark_rgb = tones.1
+            // The band's granite is drawn behind the view, so the cube can sit in it with room around it;
+            // the flat tone is the fallback where the layer is not transparent.
+            s.surround_rgb = (dark ? Granite.neutral : Granite.light).1
             s.light_look = dark ? 0 : 1
             if reflected != nil {
                 s.env = UInt32(ORIGAMI_CUBE_ENV_MACHINE)
