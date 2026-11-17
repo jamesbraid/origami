@@ -1,5 +1,5 @@
-// The SGI cube, drawn by the core into a CAMetalLayer we host. It draws on
-// request only: the display link runs while the cube moves and stops at rest.
+// The SGI cube, drawn by the core into a CAMetalLayer we host. It draws on request
+// only: the display link runs while the cube moves and stops at rest. No pointer input.
 
 import AppKit
 import OrigamiFrame
@@ -29,7 +29,6 @@ final class CubeNSView: NSView {
     private weak var reflected: MachineView?
     private var visible = true
     private var detached = false
-    private var dragging = false
     /// Offscreen draws count as presents only for the self-test, which has no screen.
     var countsOffscreen = false
     private(set) var ticks = 0
@@ -62,7 +61,7 @@ final class CubeNSView: NSView {
     override func makeBackingLayer() -> CALayer { CAMetalLayer() }
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     private var pixelSize: (w: UInt32, h: UInt32) {
         let s = metalLayer.contentsScale
@@ -204,27 +203,9 @@ final class CubeNSView: NSView {
         present()
     }
 
-    // MARK: pointer: drag to tumble, flick to fling, double-click to settle, Option-click for the next scene
-
-    private func send(_ phase: Int32, _ e: NSEvent) {
-        guard let cube else { return }
-        let p = convert(e.locationInWindow, from: nil)
-        origami_cube_pointer(cube, UInt32(phase), Float(p.x), Float(p.y), UInt64(max(0, e.timestamp * 1000)))
-        present()
-    }
-    override func mouseDown(with e: NSEvent) {
-        if e.modifierFlags.contains(.option), let cube { origami_cube_alt_click(cube); present(); return }
-        if e.clickCount == 2 { dragging = false; send(ORIGAMI_CUBE_POINTER_DOUBLE_CLICK, e); return }
-        dragging = true
-        send(ORIGAMI_CUBE_POINTER_PRESS, e)
-    }
-    override func mouseDragged(with e: NSEvent) { if dragging { send(ORIGAMI_CUBE_POINTER_MOVE, e) } }
-    // A release with no press (after a double-click) is not sent.
-    override func mouseUp(with e: NSEvent) { if dragging { dragging = false; send(ORIGAMI_CUBE_POINTER_RELEASE, e) } }
+    // No pointer interaction: the cube turns on its own at start and is otherwise at rest.
 
     // MARK: for self-tests
-
-    func altClick() { if let cube { origami_cube_alt_click(cube); present() } }
 
     func readback() -> (width: Int, height: Int, bgra: [UInt8])? {
         guard let cube else { return nil }

@@ -221,9 +221,6 @@ func runSelfTest(library: String, out: String) {
         let light = cube.readback()
         check("cube-about-scene-follows-appearance", !dusk.moving && duskPic?.bgra != light?.bgra && duskPic?.bgra != studio?.bgra,
               ["at_rest_in_about": !dusk.moving, "dark_scene": origami_cube_about_scene(1), "light_scene": origami_cube_about_scene(0)])
-        let before = cube.readback()
-        cube.altClick()
-        check("cube-alt-click-changes-scene", before != nil && cube.readback()?.bgra != before?.bgra, [:])
         let count = origami_cube_scene_count()
         let credits = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_CREDIT)) }
         let titles = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_TITLE)) }

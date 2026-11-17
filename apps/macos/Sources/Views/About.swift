@@ -25,7 +25,7 @@ struct AboutView: View {
             // The view is the band: the cube fills 90% of its height on granite across the width.
             CubeHost(look: .about, machine: running)
                 .frame(width: 360, height: 180)
-                .accessibilityLabel("The SGI cube. Drag to turn it; Option-click for another view.")
+                .accessibilityLabel("The SGI cube")
             VStack(spacing: 6) {
                 Text("Origami").font(.title.weight(.semibold))
                 Text(version).font(.caption).foregroundStyle(.secondary)
