@@ -1,0 +1,26 @@
+{
+  "about": { "light": "howe-sound", "dark": "vancouver-dusk" },
+  "scenes": [
+    {
+      "id": "howe-sound",
+      "file": "howe-sound.webp",
+      "title": "Howe Sound from Horseshoe Bay",
+      "credit": "Roy Luck, 2011, CC BY 2.0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:Howe_Sound_from_Horseshoe_Bay_(5946423510).jpg"
+    },
+    {
+      "id": "garibaldi-lake",
+      "file": "garibaldi-lake.webp",
+      "title": "View towards Garibaldi Lake from Panorama Ridge",
+      "credit": "Benoit Brummer (Trougnouf), 2018, CC BY 4.0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:View_towards_Garibaldi_Lake_from_Panorama_Ridge_(DSCF1842_-_DSCF1844).jpg"
+    },
+    {
+      "id": "vancouver-dusk",
+      "file": "vancouver-dusk.webp",
+      "title": "Vancouver from Grouse Mountain, dusk",
+      "credit": "Adam Lindsay, 2004, CC BY 2.0, via Wikimedia Commons; cropped and mirror-tiled",
+      "source": "https://commons.wikimedia.org/wiki/File:Vancouver_from_Grouse_mountain.jpg"
+    }
+  ]
+}
