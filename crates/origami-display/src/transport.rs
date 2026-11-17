@@ -266,7 +266,7 @@ pub fn pump(
                         let opened = display
                             .importer()
                             .filter(|_| r.kind != KIND_CURSOR_IMAGE)
-                            .and_then(|i| i.open_section(&r, &handle));
+                            .and_then(|i| i.open_section(&r, &handle).ok());
                         let mem = handle.map()?;
                         if (mem.len() as u64) < r.size {
                             return Err(bad(format!(
@@ -760,9 +760,10 @@ mod tests {
             &self,
             _r: &Region,
             _h: &Handle,
-        ) -> Option<Arc<dyn origami_engine::GpuMemory>> {
+        ) -> Result<Arc<dyn origami_engine::GpuMemory>, String> {
             self.open
                 .then(|| Arc::new(Held) as Arc<dyn origami_engine::GpuMemory>)
+                .ok_or_else(|| "off".into())
         }
         fn name(&self) -> &'static str {
             "fake import"

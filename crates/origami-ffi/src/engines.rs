@@ -94,6 +94,8 @@ mod lazy {
         }
     }
 
+    const NO_GPU: &str = "this process has no GPU that imports memory";
+
     impl Importer for LazyImporter {
         fn caps(&self) -> u32 {
             self.get().map_or(0, |i| i.caps())
@@ -107,7 +109,7 @@ mod lazy {
         fn accepts(&self, device: &[u8; 16], driver: &[u8; 16]) -> Result<(), String> {
             match self.get() {
                 Some(i) => i.accepts(device, driver),
-                None => Err("this process has no GPU that imports memory".into()),
+                None => Err(NO_GPU.into()),
             }
         }
         fn import(
@@ -131,11 +133,15 @@ mod lazy {
             &self,
             region: &origami_display::proto::Region,
             handle: &Handle,
-        ) -> Option<Arc<dyn GpuMemory>> {
-            self.get()?.open_section(region, handle)
+        ) -> Result<Arc<dyn GpuMemory>, String> {
+            self.get().ok_or(NO_GPU)?.open_section(region, handle)
         }
-        fn wrap_shm(&self, size: u64, memory: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>> {
-            self.get()?.wrap_shm(size, memory)
+        fn wrap_shm(
+            &self,
+            size: u64,
+            memory: &Arc<dyn Memory>,
+        ) -> Result<Arc<dyn GpuMemory>, String> {
+            self.get().ok_or(NO_GPU)?.wrap_shm(size, memory)
         }
         fn shm_needs_write(&self) -> bool {
             self.get().is_some_and(|i| i.shm_needs_write())

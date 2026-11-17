@@ -34,15 +34,25 @@ pub trait Importer: Send + Sync {
     fn wrap(&self, region: &Region, memory: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>>;
 
     /// Take plain shared memory from its handle before it is mapped, where
-    /// the API opens the section itself (Direct3D 12). None leaves it to `wrap`.
-    fn open_section(&self, _region: &Region, _handle: &Handle) -> Option<Arc<dyn GpuMemory>> {
-        None
+    /// the API opens the section itself (Direct3D 12). An error, saying why,
+    /// leaves it to `wrap`.
+    fn open_section(
+        &self,
+        _region: &Region,
+        _handle: &Handle,
+    ) -> Result<Arc<dyn GpuMemory>, String> {
+        Err("this GPU does not open shared-memory sections".into())
     }
 
     /// Version 4: `size` bytes of mapped shared memory as GPU memory with no
-    /// copy (Metal, Vulkan host memory). None leaves it to CPU upload.
-    fn wrap_shm(&self, _size: u64, _memory: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>> {
-        None
+    /// copy (Metal, Vulkan host memory). An error, saying why, leaves it to
+    /// CPU upload.
+    fn wrap_shm(
+        &self,
+        _size: u64,
+        _memory: &Arc<dyn Memory>,
+    ) -> Result<Arc<dyn GpuMemory>, String> {
+        Err("this GPU cannot read shared memory in place".into())
     }
 
     /// Version 4: whether `wrap_shm` needs slots mapped writable, because the

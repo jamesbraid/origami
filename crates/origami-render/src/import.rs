@@ -242,22 +242,19 @@ impl Importer for GpuImporter {
     }
 
     #[cfg_attr(not(windows), allow(unused_variables))]
-    fn open_section(&self, region: &Region, handle: &Handle) -> Option<Arc<dyn GpuMemory>> {
-        #[cfg(windows)]
-        if let Some(Kind::D3d12) = self.support.kind {
-            return match d3d12::open(&self.device, region, handle) {
-                Ok(buffer) => Some(Arc::new(buffer)),
-                Err(why) => {
-                    eprintln!("origami: region {}: {why}; copying", region.id);
-                    None
-                }
-            };
+    fn open_section(&self, region: &Region, handle: &Handle) -> Result<Arc<dyn GpuMemory>, String> {
+        match self.support.kind {
+            #[cfg(windows)]
+            Some(Kind::D3d12) => match d3d12::open(&self.device, region, handle) {
+                Ok(buffer) => Ok(Arc::new(buffer)),
+                Err(why) => Err(why.to_string()),
+            },
+            _ => Err(format!("{} does not open sections", self.name())),
         }
-        None
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    fn wrap_shm(&self, size: u64, memory: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>> {
+    fn wrap_shm(&self, size: u64, memory: &Arc<dyn Memory>) -> Result<Arc<dyn GpuMemory>, String> {
         let buffer = match &self.support.kind {
             #[cfg(target_os = "macos")]
             Some(Kind::Metal) => native::wrap(&self.device, memory, size),
@@ -265,15 +262,12 @@ impl Importer for GpuImporter {
             Some(Kind::Vulkan(c)) => {
                 native::import_host(&self.device, c, memory, size).map_err(|e| e.to_string())
             }
-            _ => return None,
+            _ => Err(format!(
+                "{} cannot read shared memory in place",
+                self.name()
+            )),
         };
-        match buffer {
-            Ok(buffer) => Some(Arc::new(ImportedBuffer::new(buffer))),
-            Err(why) => {
-                eprintln!("origami: shared slot: {why}; copying");
-                None
-            }
-        }
+        Ok(Arc::new(ImportedBuffer::new(buffer?)))
     }
 
     fn shm_needs_write(&self) -> bool {

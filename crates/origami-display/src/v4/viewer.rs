@@ -23,7 +23,8 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// A slot's mapping as the importers take it.
+/// A slot's mapping as the importers take it. Windows opens the section instead.
+#[cfg_attr(windows, allow(dead_code))]
 struct SlotMemory(Arc<Mapping>);
 
 // SAFETY: the mapping is page aligned, valid while the Arc lives, and only
@@ -422,10 +423,12 @@ impl Viewer {
     }
 
     fn import(&self, st: &mut State, lease: &FrameLease) -> Slot {
-        let importer = lock(&self.importer).clone();
-        let memory: Arc<dyn Memory> = Arc::new(SlotMemory(lease.slot.clone()));
+        let Some(importer) = lock(&self.importer).clone() else {
+            st.backend = Some("copied: the viewer has no GPU importer".into());
+            return Slot { gpu: None };
+        };
         #[cfg(windows)]
-        let opened = importer.as_ref().and_then(|i| {
+        let gpu = {
             use std::os::windows::io::AsRawHandle;
             let size = lease.slot.len() as u64;
             let region = crate::proto::Region {
@@ -439,20 +442,22 @@ impl Viewer {
                 handle: 0,
             };
             let section = lease.slot.section().as_raw_handle() as usize as u64;
-            i.open_section(&region, &crate::Handle::Value(section))
-        });
+            importer.open_section(&region, &crate::Handle::Value(section))
+        };
         #[cfg(not(windows))]
-        let opened = None;
-        let gpu = opened.or_else(|| {
-            importer
-                .as_ref()
-                .and_then(|i| i.wrap_shm(lease.slot.len() as u64, &memory))
-        });
-        st.backend = Some(match (&gpu, importer) {
-            (Some(_), Some(i)) => format!("shm: {}", i.name()),
-            _ => "shm: cpu upload".into(),
-        });
-        Slot { gpu }
+        let gpu = {
+            let memory: Arc<dyn Memory> = Arc::new(SlotMemory(lease.slot.clone()));
+            importer.wrap_shm(lease.slot.len() as u64, &memory)
+        };
+        let backend = match &gpu {
+            Ok(_) => format!("imported, zero-copy ({})", importer.name()),
+            Err(why) => format!("copied: {why}"),
+        };
+        if st.backend.as_ref() != Some(&backend) {
+            eprintln!("origami: display: {backend}");
+            st.backend = Some(backend);
+        }
+        Slot { gpu: gpu.ok() }
     }
 
     /// The rows of `head` that changed since the last take, copied into

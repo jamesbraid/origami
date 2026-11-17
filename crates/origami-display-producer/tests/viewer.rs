@@ -203,6 +203,10 @@ fn a_picture_arrives_by_its_pixels_and_a_still_screen_wakes_nobody() {
         let st = rig.viewer.stats();
         assert_eq!(st.imported_lines, 0);
         assert!(st.copied_bytes > 0);
+        assert_eq!(
+            rig.viewer.backend().as_deref(),
+            Some("copied: the viewer has no GPU importer")
+        );
         let idle = rig.still();
         assert_eq!(rig.still(), idle, "a still picture woke the viewer");
     });
