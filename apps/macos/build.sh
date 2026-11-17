@@ -47,6 +47,13 @@ swiftc -O -swift-version 5 -target arm64-apple-macos14.0 $swift_defines \
     -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
     -framework SwiftUI -framework AppKit -framework QuartzCore -framework Metal -framework Foundation
 
+cp $root/resources/identity/granite-tile.png $app/Contents/Resources/granite-tile.png
+# Machine art: the treated stills at 2x and the manifest, without the raw renders.
+if [[ -d $root/resources/identity/stills ]]; then
+    rsync -a --include='*/' --include='*@2x.png' --include='manifest.json' --exclude='*' \
+        $root/resources/identity/stills/ $app/Contents/Resources/stills/
+fi
+
 # The QEMU engine looks for its programs relative to the executable.
 if [[ -n ${ORIGAMI_PRODUCT:-} ]]; then
     cp -R $ORIGAMI_PRODUCT/libexec $app/Contents/libexec

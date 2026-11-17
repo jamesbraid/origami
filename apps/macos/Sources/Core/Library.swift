@@ -9,17 +9,21 @@ struct Product {
     let name: String
     let kind: Kind
     /// Chassis colour as 0xRRGGBB. Identity, never state.
-    let colour: UInt32
+    var colour: UInt32
+    /// The product still's id in the art manifest, when there is one.
+    var art: String?
     enum Kind { case workstation, server }
 
     static func of(model: String) -> Product {
         let m = model.lowercased()
-        if m.hasPrefix("octane2") { return Product(name: "Octane2", kind: .workstation, colour: 0x2f6fb7) }
-        if m.hasPrefix("octane") { return Product(name: "Octane", kind: .workstation, colour: 0x1f9d9a) }
-        if m.hasPrefix("o2") { return Product(name: "O2", kind: .workstation, colour: 0x6c5bc4) }
-        if m.hasPrefix("fuel") { return Product(name: "Fuel", kind: .workstation, colour: 0xc2412d) }
-        if m.hasPrefix("tezro") { return Product(name: "Tezro", kind: .workstation, colour: 0x7b3fa6) }
+        // Fallback colours, used when the bundle has no stills manifest.
+        if m.hasPrefix("octane2") { return Product(name: "Octane2", kind: .workstation, colour: 0x2e354e) }
+        if m.hasPrefix("octane") { return Product(name: "Octane", kind: .workstation, colour: 0x2a6574) }
+        if m.hasPrefix("o2") { return Product(name: "O2", kind: .workstation, colour: 0x3d5a6d) }
+        if m.hasPrefix("fuel") { return Product(name: "Fuel", kind: .workstation, colour: 0x8e3738) }
+        if m.hasPrefix("tezro") { return Product(name: "Tezro", kind: .workstation, colour: 0x4c629c) }
         if m.hasPrefix("onyx") { return Product(name: "Onyx", kind: .server, colour: 0x5b6672) }
+        if m.hasPrefix("origin350") { return Product(name: "Origin 350", kind: .server, colour: 0xa2a4a6) }
         if m.hasPrefix("origin") { return Product(name: "Origin", kind: .server, colour: 0x4a4f55) }
         return Product(name: model.isEmpty ? "Machine" : model, kind: .workstation, colour: 0x8a8f96)
     }
@@ -35,7 +39,14 @@ struct MachineRecord: Identifiable, Hashable {
     let memoryPerNodeMiB: Int
 
     var id: String { key }
-    var product: Product { Product.of(model: productName) }
+    var product: Product {
+        var p = Product.of(model: productName)
+        if let id = Art.id(topology: topology, product: productName) {
+            p.art = id
+            if let c = Art.colour(id) { p.colour = c }
+        }
+        return p
+    }
 
     var memory: String {
         let total = memoryPerNodeMiB * max(1, nodes)

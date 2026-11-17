@@ -58,6 +58,9 @@ final class MachineView: NSView {
         if let v = coreView { origami_view_detach(v); coreView = nil }
     }
 
+    /// The core is drawing this machine to a layer now: a cube may reflect its screen.
+    var isPresenting: Bool { coreView != nil && coreVisible && !detached && hadFrame }
+
     func setVisible(_ visible: Bool) {
         coreVisible = visible
         if let v = coreView { origami_view_set_visible(v, visible ? 1 : 0) }

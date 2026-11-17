@@ -54,7 +54,9 @@ struct EmptyDetail: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
         VStack(spacing: 12) {
-            ChromeCube().frame(width: 120, height: 110)
+            // At rest: it draws one frame and costs nothing more.
+            CubeHost(look: .about).frame(width: 140, height: 140).clipShape(RoundedRectangle(cornerRadius: 10))
+                .accessibilityHidden(true)
             Text(app.models.isEmpty ? "No machines yet" : "Choose a machine")
                 .font(.title2.weight(.semibold))
             if app.models.isEmpty {
@@ -112,7 +114,7 @@ struct LibraryRow: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
         HStack(spacing: 8) {
-            ChassisGlyph(product: model.record.product)
+            MachineArt(product: model.record.product, pt: 34)
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.name).lineLimit(1)
                 Text(model.record.product.name).font(.caption).foregroundStyle(.secondary)
@@ -150,6 +152,7 @@ struct TabItem: View {
     let active: Bool
     var body: some View {
         HStack(spacing: 6) {
+            MachineArt(product: model.record.product, pt: 20)
             Circle().fill(model.state.tone.colour).frame(width: 7, height: 7).accessibilityHidden(true)
             Text(model.name).lineLimit(1)
             Button { app.closeTab(model.id) } label: { Image(systemName: "xmark").font(.caption2) }

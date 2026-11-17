@@ -1,0 +1,260 @@
+// The SGI cube, drawn by the core into a CAMetalLayer we host. It draws on
+// request only: the display link runs while the cube moves and stops at rest.
+
+import AppKit
+import OrigamiFrame
+import QuartzCore
+import SwiftUI
+
+/// What a cube shows and where.
+enum CubeLook: Equatable {
+    /// Studio with the chassis colour on the horizon, over tinted granite, turning.
+    case starting(chassis: UInt32)
+    /// The scene for the appearance, at rest, or the running machine's screen.
+    case about
+}
+
+func sceneText(_ index: UInt32, _ field: Int32) -> String {
+    var buf = [CChar](repeating: 0, count: 600)
+    guard origami_cube_scene_text(index, UInt32(field), &buf, buf.count) > 0 else { return "" }
+    return String(cString: buf)
+}
+
+final class CubeNSView: NSView {
+    private(set) var cube: OpaquePointer?
+    private var link: CADisplayLink?
+    private var look: CubeLook = .about
+    private var dark = true
+    /// The machine view whose screen the chrome reflects; only one that is presenting.
+    private weak var reflected: MachineView?
+    private var visible = true
+    private var detached = false
+    private var dragging = false
+    /// Offscreen draws count as presents only for the self-test, which has no screen.
+    var countsOffscreen = false
+    private(set) var ticks = 0
+    /// Cubes attached to the core right now, for the self-test.
+    static private(set) var attachedCount = 0
+    var linkPaused: Bool { link?.isPaused ?? true }
+    private var observers: [NSObjectProtocol] = []
+    private(set) var presents = 0
+    private(set) var lastError = ""
+    var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        metalLayer.contentsScale = 1
+        // Reduce Motion can change while the view is up.
+        motionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.applyStyle(); self?.present()
+        }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    private var motionObserver: NSObjectProtocol?
+    deinit {
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+        if let m = motionObserver { NSWorkspace.shared.notificationCenter.removeObserver(m) }
+        detach()
+    }
+
+    override func makeBackingLayer() -> CALayer { CAMetalLayer() }
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private var pixelSize: (w: UInt32, h: UInt32) {
+        let s = metalLayer.contentsScale
+        return (UInt32(max(1, bounds.width * s)), UInt32(max(1, bounds.height * s)))
+    }
+
+    // MARK: style
+
+    /// `machine` is reflected only if it is presenting; otherwise the scene stays.
+    func configure(look: CubeLook, dark: Bool, machine: MachineView?) {
+        let screen = (machine?.isPresenting ?? false) ? machine : nil
+        let changed = look != self.look || dark != self.dark || screen !== reflected
+        self.look = look; self.dark = dark
+        let old = reflected
+        reflected = screen
+        guard changed, !detached else { return }
+        applyStyle()
+        if screen !== old { reflect() }
+        present()
+    }
+
+    /// Give the core the machine to copy from, then have that view present once so a
+    /// still screen is copied.
+    private func reflect() {
+        guard let cube else { return }
+        let status = origami_cube_set_machine(cube, reflected?.session.handle, 0)
+        if status != 0 { lastError = "cube set_machine: \(status)" }
+        reflected?.redraw()
+    }
+
+    private func applyStyle() {
+        guard let cube else { return }
+        var s = origami_cube_style()
+        s.size = UInt32(MemoryLayout<origami_cube_style>.size)
+        s.reduce_motion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0
+        s.horizon_rgb = UInt32.max
+        switch look {
+        case .starting(let chassis):
+            s.env = UInt32(ORIGAMI_CUBE_ENV_STUDIO)
+            s.horizon_rgb = chassis
+            s.spin = 1
+            // Granite of the chassis hue at low chroma.
+            func mix(_ k: Double) -> UInt32 {
+                let grey = [0.13, 0.14, 0.16]
+                let c = [Double((chassis >> 16) & 255), Double((chassis >> 8) & 255), Double(chassis & 255)].map { $0 / 255 }
+                let v = (0..<3).map { UInt32(max(0, min(255, (0.22 * c[$0] + 0.78 * grey[$0]) * k * 255))) }
+                return v[0] << 16 | v[1] << 8 | v[2]
+            }
+            s.granite_light_rgb = mix(1.0); s.granite_dark_rgb = mix(0.8)
+        case .about:
+            let tones = dark ? Granite.neutral : Granite.light
+            s.granite_light_rgb = tones.0; s.granite_dark_rgb = tones.1
+            s.light_look = dark ? 0 : 1
+            if reflected != nil {
+                s.env = UInt32(ORIGAMI_CUBE_ENV_MACHINE)
+            } else {
+                s.env = UInt32(ORIGAMI_CUBE_ENV_SCENE)
+                s.scene = origami_cube_about_scene(dark ? 1 : 0)
+            }
+        }
+        origami_cube_set_style(cube, &s)
+    }
+
+    // MARK: attach and draw
+
+    private func attach() -> Bool {
+        let size = pixelSize
+        var surface = origami_surface()
+        surface.size = UInt32(MemoryLayout<origami_surface>.size)
+        surface.kind = UInt32(ORIGAMI_SURFACE_CA_METAL_LAYER)
+        surface.window = Unmanaged.passUnretained(metalLayer).toOpaque()
+        var out: OpaquePointer?
+        let st = origami_cube_attach(&surface, size.w, size.h, Double(metalLayer.contentsScale), &out)
+        guard st == 0, let out else { lastError = "cube attach: \(st)"; return false }
+        cube = out
+        Self.attachedCount += 1
+        applyStyle()
+        if reflected != nil { reflect() }
+        link = displayLink(target: self, selector: #selector(tick))
+        link?.add(to: .main, forMode: .common)
+        link?.isPaused = true
+        return true
+    }
+
+    /// Draw if the cube changed or moves; keep the display link going only while it moves.
+    @discardableResult
+    func present() -> (drawn: UInt32, moving: Bool) {
+        // Attach only once the view is in a window, so the swapchain has the right size,
+        // scale and screen.
+        guard visible, !detached, window != nil else { return (0, false) }
+        if cube == nil && !attach() { return (0, false) }
+        guard let cube else { return (0, false) }
+        var drawn: UInt32 = 0, moving: UInt32 = 0
+        let st = origami_cube_present(cube, &drawn, &moving)
+        if st != 0 { lastError = "cube present: \(st)" }
+        if drawn == UInt32(ORIGAMI_DRAWN_PRESENTED) || (countsOffscreen && drawn == UInt32(ORIGAMI_DRAWN_OCCLUDED)) { presents += 1 }
+        link?.isPaused = moving == 0
+        return (drawn, moving != 0)
+    }
+
+    @objc private func tick() { ticks += 1; present() }
+
+    func detach() {
+        detached = true
+        link?.invalidate(); link = nil
+        if let c = cube {
+            origami_cube_set_machine(c, nil, 0)   // stop the copying from the machine's view
+            origami_cube_detach(c); cube = nil; Self.attachedCount -= 1
+        }
+    }
+
+    override func setFrameSize(_ s: NSSize) { super.setFrameSize(s); resize() }
+    override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); resize() }
+
+    private func resize() {
+        let scale = window?.backingScaleFactor ?? metalLayer.contentsScale
+        metalLayer.contentsScale = scale
+        let size = pixelSize
+        metalLayer.drawableSize = CGSize(width: Double(size.w), height: Double(size.h))
+        if let cube { origami_cube_resize(cube, size.w, size.h, Double(scale)); present() }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+        observers = []
+        resize()
+        guard let window else { return }
+        // Hidden, minimised or occluded: draw nothing and take nothing from the swapchain.
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+            guard let self, let w = self.window else { return }
+            self.visible = w.occlusionState.contains(.visible)
+            if let c = self.cube { origami_cube_set_visible(c, self.visible ? 1 : 0) }
+            if self.visible { self.present() } else { self.link?.isPaused = true }
+        })
+        present()
+    }
+
+    // MARK: pointer: drag to tumble, flick to fling, double-click to settle, Option-click for the next scene
+
+    private func send(_ phase: Int32, _ e: NSEvent) {
+        guard let cube else { return }
+        let p = convert(e.locationInWindow, from: nil)
+        origami_cube_pointer(cube, UInt32(phase), Float(p.x), Float(p.y), UInt64(max(0, e.timestamp * 1000)))
+        present()
+    }
+    override func mouseDown(with e: NSEvent) {
+        if e.modifierFlags.contains(.option), let cube { origami_cube_alt_click(cube); present(); return }
+        if e.clickCount == 2 { dragging = false; send(ORIGAMI_CUBE_POINTER_DOUBLE_CLICK, e); return }
+        dragging = true
+        send(ORIGAMI_CUBE_POINTER_PRESS, e)
+    }
+    override func mouseDragged(with e: NSEvent) { if dragging { send(ORIGAMI_CUBE_POINTER_MOVE, e) } }
+    // A release with no press (after a double-click) is not sent.
+    override func mouseUp(with e: NSEvent) { if dragging { dragging = false; send(ORIGAMI_CUBE_POINTER_RELEASE, e) } }
+
+    // MARK: for self-tests
+
+    func altClick() { if let cube { origami_cube_alt_click(cube); present() } }
+
+    func readback() -> (width: Int, height: Int, bgra: [UInt8])? {
+        guard let cube else { return nil }
+        var w: UInt32 = 0, h: UInt32 = 0, stride: UInt32 = 0
+        _ = origami_cube_readback(cube, nil, 0, &w, &h, &stride)
+        guard w > 0, h > 0 else { return nil }
+        var buf = [UInt8](repeating: 0, count: Int(stride) * Int(h))
+        guard origami_cube_readback(cube, &buf, buf.count, &w, &h, &stride) == 0 else { return nil }
+        return (Int(w), Int(h), buf)
+    }
+
+    func stats() -> origami_view_counters? {
+        guard let cube else { return nil }
+        var c = origami_view_counters()
+        c.size = UInt32(MemoryLayout<origami_view_counters>.size)
+        return origami_cube_stats(cube, &c) == 0 ? c : nil
+    }
+}
+
+struct CubeHost: NSViewRepresentable {
+    let look: CubeLook
+    var machine: MachineModel?
+    @Environment(\.colorScheme) private var scheme
+
+    func makeNSView(context: Context) -> CubeNSView {
+        let v = CubeNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 160))
+        v.configure(look: look, dark: scheme == .dark, machine: shown)
+        return v
+    }
+    func updateNSView(_ v: CubeNSView, context: Context) {
+        v.configure(look: look, dark: scheme == .dark, machine: shown)
+    }
+    private var shown: MachineView? { machine?.state == .running ? machine?.view : nil }
+    static func dismantleNSView(_ v: CubeNSView, coordinator: ()) { v.detach() }
+}

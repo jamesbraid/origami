@@ -116,6 +116,102 @@ func runSelfTest(library: String, out: String) {
     let whole = snapshot(MainView().environmentObject(app), size: CGSize(width: 1000, height: 640), to: "\(out)/ui-main-stopped.png")
     check("ui-main-renders", whole.ok && whole.colours > 20, ["distinct_colours_sampled": whole.colours])
 
+    // 3b. The cube: attach to a layer in an unshown window, draw, read back, restyle, cycle.
+    // The window is never on screen, so the core draws offscreen: this tests the cube
+    // and our hosting, not a display refresh.
+    do {
+        let cubeWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 108, height: 108),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+        cubeWindow.isReleasedWhenClosed = false
+        let cube = CubeNSView(frame: NSRect(x: 0, y: 0, width: 108, height: 108))
+        cubeWindow.contentView = cube
+        cube.countsOffscreen = true
+        cube.configure(look: .starting(chassis: 0x2e354e), dark: true, machine: nil)
+        let first = cube.present()
+        func colours(_ f: (width: Int, height: Int, bgra: [UInt8])?) -> Int {
+            guard let f else { return 0 }
+            var seen = Set<UInt32>()
+            for i in stride(from: 0, to: f.bgra.count, by: 4) {
+                seen.insert(UInt32(f.bgra[i]) | UInt32(f.bgra[i + 1]) << 8 | UInt32(f.bgra[i + 2]) << 16)
+            }
+            return seen.count
+        }
+        let studio = cube.readback()
+        check("cube-starting-draws", cube.cube != nil && studio != nil && colours(studio) > 8 && first.moving,
+              ["error": cube.lastError, "size": studio.map { "\($0.width)x\($0.height)" } ?? "none",
+               "colours": colours(studio), "spinning": first.moving])
+        cube.configure(look: .about, dark: true, machine: nil)
+        let dusk = cube.present()
+        let duskPic = cube.readback()
+        cube.configure(look: .about, dark: false, machine: nil)
+        _ = cube.present()
+        let light = cube.readback()
+        check("cube-about-scene-follows-appearance", !dusk.moving && duskPic?.bgra != light?.bgra && duskPic?.bgra != studio?.bgra,
+              ["at_rest_in_about": !dusk.moving, "dark_scene": origami_cube_about_scene(1), "light_scene": origami_cube_about_scene(0)])
+        let before = cube.readback()
+        cube.altClick()
+        check("cube-alt-click-changes-scene", before != nil && cube.readback()?.bgra != before?.bgra, [:])
+        let count = origami_cube_scene_count()
+        let credits = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_CREDIT)) }
+        let titles = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_TITLE)) }
+        check("cube-credits-from-manifest", count > 0 && Set(credits).count == Int(count) && titles.allSatisfy { !$0.isEmpty }
+              && credits.allSatisfy { $0.contains("CC") && $0.contains("Wikimedia Commons") && $0.contains(", 20") },
+              ["scenes": count, "credits": credits])
+        // Machine art, as the app does: the colour comes from the manifest, and a build
+        // without stills passes with the glyph fallback.
+        if let id = Art.id(topology: "octane2", product: "octane2") {
+            let url = Bundle.main.resourceURL!.appendingPathComponent("stills/manifest.json")
+            let json = (try? JSONSerialization.jsonObject(with: Data(contentsOf: url))) as? [String: Any]
+            let hex = ((json?["stills"] as? [String: Any])?[id] as? [String: Any])?["colour"] as? String
+            check("art-resolves-and-loads", hex != nil && Art.colour(id) == UInt32(hex!.dropFirst(), radix: 16)
+                  && Art.image(id, "34-dark", points: NSSize(width: 34, height: 34)) != nil
+                  && Art.image(id, "hero", points: NSSize(width: 240, height: 180)) != nil, ["art": id, "colour": hex ?? "none"])
+        } else {
+            check("art-resolves-and-loads", true, ["note": "no stills in this build: glyph fallback"])
+        }
+        check("granite-tile-loads", Granite.tile(Granite.neutral, factor: 2) != nil, [:])
+
+        // CPU while turning: driven at 60 Hz by a timer, as the display link would, for 10 s.
+        cube.configure(look: .starting(chassis: 0x2e354e), dark: true, machine: nil)
+        // The same loop with no cube drawing, to subtract the test's own timer cost.
+        let b0 = processCPU(), bt = Date()
+        while Date().timeIntervalSince(bt) < 3 { spin(1.0 / 60) }
+        let b1 = processCPU()
+        let baseline = ((b1.user - b0.user) + (b1.sys - b0.sys)) / Date().timeIntervalSince(bt) * 100
+        let p0 = processCPU(), s0 = cube.stats(), n0 = cube.presents
+        let t0 = Date()
+        while Date().timeIntervalSince(t0) < 10 { cube.present(); spin(1.0 / 60) }
+        let p1 = processCPU(), s1 = cube.stats()
+        let cpu = ((p1.user - p0.user) + (p1.sys - p0.sys)) / Date().timeIntervalSince(t0) * 100
+        let n = cube.presents - n0
+        check("perf-cube-turning", n > 0 && (!timing || cpu - baseline < 1.0), [
+            "process_cpu_percent_of_one_core": cpu, "timer_loop_baseline_percent": baseline, "net_percent": cpu - baseline, "presented": n, "budget_percent": 1.0, "budget_enforced": timing,
+            "draw_us_per_frame": Double((s1?.draw_ns ?? 0) - (s0?.draw_ns ?? 0)) / 1000 / Double(max(n, 1)),
+            "present_us_per_frame": Double((s1?.present_ns ?? 0) - (s0?.present_ns ?? 0)) / 1000 / Double(max(n, 1)),
+            "note": "unshown window: the core drew offscreen, so the display path is not included"])
+        cube.configure(look: .about, dark: true, machine: nil)
+        // The cube settles after the spin; at rest the display link must pause.
+        let settled = waitFor(15) { cube.present(); return cube.linkPaused }
+        let q0 = cube.presents, k0 = cube.ticks, r0 = processCPU(); spin(5); let r1 = processCPU()
+        check("perf-cube-at-rest", settled && cube.presents == q0 && cube.ticks == k0 && cube.linkPaused,
+              ["presents_at_rest": cube.presents - q0, "link_ticks_at_rest": cube.ticks - k0, "link_paused": cube.linkPaused,
+              "process_cpu_ms": ((r1.user - r0.user) + (r1.sys - r0.sys)) * 1000])
+        cube.detach()
+        check("cube-detach-releases-the-core-cube", cube.cube == nil && CubeNSView.attachedCount == 0, ["attached": CubeNSView.attachedCount])
+    }
+
+    // A cube hosted the way SwiftUI does (About) detaches when its view goes away.
+    do {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        autoreleasepool {
+            w.contentView = NSHostingView(rootView: CubeHost(look: .about).frame(width: 200, height: 200))
+            _ = waitFor(10) { CubeNSView.attachedCount == 1 }
+            w.contentView = NSView()
+        }
+        check("about-cube-detaches-when-its-view-goes", waitFor(10) { CubeNSView.attachedCount == 0 }, ["attached": CubeNSView.attachedCount])
+    }
+
     // 4. Start it the way the Start command does. Events drive every state change.
     var startError: Error?? = .none
     model.start { e in startError = .some(e) }
@@ -235,6 +331,31 @@ func runSelfTest(library: String, out: String) {
         check("fake-readback-has-pixels", first != nil && colours >= 2 && first?.bgra != second?.bgra,
               ["distinct_colours": colours, "size": first.map { "\($0.width)x\($0.height)" } ?? "none",
                "changed_after_advance": first?.bgra != second?.bgra, "view_error": view.lastError])
+    }
+
+    // The cube reflects a presenting machine's screen, and keeps the scene for one that is not.
+    do {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 108, height: 108), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        let c = CubeNSView(frame: NSRect(x: 0, y: 0, width: 108, height: 108))
+        w.contentView = c
+        c.countsOffscreen = true
+        c.configure(look: .about, dark: true, machine: nil)
+        c.present()
+        let scene = c.readback()
+        let idle = MachineView(session: session)   // never drawn: not presenting
+        c.configure(look: .about, dark: true, machine: idle)
+        c.present()
+        let still = c.readback()
+        c.configure(look: .about, dark: true, machine: view)
+        advance(); _ = waitFor(10) { view.presented > 1 }
+        c.present()
+        let screen = c.readback()
+        check("cube-reflects-a-presenting-machine", view.isPresenting && !idle.isPresenting && scene?.bgra == still?.bgra
+              && screen != nil && screen?.bgra != scene?.bgra, ["view_presenting": view.isPresenting, "error": c.lastError])
+        idle.detach(); c.detach()
+        // Making `idle` took the session's frame handler; give it back to `view`.
+        session.setFrameHandler(owner: view) { [weak view] in view?.redraw() }
     }
 
     // Idle: nothing changed, so nothing is drawn.

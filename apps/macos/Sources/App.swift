@@ -1,6 +1,7 @@
 // The SwiftUI app: scenes, menus from the command table, and what quitting
 // does to running machines.
 
+import OrigamiFrame
 import SwiftUI
 
 /// Where the library comes from. Set once, before the app starts.
@@ -114,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 struct OrigamiCommands: Commands {
     @ObservedObject var app: AppModel
+    @Environment(\.openWindow) private var openWindow
     @ViewBuilder private func item(_ c: CommandID) -> some View {
         let enabled = app.isEnabled(c)
         switch c {
@@ -132,6 +134,9 @@ struct OrigamiCommands: Commands {
     }
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Origami") { openWindow(id: "about") }
+        }
         CommandGroup(replacing: .newItem) {
             item(.newMachine); item(.chooseLibrary)
         }
@@ -170,6 +175,11 @@ struct OrigamiApp: App {
             DiagnosticsView().environmentObject(app)
         }
         .defaultSize(width: 640, height: 400)
+
+        Window("About Origami", id: "about") {
+            AboutView().environmentObject(app)
+        }
+        .windowResizability(.contentSize)
 
         Settings { PreferencesView().environmentObject(app) }
     }

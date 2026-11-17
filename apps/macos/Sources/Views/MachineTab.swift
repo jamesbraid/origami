@@ -132,7 +132,7 @@ struct Hero: View {
             ZStack {
                 LinearGradient(colors: [colour.opacity(0.55), colour.opacity(0.12)], startPoint: .top, endPoint: .bottom)
                 VStack(spacing: 14) {
-                    ChassisGlyph(product: r.product).scaleEffect(3.2).frame(height: 84)
+                    HeroArt(product: r.product)
                     Text(r.name).font(.largeTitle.weight(.semibold))
                     Text(r.product.name).font(.title3).foregroundStyle(.secondary)
                     Button {
@@ -187,7 +187,11 @@ struct StartingCard: View {
         ZStack {
             GraniteBackground()
             VStack(spacing: 18) {
-                ChromeCube().frame(width: 170, height: 150)
+                // 96 pt of cube: it fills 90% of its view, which carries its own granite.
+                CubeHost(look: .starting(chassis: model.record.product.colour))
+                    .frame(width: 108, height: 108)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .accessibilityHidden(true)
                 Text("Starting up the system…").font(.title3).foregroundStyle(.white)
                 HStack(spacing: 28) {
                     StageChip(title: "Emulator", symbol: "cpu", state: model.emulatorUp ? true : nil)

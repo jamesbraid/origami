@@ -95,6 +95,7 @@ struct MachineSettings: View {
         let r = model.record
         switch pane {
         case .general:
+            HStack { MachineArt(product: r.product, pt: 72); Text(r.name).font(.title2.weight(.semibold)) }
             LabeledContent("Name", value: r.name)
             LabeledContent("Product", value: r.product.name)
         case .system:

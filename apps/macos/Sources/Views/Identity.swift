@@ -1,5 +1,5 @@
 // Origami's look, kept inside the content and never a setting: Indigo accent,
-// chassis colours, granite behind the screen, the bezel and the chrome cube.
+// chassis colours, granite behind the screen and the bezel.
 
 import SwiftUI
 
@@ -64,36 +64,69 @@ struct ChassisGlyph: View {
     }
 }
 
-/// A faint stone speckle, generated once, tiled behind the guest's screen.
+/// The IRIX granite tile (two colours, 256 px) recoloured to two tones and
+/// pixel-doubled for a Retina display, never smoothed.
 enum Granite {
-    static let tile: NSImage = {
-        let side = 220
-        var pixels = [UInt8](repeating: 0, count: side * side * 4)
-        var seed: UInt32 = 0x9e3779b9
-        func next() -> UInt32 { seed = seed &* 1664525 &+ 1013904223; return seed >> 8 }
-        for i in 0..<(side * side) {
-            // Mostly the base grey, with scattered lighter and darker grains.
-            let r = next() % 100
-            var v = 40 + Int(next() % 6)
-            if r < 6 { v += 18 + Int(next() % 22) } else if r < 14 { v -= 10 }
-            let g = UInt8(max(0, min(255, v)))
-            pixels[i * 4] = g; pixels[i * 4 + 1] = g; pixels[i * 4 + 2] = UInt8(min(255, Int(g) + 3)); pixels[i * 4 + 3] = 255
+    /// Tones as 0xRRGGBB. Neutral dark behind the screen, light for About's light band.
+    static let neutral: (UInt32, UInt32) = (0x282a30, 0x1f2126)
+    static let light: (UInt32, UInt32) = (0xe2e4e8, 0xd6d8dd)
+
+    /// The tile's pixels: true where it is the lighter of its two colours.
+    private static let mask: (side: Int, bits: [Bool])? = {
+        guard let url = Bundle.main.url(forResource: "granite-tile", withExtension: "png"),
+              let data = try? Data(contentsOf: url),
+              let rep = NSBitmapImageRep(data: data) else { return nil }
+        let w = rep.pixelsWide, h = rep.pixelsHigh
+        var lum = [Int](repeating: 0, count: w * h)
+        for y in 0..<h {
+            for x in 0..<w {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                let sum: CGFloat = c.redComponent + c.greenComponent + c.blueComponent
+                lum[y * w + x] = Int(sum * 85)
+            }
         }
-        let provider = CGDataProvider(data: Data(pixels) as CFData)!
-        let image = CGImage(width: side, height: side, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: side * 4,
-                            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
-                            provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
-        return NSImage(cgImage: image, size: NSSize(width: side, height: side))
+        let mid = ((lum.min() ?? 0) + (lum.max() ?? 0)) / 2
+        return (w, lum.map { $0 > mid })
     }()
+
+    private static var cache: [String: CGImage] = [:]
+
+    /// Cached by tones and factor: a body evaluation must not rebuild 512 x 512 pixels.
+    static func tile(_ tones: (UInt32, UInt32), factor: Int) -> CGImage? {
+        let key = "\(tones.0)-\(tones.1)-\(factor)"
+        if let hit = cache[key] { return hit }
+        let made = build(tones, factor: factor)
+        if let made { cache[key] = made }
+        return made
+    }
+
+    private static func build(_ tones: (UInt32, UInt32), factor: Int) -> CGImage? {
+        guard let (side, bits) = mask else { return nil }
+        let n = side * factor
+        var px = [UInt8](repeating: 255, count: n * n * 4)
+        for y in 0..<n { for x in 0..<n {
+            let t = bits[(y / factor) * side + x / factor] ? tones.0 : tones.1
+            let o = (y * n + x) * 4
+            px[o] = UInt8((t >> 16) & 255); px[o + 1] = UInt8((t >> 8) & 255); px[o + 2] = UInt8(t & 255)
+        } }
+        return CGImage(width: n, height: n, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: n * 4,
+                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+                       provider: CGDataProvider(data: Data(px) as CFData)!, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+    }
 }
 
 struct GraniteBackground: View {
+    var tones = Granite.neutral
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.displayScale) private var scale
     var body: some View {
+        let flat = Color(rgb: tones.1)
         if contrast == .increased {
-            Color(white: 0.16)   // Increase Contrast removes the speckle
+            flat   // Increase Contrast removes the speckle
+        } else if let tile = Granite.tile(tones, factor: max(1, Int(scale.rounded()))) {
+            Image(decorative: tile, scale: scale).interpolation(.none).resizable(resizingMode: .tile)
         } else {
-            Image(nsImage: Granite.tile).resizable(resizingMode: .tile)
+            flat
         }
     }
 }
@@ -118,62 +151,3 @@ struct Bezel: ViewModifier {
     }
 }
 extension View { func bezel() -> some View { modifier(Bezel()) } }
-
-/// Origami's emblem: a solid bevelled chrome cube, not the SGI logo (which is
-/// an open cube of tubes). It turns slowly while a machine starts; Reduce
-/// Motion holds it still.
-struct ChromeCube: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { context in
-            Canvas { gc, size in
-                let angle = reduceMotion ? 0.7 : context.date.timeIntervalSinceReferenceDate * 0.55
-                draw(gc, size, angle)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func draw(_ gc: GraphicsContext, _ size: CGSize, _ yaw: Double) {
-        let pitch = 0.5
-        let s = min(size.width, size.height) * 0.30
-        let c = CGPoint(x: size.width / 2, y: size.height / 2)
-        func project(_ x: Double, _ y: Double, _ z: Double) -> (CGPoint, Double) {
-            let x1 = x * cos(yaw) + z * sin(yaw), z1 = -x * sin(yaw) + z * cos(yaw)
-            let y2 = y * cos(pitch) - z1 * sin(pitch), z2 = y * sin(pitch) + z1 * cos(pitch)
-            return (CGPoint(x: c.x + x1 * s, y: c.y - y2 * s), z2)
-        }
-        // Faces: corner indices and outward normal.
-        let corners: [(Double, Double, Double)] = (0..<8).map { i in
-            (i & 1 == 0 ? -1 : 1, i & 2 == 0 ? -1 : 1, i & 4 == 0 ? -1 : 1)
-        }
-        let faces: [([Int], (Double, Double, Double))] = [
-            ([0, 1, 3, 2], (0, 0, -1)), ([4, 5, 7, 6], (0, 0, 1)),
-            ([0, 1, 5, 4], (0, -1, 0)), ([2, 3, 7, 6], (0, 1, 0)),
-            ([0, 2, 6, 4], (-1, 0, 0)), ([1, 3, 7, 5], (1, 0, 0)),
-        ]
-        var drawn: [(Double, Path, Double)] = []
-        for (indices, n) in faces {
-            let pts = indices.map { project(corners[$0].0, corners[$0].1, corners[$0].2) }
-            // Rotate the normal the same way to cull the faces turned away.
-            let (_, nz) = project(n.0, n.1, n.2)
-            let (_, oz) = project(0, 0, 0)
-            let facing = nz - oz
-            guard facing > 0 else { continue }
-            var path = Path()
-            path.move(to: pts[0].0)
-            for p in pts.dropFirst() { path.addLine(to: p.0) }
-            path.closeSubpath()
-            drawn.append((pts.map { $0.1 }.reduce(0, +), path, facing))
-        }
-        for (_, path, facing) in drawn.sorted(by: { $0.0 > $1.0 }) {
-            let lit = 0.30 + 0.70 * min(1, max(0, facing))
-            let hi = Color(white: min(1, lit + 0.25)), lo = Color(white: max(0, lit - 0.30))
-            gc.fill(path, with: .linearGradient(Gradient(colors: [hi, lo]),
-                                                startPoint: path.boundingRect.origin,
-                                                endPoint: CGPoint(x: path.boundingRect.maxX, y: path.boundingRect.maxY)))
-            gc.stroke(path, with: .color(.white.opacity(0.55)), lineWidth: 1.2)
-        }
-    }
-}
