@@ -141,6 +141,20 @@ fn macos(product: &Product) -> Result<()> {
         product.stage,
         &app_notices("Rust crates (app)", &["origami-ffi"], triple, &manifest)?,
     )?;
+    // The runner hosts iris machines, which the command-line package's does not.
+    run(cargo(&[
+        "build",
+        "--release",
+        "--locked",
+        "--bin",
+        "origami",
+        "--features",
+        "iris",
+    ]))?;
+    archive::copy_file(
+        &target_dir().join("release/origami"),
+        &product.stage.join("bin/origami"),
+    )?;
     let work = target_dir().join("dist/macos-arm64");
     let app = work.join("Origami.app");
     let _ = fs::remove_dir_all(&app);
@@ -150,6 +164,7 @@ fn macos(product: &Product) -> Result<()> {
         // build.sh copies bin/, libexec/ and share/ in; the app is not named
         // Origami, as macOS file names ignore case.
         .env("ORIGAMI_PRODUCT", product.stage)
+        .env("ORIGAMI_FFI_FEATURES", "iris")
         .env("CARGO_TARGET_DIR", target_dir());
     run(build)?;
     let plist = app.join("Contents/Info.plist");
@@ -296,7 +311,11 @@ fn windows_prebuild(out: &Path, target: Option<&str>) -> Result<()> {
         Some(t) => target_dir().join(t).join("release"),
         None => target_dir().join("release"),
     };
-    for selection in [["--bin", "origami"], ["-p", "origami-ffi"]] {
+    // The runner hosts iris machines and the FFI library offers the engine.
+    for selection in [
+        ["--bin", "origami", "--features", "iris"],
+        ["-p", "origami-ffi", "--features", "iris"],
+    ] {
         let mut build = vec!["build", "--release", "--locked"];
         build.extend(&triple);
         build.extend(selection);

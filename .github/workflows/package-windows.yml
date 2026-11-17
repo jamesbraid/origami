@@ -24,7 +24,7 @@ jobs:
       - name: Cross compiler and Rust
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
             --target x86_64-pc-windows-gnu
@@ -33,7 +33,15 @@ jobs:
         run: |
           cargo install uniffi-bindgen-cs --locked \
             --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+      # The settings app-windows.yml documents: libchdman-rs builds from source for MinGW.
       - name: Build the Rust parts
+        env:
+          LIBCHDMAN_FORCE_SOURCE: '1'
+          CFLAGS_x86_64_pc_windows_gnu: -D_FILE_OFFSET_BITS=64 -DHAVE_FSEEKO=1
+          CXXFLAGS_x86_64_pc_windows_gnu: -D_FILE_OFFSET_BITS=64 -DHAVE_FSEEKO=1
+          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc-posix
+          CXX_x86_64_pc_windows_gnu: x86_64-w64-mingw32-g++-posix
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-g++-posix
         run: cargo xtask dist --app --platform windows-x86_64 --target x86_64-pc-windows-gnu --prebuild "$PWD/prebuilt"
       - uses: actions/upload-artifact@v3
         with:
@@ -69,6 +77,10 @@ jobs:
           export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
           prebuilt/xtask.exe dist --app --platform windows-x86_64 --prebuilt prebuilt --out dist
           ls -la dist
+      - name: The packaged runner has iris linked
+        run: |
+          mkdir check && /c/Windows/System32/tar.exe -xf dist/origami-*-app.zip -C check
+          grep -c "iris runner panicked" check/*/bin/origami.exe
       - name: Start the extracted package
         # From a path with spaces, as a user's home may be.
         shell: powershell
