@@ -922,7 +922,36 @@ def about():
 
 
 
-SCENARIOS = {"about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+def hinv():
+    """The About egg: typing hinv slides the host inventory over the credits,
+    Escape puts the credits back and leaves About open. The custom About needs
+    a hardware GPU for its cube."""
+    if mode != "x11":
+        skip("hinv", "needs XTest")
+        return
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("invoke app.about")
+        time.sleep(3)
+        if "no cube" in open(os.path.join(out, "app.log")).read():
+            skip("the hinv egg", "no hardware GPU, so About is the stock dialog")
+            return
+        shot("about-credits")
+        type_text("hinv")
+        time.sleep(3)
+        text = ocr(shot("about-hinv"))
+        check("typing hinv shows the host inventory", "Main memory" in text or "Processor" in text, text[-300:])
+        key("Escape")
+        time.sleep(2)
+        text = ocr(shot("about-back"))
+        check("Escape hides the inventory and leaves About open", "About Origami" in text and "Main memory" not in text, text[-300:])
+    finally:
+        a.stop()
+
+
+SCENARIOS = {"hinv": hinv, "about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

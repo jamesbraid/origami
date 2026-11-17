@@ -855,7 +855,7 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
         }
         ("machine.new", _) => settings::new_machine(app, &w.win),
         ("app.preferences", _) => settings::preferences(app, &w.win),
-        ("app.about", _) => about(&w.win),
+        ("app.about", _) => about(app, &w.win),
         ("app.quit", _) => app::request_quit(app),
         _ => {}
     }
@@ -1327,7 +1327,7 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
 
 /// The About window: the cube on granite, the version and the photographs'
 /// credits. Without a GPU for the cube it is the stock dialog.
-fn about(parent: &adw::ApplicationWindow) {
+fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     let version = env!("CARGO_PKG_VERSION");
     let dark = adw::StyleManager::default().is_dark();
     let scene = crate::cube::about_scene();
@@ -1367,7 +1367,40 @@ fn about(parent: &adw::ApplicationWindow) {
     page.append(&label("Origami", &["title-1"]));
     page.append(&label(version, &["dim-label"]));
     page.append(&label("SGI workstations and servers on your desktop", &[]));
-    page.append(&label(&credits, &["caption", "dim-label"]));
+    // Typing h, i, n, v slides the host inventory over the credits; Escape or
+    // a click puts them back.
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::SlideUp)
+        .hhomogeneous(true)
+        .vhomogeneous(true)
+        .build();
+    stack.add_named(&label(&credits, &["caption", "dim-label"]), Some("credits"));
+    let inventory = gtk::Label::builder()
+        .wrap(true)
+        .wrap_mode(gtk::pango::WrapMode::WordChar)
+        .xalign(0.0)
+        .yalign(0.0)
+        .margin_top(8)
+        .margin_start(8)
+        .css_classes(["monospace", "caption"])
+        .build();
+    let shelf = gtk::ScrolledWindow::builder()
+        .min_content_height(150)
+        .child(&inventory)
+        .build();
+    let back = gtk::GestureClick::new();
+    back.set_propagation_phase(gtk::PropagationPhase::Capture);
+    back.connect_pressed({
+        let stack = stack.downgrade();
+        move |_, _, _, _| {
+            if let Some(s) = stack.upgrade() {
+                s.set_visible_child_name("credits");
+            }
+        }
+    });
+    shelf.add_controller(back);
+    stack.add_named(&shelf, Some("hinv"));
+    page.append(&stack);
     page.append(&label(
         "All trademarks are the property of their respective owners.",
         &["caption", "dim-label"],
@@ -1431,5 +1464,59 @@ fn about(parent: &adw::ApplicationWindow) {
         }
     });
     dialog.add_controller(keys);
+    dialog.add_controller(egg_keys(app, &stack, &inventory));
     dialog.present(Some(parent));
+}
+
+/// The letters h, i, n, v in a row show the inventory; Escape hides it
+/// before it closes the dialog.
+fn egg_keys(app: &Rc<App>, stack: &gtk::Stack, inventory: &gtk::Label) -> gtk::EventControllerKey {
+    let keys = gtk::EventControllerKey::new();
+    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let seen = RefCell::new(String::new());
+    let (app, stack, inventory) = (app.clone(), stack.downgrade(), inventory.downgrade());
+    keys.connect_key_pressed(move |_, key, _, state| {
+        let (Some(stack), Some(inventory)) = (stack.upgrade(), inventory.upgrade()) else {
+            return glib::Propagation::Proceed;
+        };
+        if key == gtk::gdk::Key::Escape && stack.visible_child_name().as_deref() == Some("hinv") {
+            stack.set_visible_child_name("credits");
+            return glib::Propagation::Stop;
+        }
+        let plain = !state
+            .intersects(gtk::gdk::ModifierType::CONTROL_MASK | gtk::gdk::ModifierType::ALT_MASK);
+        if let (true, Some(c)) = (plain, key.to_unicode()) {
+            let mut seen = seen.borrow_mut();
+            seen.push(c.to_ascii_lowercase());
+            let from = seen.len().saturating_sub(4);
+            *seen = seen[from..].to_string();
+            if *seen == "hinv" {
+                show_inventory(&app, &stack, &inventory);
+            }
+        }
+        glib::Propagation::Proceed
+    });
+    keys
+}
+
+/// Read the inventory off the UI thread (it reads the disk) and slide it in.
+fn show_inventory(app: &Rc<App>, stack: &gtk::Stack, inventory: &gtk::Label) {
+    let (core, gpu) = (app.core.clone(), app.dev.as_ref().map(|d| d.name.clone()));
+    let (stack, inventory) = (stack.downgrade(), inventory.downgrade());
+    glib::spawn_future_local(async move {
+        let text = gio::spawn_blocking(move || {
+            let machines = core
+                .list_machines()
+                .ok()
+                .map(|l| l.into_iter().map(|m| (m.name, m.product)).collect());
+            let host = origami_core::hinv::gather(core.root(), machines, gpu);
+            origami_core::hinv::format(&host)
+        })
+        .await
+        .unwrap_or_else(|_| "The inventory could not be read.".into());
+        if let (Some(stack), Some(inventory)) = (stack.upgrade(), inventory.upgrade()) {
+            inventory.set_label(&text);
+            stack.set_visible_child_name("hinv");
+        }
+    });
 }
