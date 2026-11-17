@@ -24,7 +24,7 @@ enum CommandID: String, CaseIterable {
 
     var info: Info {
         switch self {
-        case .newMachine: return Info(title: "New Machine…", menu: .file, key: "n", modifiers: .command, needsCore: true)
+        case .newMachine: return Info(title: "New Machine…", menu: .file, key: "n", modifiers: .command)
         case .chooseLibrary: return Info(title: "Choose Library Folder…", menu: .file, key: "o", modifiers: .command)
         case .closeTab: return Info(title: "Close Tab", menu: .file, key: nil, modifiers: [])
         case .start: return Info(title: "Start", menu: .machine, key: "r", modifiers: .command)

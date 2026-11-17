@@ -30,6 +30,18 @@ struct Product {
     }
 }
 
+extension Product {
+    /// The product for a catalogue offering, with its art by topology first.
+    static func withArt(of o: OrigamiOffering) -> Product {
+        var p = Product.of(model: o.product, label: o.product)
+        if let id = Art.id(topology: o.topology, product: o.product) {
+            p.art = id
+            if let c = Art.colour(id) { p.colour = c }
+        }
+        return p
+    }
+}
+
 struct MachineRecord: Identifiable, Hashable {
     /// The core's key for the machine; stable while it exists.
     let key: String

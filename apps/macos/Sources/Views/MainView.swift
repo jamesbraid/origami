@@ -46,6 +46,7 @@ struct MainView: View {
             if want { settingsFor = app.current; app.wantSettings = false }
         }
         .sheet(item: $settingsFor) { model in MachineSettings(model: model) }
+        .sheet(isPresented: $app.wantNewMachine) { NewMachineSheet(app: app) }
     }
 }
 
@@ -99,7 +100,7 @@ struct LibrarySidebar: View {
             HStack {
                 Button { app.invoke(.newMachine) } label: { Label("New Machine", systemImage: "plus") }
                     .buttonStyle(.borderless).disabled(!app.isEnabled(.newMachine))
-                    .help("New Machine (arrives with the core's machine creation)")
+                    .help("New Machine (⌘N)")
                 Spacer()
                 Button { app.invoke(.chooseLibrary) } label: { Label("Choose Library Folder", systemImage: "folder") }
                     .buttonStyle(.borderless).labelStyle(.iconOnly)

@@ -368,6 +368,7 @@ final class AppModel: ObservableObject {
     @Published var scaleMode: ScaleMode = .fit
     /// Window-opening requests the scene turns into windows.
     @Published var wantSettings = false
+    @Published var wantNewMachine = false
 
     /// Asked before an action that loses state. Tests answer it themselves.
     var confirm: (_ title: String, _ detail: String, _ action: String) -> Bool = { title, detail, action in
@@ -565,7 +566,8 @@ final class AppModel: ObservableObject {
         case .closeTab: return active != nil
         case .nextTab, .previousTab: return tabs.count > 1
         case .fit, .actualSize, .pointScale, .doubleScale: return m?.state == .running
-        case .newMachine, .pasteAsTyping, .console: return false
+        case .newMachine: return host != nil
+        case .pasteAsTyping, .console: return false
         case .chooseLibrary, .showLibrary, .library: return true
         }
     }
@@ -615,7 +617,8 @@ final class AppModel: ObservableObject {
         case .doubleScale: scaleMode = .double
         case .actualSize: scaleMode = .actual
         case .chooseLibrary: if let url = openFolderPanel() { chooseLibrary(url) }
-        case .newMachine, .pasteAsTyping, .console: break
+        case .newMachine: wantNewMachine = true
+        case .pasteAsTyping, .console: break
         }
     }
 

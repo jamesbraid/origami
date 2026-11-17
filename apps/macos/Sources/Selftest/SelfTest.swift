@@ -360,6 +360,44 @@ func runSelfTest(library: String, out: String) {
         check("about-cube-detaches-when-its-view-goes", waitFor(10) { CubeNSView.attachedCount == 0 }, ["attached": CubeNSView.attachedCount])
     }
 
+    // New Machine: default model, name rules, an error that keeps the sheet, and open on success.
+    do {
+        let nm = NewMachineModel(app: app)
+        nm.load()
+        check("new-machine-catalogue-loads", waitFor(30) { !nm.loading && !nm.offerings.isEmpty },
+              ["offerings": nm.offerings.map(\.id), "selected": nm.offerings.indices.contains(nm.selected) ? nm.offerings[nm.selected].id : "none"])
+        let expectedDefault = nm.offerings.firstIndex { $0.id == "octane2-vpro" } ?? 0
+        check("new-machine-defaults-to-octane2-vpro-when-offered", nm.selected == expectedDefault, ["selected": nm.selected])
+        nm.name = ""; let emptyOff = !nm.canCreate
+        nm.name = "  \t "; let blankOff = !nm.canCreate
+        nm.name = " gamma "; let namedOn = nm.canCreate
+        check("new-machine-create-needs-a-trimmed-name", emptyOff && blankOff && namedOn, [:])
+        if fake {
+            nm.bootProm = library + "/prom.bin"
+            var result: Bool?
+            nm.create { ok in result = ok }
+            check("new-machine-disabled-while-creating", nm.creating && !nm.canCreate, [:])
+            check("new-machine-created-and-opened", waitFor(30) { result != nil } && result == true && app.current?.name == "gamma" && app.tabs.contains(app.current?.id ?? ""),
+                  ["active": app.current?.name ?? "none"])
+            // The real sheet flow on the fake engine has no firmware to offer, so it must explain and stay.
+            let bare = NewMachineModel(app: app); bare.load(); _ = waitFor(30) { !bare.loading }
+            bare.name = "needs-firmware"
+            var bareResult: Bool?
+            bare.create { ok in bareResult = ok }
+            _ = waitFor(30) { bareResult != nil }
+            check("new-machine-without-firmware-explains-and-stays", bareResult == false && !(bare.error ?? "").isEmpty && bare.canCreate,
+                  ["error": bare.error ?? "none"])
+            // The same name again is refused: the error shows and the sheet stays.
+            let again = NewMachineModel(app: app); again.load(); _ = waitFor(30) { !again.loading }
+            again.bootProm = library + "/prom.bin"; again.name = "gamma"
+            var second: Bool?
+            again.create { ok in second = ok }
+            _ = waitFor(30) { second != nil }
+            check("new-machine-error-stays-on-the-sheet", second == false && (again.error ?? "").count > 0 && !again.creating && again.canCreate,
+                  ["error": again.error ?? "none"])
+        }
+        app.select(model.id)
+    }
     // The machine's tab, hosted before the start the way the app has it, so the first picture arrives into a
     // live layout. Its display must fill the fit rect for that picture at once, not after a reset.
     let tabWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled, .resizable],
@@ -505,6 +543,20 @@ func runSelfTest(library: String, out: String) {
                    "core_reason": m.coreView?.reason ?? "none", "core_exit": "\(String(describing: m.coreView?.exitCode))", "busy": m.busy ?? "none"])
             _ = host
         } else { check("qemu-exit-with-no-code-is-unexpected", false, ["error": "could not start or read run.json"]) }
+        // The real sheet path on the real engine: the default model and a name, no firmware injected.
+        do {
+            let nm = NewMachineModel(app: app)
+            nm.load()
+            _ = waitFor(60) { !nm.loading }
+            nm.name = "ui-new-machine"
+            var result: Bool?
+            nm.create { ok in result = ok }
+            _ = waitFor(120) { result != nil }
+            let opened = result == true && app.current?.name == "ui-new-machine"
+            check("new-machine-real-engine-creates-or-explains", opened || (result == false && !(nm.error ?? "").isEmpty && !nm.creating),
+                  ["created_and_opened": opened, "error": nm.error ?? "none",
+                   "default": nm.offerings.indices.contains(nm.selected) ? nm.offerings[nm.selected].id : "none"])
+        }
         finish()
     }
 
