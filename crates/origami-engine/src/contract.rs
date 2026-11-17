@@ -387,7 +387,8 @@ pub fn lifecycle(h: &dyn Harness) {
     wait_until("running", || session.status().state == RunState::Running);
     session.stop(Stop::Force).expect("force stop");
     wait_until("the forced exit", || exited(session.as_ref()).is_some());
-    assert!(woken.load(Ordering::SeqCst) >= 2);
+    // The wake follows the exit by a moment, longer under load.
+    wait_until("the forced exit wake", || woken.load(Ordering::SeqCst) >= 2);
 }
 
 fn launch(h: &dyn Harness, fixture: &Fixture, name: &str) -> Arc<dyn Session> {

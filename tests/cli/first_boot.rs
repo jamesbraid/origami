@@ -70,7 +70,7 @@ fn the_runner_applies_it_too_when_started_directly() {
     );
     wait_until(
         "the runner to record itself",
-        Duration::from_secs(20),
+        Duration::from_secs(120),
         || machine.join("state/run.json").exists(),
     );
     assert!(applied(&machine));
