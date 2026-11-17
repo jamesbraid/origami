@@ -109,11 +109,9 @@ fn linux(product: &Product) -> Result<()> {
             .stage
             .join(format!("share/applications/{id}.desktop")),
     )?;
-    archive::copy_file(
-        &root().join(format!("resources/linux/{id}.svg")),
-        &product
-            .stage
-            .join(format!("share/icons/hicolor/scalable/apps/{id}.svg")),
+    archive::copy_tree(
+        &root().join("resources/linux/icons/hicolor"),
+        &product.stage.join("share/icons/hicolor"),
     )?;
     let triple = notices::triple(product.platform, None);
     let manifest = root().join("Cargo.toml");

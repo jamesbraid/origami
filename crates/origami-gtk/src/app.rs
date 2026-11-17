@@ -126,7 +126,10 @@ pub fn run(cfg: Config) -> glib::ExitCode {
         app: gapp.clone(),
         cfg,
     });
-    gapp.connect_startup(|_| style::install());
+    gapp.connect_startup(|_| {
+        gtk::Window::set_default_icon_name("fans.irix.Origami");
+        style::install();
+    });
     let rx = RefCell::new(Some(rx));
     gapp.connect_activate(move |_| {
         if let Some(w) = app.windows.borrow().first() {
