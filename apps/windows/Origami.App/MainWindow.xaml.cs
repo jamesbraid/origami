@@ -234,7 +234,7 @@ public sealed partial class MainWindow : Window
                     break;
                 }
             case "machine.settings":
-            case "app.preferences": _prefsOpen = true; Refresh(); break;
+            case "app.preferences": _prefsOpen = true; Settings.Load(_settings); Refresh(); break; // load once: a refresh must not reset unsaved edits
             case "machine.pointer-mode" when key != null:
                 {
                     var next = Display.Mode == PointerMode.Follow ? PointerMode.Capture : PointerMode.Follow;
@@ -305,7 +305,6 @@ public sealed partial class MainWindow : Window
         var key = SelectedKey;
         HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Visibility.Collapsed;
         Settings.Visibility = _prefsOpen ? Visibility.Visible : Visibility.Collapsed;
-        if (_prefsOpen) Settings.Load(_settings);
         if (key is null) return;
 
         var info = _core.Machines().First(m => m.Key == key);
