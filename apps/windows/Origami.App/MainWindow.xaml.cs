@@ -134,6 +134,18 @@ public sealed partial class MainWindow : Window
         Refresh();
     }
 
+    /// <summary>Rebuilds the list when the core's library changed (the first read can land after the window opens), keeping the selection.</summary>
+    void SyncLibrary()
+    {
+        var keys = _core.Machines().Select(x => x.Key).ToList();
+        var shown = Library.Items.OfType<ListViewItem>().Select(i => (string?)i.Tag).ToList();
+        if (keys.SequenceEqual(shown!)) return;
+        var sel = SelectedKey;
+        Library.Items.Clear(); _pills.Clear();
+        BuildLibrary();
+        Library.SelectedIndex = sel is not null && keys.IndexOf(sel) is var at and >= 0 ? at : (keys.Count > 0 ? 0 : -1);
+    }
+
     void BuildLibrary()
     {
         foreach (var m in _core.Machines())
@@ -295,6 +307,7 @@ public sealed partial class MainWindow : Window
 
     void Refresh()
     {
+        SyncLibrary();
         foreach (var m in _core.Machines())
         {
             if (!_pills.TryGetValue(m.Key, out var p)) continue;

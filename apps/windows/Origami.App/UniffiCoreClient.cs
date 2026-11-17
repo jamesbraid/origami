@@ -12,6 +12,7 @@ public sealed class UniffiCoreClient : ICoreClient
         public Observer(UniffiCoreClient o) { _o = o; }
         public void OnEvent(OrigamiEvent e)
         {
+            _o.Poke();
             var key = e.Machine ?? "";
             foreach (var k in e.Kinds)
                 _o.Events?.Invoke(new MachineEvent(key, k switch
@@ -38,11 +39,54 @@ public sealed class UniffiCoreClient : ICoreClient
     readonly Dictionary<string, OrigamiMachine> _machines = new();
     public event Action<MachineEvent>? Events;
 
+    // The core's reads (a machine's view asks QEMU over QMP) can block, so nothing on the UI thread calls them: a
+    // background loop reads every machine and the UI reads what it stored.
+    sealed record Snapshot(IReadOnlyList<OrigamiMachineSummary> List, Dictionary<string, OrigamiMachineView> Views);
+    volatile Snapshot _snap = new(Array.Empty<OrigamiMachineSummary>(), new());
+    readonly SemaphoreSlim _wake = new(0, 1); // one pending wake is enough: the pass reads everything
+    readonly ManualResetEventSlim _first = new(false);
+    readonly CancellationTokenSource _stop = new();
+    int _tick;
+
     public UniffiCoreClient(string libraryRoot)
     {
         Directory.CreateDirectory(libraryRoot);
         _core = new OrigamiCore(libraryRoot, new Observer(this));
+        _ = Task.Run(Loop);
+        _first.Wait(TimeSpan.FromSeconds(3)); // bounded: the window opens empty and fills in if the first read is slower
     }
+
+    async Task Loop()
+    {
+        try { ReadCore(true); } catch (Exception e) { App.Log("first core read failed: " + e.Message); }
+        _first.Set();
+        while (!_stop.IsCancellationRequested)
+        {
+            try { await _wake.WaitAsync(TimeSpan.FromMilliseconds(750), _stop.Token); } catch (OperationCanceledException) { return; }
+            try { ReadCore(++_tick % 4 == 0); } catch (Exception e) { App.Log("core read failed: " + e.Message); }
+        }
+    }
+
+    /// <summary>One pass over the core, on the loop's thread. The library list (a disk read) is refreshed every fourth pass or on request.</summary>
+    void ReadCore(bool relist)
+    {
+        var list = relist ? _core.ListMachines() : _snap.List.ToArray();
+        var views = new Dictionary<string, OrigamiMachineView>();
+        foreach (var m in list)
+        {
+            try { views[m.Key] = M(m.Key).View(); }
+            catch (Exception e) when (e is CoreException) { /* a machine that went away has no view this pass */ }
+        }
+        var before = _snap.List.Select(m => m.Key).ToList();
+        _snap = new Snapshot(list, views);
+        if (!before.SequenceEqual(list.Select(m => m.Key))) Events?.Invoke(new MachineEvent("", MachineEventKind.LibraryChanged));
+    }
+
+    /// <summary>Ask the loop to read the core now; a core event calls it. A create reads at once itself.</summary>
+    void Poke() { try { _wake.Release(); } catch (SemaphoreFullException) { } }
+
+    /// <summary>A machine's stored view, or null when it has none yet (it is new, or its view failed on the last pass).</summary>
+    OrigamiMachineView? TryView(string key) => _snap.Views.GetValueOrDefault(key);
 
     public string EngineIds => string.Join(",", _core.Engines().Select(e => e.Id));
 
@@ -60,6 +104,7 @@ public sealed class UniffiCoreClient : ICoreClient
             var op = _core.CreateMachine(new OrigamiCreateRequest(name, "fake.1", null, null, prom, null, null));
             if (op.Wait(30_000) is not OrigamiOperationState.Succeeded) throw new InvalidOperationException("could not create " + name);
         }
+        ReadCore(true);
     }
 
     public void FakeAdvanceFrame(string key) => _core.FakeAdvanceFrame(key);
@@ -73,7 +118,9 @@ public sealed class UniffiCoreClient : ICoreClient
         var o = _core.Catalogue().First(x => x.Product.Contains(product, StringComparison.OrdinalIgnoreCase));
         var op = _core.CreateMachine(new OrigamiCreateRequest(name, o.Id, null, graphics, null, null, null));
         if (op.Wait(300_000) is not OrigamiOperationState.Succeeded) throw new InvalidOperationException("create failed: " + op.State());
-        return op.ResultMachine() ?? "";
+        var made = op.ResultMachine() ?? "";
+        ReadCore(true);
+        return made;
     }
 #endif
 
@@ -96,12 +143,14 @@ public sealed class UniffiCoreClient : ICoreClient
                 case OrigamiOperationState.Failed f: throw new InvalidOperationException(f.Message);
                 case OrigamiOperationState.Cancelled: throw new OperationCanceledException();
             }
-            return op.ResultMachine() ?? throw new InvalidOperationException("the core created the machine but gave no key");
+            var made = op.ResultMachine() ?? throw new InvalidOperationException("the core created the machine but gave no key");
+            ReadCore(true); // show it at once
+            return made;
         }
         finally { reg.Dispose(); }
     }, ct);
 
-    public string Heads(string key) => string.Join("; ", M(key).View().Heads.Select(h => $"#{h.Index} {h.Width}x{h.Height} active={h.Active} seq={h.Seq}"));
+    public string Heads(string key) => string.Join("; ", (TryView(key)?.Heads ?? Array.Empty<OrigamiHeadView>()).Select(h => $"#{h.Index} {h.Width}x{h.Height} active={h.Active} seq={h.Seq}"));
 
     public void Screendump(string key, int head, string path) => M(key).Screendump((uint)head, path);
 
@@ -134,16 +183,26 @@ public sealed class UniffiCoreClient : ICoreClient
             return Map(s);
         }
         bool forced; lock (_forced) forced = _forced.Contains(key);
-        return forced || M(key).View().ExitCode == 0 ? MachineState.Stopped : MachineState.Exited;
+        return forced || TryView(key)?.ExitCode == 0 ? MachineState.Stopped : MachineState.Exited;
     }
 
-    public IReadOnlyList<MachineSummary> Machines() =>
-        _core.ListMachines().Select(m => new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes,
-            (int)m.MemoryPerNodeMib, Settle(m.Key, m.State), m.Problem)).ToList();
+    public IReadOnlyList<MachineSummary> Machines()
+    {
+        var snap = _snap;
+        return snap.List.Select(m =>
+        {
+            var state = snap.Views.TryGetValue(m.Key, out var v) ? v.State : m.State;
+            return new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes, (int)m.MemoryPerNodeMib, Settle(m.Key, state), m.Problem);
+        }).ToList();
+    }
 
     public MachineStatus Status(string key)
     {
-        var v = M(key).View();
+        if (TryView(key) is not { } v)
+        {
+            var listed = _snap.List.FirstOrDefault(m => m.Key == key);
+            return new MachineStatus(listed is null ? MachineState.Stopped : Settle(key, listed.State), "No information about this machine yet.", null);
+        }
         return new MachineStatus(Settle(key, v.State), v.Reason, v.LastError);
     }
 
@@ -203,7 +262,7 @@ public sealed class UniffiCoreClient : ICoreClient
 
     public DisplayInfo Display(string key, int head)
     {
-        var h = M(key).View().Heads.FirstOrDefault(x => x.Index == head);
+        var h = TryView(key)?.Heads.FirstOrDefault(x => x.Index == head);
         return h is null ? new DisplayInfo(false, 0, 0, 0) : new DisplayInfo(h.Active, (int)h.Width, (int)h.Height, h.Seq);
     }
 
@@ -262,6 +321,7 @@ public sealed class UniffiCoreClient : ICoreClient
 
     public void Dispose()
     {
+        _stop.Cancel();
         _core.Shutdown();
     }
 }
