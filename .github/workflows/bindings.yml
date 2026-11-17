@@ -58,6 +58,8 @@ jobs:
         run: |
           crates/origami-ffi/bindings/gen-header.sh
           git diff --exit-code -- crates/origami-ffi/include
+      - name: Check the generated UI tokens are up to date
+        run: cargo xtask tokens --check
       - name: Compile and run the C program
         run: crates/origami-ffi/bindings/c/run.sh
       - name: Generate the Swift bindings

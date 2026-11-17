@@ -5,6 +5,7 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
+                <ResourceDictionary Source="Generated/Tokens.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <!-- Indigo accent from the UX design, light and dark. Chrome stays native. -->
             <Color x:Key="SystemAccentColor">#4A52C4</Color>

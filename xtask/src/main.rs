@@ -7,12 +7,14 @@
 //! cargo xtask dist    [--qemu-archive FILE] [--out DIR]
 //! cargo xtask dist --app [--prebuild DIR | --prebuilt DIR] [--target TRIPLE]
 //! cargo xtask bump    qemu|instigator TAG
+//! cargo xtask tokens [--check]
 //! ```
 
 mod app;
 mod archive;
 mod lock;
 mod notices;
+mod tokens;
 
 use archive::Result;
 use lock::{Asset, Lock, Pin, PLATFORMS};
@@ -475,9 +477,17 @@ fn main() {
     let result = (|| -> Result<()> {
         let Some((command, rest)) = args.split_first() else {
             return Err(
-                "usage: cargo xtask runtime | test | dist | bump qemu|instigator TAG".into(),
+                "usage: cargo xtask runtime | test | dist | bump qemu|instigator TAG | tokens [--check]".into(),
             );
         };
+        if command == "tokens" {
+            let check = match rest {
+                [] => false,
+                [flag] if flag == "--check" => true,
+                _ => return Err("usage: cargo xtask tokens [--check]".into()),
+            };
+            return tokens::run(&root(), check);
+        }
         let options = parse(rest)?;
         match command.as_str() {
             "runtime" => {

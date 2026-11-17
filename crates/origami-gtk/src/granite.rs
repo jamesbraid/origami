@@ -7,6 +7,8 @@ use gtk::{gdk, glib, graphene, gsk};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
+use origami_core::tokens::colour::GRANITE_NEUTRAL;
+
 const TILE: &[u8] = include_bytes!("../../../resources/identity/granite-tile.png");
 /// The tile is 256 pixels square and is drawn 256 points square.
 const SIZE: f32 = 256.0;
@@ -19,7 +21,7 @@ pub fn tone(hex: u32) -> [f32; 3] {
 
 /// Neutral dark: the guest screen's letterbox.
 pub fn neutral() -> Tones {
-    [tone(0x282a30), tone(0x1f2126)]
+    GRANITE_NEUTRAL.map(tone)
 }
 
 /// The chassis hue at low chroma over neutral grey: the start screen.

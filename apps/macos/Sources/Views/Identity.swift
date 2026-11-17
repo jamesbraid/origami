@@ -68,8 +68,8 @@ struct ChassisGlyph: View {
 /// pixel-doubled for a Retina display, never smoothed.
 enum Granite {
     /// Tones as 0xRRGGBB. Neutral dark behind the screen, light for About's light band.
-    static let neutral: (UInt32, UInt32) = (0x282a30, 0x1f2126)
-    static let light: (UInt32, UInt32) = (0xe2e4e8, 0xd6d8dd)
+    static let neutral = (Tokens.Colour.graniteNeutral[0], Tokens.Colour.graniteNeutral[1])
+    static let light = (Tokens.Colour.graniteLight[0], Tokens.Colour.graniteLight[1])
 
     /// The tile's pixels: true where it is the lighter of its two colours.
     private static let mask: (side: Int, bits: [Bool])? = {

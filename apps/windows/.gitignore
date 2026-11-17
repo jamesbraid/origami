@@ -3,4 +3,5 @@ obj/
 native/target/
 Origami.App/native-out/
 selftest-out/
-Origami.App/Generated/
+Origami.App/Generated/*
+!Origami.App/Generated/Tokens.xaml

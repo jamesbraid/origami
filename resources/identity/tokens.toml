@@ -1,0 +1,30 @@
+# Agreed UI numbers in layout units; edit here, then run `cargo xtask tokens`.
+# Keys marked "not yet used" are decided and adopted as each app's PR lands.
+version = 1
+
+[size]
+# Not yet used by any app: every size below.
+tab_bar_height = 34
+tab_height = 26
+art_tab = 20
+art_sidebar = 34
+art_summary = 72
+card = { w = 140, h = 104 }
+art_gallery = { w = 120, h = 90 }
+art_hero = { w = 240, h = 180 }
+
+[colour]
+# Used now: macOS granite_neutral and granite_light, GTK granite_neutral.
+granite_neutral = ["#282a30", "#1f2126"]
+granite_light = ["#e2e4e8", "#d6d8dd"]
+
+# Alpha applied to the machine's measured colour. Not yet used.
+[chassis]
+tab_selected_fill = 0.22
+tab_selected_stroke = 0.5
+
+# Summary pane: top-to-bottom fade from the chassis colour to the window background. Not yet used.
+[pane]
+tint_top_alpha = 0.35
+tint_bottom_alpha = 0.0
+product_line_alpha = 0.70
