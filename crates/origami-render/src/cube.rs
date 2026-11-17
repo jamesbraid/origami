@@ -229,6 +229,8 @@ struct Uniforms {
     mode: [f32; 4],
     dark: [f32; 4],
     light: [f32; 4],
+    /// The photograph's mean colour, for the fill.
+    fill: [f32; 4],
 }
 
 struct Targets {
@@ -251,7 +253,8 @@ pub struct CubeRenderer {
     uniforms: wgpu::Buffer,
     tile: wgpu::TextureView,
     blank: wgpu::TextureView,
-    photos: Vec<Option<wgpu::TextureView>>,
+    /// Each loaded photograph and its average colour.
+    photos: Vec<Option<(wgpu::TextureView, [f32; 3])>>,
     /// The photo the bind group shows.
     scene: Option<usize>,
     reflection: Option<Arc<Reflection>>,
@@ -360,7 +363,7 @@ fn mip_chain(rgba: Vec<u8>, w: u32, h: u32) -> Vec<((u32, u32), Vec<u8>)> {
     out
 }
 
-fn photo_view(gpu: &Gpu, scene: usize) -> Result<wgpu::TextureView, String> {
+fn photo_view(gpu: &Gpu, scene: usize) -> Result<(wgpu::TextureView, [f32; 3]), String> {
     let mut decoder =
         image_webp::WebPDecoder::new(std::io::Cursor::new(scenes::SCENES[scene].image))
             .map_err(|e| e.to_string())?;
@@ -379,8 +382,10 @@ fn photo_view(gpu: &Gpu, scene: usize) -> Result<wgpu::TextureView, String> {
     Ok(photo_from_rgba(gpu, rgba, w, h))
 }
 
-fn photo_from_rgba(gpu: &Gpu, rgba: Vec<u8>, w: u32, h: u32) -> wgpu::TextureView {
+fn photo_from_rgba(gpu: &Gpu, rgba: Vec<u8>, w: u32, h: u32) -> (wgpu::TextureView, [f32; 3]) {
     let chain = mip_chain(rgba, w, h);
+    // The last level is one texel: the picture's mean.
+    let mean = std::array::from_fn(|k| f32::from(chain.last().unwrap().1[k]) / 255.0);
     let t = texture_2d(
         gpu,
         "scene",
@@ -391,7 +396,7 @@ fn photo_from_rgba(gpu: &Gpu, rgba: Vec<u8>, w: u32, h: u32) -> wgpu::TextureVie
     for (level, (size, data)) in chain.iter().enumerate() {
         upload(gpu, &t, level as u32, *size, 4, data);
     }
-    t.create_view(&Default::default())
+    (t.create_view(&Default::default()), mean)
 }
 
 impl CubeRenderer {
@@ -435,6 +440,7 @@ impl CubeRenderer {
                 },
                 tex_entry(3),
                 tex_entry(4),
+                tex_entry(5),
             ],
         });
         let pl = d.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -580,6 +586,10 @@ impl CubeRenderer {
                 .reflection
                 .as_ref()
                 .map(|r| r.texture().create_view(&Default::default()));
+            let mean = self
+                .reflection
+                .as_ref()
+                .map(|r| r.mean().create_view(&Default::default()));
             self.bind = Some(
                 gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("cube"),
@@ -593,7 +603,7 @@ impl CubeRenderer {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(
                                 self.scene
-                                    .and_then(|s| self.photos[s].as_ref())
+                                    .and_then(|s| self.photos[s].as_ref().map(|p| &p.0))
                                     .unwrap_or(&self.blank),
                             ),
                         },
@@ -610,6 +620,12 @@ impl CubeRenderer {
                         wgpu::BindGroupEntry {
                             binding: 4,
                             resource: wgpu::BindingResource::TextureView(&self.tile),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(
+                                mean.as_ref().unwrap_or(&self.blank),
+                            ),
                         },
                     ],
                 }),
@@ -684,6 +700,12 @@ impl CubeRenderer {
             tint: style.horizon.map_or([0.0; 4], |c| rgba(c, 1.0)),
             mode: [mode, 1.0, (2.0 * scale).round().max(1.0) as f32, 0.0],
             light: rgba(style.granite[0], 1.0),
+            fill: rgba(
+                self.scene
+                    .and_then(|s| self.photos[s].as_ref())
+                    .map_or([0.0; 3], |p| p.1),
+                1.0,
+            ),
             dark: rgba(style.granite[1], 1.0),
         }
     }

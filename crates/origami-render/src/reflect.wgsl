@@ -9,6 +9,19 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
 }
 
+// The mean of the whole picture, for a 1 by 1 target: 16 by 16 taps of the
+// reflection texture.
+@fragment
+fn fs_mean(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    var sum = vec3<f32>(0.0);
+    for (var j = 0; j < 16; j++) {
+        for (var i = 0; i < 16; i++) {
+            sum += textureLoad(src, vec2<i32>(i * 16 + 8, j * 16 + 8), 0).rgb;
+        }
+    }
+    return vec4<f32>(sum / 256.0, 1.0);
+}
+
 // 4 by 4 taps of the bilinear filter per output pixel: a box average of the
 // source pixels it covers, which a single tap would alias.
 @fragment

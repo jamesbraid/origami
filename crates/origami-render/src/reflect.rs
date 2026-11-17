@@ -14,7 +14,10 @@ const EVERY: Duration = Duration::from_millis(100);
 
 pub struct Reflection {
     texture: wgpu::Texture,
+    /// One texel: the picture's mean colour.
+    mean: wgpu::Texture,
     pipeline: wgpu::RenderPipeline,
+    mean_pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     last: Mutex<Option<Instant>>,
@@ -56,45 +59,52 @@ impl Reflection {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("reflect"),
-            layout: Some(&pl),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        let texture = d.create_texture(&wgpu::TextureDescriptor {
-            label: Some("reflection"),
-            size: wgpu::Extent3d {
-                width: SIZE,
-                height: SIZE,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        let pipeline = |entry: &str| {
+            d.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("reflect"),
+                layout: Some(&pl),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let (pipeline, mean_pipeline) = (pipeline("fs"), pipeline("fs_mean"));
+        let target = |label, size| {
+            d.create_texture(&wgpu::TextureDescriptor {
+                label: Some(label),
+                size: wgpu::Extent3d {
+                    width: size,
+                    height: size,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+        };
+        let (texture, mean) = (target("reflection", SIZE), target("reflection mean", 1));
         let sampler = d.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -102,7 +112,9 @@ impl Reflection {
         });
         Arc::new(Reflection {
             texture,
+            mean,
             pipeline,
+            mean_pipeline,
             layout,
             sampler,
             last: Mutex::new(None),
@@ -185,6 +197,43 @@ impl Reflection {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &group, &[]);
         pass.draw(0..3, 0..1);
+        drop(pass);
+        let again = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("reflect mean"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.texture.create_view(&Default::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
+        });
+        let mean = self.mean.create_view(&Default::default());
+        let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("reflect mean"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &mean,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&self.mean_pipeline);
+        pass.set_bind_group(0, &again, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     /// The encoder that held [`Reflection::encode`] was submitted, so the
@@ -196,6 +245,11 @@ impl Reflection {
     /// The texture has held a picture at least once.
     pub fn ready(&self) -> bool {
         self.ready.load(Ordering::Acquire)
+    }
+
+    /// The 1 by 1 texture holding the picture's mean colour.
+    pub fn mean(&self) -> &wgpu::Texture {
+        &self.mean
     }
 
     pub fn texture(&self) -> &wgpu::Texture {

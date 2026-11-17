@@ -12,6 +12,7 @@ struct U {
     mode: vec4<f32>,
     dark: vec4<f32>,
     light: vec4<f32>,
+    fill: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: U;
@@ -19,9 +20,13 @@ struct U {
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var screen: texture_2d<f32>;
 @group(0) @binding(4) var tile: texture_2d<f32>;
+@group(0) @binding(5) var mean: texture_2d<f32>;
 
 const PI: f32 = 3.14159265;
 const EDGE: f32 = 0.22;
+const EDGE_SCENE: f32 = 0.5;
+// How much of the scene's average colour fills dark reflections.
+const FILL: f32 = 0.25;
 // The photo band's half height as a latitude, as the equirect assets are made.
 const BAND: f32 = 0.6109;
 
@@ -97,6 +102,15 @@ fn on_screen(r: vec3<f32>) -> vec3<f32> {
     return bot * (1.0 - 0.6 * t);
 }
 
+// The scene's mean colour: the photograph's, set when it was loaded, or the
+// screen's, from the 1 by 1 texture the downsample pass writes.
+fn scene_average() -> vec3<f32> {
+    if (u.mode.x == 1.0) {
+        return u.fill.rgb;
+    }
+    return textureLoad(mean, vec2<i32>(0, 0), 0).rgb;
+}
+
 struct V {
     @builtin(position) pos: vec4<f32>,
     @location(0) n: vec3<f32>,
@@ -125,6 +139,15 @@ fn fs(v: V) -> @location(0) vec4<f32> {
         c = studio(r);
     }
     c *= mix(0.86, 1.0, pow(saturate(1.0 - nv), 5.0));
-    c *= mix(EDGE, 1.0, smoothstep(0.03, 0.17, nv));
+    if (u.mode.x != 0.0) {
+        // No tube reflects another here, which a ray tracer's would: lift dark
+        // insides with the scene's mean, half desaturated against a violet cast.
+        let avg = scene_average();
+        let grey = vec3<f32>(dot(avg, vec3<f32>(0.3, 0.55, 0.15)));
+        c += mix(avg, grey, 0.5) * FILL * (1.0 - min(1.0, dot(c, vec3<f32>(0.3, 0.55, 0.15))));
+        c *= mix(EDGE_SCENE, 1.0, smoothstep(0.03, 0.17, nv));
+    } else {
+        c *= mix(EDGE, 1.0, smoothstep(0.03, 0.17, nv));
+    }
     return vec4<f32>(min(c, vec3<f32>(1.0)), 1.0);
 }
