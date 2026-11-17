@@ -163,6 +163,22 @@ final class MachineModel: ObservableObject, Identifiable {
     var canStop: Bool { [.starting, .running, .noPicture, .leftRunning].contains(state) && busy == nil }
     var isRunning: Bool { [.starting, .running, .noPicture, .stopping, .leftRunning].contains(state) }
 
+    /// Whether the machine is up right now, from the core (an opened machine's live state, or
+    /// the library listing for one this app has not opened), not from what the UI last showed.
+    var isLive: Bool {
+        if let s = session { return [.starting, .running, .paused, .stopping].contains(s.machine.view().state) }
+        return state == .leftRunning
+    }
+
+    /// For tests: a start that failed with `message`.
+    func failStartForTest(_ message: String) {
+        busy = "Starting…"; set(.starting)
+        finished(NSError(domain: "origami", code: 1, userInfo: [NSLocalizedDescriptionKey: message]), failureState: .stoppedUnexpectedly, done: nil)
+    }
+
+    /// For tests: pretend the UI is stale.
+    func injectStaleState(_ s: MachineState) { set(s) }
+
     /// Open the machine with the core and wire its frame plane.
     private func open() throws -> MachineSession {
         if let session { return session }
@@ -214,12 +230,6 @@ final class MachineModel: ObservableObject, Identifiable {
         if case .failed(_, let message) = op.wait(timeoutMs: nil) {
             throw NSError(domain: "origami", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
         }
-    }
-
-    /// For tests: a start that failed with `message`.
-    func failStartForTest(_ message: String) {
-        busy = "Starting…"; set(.starting)
-        finished(NSError(domain: "origami", code: 1, userInfo: [NSLocalizedDescriptionKey: message]), failureState: .stoppedUnexpectedly, done: nil)
     }
 
     func start(done: (@MainActor (Error?) -> Void)? = nil) {
@@ -512,15 +522,27 @@ final class AppModel: ObservableObject {
 
     // MARK: quit
 
-    /// Machines still running when the app quits.
-    var running: [MachineModel] { models.filter { $0.isRunning } }
+    /// The machines running now, from the live core: the library is re-read and every opened
+    /// machine re-checked first, so a stale entry for a stopped machine is not counted.
+    func liveRunning() -> [MachineModel] {
+        rescanNow()
+        models.forEach { $0.refresh() }
+        return models.filter { $0.isLive }
+    }
+
+    /// What quitting does: nothing to ask when none runs; otherwise one prompt naming them.
+    enum QuitPlan: Equatable { case quitNow, ask([String]) }
+    func quitPlan() -> QuitPlan {
+        let up = liveRunning()
+        return up.isEmpty ? .quitNow : .ask(up.map(\.name))
+    }
 
     /// Stop every running machine in turn. A machine that errors or takes longer
     /// than `bound` seconds is reported in `done` as failed, and the next one goes on.
     func stopAll(force: Bool = false, bound: TimeInterval = 60,
                  progress: ((String) -> Void)? = nil,
                  done: @escaping @MainActor (_ failed: [MachineModel]) -> Void) {
-        let list = running
+        let list = liveRunning()
         var failed: [MachineModel] = []
         func next(_ i: Int) {
             guard i < list.count else { done(failed); return }

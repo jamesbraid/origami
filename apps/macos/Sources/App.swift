@@ -61,9 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let app = Shared.model!
-        let running = app.running
-        if running.isEmpty { return .terminateNow }
-        let names = running.map(\.name).joined(separator: ", ")
+        // One prompt at most, naming only machines that are up now; none up quits silently.
+        guard case .ask(let running) = app.quitPlan() else { return .terminateNow }
+        let names = running.joined(separator: ", ")
         let alert = NSAlert()
         alert.messageText = running.count == 1 ? "\(names) is still running" : "\(running.count) machines are still running"
         alert.informativeText = running.count == 1

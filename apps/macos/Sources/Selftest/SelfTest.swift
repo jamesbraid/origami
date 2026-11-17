@@ -640,11 +640,33 @@ func runSelfTest(library: String, out: String) {
     check("start-again", waitFor(60) { model.state == .running || model.state == .starting }, ["state": model.state.pill])
     _ = waitFor(30) { model.emulatorUp }
 
+    // Quit: no prompt when none runs, one naming the live ones otherwise; a stale entry for a
+    // stopped machine is not counted.
+    do {
+        let others = app.models.filter { $0.id != model.id }
+        let beta = others.first
+        let plans: [AppModel.QuitPlan] = {
+            var out: [AppModel.QuitPlan] = []
+            beta?.injectStaleState(.running)            // stale: the core says it is stopped
+            out.append(app.quitPlan())                  // one running (alpha) plus a stale beta
+            return out
+        }()
+        check("quit-one-running-ignores-a-stale-entry", plans == [.ask([model.name])] && beta?.state == .stopped,
+              ["plan": "\(plans)", "stale_state_after": beta?.state.pill ?? "none"])
+        if let beta {
+            beta.start()
+            _ = waitFor(60) { beta.isLive }
+            check("quit-two-running-one-prompt", app.quitPlan() == .ask([model.name, beta.name].sorted { $0 < $1 }) || app.quitPlan() == .ask([model.name, beta.name]),
+                  ["plan": "\(app.quitPlan())"])
+        }
+    }
+
     var stopped = false
     var failedNames: [String] = []
     app.stopAll { failed in failedNames = failed.map(\.name); stopped = true }
     check("stop-all", waitFor(120) { stopped } && failedNames.isEmpty && model.state == .stopped,
           ["state": model.state.pill, "failed": failedNames])
+    check("quit-none-running-quits-silently", app.quitPlan() == .quitNow, ["plan": "\(app.quitPlan())"])
     #else
     check("fake-build", false, ["error": "the core reports the fake engine but this app was built without -D FAKE"])
     #endif
