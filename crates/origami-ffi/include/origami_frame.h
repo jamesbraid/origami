@@ -115,6 +115,13 @@
 // The window is not on screen: the head was drawn offscreen, not presented.
 #define ORIGAMI_DRAWN_OCCLUDED 3
 
+// Whole-number scales only, nearest filtering; a window too small for 1x fits.
+#define ORIGAMI_SCALE_INTEGER 0
+
+// Biggest picture that fits: whole device pixels, nearest, while that is at
+// least one logical pixel per guest pixel; below that a smooth fractional fill.
+#define ORIGAMI_SCALE_FIT 1
+
 // A key position on a US keyboard, numbered from 0 in this order.
 enum origami_key
 #if defined(__cplusplus) || __STDC_VERSION__ >= 202311L
@@ -402,6 +409,19 @@ typedef struct origami_input_event {
   int32_t x;
   int32_t y;
 } origami_input_event;
+
+// Where the picture is drawn, in window physical pixels; guest x is
+// `(window x - x) / scale`.
+typedef struct origami_view_layout {
+  uint32_t size;
+  uint32_t reserved;
+  double x;
+  double y;
+  double width;
+  double height;
+  // Physical pixels per guest pixel.
+  double scale;
+} origami_view_layout;
 
 #define ORIGAMI_OK 0
 
@@ -695,6 +715,14 @@ origami_status origami_view_resize(struct origami_view *view, uint32_t width, ui
 
 // The window moved to a display of another scale.
 origami_status origami_view_set_scale(struct origami_view *view, double scale);
+
+// How the picture is scaled into the window. The default is
+// `ORIGAMI_SCALE_INTEGER`. Present again after changing it.
+origami_status origami_view_set_scale_mode(struct origami_view *view, uint32_t mode);
+
+// Read where the picture is drawn under the current scale mode. Set `size` to
+// `sizeof`. `NotFound` before the first picture.
+origami_status origami_view_get_layout(struct origami_view *view, struct origami_view_layout *out);
 
 // A hidden view draws nothing and takes nothing from the swapchain.
 origami_status origami_view_set_visible(struct origami_view *view, uint32_t visible);

@@ -1061,6 +1061,56 @@ pub unsafe extern "C" fn origami_view_set_scale(
     guard(|| present::with(view, |v| v.resize(None, Some(scale))))
 }
 
+/// Whole-number scales only, nearest filtering; a window too small for 1x fits.
+pub const ORIGAMI_SCALE_INTEGER: u32 = 0;
+/// Biggest picture that fits: whole device pixels, nearest, while that is at
+/// least one logical pixel per guest pixel; below that a smooth fractional fill.
+pub const ORIGAMI_SCALE_FIT: u32 = 1;
+
+/// How the picture is scaled into the window. The default is
+/// `ORIGAMI_SCALE_INTEGER`. Present again after changing it.
+#[no_mangle]
+pub unsafe extern "C" fn origami_view_set_scale_mode(
+    view: *mut origami_view,
+    mode: u32,
+) -> origami_status {
+    guard(|| present::with(view, |v| v.set_scale_mode(mode)))
+}
+
+/// Where the picture is drawn, in window physical pixels; guest x is
+/// `(window x - x) / scale`.
+#[repr(C)]
+pub struct origami_view_layout {
+    pub size: u32,
+    pub reserved: u32,
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    /// Physical pixels per guest pixel.
+    pub scale: f64,
+}
+
+/// Read where the picture is drawn under the current scale mode. Set `size` to
+/// `sizeof`. `NotFound` before the first picture.
+#[no_mangle]
+pub unsafe extern "C" fn origami_view_get_layout(
+    view: *mut origami_view,
+    out: *mut origami_view_layout,
+) -> origami_status {
+    guard(|| {
+        // SAFETY: `out` is writable when non-null.
+        let out = unsafe { out.as_mut() }
+            .ok_or_else(|| Fail(Status::NullArgument, "out is null".into()))?;
+        if (out.size as usize) < std::mem::size_of::<origami_view_layout>() {
+            return fail(Status::InvalidArgument, "out->size is too small");
+        }
+        let size = out.size;
+        *out = present::with(view, |v| v.layout(size))?;
+        Ok(())
+    })
+}
+
 /// A hidden view draws nothing and takes nothing from the swapchain.
 #[no_mangle]
 pub unsafe extern "C" fn origami_view_set_visible(
@@ -1197,6 +1247,7 @@ pub(crate) mod present {
         take_ns: u64,
         size: (u32, u32),
         scale: f64,
+        mode: ScaleMode,
     }
 
     pub(crate) fn gpu() -> Result<Gpu, Fail> {
@@ -1295,6 +1346,7 @@ pub(crate) mod present {
                 take_ns: 0,
                 size: (width, height),
                 scale,
+                mode: ScaleMode::Integer,
             }),
         })
     }
@@ -1338,6 +1390,31 @@ pub(crate) mod present {
             self.view
                 .resize(&self.gpu, self.size.0, self.size.1, self.scale);
             Ok(())
+        }
+
+        pub(super) fn set_scale_mode(&mut self, mode: u32) -> Result<(), Fail> {
+            self.mode = match mode {
+                ORIGAMI_SCALE_INTEGER => ScaleMode::Integer,
+                ORIGAMI_SCALE_FIT => ScaleMode::FitDevice,
+                _ => return fail(Status::InvalidArgument, "unknown scale mode"),
+            };
+            Ok(())
+        }
+
+        pub(super) fn layout(&self, size: u32) -> Result<origami_view_layout, Fail> {
+            let Some(texture) = &self.texture else {
+                return fail(Status::NotFound, "no picture has been drawn yet");
+            };
+            let l = self.view.layout((texture.width, texture.height), self.mode);
+            Ok(origami_view_layout {
+                size,
+                reserved: 0,
+                x: f64::from(l.x),
+                y: f64::from(l.y),
+                width: f64::from(l.width),
+                height: f64::from(l.height),
+                scale: f64::from(l.scale),
+            })
         }
 
         pub(super) fn set_visible(&mut self, visible: bool) -> Result<(), Fail> {
@@ -1404,7 +1481,7 @@ pub(crate) mod present {
             let (w, h) = self.view.size();
             let pixels = self
                 .view
-                .readback(&self.gpu, texture, ScaleMode::Integer, draw.as_ref())
+                .readback(&self.gpu, texture, self.mode, draw.as_ref())
                 .map_err(|e| Fail(Status::Internal, e))?;
             Ok((w, h, pixels))
         }
@@ -1461,7 +1538,7 @@ pub(crate) mod present {
             let mut rows = None;
             let drawn = self
                 .view
-                .draw_with(gpu, texture, ScaleMode::Integer, draw.as_ref(), |enc| {
+                .draw_with(gpu, texture, self.mode, draw.as_ref(), |enc| {
                     if let Some(frame) = &pending {
                         rows = Some(texture.encode_imported(gpu, compose, enc, frame));
                     }
@@ -1527,6 +1604,12 @@ mod present {
             unreachable!()
         }
         pub(super) fn set_visible(&mut self, _: bool) -> Result<(), Fail> {
+            unreachable!()
+        }
+        pub(super) fn set_scale_mode(&mut self, _: u32) -> Result<(), Fail> {
+            unreachable!()
+        }
+        pub(super) fn layout(&self, _: u32) -> Result<origami_view_layout, Fail> {
             unreachable!()
         }
         pub(super) fn present(&mut self) -> Result<u32, Fail> {

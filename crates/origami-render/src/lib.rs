@@ -19,7 +19,7 @@ mod view;
 #[cfg(any(target_os = "linux", windows))]
 mod vulkan;
 
-pub use blit::{cursor_texture, Blit, CursorDraw, Presenter, ScaleMode};
+pub use blit::{cursor_texture, layout, Blit, CursorDraw, Layout, Presenter, ScaleMode};
 pub use compose::Compose;
 pub use cube::{
     render_image as render_cube, scenes, Backdrop, CubeRenderer, CubeView, Env, Pointer, Style,

@@ -173,6 +173,7 @@ impl View {
     /// real one arrives.
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32, scale: f64) {
         self.scale = scale;
+        self.blit.set_device_scale(scale as f32);
         if width == 0 || height == 0 {
             self.config.width = 0;
             self.config.height = 0;
@@ -205,6 +206,11 @@ impl View {
     /// The surface size in physical pixels.
     pub fn size(&self) -> (u32, u32) {
         (self.config.width, self.config.height)
+    }
+
+    /// Where a picture of `head` pixels is drawn in this view under `mode`.
+    pub fn layout(&self, head: (u32, u32), mode: ScaleMode) -> crate::Layout {
+        crate::layout(self.size(), head, mode, self.scale as f32)
     }
 
     /// [`render_image`] at the view's size. Waits for the GPU: for self-tests,
@@ -561,6 +567,64 @@ mod tests {
         let out = read_back(&gpu, &target);
         assert_eq!(&out[..4], &pixel);
         assert_eq!(&out[out.len() - 4..], &pixel);
+        gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
+        assert_eq!(gpu.errors.count(), 0);
+    }
+
+    /// The shader must put the picture where `layout` says: whole device
+    /// pixels at 2x when they give one logical pixel per guest pixel.
+    #[test]
+    fn fit_device_draws_where_the_layout_says() {
+        let Some(gpu) = gpu() else { return };
+        use wgpu::TextureFormat as F;
+        let (w, h) = (5, 2);
+        let update = FrameUpdate {
+            seq: 1,
+            width: w,
+            height: h,
+            runs: vec![(0, h)],
+            resized: false,
+        };
+        let (left, right) = ([0x10u8, 0x20, 0x30, 0xff], [0x90u8, 0x80, 0x70, 0xff]);
+        let pixels: Vec<u8> = (0..w * h)
+            .flat_map(|i| if i % w < 2 { left } else { right })
+            .collect();
+        let head = HeadTexture::apply(&gpu, None, &update, &pixels);
+        let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("swapchain stand-in"),
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: F::Bgra8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let blit = Blit::with_format(&gpu, F::Bgra8Unorm);
+        blit.set_device_scale(2.0);
+        blit.draw(
+            &gpu,
+            &target.create_view(&Default::default()),
+            (64, 32),
+            &head,
+            ScaleMode::FitDevice,
+            None,
+        );
+        let out = read_back(&gpu, &target);
+        let at = |x: usize, y: usize| out[(y * 64 + x) * 4..][..4].to_vec();
+        let l = crate::layout((64, 32), (w, h), ScaleMode::FitDevice, 2.0);
+        assert_eq!((l.x, l.y, l.width, l.height), (2.0, 4.0, 60.0, 24.0));
+        let bg = vec![16, 16, 16, 255];
+        assert_eq!(
+            (at(1, 10), at(62, 10), at(10, 3), at(10, 28)),
+            (bg.clone(), bg.clone(), bg.clone(), bg)
+        );
+        assert_eq!((at(2, 4), at(25, 27)), (left.to_vec(), left.to_vec()));
+        assert_eq!((at(26, 4), at(61, 27)), (right.to_vec(), right.to_vec()));
         gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
         assert_eq!(gpu.errors.count(), 0);
     }

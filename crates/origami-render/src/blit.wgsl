@@ -4,12 +4,13 @@
 struct P {
     out_size: vec2<f32>,
     src_size: vec2<f32>,
-    // 0: fit the view with linear filtering; 1: a whole-number scale with
-    // nearest filtering (a scale below 1 falls back to fit).
+    // 0: fit, linear; 1: whole-number scale, nearest (fit below 1x); 2: whole
+    // device pixels while at least 1 logical pixel per guest pixel, else fit.
     mode: u32,
     // 1 when the guest's cursor is drawn.
     cursor_on: u32,
-    pad1: u32,
+    // Physical pixels per logical pixel, for mode 2.
+    device_scale: f32,
     pad2: u32,
     // The cursor image's top left in head pixels, and its size.
     cursor: vec4<f32>,
@@ -34,6 +35,10 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     var s = fit;
     var whole = false;
     if (p.mode == 1u && fit >= 1.0) {
+        s = floor(fit);
+        whole = true;
+    }
+    if (p.mode == 2u && floor(fit) >= max(p.device_scale, 1.0)) {
         s = floor(fit);
         whole = true;
     }
