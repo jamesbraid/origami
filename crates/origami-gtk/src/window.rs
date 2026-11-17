@@ -731,6 +731,11 @@ pub fn enabled(app: &App, w: &Win, id: &str) -> bool {
     let up = st.is_some_and(State::is_up);
     let running = matches!(st, Some(State::Running | State::NoPicture));
     let selected = m.is_some() || w.list.selected_row().is_some();
+    if m.as_ref().is_some_and(|m| m.busy.get())
+        && matches!(id, "machine.pause" | "machine.resume" | "machine.reset")
+    {
+        return false;
+    }
     // Not built yet: the Diagnostics window, CD changes and the shortcuts sheet.
     if matches!(
         id,

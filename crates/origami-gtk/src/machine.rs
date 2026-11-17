@@ -141,6 +141,8 @@ pub struct MachineUi {
     pub ctrl_alt: Cell<(bool, bool)>,
     pub inputs: Cell<u64>,
     pub hud_timer: RefCell<Option<glib::SourceId>>,
+    /// A control call is in flight on a worker; no second one starts until it ends.
+    pub busy: Cell<bool>,
     pub console: RefCell<Option<adw::Window>>,
 }
 
@@ -285,6 +287,7 @@ impl MachineUi {
             ctrl_alt: Cell::new((false, false)),
             inputs: Cell::new(0),
             hud_timer: RefCell::new(None),
+            busy: Cell::new(false),
             console: RefCell::new(None),
         });
         m.place_picture();

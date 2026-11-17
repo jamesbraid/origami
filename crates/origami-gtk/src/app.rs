@@ -344,12 +344,25 @@ pub fn stop(app: &Rc<App>, m: &Rc<MachineUi>, how: StopKind) {
     window::refresh(app);
 }
 
+/// A control call (QMP) on a worker, so a slow guest cannot freeze the window.
+/// One at a time per machine: the commands are disabled while it runs.
 pub fn control(app: &Rc<App>, m: &Rc<MachineUi>, c: Control) {
-    if let Err(e) = m.machine.control(c) {
-        *m.error.borrow_mut() = Some(e.to_string());
+    if m.busy.replace(true) {
+        return;
     }
-    m.apply_state();
     window::refresh(app);
+    let (app, m) = (app.clone(), m.clone());
+    glib::spawn_future_local(async move {
+        let machine = m.machine.clone();
+        match gio::spawn_blocking(move || machine.control(c)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => *m.error.borrow_mut() = Some(e.to_string()),
+            Err(_) => *m.error.borrow_mut() = Some("the control call panicked".into()),
+        }
+        m.apply_state();
+        m.busy.set(false);
+        window::refresh(&app);
+    });
 }
 
 fn handle(app: &Rc<App>, msg: Msg) {
