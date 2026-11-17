@@ -104,7 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let names = failed.map(\.name).joined(separator: ", ")
             let alert = NSAlert()
             alert.messageText = force ? "\(names) would not stop" : "\(names) did not power off"
-            alert.informativeText = force ? "The emulator is still running."
+            let why = failed.compactMap(\.failure).first
+            alert.informativeText = force ? (why ?? "The emulator did not stop.")
                 : "Force Quit stops the emulator at once; changes the guest has not written to disk are lost."
             if !force { alert.addButton(withTitle: "Force Quit Instead") }
             alert.addButton(withTitle: "Quit and Leave Running")
