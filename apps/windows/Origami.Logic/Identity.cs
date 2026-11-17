@@ -39,4 +39,25 @@ public sealed class StillCatalog
 public static class Granite
 {
     public const uint DarkLight = 0x282A30, DarkDark = 0x1F2126, LightLight = 0xE2E4E8, LightDark = 0xD6D8DD;
+
+    /// <summary>Recolours a two-tone BGRA tile to <paramref name="hi"/> and <paramref name="lo"/> and repeats it over
+    /// <paramref name="w"/> by <paramref name="h"/> pixels, each tile pixel <paramref name="factor"/> wide, never smoothed.</summary>
+    public static byte[] Fill(byte[] tileBgra, int tw, int th, int w, int h, int factor, uint hi, uint lo)
+    {
+        var mid = 0;
+        for (int i = 0; i < tw * th; i++) mid += tileBgra[i * 4 + 1];
+        mid /= tw * th; // the mean separates the two tones
+        var outp = new byte[w * h * 4];
+        factor = Math.Max(1, factor);
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int tx = x / factor % tw, ty = y / factor % th;
+                var light = tileBgra[(ty * tw + tx) * 4 + 1] >= mid;
+                var c = light ? hi : lo;
+                int o = (y * w + x) * 4;
+                outp[o] = (byte)c; outp[o + 1] = (byte)(c >> 8); outp[o + 2] = (byte)(c >> 16); outp[o + 3] = 255;
+            }
+        return outp;
+    }
 }

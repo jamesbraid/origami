@@ -180,6 +180,7 @@ public static class Selftest
         var attached = await Until(() => disp.Attached, 8000);
         Check("display attached", attached, disp.LastError ?? "");
         if (!attached) return;
+        Check("granite: the surround is drawn at one device pixel per bitmap pixel", await Until(() => disp.GraniteIsDevicePixels, 5000));
         Note("renderer", $"{disp.Renderer} (core view status {disp.CoreViewStatus}; {disp.LastError})");
         if (App.ArgValue("--expect-renderer") is { } want)
             Check("renderer is the one this runner should use", disp.Renderer == want, $"got '{disp.Renderer}', want '{want}'");

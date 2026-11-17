@@ -276,5 +276,18 @@ Test("stills: topology first, product second, colour from the manifest", () =>
     Eq(true, c.Resolve("fake", null) is null, "no still for an unknown machine");
 });
 
+Test("granite: two tones, repeated, pixel-doubled", () =>
+{
+    // 2x2 tile: light on the diagonal.
+    var tile = new byte[16];
+    foreach (var i in new[] { 0, 3 }) { tile[i * 4] = tile[i * 4 + 1] = tile[i * 4 + 2] = 255; tile[i * 4 + 3] = 255; }
+    var o = Granite.Fill(tile, 2, 2, 8, 4, 2, 0xE2E4E8, 0xD6D8DD);
+    Eq(0xE8, (int)o[0], "pixel 0 is the light tone (blue byte)");
+    Eq(0xDD, (int)o[(0 * 8 + 2) * 4], "x=2 is the next tile pixel, dark");
+    Eq(0xE8, (int)o[(0 * 8 + 1) * 4], "doubled: x=1 repeats x=0");
+    Eq(0xE8, (int)o[(0 * 8 + 4) * 4], "the tile repeats after 2 px of 2 px: x=4 is light again");
+    Eq(0xDD, (int)o[(2 * 8 + 0) * 4], "y=2 starts the tile's second row, dark first");
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;

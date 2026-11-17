@@ -73,8 +73,35 @@ public sealed partial class DisplayView : UserControl
     {
         InitializeComponent();
         _ptr = new PointerController(_keys);
-        Surround.SizeChanged += (_, _) => Place();
+        Surround.SizeChanged += (_, _) => { Place(); _ = PaintGranite(); };
         LayoutUpdated += (_, _) => Place();
+        Loaded += (_, _) => { _root = XamlRoot; _root.Changed += OnRootChanged; _ = PaintGranite(); };
+        Unloaded += (_, _) => { if (_root != null) _root.Changed -= OnRootChanged; _root = null; };
+    }
+
+    XamlRoot? _root;
+    int _graniteW, _graniteH, _graniteGen;
+    double _graniteScale;
+
+    /// <summary>Self-test: the surround's granite is drawn one device pixel per bitmap pixel and covers the pane.</summary>
+    public bool GraniteIsDevicePixels =>
+        XamlRoot is { } r && Surround.Background is Microsoft.UI.Xaml.Media.ImageBrush
+        { Transform: Microsoft.UI.Xaml.Media.ScaleTransform t, ImageSource: Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap bmp }
+        && Math.Abs(t.ScaleX * r.RasterizationScale - 1) < 1e-9 && bmp.PixelWidth >= Math.Ceiling(Surround.ActualWidth * r.RasterizationScale);
+
+    void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs e) => _ = PaintGranite();
+
+    /// <summary>The surround is granite, neutral dark. The bitmap is device pixels: it grows with the pane and is redone when the display scale changes.</summary>
+    async Task PaintGranite()
+    {
+        if (XamlRoot is not { } root) return;
+        var s = root.RasterizationScale;
+        int w = (int)Math.Ceiling(Surround.ActualWidth * s), h = (int)Math.Ceiling(Surround.ActualHeight * s);
+        if (s != _graniteScale) { _graniteScale = s; _graniteW = _graniteH = 0; }
+        if (w <= _graniteW && h <= _graniteH) return;
+        _graniteW = Math.Max(w, _graniteW); _graniteH = Math.Max(h, _graniteH);
+        var gen = ++_graniteGen; // a newer, larger fill replaces one still being made
+        if (await GraniteBrush.Make(_graniteW, _graniteH, s, Granite.DarkLight, Granite.DarkDark) is { } b && gen == _graniteGen) Surround.Background = b;
     }
 
     // ---- attach / teardown -----------------------------------------------------------------

@@ -30,6 +30,10 @@
     <Content Include="../../../resources/identity/stills/**/34-*@2x.png;../../../resources/identity/stills/**/hero@2x.png"
              Link="identity/stills/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- The tile the screen's surround repeats. -->
+  <ItemGroup>
+    <Content Include="../../../resources/identity/granite-tile.png" Link="identity/granite-tile.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <!-- The licence About prints. -->
   <ItemGroup>
     <Content Include="../../../LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" />
