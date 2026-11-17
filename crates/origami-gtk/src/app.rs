@@ -287,12 +287,25 @@ pub fn open(app: &Rc<App>, entry: &Entry) -> Option<Rc<MachineUi>> {
     };
     m.hook.set(Some(hook));
     // A runner from an earlier session may still be up; Start attaches to it.
-    if origami_qemu::control::running(&dir)
-        .ok()
-        .flatten()
-        .is_some()
+    // The check talks QMP, so it runs off the UI thread: a hung QEMU must not freeze it.
     {
-        m.left_running.set(true);
+        let (app, m) = (app.clone(), m.clone());
+        glib::spawn_future_local(async move {
+            let up = gio::spawn_blocking(move || {
+                origami_qemu::control::running(&dir)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            })
+            .await
+            .unwrap_or(false);
+            let open = app.machines.borrow().iter().any(|x| Rc::ptr_eq(x, &m));
+            if up && open && !m.state.get().is_up() {
+                m.left_running.set(true);
+                m.apply_state();
+                window::refresh(&app);
+            }
+        });
     }
     app.machines.borrow_mut().push(m.clone());
     window::add_tab(app, &m);
