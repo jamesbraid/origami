@@ -720,6 +720,17 @@ func runSelfTest(library: String, out: String) {
     let running = snapshot(ScreenView(model: model).environmentObject(app), size: CGSize(width: 900, height: 700), to: "\(out)/ui-screen-view.png")
     check("ui-screen-view-renders", running.ok && running.colours > 5, ["distinct_colours_sampled": running.colours])
 
+    // 7b. Pause and Resume.
+    do {
+        var done: Error?? = .none
+        model.pause { e in done = .some(e) }
+        check("pause", waitFor(30) { done != nil } && model.state == .paused && app.isEnabled(.resume) && !app.isEnabled(.pause),
+              ["state": model.state.pill])
+        done = .none
+        model.resume { e in done = .some(e) }
+        check("resume", waitFor(30) { done != nil } && model.state == .running, ["state": model.state.pill])
+    }
+
     // 8. Power: Reset, Power Off (Saving), Start again, and the left-running path.
     app.confirm = { _, _, _ in true }
     var resetErr: Error?? = .none

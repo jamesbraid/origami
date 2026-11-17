@@ -49,7 +49,7 @@ struct MachineTab: View {
         switch model.state {
         case .stopped: Hero(model: model)
         case .starting: StartingCard(model: model)
-        case .running: ScreenView(model: model)
+        case .running, .paused: ScreenView(model: model)
         case .noPicture: ProblemCard(model: model)
         case .stopping: SavingCard(model: model)
         case .stoppedUnexpectedly: StoppedCard(model: model)

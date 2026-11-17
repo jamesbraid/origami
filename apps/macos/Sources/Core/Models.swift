@@ -8,7 +8,7 @@ import SwiftUI
 
 enum MachineState: Equatable {
     case stopped, starting, running, noPicture, stopping
-    case stoppedUnexpectedly, leftRunning
+    case stoppedUnexpectedly, leftRunning, paused
 
     /// The pill: one or two words. Colour never stands without them.
     var pill: String {
@@ -20,13 +20,14 @@ enum MachineState: Equatable {
         case .stopping: return "Saving"
         case .stoppedUnexpectedly: return "Stopped unexpectedly"
         case .leftRunning: return "Left running"
+        case .paused: return "Paused"
         }
     }
 
     var tone: Tone {
         switch self {
         case .stopped: return .grey
-        case .starting, .stopping, .leftRunning: return .amber
+        case .starting, .stopping, .leftRunning, .paused: return .amber
         case .running: return .green
         case .noPicture, .stoppedUnexpectedly: return .red
         }
@@ -141,6 +142,8 @@ final class MachineModel: ObservableObject, Identifiable {
         let next: MachineState
         if busy == "Saving…" || busy == "Stopping…" || view.state == .stopping {
             next = .stopping
+        } else if view.state == .paused && up {
+            next = .paused
         } else if busy == "Starting…" || (view.state == .starting && runnerAlive) {
             next = .starting
         } else if up {
@@ -149,7 +152,7 @@ final class MachineModel: ObservableObject, Identifiable {
             else { next = .starting; scheduleNoPictureCheck() }
         } else if state == .stoppedUnexpectedly && !expectedStop {
             next = state   // sticky: a start error or a crash stays until the next start
-        } else if [.starting, .running, .noPicture, .leftRunning].contains(state) && !expectedStop && busy == nil {
+        } else if [.starting, .running, .noPicture, .leftRunning, .paused].contains(state) && !expectedStop && busy == nil {
             // It ended on its own. Exit code 0 is a clean stop (a guest that shut itself down);
             // a signal, another code, an error or no code at all is unexpected.
             if view.exitCode == 0 && view.lastError == nil {
@@ -189,14 +192,15 @@ final class MachineModel: ObservableObject, Identifiable {
         case .stopping: return "Saving changes to the disk image."
         case .stoppedUnexpectedly: return failure ?? "The emulator stopped."
         case .leftRunning: return "Running without Origami."
+        case .paused: return "Paused. The guest is stopped; Resume continues it."
         }
     }
 
     // MARK: power
 
     var canStart: Bool { state == .stopped || state == .stoppedUnexpectedly || state == .leftRunning }
-    var canStop: Bool { [.starting, .running, .noPicture, .leftRunning].contains(state) && busy == nil }
-    var isRunning: Bool { [.starting, .running, .noPicture, .stopping, .leftRunning].contains(state) }
+    var canStop: Bool { [.starting, .running, .noPicture, .leftRunning, .paused].contains(state) && busy == nil }
+    var isRunning: Bool { [.starting, .running, .noPicture, .stopping, .leftRunning, .paused].contains(state) }
 
     /// For tests: a start that failed with `message`.
     func openForTest() { _ = try? open() }
@@ -311,6 +315,16 @@ final class MachineModel: ObservableObject, Identifiable {
         guard state == .running || state == .starting, busy == nil else { done?(nil); return }
         startedAt = Date()
         background("Resetting…", { s in try s.machine.control(control: .reset) }, done: done)
+    }
+
+    func pause(done: (@MainActor (Error?) -> Void)? = nil) {
+        guard state == .running, busy == nil else { done?(nil); return }
+        background("Pausing…", { s in try s.machine.control(control: .pause) }, done: done)
+    }
+
+    func resume(done: (@MainActor (Error?) -> Void)? = nil) {
+        guard state == .paused, busy == nil else { done?(nil); return }
+        background("Resuming…", { s in try s.machine.control(control: .resume) }, done: done)
     }
 
     // MARK: pointer
@@ -509,6 +523,8 @@ final class AppModel: ObservableObject {
         case .powerOff: return (m?.canStop ?? false)
         case .forceQuit: return m?.isRunning ?? false
         case .reset: return (m?.state == .running)
+        case .pause: return m?.state == .running
+        case .resume: return m?.state == .paused
         case .captureInput: return m?.state == .running && !(m?.captured ?? false)
         case .followMouse: return m != nil
         case .diagnostics, .settings, .showInFinder: return m != nil
@@ -535,6 +551,8 @@ final class AppModel: ObservableObject {
             if confirm("Reset \(m?.name ?? "the machine")?", "The machine restarts as if its reset button were pressed.", "Reset") {
                 m?.reset()
             }
+        case .pause: m?.pause()
+        case .resume: m?.resume()
         case .captureInput: m?.capture()
         case .followMouse:
             if let m {

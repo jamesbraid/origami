@@ -215,6 +215,8 @@ struct PowerControl: View {
         } else {
             Menu {
                 Button("Power Off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
+                Button("Pause") { app.invoke(.pause) }.disabled(!app.isEnabled(.pause))
+                Button("Resume") { app.invoke(.resume) }.disabled(!app.isEnabled(.resume))
                 Button("Reset…") { app.invoke(.reset) }.disabled(!app.isEnabled(.reset))
                 Divider()
                 Button("Force Quit Emulator…") { app.invoke(.forceQuit) }.disabled(!app.isEnabled(.forceQuit))

@@ -152,6 +152,8 @@ struct OrigamiCommands: Commands {
         CommandMenu("Machine") {
             item(.start); item(.powerOff); item(.forceQuit); item(.reset)
             Divider()
+            item(.pause); item(.resume)
+            Divider()
             item(.captureInput); item(.followMouse); item(.pasteAsTyping)
             Divider()
             item(.settings); item(.showInFinder)
