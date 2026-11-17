@@ -464,11 +464,32 @@ func runSelfTest(library: String, out: String) {
 
     if !fake {
         // The QEMU engine: what the FFI wires so far.
-        let picture = waitFor(30) { model.hasPicture }
-        check("qemu-picture-reported", picture, ["heads": session.machine.view().heads.count,
+        _ = waitFor(40) { model.hasPicture || model.headless }
+        let picture = model.hasPicture
+        check("qemu-picture-reported", picture || model.headless, ["heads": session.machine.view().heads.count,
               "picture": "\(String(describing: model.picture))", "state": model.state.pill])
         _ = waitFor(10) { model.state == .running }
-        checkTabFillsTheFitRect("tab-display-fills-the-fit-rect-on-the-first-picture")
+        if picture { checkTabFillsTheFitRect("tab-display-fills-the-fit-rect-on-the-first-picture") }
+        else {
+            // A machine with no display: its tab is its console, with output and input.
+            func consoleViews(_ v: NSView) -> [ConsoleNSView] { (v as? ConsoleNSView).map { [$0] } ?? v.subviews.flatMap(consoleViews) }
+            check("headless-machine-runs-with-its-console-in-the-tab", waitFor(30) { model.headless && model.state == .running && !consoleViews(tabHost).isEmpty },
+                  ["state": model.state.pill, "headless": model.headless, "console_views": consoleViews(tabHost).count])
+            let console = model.console()
+            func screen() -> String { (0..<24).map { r in ((try? console.terminal?.row(index: UInt16(r))) ?? []).map { $0.text.isEmpty ? " " : $0.text }.joined() }.joined(separator: "\n") }
+            check("headless-console-has-output", waitFor(60) { !screen().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
+                  ["screen_head": String(screen().trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))])
+            console.send(.enter); console.send(.text(text: "1")); console.drainInput(); spin(0.3)
+            check("headless-console-accepts-input", console.error == nil, ["error": console.error ?? "none"])
+            check("console-first-attach-has-the-real-size", console.firstAttach.map { $0 == (Int(console.terminal?.size().rows ?? 0), Int(console.terminal?.size().cols ?? 0)) } ?? false
+                  && (console.firstAttach?.rows ?? 0) > 20,
+                  ["first": "\(String(describing: console.firstAttach))", "now": "\(String(describing: console.terminal?.size()))"])
+            if let png = ProcessInfo.processInfo.environment["ORIGAMI_CONSOLE_PNG"], let v = consoleViews(tabHost).first {
+                spin(1)
+                if let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) { v.cacheDisplay(in: v.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: png)) }
+            }
+        }
         tabWindow.contentView = NSView()
         // Pixel compare: what the core's renderer drew into our layer, read back from the
         // GPU, against QEMU's own screendump once the guest holds still.

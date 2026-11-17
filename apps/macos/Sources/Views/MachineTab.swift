@@ -49,7 +49,7 @@ struct MachineTab: View {
         switch model.state {
         case .stopped: Hero(model: model)
         case .starting: StartingCard(model: model)
-        case .running, .paused: ScreenView(model: model)
+        case .running, .paused: if model.headless { ConsoleTab(model: model) } else { ScreenView(model: model) }
         case .noPicture: ProblemCard(model: model)
         case .stopping: SavingCard(model: model)
         case .stoppedUnexpectedly: StoppedCard(model: model)
@@ -59,6 +59,15 @@ struct MachineTab: View {
 }
 
 // MARK: running
+
+/// A machine with no display: its tab is its serial console, with the console window's own view.
+struct ConsoleTab: View {
+    @ObservedObject var model: MachineModel
+    var body: some View {
+        ConsoleHost(console: model.console())
+            .accessibilityLabel("\(model.name) console")
+    }
+}
 
 struct ScreenView: View {
     @ObservedObject var model: MachineModel

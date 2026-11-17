@@ -41,6 +41,8 @@ enum PointerMode: String { case follow, capture }
 
 /// How long a running machine may show nothing before the view says so.
 let noPictureTimeout: TimeInterval = 90
+/// How long a running machine may show no display head before its console is shown instead.
+let headlessGrace: TimeInterval = 4
 
 @MainActor
 final class MachineModel: ObservableObject, Identifiable {
@@ -58,6 +60,9 @@ final class MachineModel: ObservableObject, Identifiable {
     @Published private(set) var hudUntil: Date?
     @Published private(set) var failure: String?
     @Published private(set) var hasPicture = false
+    /// Running with a console and no display: shown as its console. This is read from the run (no head after
+    /// a few seconds) and is replaced by the core's `display` flag once it reports one.
+    @Published private(set) var headless = false
     /// The emulator is up (the first starting stage).
     @Published private(set) var emulatorUp = false
 
@@ -154,8 +159,11 @@ final class MachineModel: ObservableObject, Identifiable {
         } else if busy == "Starting…" || (view.state == .starting && runnerAlive) {
             next = .starting
         } else if up {
-            if active { next = .running }
-            else if let startedAt, Date().timeIntervalSince(startedAt) > noPictureTimeout { next = .noPicture }
+            let waited = startedAt.map { Date().timeIntervalSince($0) } ?? .infinity
+            let consoleOnly = !active && view.heads.isEmpty && view.console.connected && waited > headlessGrace
+            if headless != consoleOnly { headless = consoleOnly }
+            if active || consoleOnly { next = .running }
+            else if waited > noPictureTimeout { next = .noPicture }
             else { next = .starting; scheduleNoPictureCheck() }
         } else if state == .stoppedUnexpectedly && !expectedStop {
             next = state   // sticky: a start error or a crash stays until the next start
@@ -176,15 +184,14 @@ final class MachineModel: ObservableObject, Identifiable {
 
     private func set(_ next: MachineState) { if state != next { state = next } }
 
-    /// One check after the timeout, not a poll.
+    /// Look again in a second: the head, the headless grace and the no-picture timeout all pass with time.
     private func scheduleNoPictureCheck() {
-        guard noPictureTimer == nil, let startedAt else { return }
+        guard noPictureTimer == nil else { return }
         let item = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.noPictureTimer = nil; self?.refresh() }
         }
         noPictureTimer = item
-        let wait = max(0.1, noPictureTimeout - Date().timeIntervalSince(startedAt) + 0.1)
-        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: item)
     }
 
     /// One sentence of what is happening.
@@ -571,6 +578,7 @@ final class AppModel: ObservableObject {
         case .captureInput: return m?.state == .running && !(m?.captured ?? false)
         case .followMouse: return m != nil
         case .diagnostics, .settings, .showInFinder: return m != nil
+        case .console: return m?.state == .running
         case .closeTab: return active != nil
         case .nextTab, .previousTab: return tabs.count > 1
         case .fit, .actualSize, .pointScale, .doubleScale: return m?.state == .running
@@ -613,6 +621,7 @@ final class AppModel: ObservableObject {
                 if m.pointerMode == .follow { m.release() }
             }
         case .diagnostics: openWindow?("diagnostics")
+        case .console: if let m { if m.headless { select(m.id) } else { openConsole?(m.id) } }
         case .settings: wantSettings = true
         case .showInFinder:
             if let m { NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent(m.name)]) }
@@ -626,7 +635,7 @@ final class AppModel: ObservableObject {
         case .doubleScale: scaleMode = .double
         case .actualSize: scaleMode = .actual
         case .chooseLibrary: if let url = openFolderPanel() { chooseLibrary(url) }
-        case .console: if let m { openConsole?(m.id) }
+        case .console: if let m { if m.headless { select(m.id) } else { openConsole?(m.id) } }
         case .newMachine: wantNewMachine = true
         case .pasteAsTyping: break
         }
