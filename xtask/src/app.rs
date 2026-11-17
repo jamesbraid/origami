@@ -188,7 +188,10 @@ fn windows(product: &Product, options: &crate::Options) -> Result<()> {
     let app_project = root().join("apps/windows/Origami.App");
     for (from, to) in [("native-out", "native-out"), ("Generated", "Generated")] {
         let to = app_project.join(to);
-        let _ = fs::remove_dir_all(&to);
+        // Generated also holds the tracked Tokens.xaml, so it is merged into, not replaced.
+        if from == "native-out" {
+            let _ = fs::remove_dir_all(&to);
+        }
         archive::copy_tree(&prebuilt.join(from), &to)?;
     }
     let publish = target_dir().join("dist/windows-x86_64/publish");
