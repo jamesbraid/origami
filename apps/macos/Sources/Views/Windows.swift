@@ -122,6 +122,7 @@ struct MachineSettings: View {
 struct PreferencesView: View {
     @EnvironmentObject var app: AppModel
     @AppStorage("pointerMode") private var pointerMode = PointerMode.follow.rawValue
+    @AppStorage(ConsoleKeys.optionAsMetaKey) private var optionAsMeta = false
 
     var body: some View {
         TabView {
@@ -140,6 +141,7 @@ struct PreferencesView: View {
                 }
                 .pickerStyle(.radioGroup)
                 LabeledContent("Release the mouse", value: "⌃⌥")
+                Toggle("Use Option as Meta in the console", isOn: $optionAsMeta)
             }
             .formStyle(.grouped).tabItem { Label("Input", systemImage: "cursorarrow") }
         }
