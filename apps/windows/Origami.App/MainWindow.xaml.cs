@@ -60,7 +60,14 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += OnClosing;
         Library.SelectedIndex = 0;
         try { Refresh(); } catch (Exception e) { App.Log("first refresh failed: " + e.Message); }
+        // A machine can end with no event the app sees (its runner or QEMU dies): look again every two seconds.
+        _recheck = _ui.CreateTimer();
+        _recheck.Interval = TimeSpan.FromSeconds(2);
+        _recheck.Tick += (_, _) => { try { Refresh(); } catch (Exception ex) { App.Log("recheck failed: " + ex.Message); } };
+        _recheck.Start();
     }
+
+    DispatcherQueueTimer? _recheck;
 
     // ---- accessors for the automation (self-test) hooks ------------------------------------
 
@@ -402,7 +409,7 @@ public sealed partial class MainWindow : Window
         if (_closeApproved) return;
         if (_quitting) { args.Cancel = true; return; } // one prompt at a time, even if closed again while powering off
         var up = Up(); // live state, so only machines that are up right now are named
-        if (up.Count == 0 || !_settings.ConfirmQuitWithRunningMachines) { Display.Detach(); return; }
+        if (up.Count == 0 || !_settings.ConfirmQuitWithRunningMachines) { _recheck?.Stop(); Display.Detach(); return; }
         args.Cancel = true;
         _quitting = true;
         try
@@ -421,6 +428,7 @@ public sealed partial class MainWindow : Window
             if (r == ContentDialogResult.None) return;
             if (r == ContentDialogResult.Secondary && !await PowerOffAll(up)) return;
             _closeApproved = true;
+            _recheck?.Stop();
             Display.Detach();
             Close();
         }
