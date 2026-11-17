@@ -142,6 +142,11 @@ impl Gpu {
         let _ = tx.send(hold);
     }
 
+    /// The adapter is a CPU renderer (lavapipe, llvmpipe).
+    pub fn is_software(&self) -> bool {
+        self.adapter.get_info().device_type == wgpu::DeviceType::Cpu
+    }
+
     pub fn describe(&self) -> String {
         let i = self.adapter.get_info();
         format!("{} ({:?}, {:?})", i.name, i.backend, i.device_type)

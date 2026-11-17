@@ -716,6 +716,126 @@ impl CubeRenderer {
     }
 }
 
+/// A texture the cube is drawn into and a buffer its pixels are copied to,
+/// reused from frame to frame: how a host without a native surface gets the
+/// picture.
+pub struct Offscreen {
+    size: (u32, u32),
+    texture: wgpu::Texture,
+    buffer: wgpu::Buffer,
+    padded: u32,
+}
+
+impl Offscreen {
+    pub fn new(gpu: &Gpu, format: wgpu::TextureFormat, size: (u32, u32)) -> Offscreen {
+        let (w, h) = size;
+        let padded = (w * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        Offscreen {
+            size,
+            texture: gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("cube offscreen"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            }),
+            buffer: gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("cube offscreen"),
+                size: u64::from(padded) * u64::from(h),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            }),
+            padded,
+        }
+    }
+
+    /// Draw the cube and copy it into `out` as tight Bgra8 rows. Waits for
+    /// the GPU.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render(
+        &self,
+        gpu: &Gpu,
+        renderer: &mut CubeRenderer,
+        scale: f64,
+        style: &Style,
+        motion: &Motion,
+        out: &mut Vec<u8>,
+    ) -> Result<(), String> {
+        let (w, h) = self.size;
+        let mut enc = gpu.device.create_command_encoder(&Default::default());
+        renderer.encode(
+            gpu,
+            &mut enc,
+            &self.texture.create_view(&Default::default()),
+            self.size,
+            scale,
+            style,
+            motion,
+            None,
+        );
+        enc.copy_texture_to_buffer(
+            self.texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &self.buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(self.padded),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        gpu.queue.submit([enc.finish()]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |r| {
+                let _ = tx.send(r);
+            });
+        gpu.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| format!("the GPU did not finish the readback: {e}"))?;
+        rx.recv()
+            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("cannot map the readback buffer: {e}"))?;
+        let row = (w * 4) as usize;
+        let copied = self
+            .buffer
+            .slice(..)
+            .get_mapped_range()
+            .map(|mapped| {
+                out.clear();
+                for line in mapped.chunks(self.padded as usize) {
+                    out.extend_from_slice(&line[..row]);
+                }
+            })
+            .map_err(|e| format!("cannot read the readback buffer: {e}"));
+        self.buffer.unmap();
+        copied?;
+        if matches!(
+            renderer.format,
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb
+        ) {
+            out.as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .for_each(|p| p.swap(0, 2));
+        }
+        Ok(())
+    }
+}
+
 /// Draw the cube as a view of `size` would and copy it to the CPU as tight
 /// Bgra8 rows. Waits for the GPU: for self-tests, never the frame path.
 pub fn render_image(
@@ -726,91 +846,56 @@ pub fn render_image(
     style: &Style,
     motion: &Motion,
 ) -> Result<Vec<u8>, String> {
-    let (w, h) = size;
-    if w == 0 || h == 0 {
+    if size.0 == 0 || size.1 == 0 {
         return Err("the view has no size".into());
     }
-    let extent = wgpu::Extent3d {
-        width: w,
-        height: h,
-        depth_or_array_layers: 1,
-    };
-    let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("cube readback"),
-        size: extent,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: renderer.format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    let row = w * 4;
-    let padded = row.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-    let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("cube readback"),
-        size: u64::from(padded) * u64::from(h),
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let mut enc = gpu.device.create_command_encoder(&Default::default());
-    renderer.encode(
-        gpu,
-        &mut enc,
-        &target.create_view(&Default::default()),
-        size,
-        scale,
-        style,
-        motion,
-        None,
-    );
-    enc.copy_texture_to_buffer(
-        target.as_image_copy(),
-        wgpu::TexelCopyBufferInfo {
-            buffer: &buf,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(padded),
-                rows_per_image: None,
-            },
-        },
-        extent,
-    );
-    gpu.queue.submit([enc.finish()]);
-    let (tx, rx) = std::sync::mpsc::channel();
-    buf.slice(..).map_async(wgpu::MapMode::Read, move |r| {
-        let _ = tx.send(r);
-    });
-    gpu.device
-        .poll(wgpu::PollType::wait_indefinitely())
-        .map_err(|e| format!("the GPU did not finish the readback: {e}"))?;
-    rx.recv()
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("cannot map the readback buffer: {e}"))?;
-    let mapped = buf
-        .slice(..)
-        .get_mapped_range()
-        .map_err(|e| format!("cannot read the readback buffer: {e}"))?;
-    let swap = matches!(
-        renderer.format,
-        wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb
-    );
-    let mut out = Vec::with_capacity((row * h) as usize);
-    for line in mapped.chunks(padded as usize) {
-        out.extend_from_slice(&line[..row as usize]);
-    }
-    if swap {
-        out.as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .for_each(|p| p.swap(0, 2));
-    }
+    let mut out = Vec::new();
+    Offscreen::new(gpu, renderer.format, size)
+        .render(gpu, renderer, scale, style, motion, &mut out)?;
     Ok(out)
 }
 
-/// The cube drawn into one host surface.
+/// Where a [`CubeView`] draws.
+enum Output {
+    Surface(Box<View>),
+    /// No native surface: each frame is drawn offscreen and kept for the host
+    /// to take with [`CubeView::readback`].
+    Offscreen {
+        target: Offscreen,
+        scale: f64,
+        visible: bool,
+        pixels: Vec<u8>,
+        presents: u64,
+        draw_ns: u64,
+    },
+}
+
+impl Output {
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Output::Surface(v) => v.size(),
+            Output::Offscreen { target, .. } => target.size,
+        }
+    }
+
+    fn scale(&self) -> f64 {
+        match self {
+            Output::Surface(v) => v.scale(),
+            Output::Offscreen { scale, .. } => *scale,
+        }
+    }
+
+    fn visible(&self) -> bool {
+        match self {
+            Output::Surface(v) => v.visible(),
+            Output::Offscreen { visible, .. } => *visible,
+        }
+    }
+}
+
+/// The cube drawn into one host surface, or offscreen.
 pub struct CubeView {
-    view: View,
+    out: Output,
     renderer: CubeRenderer,
     style: Style,
     motion: Motion,
@@ -836,31 +921,70 @@ impl CubeView {
         // SAFETY: the caller's promise.
         let view = unsafe { View::attach(gpu, host, width, height, scale) }?;
         let renderer = CubeRenderer::new(gpu, view.format())?;
+        Ok(CubeView::new(Output::Surface(Box::new(view)), renderer))
+    }
+
+    /// A cube with no surface, for a toolkit that cannot host one: each
+    /// [`CubeView::draw`] renders into memory and [`CubeView::readback`]
+    /// returns the frame as Bgra8 rows.
+    pub fn offscreen(gpu: &Gpu, width: u32, height: u32, scale: f64) -> Result<CubeView, String> {
+        if width == 0 || height == 0 {
+            return Err("the view has no size".into());
+        }
+        let format = wgpu::TextureFormat::Bgra8Unorm;
+        let out = Output::Offscreen {
+            target: Offscreen::new(gpu, format, (width, height)),
+            scale,
+            visible: true,
+            pixels: Vec::new(),
+            presents: 0,
+            draw_ns: 0,
+        };
+        Ok(CubeView::new(out, CubeRenderer::new(gpu, format)?))
+    }
+
+    fn new(out: Output, renderer: CubeRenderer) -> CubeView {
         let style = Style::default();
-        Ok(CubeView {
-            view,
+        CubeView {
+            out,
             renderer,
             style,
             motion: Motion::new(style.spin, style.reduce_motion),
             dirty: true,
             last_draw: None,
             last_tick: None,
-        })
+        }
     }
 
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32, scale: f64) {
-        self.view.resize(gpu, width, height, scale);
+        match &mut self.out {
+            Output::Surface(v) => v.resize(gpu, width, height, scale),
+            Output::Offscreen {
+                target,
+                scale: s,
+                pixels,
+                ..
+            } => {
+                *s = scale;
+                if (width, height) != target.size && width > 0 && height > 0 {
+                    *target = Offscreen::new(gpu, wgpu::TextureFormat::Bgra8Unorm, (width, height));
+                    pixels.clear();
+                }
+            }
+        }
         self.dirty = true;
     }
 
     /// A hidden cube draws nothing; showing it again restarts the clock so
     /// the time it was hidden does not turn it.
     pub fn set_visible(&mut self, visible: bool) {
-        self.view.set_visible(visible);
+        match &mut self.out {
+            Output::Surface(v) => v.set_visible(visible),
+            Output::Offscreen { visible: v, .. } => *v = visible,
+        }
         self.last_tick = None;
         self.dirty = true;
     }
-
     pub fn set_style(&mut self, gpu: &Gpu, style: Style) {
         self.motion.configure(style.spin, style.reduce_motion);
         self.show(gpu, style.env);
@@ -911,10 +1035,8 @@ impl CubeView {
     /// A pointer event at `x`, `y` points in the view, `ms` from any steady
     /// clock.
     pub fn pointer(&mut self, phase: Pointer, x: f32, y: f32, ms: u64) {
-        let side = {
-            let (w, h) = self.view.size();
-            w.min(h) as f32 * FILL / self.view.scale() as f32
-        };
+        let (w, h) = self.out.size();
+        let side = w.min(h) as f32 * FILL / self.out.scale() as f32;
         match phase {
             Pointer::Press => self.motion.press(x, y, ms),
             Pointer::Move => self.motion.drag_to(x, y, ms, side),
@@ -924,13 +1046,15 @@ impl CubeView {
         self.dirty = true;
     }
 
-    /// Draw a frame if the cube changed or is moving, and present it. The
-    /// bool says the cube is still moving: call again on the next display
-    /// refresh. `false` means it is at rest and the host should stop; any
-    /// call that changes the cube asks the host to draw again.
+    /// Draw a frame if the cube changed or is moving, and present it (or, for
+    /// an offscreen cube, keep it for [`CubeView::readback`]). The bool says
+    /// the cube is still moving: call again on the next display refresh.
+    /// `false` means it is at rest and the host should stop; any call that
+    /// changes the cube asks the host to draw again.
     pub fn draw(&mut self, gpu: &Gpu) -> Result<(Drawn, bool), String> {
         let moving = self.motion.moving();
-        if !self.view.visible() || self.view.size().0 == 0 || self.view.size().1 == 0 {
+        let (w, h) = self.out.size();
+        if !self.out.visible() || w == 0 || h == 0 {
             return Ok((Drawn::Skipped, false));
         }
         if !self.dirty && !moving {
@@ -957,16 +1081,30 @@ impl CubeView {
             .map_or(0.0, |t| (now - t).as_secs_f32().min(MAX_STEP));
         self.last_tick = Some(now);
         self.motion.step(dt);
-        let scale = self.view.scale();
+        let scale = self.out.scale();
         let (renderer, style, motion) = (&mut self.renderer, &self.style, &self.motion);
-        let drawn = self.view.draw_pass(
-            gpu,
-            false,
-            |_| {},
-            |_, enc, target, size| {
-                renderer.encode(gpu, enc, target, size, scale, style, motion, None)
-            },
-        )?;
+        let drawn = match &mut self.out {
+            Output::Surface(view) => view.draw_pass(
+                gpu,
+                false,
+                |_| {},
+                |_, enc, target, size| {
+                    renderer.encode(gpu, enc, target, size, scale, style, motion, None)
+                },
+            )?,
+            Output::Offscreen {
+                target,
+                pixels,
+                presents,
+                draw_ns,
+                ..
+            } => {
+                target.render(gpu, renderer, scale, style, motion, pixels)?;
+                *presents += 1;
+                *draw_ns += now.elapsed().as_nanos() as u64;
+                Drawn::Presented
+            }
+        };
         match drawn {
             // The swapchain was rebuilt or has no image just now: draw again.
             Drawn::Reconfigured | Drawn::Skipped => return Ok((drawn, true)),
@@ -979,22 +1117,45 @@ impl CubeView {
         Ok((drawn, self.motion.moving()))
     }
 
-    /// The cube as last set, drawn again offscreen, as tight Bgra8 rows.
+    /// The cube as Bgra8 rows. A surface cube is drawn again offscreen as it
+    /// is now; an offscreen cube returns its last frame (empty before the
+    /// first).
     pub fn readback(&mut self, gpu: &Gpu) -> Result<(u32, u32, Vec<u8>), String> {
-        let size = self.view.size();
-        let pixels = render_image(
-            gpu,
-            &mut self.renderer,
-            size,
-            self.view.scale(),
-            &self.style,
-            &self.motion,
-        )?;
+        let size = self.out.size();
+        let pixels = match &self.out {
+            Output::Surface(v) => render_image(
+                gpu,
+                &mut self.renderer,
+                size,
+                v.scale(),
+                &self.style,
+                &self.motion,
+            )?,
+            Output::Offscreen { pixels, .. } => pixels.clone(),
+        };
         Ok((size.0, size.1, pixels))
     }
 
-    pub fn view(&self) -> &View {
-        &self.view
+    /// An offscreen cube's last frame, moved out: Bgra8 rows, none if no frame
+    /// has been drawn since the last take.
+    pub fn take_frame(&mut self) -> Option<(u32, u32, Vec<u8>)> {
+        let size = self.out.size();
+        match &mut self.out {
+            Output::Offscreen { pixels, .. } if !pixels.is_empty() => {
+                Some((size.0, size.1, std::mem::take(pixels)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Frames presented, and wall nanoseconds drawing and presenting them.
+    pub fn counters(&self) -> (u64, u64, u64) {
+        match &self.out {
+            Output::Surface(v) => (v.presents, v.draw_ns, v.present_ns),
+            Output::Offscreen {
+                presents, draw_ns, ..
+            } => (*presents, *draw_ns, 0),
+        }
     }
 }
 

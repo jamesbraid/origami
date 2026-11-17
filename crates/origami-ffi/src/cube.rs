@@ -138,6 +138,38 @@ pub unsafe extern "C" fn origami_cube_attach(
     })
 }
 
+/// A cube with no window, for a toolkit that cannot host a native surface
+/// (GTK): `width` by `height` physical pixels at `scale`. Each
+/// `origami_cube_present` that draws renders into memory, and
+/// `origami_cube_readback` then returns that frame without drawing again, for
+/// the host to wrap in its own texture. Everything else works as for an
+/// attached cube. The copy waits for the GPU, so call from one thread.
+#[no_mangle]
+pub unsafe extern "C" fn origami_cube_attach_offscreen(
+    width: u32,
+    height: u32,
+    scale: f64,
+    out: *mut *mut origami_cube,
+) -> origami_status {
+    guard(|| {
+        if !(scale.is_finite() && scale > 0.0) {
+            return fail(Status::InvalidArgument, "scale is not positive");
+        }
+        if out.is_null() {
+            return fail(Status::NullArgument, "out is null");
+        }
+        let gpu = present::gpu()?;
+        let view = CubeView::offscreen(&gpu, width, height, scale)
+            .map_err(|e| Fail(Status::InvalidArgument, e))?;
+        let cube = origami_cube {
+            inner: Mutex::new(Inner { gpu, view }),
+        };
+        // SAFETY: `out` is non-null and writable.
+        unsafe { *out = Box::into_raw(Box::new(cube)) };
+        Ok(())
+    })
+}
+
 /// The window changed size (physical pixels) or moved to a display of another
 /// scale. Call `origami_cube_present` after it.
 #[no_mangle]
@@ -364,9 +396,11 @@ pub unsafe extern "C" fn origami_cube_present(
     })
 }
 
-/// Copy the cube as it is now, drawn again offscreen, into `buf` as tight
-/// 4-byte pixels (blue, green, red, unused), top row first. Sizes and errors
-/// as `origami_view_readback`. It waits for the GPU: for self-tests.
+/// Copy the cube into `buf` as tight 4-byte pixels (blue, green, red,
+/// unused), top row first. A window's cube is drawn again offscreen as it is
+/// now, waiting for the GPU: for self-tests. An offscreen cube returns the
+/// frame `origami_cube_present` last drew (`NotFound` before the first).
+/// Sizes and errors as `origami_view_readback`.
 #[no_mangle]
 pub unsafe extern "C" fn origami_cube_readback(
     cube: *mut origami_cube,
@@ -389,6 +423,9 @@ pub unsafe extern "C" fn origami_cube_readback(
                     *p = v;
                 }
             }
+        }
+        if pixels.is_empty() {
+            return fail(Status::NotFound, "no frame has been drawn yet");
         }
         if pixels.len() > cap {
             return fail(Status::BufferTooSmall, "buf is too small for the picture");
@@ -418,14 +455,14 @@ pub unsafe extern "C" fn origami_cube_stats(
         }
         let size = out.size;
         *out = with(cube, |c| {
-            let v = c.view.view();
+            let (presents, draw_ns, present_ns) = c.view.counters();
             Ok(origami_view_counters {
                 size,
                 reserved: 0,
-                presents: v.presents,
+                presents,
                 take_ns: 0,
-                draw_ns: v.draw_ns,
-                present_ns: v.present_ns,
+                draw_ns,
+                present_ns,
             })
         })?;
         Ok(())

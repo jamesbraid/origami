@@ -444,3 +444,86 @@ fn cpu_while_turning_at_rest_and_hidden() {
     }
     assert_eq!(cube.stats().presents, hidden0);
 }
+
+/// A cube with no window hands over its frames; needs a GPU but no X server.
+#[test]
+fn an_offscreen_cube_draws_and_hands_over_its_frames() {
+    let mut cube = ptr::null_mut();
+    // SAFETY: a valid out pointer.
+    let status = unsafe { origami_cube_attach_offscreen(96, 64, 1.0, &mut cube) };
+    if status == ORIGAMI_ERR_NO_GPU {
+        eprintln!("skipping: no GPU");
+        return;
+    }
+    ok(status, "attach offscreen");
+    let cube = Cube(cube);
+    let mut size = (0u32, 0u32, 0u32);
+    let mut buf = vec![0u8; 96 * 64 * 4];
+    // SAFETY: valid cube and buffer.
+    let before = unsafe {
+        origami_cube_readback(
+            cube.0,
+            buf.as_mut_ptr(),
+            buf.len(),
+            &mut size.0,
+            &mut size.1,
+            &mut size.2,
+        )
+    };
+    assert_eq!(before, ORIGAMI_ERR_NOT_FOUND);
+    cube.style(
+        ORIGAMI_CUBE_ENV_STUDIO,
+        ORIGAMI_CUBE_NO_COLOUR,
+        DARK,
+        true,
+        false,
+    );
+    let (drawn, moving) = cube.present();
+    assert_eq!((drawn, moving), (ORIGAMI_DRAWN_PRESENTED, true));
+    let first = cube.shot();
+    assert_eq!((first.0, first.1), (96, 64));
+    // The same frame again: reading back does not draw.
+    assert!(same(&first, &cube.shot()));
+    std::thread::sleep(Duration::from_millis(100));
+    cube.present();
+    assert!(!same(&first, &cube.shot()), "the calm spin moved it");
+    assert_eq!(cube.stats().presents, 2);
+}
+
+/// CPU of an offscreen cube turning, as the GTK start screen draws it: a frame
+/// every 33 ms, copied out each time. Needs a GPU, not an X server.
+#[test]
+#[ignore = "measures; needs a GPU"]
+fn offscreen_cpu_while_turning() {
+    let secs: f64 = std::env::var("ORIGAMI_CUBE_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10.0);
+    for (name, px, scale) in [("108 pt at 2x", 216, 2.0), ("108 pt at 1x", 108, 1.0)] {
+        let mut cube = ptr::null_mut();
+        // SAFETY: a valid out pointer.
+        ok(
+            unsafe { origami_cube_attach_offscreen(px, px, scale, &mut cube) },
+            "attach offscreen",
+        );
+        let cube = Cube(cube);
+        cube.style(ORIGAMI_CUBE_ENV_STUDIO, TEAL, TINTED, true, false);
+        cube.present();
+        let (cpu0, wall0, n0) = (process_cpu(), Instant::now(), cube.stats().presents);
+        let mut next = Instant::now();
+        while wall0.elapsed().as_secs_f64() < secs {
+            if cube.present_once().0 == ORIGAMI_DRAWN_PRESENTED {
+                cube.shot();
+            }
+            next += Duration::from_millis(16);
+            std::thread::sleep(next.saturating_duration_since(Instant::now()));
+        }
+        let (cpu, wall) = (process_cpu() - cpu0, wall0.elapsed().as_secs_f64());
+        let n = (cube.stats().presents - n0) as f64;
+        eprintln!(
+            "MEASURE offscreen {name}: {n} frames in {wall:.1} s ({:.1}/s), process CPU {:.2}% of one core",
+            n / wall,
+            cpu / wall * 100.0
+        );
+    }
+}

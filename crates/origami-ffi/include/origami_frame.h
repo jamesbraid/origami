@@ -437,6 +437,17 @@ origami_status origami_cube_attach(const struct origami_surface *surface,
                                    double scale,
                                    struct origami_cube **out);
 
+// A cube with no window, for a toolkit that cannot host a native surface
+// (GTK): `width` by `height` physical pixels at `scale`. Each
+// `origami_cube_present` that draws renders into memory, and
+// `origami_cube_readback` then returns that frame without drawing again, for
+// the host to wrap in its own texture. Everything else works as for an
+// attached cube. The copy waits for the GPU, so call from one thread.
+origami_status origami_cube_attach_offscreen(uint32_t width,
+                                             uint32_t height,
+                                             double scale,
+                                             struct origami_cube **out);
+
 // The window changed size (physical pixels) or moved to a display of another
 // scale. Call `origami_cube_present` after it.
 origami_status origami_cube_resize(struct origami_cube *cube,
@@ -506,9 +517,11 @@ origami_status origami_cube_set_machine(struct origami_cube *cube,
 // so a skipped refresh never slows it.
 origami_status origami_cube_present(struct origami_cube *cube, uint32_t *drawn, uint32_t *moving);
 
-// Copy the cube as it is now, drawn again offscreen, into `buf` as tight
-// 4-byte pixels (blue, green, red, unused), top row first. Sizes and errors
-// as `origami_view_readback`. It waits for the GPU: for self-tests.
+// Copy the cube into `buf` as tight 4-byte pixels (blue, green, red,
+// unused), top row first. A window's cube is drawn again offscreen as it is
+// now, waiting for the GPU: for self-tests. An offscreen cube returns the
+// frame `origami_cube_present` last drew (`NotFound` before the first).
+// Sizes and errors as `origami_view_readback`.
 origami_status origami_cube_readback(struct origami_cube *cube,
                                      uint8_t *buf,
                                      size_t cap,
