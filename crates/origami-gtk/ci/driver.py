@@ -895,7 +895,34 @@ def sidebar():
         a.stop()
 
 
-SCENARIOS = {"console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+def about():
+    """About's cube steps to another photograph on the right arrow and on a
+    Shift-click. The cube needs a hardware GPU; without one About is the stock
+    dialog and there is nothing to step."""
+    if mode != "x11":
+        skip("about", "needs XTest")
+        return
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("invoke app.about")
+        time.sleep(3)
+        if "no cube" in open(os.path.join(out, "app.log")).read():
+            skip("About's cube steps through the scenes", "no hardware GPU for the cube")
+            return
+        before = shot("about-0")
+        key("Right")
+        time.sleep(3)
+        after = shot("about-1")
+        r = sh("compare", "-metric", "AE", before, after, os.path.join(out, "about-diff.png"))
+        check("the right arrow changes the cube's scene", int(float((r.stderr or "0").split()[0])) > 1000, r.stderr)
+    finally:
+        a.stop()
+
+
+
+SCENARIOS = {"about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

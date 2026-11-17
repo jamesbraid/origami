@@ -110,6 +110,18 @@ impl Cube {
         }
     }
 
+    /// A handle that steps to the next scene, holding the cube only weakly.
+    pub fn stepper(&self) -> impl Fn() + 'static {
+        let (widget, inner) = (self.widget.downgrade(), self.inner.clone());
+        move || {
+            let (Some(w), Some(gpu)) = (widget.upgrade(), gpu()) else {
+                return;
+            };
+            inner.borrow_mut().view.step_scene(gpu);
+            kick(&w, &inner);
+        }
+    }
+
     fn wire(&self) {
         let inner = self.inner.clone();
         self.widget.connect_map({

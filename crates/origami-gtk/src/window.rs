@@ -1393,6 +1393,30 @@ fn about(parent: &adw::ApplicationWindow) {
         let cube = cube.clone();
         move |s| cube.set_style(crate::cube::about_style(s.is_dark(), scene))
     })));
+    // Shift-click on the cube and the right arrow step through the scenes.
+    let click = gtk::GestureClick::new();
+    click.connect_pressed({
+        let step = cube.stepper();
+        move |g, _, _, _| {
+            if g.current_event_state()
+                .contains(gtk::gdk::ModifierType::SHIFT_MASK)
+            {
+                step();
+            }
+        }
+    });
+    cube.widget.add_controller(click);
+    let keys = gtk::EventControllerKey::new();
+    keys.connect_key_pressed({
+        let step = cube.stepper();
+        move |_, key, _, _| {
+            if key == gtk::gdk::Key::Right {
+                step();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        }
+    });
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&adw::HeaderBar::new());
     toolbar.set_content(Some(&page));
@@ -1406,5 +1430,6 @@ fn about(parent: &adw::ApplicationWindow) {
             adw::StyleManager::default().disconnect(id);
         }
     });
+    dialog.add_controller(keys);
     dialog.present(Some(parent));
 }
