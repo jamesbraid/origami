@@ -782,6 +782,8 @@ pub type origami_wake_fn = Option<unsafe extern "C" fn(user_data: *mut c_void)>;
 /// any earlier callback; NULL removes it. When this returns, no call of the
 /// previous callback is running or will start, so its `user_data` may be
 /// freed. Do not call this from inside the callback. Allocation free per frame.
+/// On a running machine it is also called once before this returns, since a
+/// frame may already be waiting.
 #[no_mangle]
 pub unsafe extern "C" fn origami_frame_set_wake(
     machine: *const origami_machine,
@@ -792,6 +794,10 @@ pub unsafe extern "C" fn origami_frame_set_wake(
         // SAFETY: argument contracts are in the header.
         let m = unsafe { machine_ref(machine)? };
         let mut wake = m.wake.lock().unwrap_or_else(|e| e.into_inner());
+        *m.callback.write().unwrap_or_else(|e| e.into_inner()) = callback.map(|run| Callback {
+            run,
+            user: user_data,
+        });
         if wake.callback_hook.is_none() {
             let slot = m.callback.clone();
             wake.callback_hook = Some(m.machine.add_frame_hook(Arc::new(move || {
@@ -802,10 +808,16 @@ pub unsafe extern "C" fn origami_frame_set_wake(
                 }
             })));
         }
-        *m.callback.write().unwrap_or_else(|e| e.into_inner()) = callback.map(|run| Callback {
-            run,
-            user: user_data,
-        });
+        drop(wake);
+        // A frame that came before the callback woke nobody. Called outside
+        // the lock, so the callback may call origami_frame_wake_clear.
+        if !m.machine.heads().is_empty() {
+            let slot = m.callback.read().unwrap_or_else(|e| e.into_inner());
+            if let Some(cb) = slot.as_ref() {
+                // SAFETY: just set by our caller.
+                unsafe { (cb.run)(cb.user) };
+            }
+        }
         Ok(())
     })
 }
@@ -815,6 +827,7 @@ pub unsafe extern "C" fn origami_frame_set_wake(
 /// `HANDLE` on Windows, returned in `handle`. It belongs to the machine
 /// handle: do not close it, and do not use it after
 /// `origami_machine_release`. The same handle comes back on every call.
+/// Made for a running machine, it starts signalled.
 ///
 /// Wait on it (`poll`, `kqueue`, `WaitForSingleObject`), then call
 /// `origami_frame_take` until it reports no frame; on Unix call
@@ -832,14 +845,21 @@ pub unsafe extern "C" fn origami_frame_wake_handle(
             return fail(Status::NullArgument, "handle is null");
         }
         let mut wake = m.wake.lock().unwrap_or_else(|e| e.into_inner());
+        let mut made_now = None;
         if wake.handle.is_none() {
             let made = Arc::new(WakeHandle::new().map_err(|e| Fail(Status::Io, e))?);
             let signal = made.clone();
             wake.handle_hook = Some(m.machine.add_frame_hook(Arc::new(move || signal.signal())));
-            wake.handle = Some(made);
+            wake.handle = Some(made.clone());
+            made_now = Some(made);
         }
         // SAFETY: `handle` is writable.
         unsafe { *handle = wake.handle.as_ref().expect("made above").raw() };
+        drop(wake);
+        // A frame that came before the handle woke nobody.
+        if let Some(made) = made_now.filter(|_| !m.machine.heads().is_empty()) {
+            made.signal();
+        }
         Ok(())
     })
 }

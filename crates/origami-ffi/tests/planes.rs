@@ -132,13 +132,17 @@ fn heads_take_wake_handle_and_callback_follow_the_published_frames() {
         )
     };
 
-    // Quiet while nothing is published.
+    // Signalled once on being set up, since a frame may already be waiting;
+    // then quiet while nothing is published.
+    assert!(readable(fd));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    // SAFETY: valid handle.
+    unsafe { origami_frame_wake_clear(m) };
     assert!(!readable(fd));
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
 
     lab.advance();
     assert!(readable(fd));
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     let mut pixels = vec![0u8; 64 * 48 * 4];
     let mut runs = [origami_run { y0: 0, y1: 0 }; 48];
     // SAFETY: valid handle.
@@ -164,10 +168,32 @@ fn heads_take_wake_handle_and_callback_follow_the_published_frames() {
     // SAFETY: valid handle.
     unsafe { assert_eq!(origami_frame_set_wake(m, None, ptr::null_mut()), ORIGAMI_OK) };
     lab.advance();
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert!(readable(fd));
     // SAFETY: released once.
     unsafe { origami_machine_release(m) };
+}
+
+#[test]
+fn the_first_wake_may_clear_the_handle_without_deadlocking() {
+    let lab = Lab::new(None);
+    let m = lab.c_machine();
+    let mut fd = 0isize;
+    // SAFETY: valid pointer.
+    unsafe { assert_eq!(origami_frame_wake_handle(m, &mut fd), ORIGAMI_OK) };
+    extern "C" fn clear(user: *mut c_void) {
+        // SAFETY: `user` is the machine handle, alive for the test.
+        unsafe { origami_frame_wake_clear(user as *const origami_machine) };
+    }
+    // SAFETY: the machine outlives the callback, which is removed below.
+    unsafe {
+        assert_eq!(
+            origami_frame_set_wake(m, Some(clear), m as *mut c_void),
+            ORIGAMI_OK
+        );
+        assert_eq!(origami_frame_set_wake(m, None, ptr::null_mut()), ORIGAMI_OK);
+        origami_machine_release(m);
+    }
 }
 
 #[test]

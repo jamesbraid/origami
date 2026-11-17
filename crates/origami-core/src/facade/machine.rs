@@ -859,11 +859,16 @@ impl MachineInner {
             .into_iter()
             .find(|console| console.primary)
             .map(|console| session.open_console(&console.name));
+        let has_frames = frames.is_some();
         {
             let mut run = self.run.lock().unwrap();
             run.session = Some(session);
             run.frames = frames;
             run.remote_display = remote_display;
+        }
+        // A wake that came before the frames were stored found nothing to take.
+        if has_frames {
+            self.engine_woke();
         }
         *self.held.lock().unwrap() = Held::default();
         match opened {

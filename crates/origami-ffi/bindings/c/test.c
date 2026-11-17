@@ -66,10 +66,13 @@ int main(void) {
   ptrdiff_t fd = -1;
   CHECK(origami_frame_wake_handle(machine, &fd));
   CHECK(origami_frame_set_wake(machine, on_wake, NULL));
-  EXPECT(!readable(fd) && wakes == 0); /* quiet until a frame is published */
+  /* Signalled once on being set up, in case a frame is waiting. */
+  EXPECT(readable(fd) && wakes == 1);
+  CHECK(origami_frame_wake_clear(machine));
+  EXPECT(!readable(fd)); /* quiet until a frame is published */
 
   CHECK(origami_fake_advance_frame(core, key));
-  EXPECT(readable(fd) && wakes == 1);
+  EXPECT(readable(fd) && wakes == 2);
   CHECK(origami_frame_wake_clear(machine));
   EXPECT(!readable(fd));
 

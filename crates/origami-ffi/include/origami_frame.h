@@ -673,6 +673,8 @@ origami_status origami_frame_cursor(const struct origami_machine *machine,
 // any earlier callback; NULL removes it. When this returns, no call of the
 // previous callback is running or will start, so its `user_data` may be
 // freed. Do not call this from inside the callback. Allocation free per frame.
+// On a running machine it is also called once before this returns, since a
+// frame may already be waiting.
 origami_status origami_frame_set_wake(const struct origami_machine *machine,
                                       origami_wake_fn callback,
                                       void *user_data);
@@ -682,6 +684,7 @@ origami_status origami_frame_set_wake(const struct origami_machine *machine,
 // `HANDLE` on Windows, returned in `handle`. It belongs to the machine
 // handle: do not close it, and do not use it after
 // `origami_machine_release`. The same handle comes back on every call.
+// Made for a running machine, it starts signalled.
 //
 // Wait on it (`poll`, `kqueue`, `WaitForSingleObject`), then call
 // `origami_frame_take` until it reports no frame; on Unix call

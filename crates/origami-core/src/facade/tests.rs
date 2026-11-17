@@ -484,6 +484,22 @@ fn frame_hooks_run_on_a_new_frame_and_not_otherwise() {
 }
 
 #[test]
+fn a_frame_hook_runs_when_a_start_attaches_the_display() {
+    // An engine may wake before the start has stored its display.
+    let f = fixture();
+    let key = f.create("m", "fake.1");
+    let machine = f.core.open_machine(&key).unwrap();
+    let count = Arc::new(AtomicU32::new(0));
+    let counter = count.clone();
+    machine.add_frame_hook(Arc::new(move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+    }));
+    let machine = f.core.start_machine(&key).unwrap();
+    assert!(count.load(Ordering::SeqCst) >= 1);
+    assert!(!machine.heads().is_empty());
+}
+
+#[test]
 fn controls_and_media_reach_the_engine_and_a_missing_drive_is_refused() {
     let f = fixture();
     let (machine, session) = f.started("m");
