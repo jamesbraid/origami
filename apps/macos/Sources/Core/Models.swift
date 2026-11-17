@@ -80,14 +80,22 @@ final class MachineModel: ObservableObject, Identifiable {
     func refresh(summary: OrigamiMachineSummary) {
         record = MachineRecord(summary)
         if session == nil {
-            let up = summary.state == .running || summary.state == .starting
+            let up = summary.state == .running || summary.state == .starting || Library.runnerHolds(record.key)
             if up { set(.leftRunning) }
-            else if state == .leftRunning {
-                // A machine we found running died while nobody was watching: not a clean stop.
-                failure = "The machine stopped while Origami was not watching it."
-                set(.stoppedUnexpectedly)
-            } else if state != .stoppedUnexpectedly { set(.stopped) }
+            else if state == .leftRunning { leftRunningDied() }
+            else if state != .stoppedUnexpectedly { set(.stopped) }
         }
+    }
+
+    /// A machine we found running died while nobody was watching: not a clean stop.
+    private func leftRunningDied() {
+        failure = "The machine stopped while Origami was not watching it."
+        set(.stoppedUnexpectedly)
+    }
+
+    /// The listing only changes when the core's view does, so a left-running machine is probed directly.
+    func recheckLeftRunning() {
+        if session == nil, state == .leftRunning, Library.runnerGone(record.key) { leftRunningDied() }
     }
 
     private var refreshing = false
@@ -102,12 +110,14 @@ final class MachineModel: ObservableObject, Identifiable {
         guard let machine = session?.machine else { return }
         if refreshing { refreshAgain = true; return }
         refreshing = true
+        let dir = record.key
         DispatchQueue.global(qos: .utility).async {
             let view = machine.view()
+            let alive = !Library.runnerGone(dir)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.refreshing = false
-                    self.apply(view)
+                    self.apply(view, runnerAlive: alive)
                     if self.refreshAgain { self.refreshAgain = false; self.refresh() }
                 }
             }
@@ -115,7 +125,9 @@ final class MachineModel: ObservableObject, Identifiable {
     }
 
     /// Take in one reading of the core's view.
-    func apply(_ view: OrigamiMachineView) {
+    /// `runnerAlive` is whether a process still holds the machine's lock: the core can go on saying
+    /// "running" after the runner has gone, so a dead runner overrides it.
+    func apply(_ view: OrigamiMachineView, runnerAlive: Bool = true) {
         coreView = view
         session?.setHead(from: view)
         let head = view.heads.first
@@ -124,12 +136,12 @@ final class MachineModel: ObservableObject, Identifiable {
         if active, let head, picture?.width != Int(head.width) || picture?.height != Int(head.height) {
             picture = (Int(head.width), Int(head.height))
         }
-        let up = view.state == .running || view.state == .paused
+        let up = (view.state == .running || view.state == .paused) && runnerAlive
         if emulatorUp != up { emulatorUp = up }
         let next: MachineState
         if busy == "Saving…" || busy == "Stopping…" || view.state == .stopping {
             next = .stopping
-        } else if busy == "Starting…" || view.state == .starting {
+        } else if busy == "Starting…" || (view.state == .starting && runnerAlive) {
             next = .starting
         } else if up {
             if active { next = .running }
@@ -143,7 +155,7 @@ final class MachineModel: ObservableObject, Identifiable {
             if view.exitCode == 0 && view.lastError == nil {
                 next = .stopped
             } else {
-                failure = view.lastError ?? view.exitCode.map { "The emulator exited with code \($0)." } ?? "The emulator stopped without being asked."
+                failure = view.lastError ?? (runnerAlive ? nil : "The emulator's runner is gone.") ?? view.exitCode.map { "The emulator exited with code \($0)." } ?? "The emulator stopped without being asked."
                 next = .stoppedUnexpectedly
             }
         } else {
@@ -226,9 +238,17 @@ final class MachineModel: ObservableObject, Identifiable {
         }
     }
 
+    private func endedBeforeStop() {
+        expectedStop = false
+        emulatorUp = false
+        set(.stopped)
+        refresh()
+    }
+
     private func finished(_ error: Error?, failureState: MachineState?, done: (@MainActor (Error?) -> Void)?) {
         busy = nil
-        // Stopping a machine that has already ended is not a failure.
+        // Stopping a machine that has already ended is not a failure, whatever the core calls it.
+        if error != nil, failureState == nil, Library.runnerGone(record.key) { endedBeforeStop(); done?(nil); return }
         if let e = error as? CoreError, case .NotRunning = e { expectedStop = false; refresh(); done?(nil); return }
         if let error {
             failure = "\(error)"
@@ -271,6 +291,8 @@ final class MachineModel: ObservableObject, Identifiable {
     /// it, then runs; a force stop does not wait.
     func stop(force: Bool = false, done: (@MainActor (Error?) -> Void)? = nil) {
         guard isRunning else { done?(nil); return }
+        // The emulator is already gone: that is what a stop is for.
+        if busy != "Starting…", Library.runnerGone(record.key) { endedBeforeStop(); done?(nil); return }
         if let busy, !(force && busy != "Stopping…") {
             var queued = pendingStop ?? (force: force, done: [])
             queued.force = queued.force || force
@@ -422,7 +444,7 @@ final class AppModel: ObservableObject {
     /// Re-read every machine that should be running, and the library if one was left running.
     func checkLiveness() {
         for m in models where m.session != nil && m.state.isActive { m.refresh() }
-        if models.contains(where: { $0.state == .leftRunning }) { rescan() }
+        for m in models { m.recheckLeftRunning() }
     }
 
     /// The core said something changed; pull what we show.
@@ -543,13 +565,14 @@ final class AppModel: ObservableObject {
     /// re-read and every opened machine asked, so a stale entry for a stopped machine is not counted.
     func liveRunning(_ done: @escaping @MainActor ([MachineModel]) -> Void) {
         guard let host else { done([]); return }
-        let opened = models.compactMap { m in m.session.map { (m.id, $0.machine) } }
+        let opened = models.compactMap { m in m.session.map { (m.id, $0.machine, m.record.key) } }
         scanIssued += 1
         let issued = scanIssued
         DispatchQueue.global(qos: .userInitiated).async {
             let summaries = try? host.core.listMachines()
             var live = Set<String>()
-            for (id, machine) in opened where [.starting, .running, .paused, .stopping].contains(machine.view().state) { live.insert(id) }
+            for (id, machine, dir) in opened where !Library.runnerGone(dir)
+                && [.starting, .running, .paused, .stopping].contains(machine.view().state) { live.insert(id) }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     if let summaries { self.applyListing(summaries, issued: issued, force: true) }

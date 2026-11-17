@@ -72,6 +72,32 @@ struct MachineRecord: Identifiable, Hashable {
 }
 
 enum Library {
+    // Stopgap: the core's own left-running state and exit reasons replace this lock check once they land.
+    /// Whether a process holds the machine's lock. A runner holds it for the machine's whole life, so
+    /// this answers "is it up" without the core, and sees machines started by another core or session.
+    static func runnerHolds(_ dir: String) -> Bool { probe(dir) == true }
+
+    /// True when the runner ended: the lock exists and nothing holds it, or the run record names a
+    /// runner or QEMU process that no longer exists. No lock file (an engine without a runner, or a
+    /// start still under way) is not "gone".
+    static func runnerGone(_ dir: String) -> Bool {
+        if probe(dir) == false { return true }
+        guard let data = FileManager.default.contents(atPath: dir + "/state/run.json"),
+              let record = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return ["pid", "qemu_pid"].contains { key in
+            guard let pid = (record[key] as? NSNumber)?.int32Value, pid > 0 else { return false }
+            return kill(pid, 0) != 0 && errno == ESRCH
+        }
+    }
+
+    private static func probe(_ dir: String) -> Bool? {
+        let fd = open(dir + "/state/machine.lock", O_RDONLY)
+        if fd < 0 { return nil }
+        defer { close(fd) }
+        if flock(fd, LOCK_EX | LOCK_NB) == 0 { flock(fd, LOCK_UN); return false }
+        return true
+    }
+
     /// Where machines live unless told otherwise.
     static func defaultRoot() -> URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

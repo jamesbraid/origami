@@ -160,6 +160,24 @@ func runSelfTest(library: String, out: String) {
           ["machines": app.models.map(\.name), "chosen": model.name, "product": model.record.productName,
            "memory": model.record.memory, "nodes": model.record.nodes])
     check("library-not-running", model.state == .stopped, ["state": model.state.pill])
+    // A runner is gone when its lock is free or its record names a dead process; no lock is not gone.
+    do {
+        let dir = NSTemporaryDirectory() + "origami-gone-\(UUID().uuidString)"
+        try? FileManager.default.createDirectory(atPath: dir + "/state", withIntermediateDirectories: true)
+        let none = Library.runnerGone(dir)
+        FileManager.default.createFile(atPath: dir + "/state/machine.lock", contents: nil)
+        let free = Library.runnerGone(dir)
+        let held = open(dir + "/state/machine.lock", O_RDONLY); flock(held, LOCK_EX)
+        let heldNow = Library.runnerGone(dir)
+        try? #"{"pid": 2147483000, "qemu_pid": 0}"#.write(toFile: dir + "/state/run.json", atomically: true, encoding: .utf8)
+        let deadPid = Library.runnerGone(dir)
+        try? "{\"pid\": \(getpid()), \"qemu_pid\": 0}".write(toFile: dir + "/state/run.json", atomically: true, encoding: .utf8)
+        let alivePid = Library.runnerGone(dir)
+        close(held)
+        try? FileManager.default.removeItem(atPath: dir)
+        check("runner-gone-is-judged-by-lock-and-pids", !none && free && !heldNow && deadPid && !alivePid,
+              ["no_lock": none, "free_lock": free, "held_lock": heldNow, "dead_pid": deadPid, "live_pid": alivePid])
+    }
 
     // 2. The command table.
     var keys: [String: CommandID] = [:]
