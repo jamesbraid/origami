@@ -4,6 +4,19 @@
 import OrigamiFrame
 import SwiftUI
 
+/// The letters typed in About, matched against the egg's word. Any other key starts over.
+struct EggBuffer {
+    static let word = Array("hinv")
+    private var seen: [Character] = []
+
+    /// True when this key completes the word.
+    mutating func feed(_ key: Character) -> Bool {
+        seen.append(Character(key.lowercased()))
+        if seen.count > Self.word.count { seen.removeFirst(seen.count - Self.word.count) }
+        return seen == Self.word
+    }
+}
+
 struct AboutView: View {
     @EnvironmentObject var app: AppModel
     @State private var acknowledgements = false
@@ -18,6 +31,9 @@ struct AboutView: View {
     }
 
     @State private var qemuVersion: String?
+    @State private var hinv: String?
+    @State private var egg = EggBuffer()
+    @State private var keys: Any?
 
     private var version: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
@@ -30,22 +46,69 @@ struct AboutView: View {
             CubeHost(look: .about, machine: Self.reflectsRunningMachine ? running : nil)
                 .frame(width: 360, height: 180)
                 .accessibilityLabel("The SGI cube")
-            VStack(spacing: 6) {
-                Text("Origami").font(.title.weight(.semibold))
-                Text(version).font(.caption).foregroundStyle(.secondary)
-                Text("Released under the BSD 3-Clause licence.").font(.caption).foregroundStyle(.secondary)
-                Text("All trademarks are the property of their respective owners.")
-                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                Button("Acknowledgements…") { acknowledgements = true }.padding(.top, 6)
+            ZStack {
+                if let hinv {
+                    ScrollView {
+                        Text(hinv).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                    }
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .transition(.move(edge: .bottom))
+                    .onTapGesture { withAnimation { self.hinv = nil } }
+                    .accessibilityLabel("Host inventory. Press Escape to close.")
+                } else {
+                    credits
+                }
             }
-            .padding(16)
+            .frame(height: 150).clipped()
+            Button("Acknowledgements…") { acknowledgements = true }.padding(.bottom, 12)
         }
         .frame(width: 360)
         .sheet(isPresented: $acknowledgements) { Acknowledgements() }
+        .onAppear { startListening() }
+        .onDisappear { stopListening() }
         .task {
             // The core is asked off the main actor; the line fills in when it answers.
             guard let core = app.host?.core else { return }
             qemuVersion = await Task.detached { core.engines().first(where: { $0.id == "qemu" })?.version }.value
+        }
+    }
+
+    private var credits: some View {
+        VStack(spacing: 6) {
+            Text("Origami").font(.title.weight(.semibold))
+            Text(version).font(.caption).foregroundStyle(.secondary)
+            Text("Released under the BSD 3-Clause licence.").font(.caption).foregroundStyle(.secondary)
+            Text("All trademarks are the property of their respective owners.")
+                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .padding(16)
+    }
+
+    /// While About is up, typing h-i-n-v shows the host inventory over the credits; Escape closes it.
+    private func startListening() {
+        guard keys == nil else { return }
+        keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { e in
+            guard e.window?.title == "About Origami" else { return e }
+            if e.keyCode == 53, hinv != nil { withAnimation { hinv = nil }; return nil }
+            if let c = e.charactersIgnoringModifiers?.first, e.modifierFlags.intersection([.command, .control]).isEmpty, egg.feed(c) {
+                showHinv()
+            }
+            return e
+        }
+    }
+
+    private func stopListening() {
+        if let keys { NSEvent.removeMonitor(keys) }
+        keys = nil
+    }
+
+    private func showHinv() {
+        guard let core = app.host?.core else { return }
+        Task {
+            // The inventory reads the disk and may open the GPU: not on the main actor.
+            let text = await Task.detached { core.hinv() }.value
+            withAnimation { hinv = text }
         }
     }
 }

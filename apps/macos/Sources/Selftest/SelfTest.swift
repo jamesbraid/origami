@@ -132,6 +132,26 @@ func runSelfTest(library: String, out: String) {
             app.rescanNow()
         } catch { check("create-second-machine", false, ["error": "\(error)"]) }
     }
+    // The About egg: h-i-n-v, however it is broken up, completes the word once; the core's inventory comes back
+    // off the main thread and says what the host is.
+    do {
+        var egg = EggBuffer()
+        let typed = Array("xhinv").map { egg.feed($0) }
+        var again = EggBuffer()
+        let broken = Array("hihinv").map { again.feed($0) }
+        var upper = EggBuffer()
+        let caps = Array("HINV").map { upper.feed($0) }
+        check("about-egg-word-matches-only-hinv", typed == [false, false, false, false, true] && broken.last == true
+              && !broken.dropLast().contains(true) && caps.last == true, [:])
+        var text = ""
+        let done = DispatchSemaphore(value: 0)
+        let core = host.core
+        DispatchQueue.global().async { text = core.hinv(); done.signal() }
+        let got = waitFor(30) { done.wait(timeout: .now()) == .success }
+        check("about-egg-hinv-comes-from-the-core", got && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              ["first_line": String(text.split(separator: "\n").first ?? "")])
+    }
+
     let wanted = ProcessInfo.processInfo.environment["ORIGAMI_TEST_MACHINE"]
     guard let model = (wanted.flatMap { app.model(named: $0) } ?? app.models.first) else {
         check("library", false, ["error": "no machines in \(library)"]); finish()
