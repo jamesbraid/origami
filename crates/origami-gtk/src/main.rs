@@ -12,6 +12,7 @@ mod automation;
 mod commands;
 mod config;
 mod console;
+mod crisp;
 mod cube;
 mod display;
 mod granite;
@@ -23,6 +24,7 @@ mod pointer_lock;
 mod prefs;
 mod settings;
 mod style;
+mod view_scale;
 mod vk;
 mod window;
 

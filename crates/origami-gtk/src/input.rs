@@ -145,6 +145,7 @@ pub fn wire(app: &Rc<App>, m: &Rc<MachineUi>) {
         motion.connect_motion(move |_, x, y| {
             if m.pointer.get() == PointerMode::Follow {
                 if let Some((px, py)) = to_head(&m, x, y) {
+                    m.pointer_at.set((px, py));
                     m.send(InputEvent::PointerAt {
                         head: 0,
                         x: px,
@@ -259,22 +260,7 @@ fn track_chord(m: &MachineUi, keyval: gdk::Key, down: bool) {
 }
 
 /// Map a point in the screen widget to a pixel of head 0, accounting for the
-/// letterbox around a picture that is scaled to fit.
+/// letterbox and the view scale.
 pub fn to_head(m: &MachineUi, x: f64, y: f64) -> Option<(i32, i32)> {
-    let (w, h) = m.size.get();
-    if w == 0 {
-        return None;
-    }
-    let (aw, ah) = (f64::from(m.screen.width()), f64::from(m.screen.height()));
-    let one_to_one = m.picture.content_fit() == gtk::ContentFit::ScaleDown;
-    let mut s = (aw / f64::from(w)).min(ah / f64::from(h));
-    if one_to_one {
-        s = s.min(1.0);
-    }
-    let (ox, oy) = ((aw - f64::from(w) * s) / 2.0, (ah - f64::from(h) * s) / 2.0);
-    let (px, py) = ((x - ox) / s, (y - oy) / s);
-    Some((
-        px.clamp(0.0, f64::from(w) - 1.0) as i32,
-        py.clamp(0.0, f64::from(h) - 1.0) as i32,
-    ))
+    Some(m.layout()?.guest_at(m.size.get(), x, y))
 }

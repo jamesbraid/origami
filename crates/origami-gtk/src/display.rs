@@ -89,7 +89,7 @@ pub fn pump(app: &Rc<App>, m: &Rc<MachineUi>) {
                 &bytes,
                 w * 4,
             );
-            m.picture.set_paintable(Some(&tex));
+            m.set_texture(tex.upcast_ref());
             shown(m, u.width, u.height, u.seq);
         }
         None => {}
@@ -97,7 +97,9 @@ pub fn pump(app: &Rc<App>, m: &Rc<MachineUi>) {
 }
 
 fn shown(m: &MachineUi, w: u32, h: u32, seq: u64) {
-    m.size.set((w, h));
+    if m.size.replace((w, h)) != (w, h) {
+        m.screen.queue_allocate();
+    }
     m.seq.set(seq);
     m.last_frame.set(Instant::now());
     if !m.root.is_mapped() {
@@ -241,7 +243,7 @@ fn show_ready(m: &Rc<MachineUi>, r: vk::Ready, w: u32, h: u32, seq: u64) {
     };
     match tex {
         Ok(t) => {
-            m.picture.set_paintable(Some(&t));
+            m.set_texture(t.upcast_ref());
             m.shown_slot.set(Some(r.slot));
             shown(m, w, h, seq);
             let mut s = m.stats.borrow_mut();

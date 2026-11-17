@@ -15,14 +15,12 @@ pub struct Config {
     pub automation: Option<PathBuf>,
     /// Print what the GPU import can do and exit.
     pub probe: bool,
-    /// Never scale the picture up (for exact pixel comparisons).
-    pub one_to_one: bool,
     /// Machines to start as soon as the library is shown, by directory name.
     pub start: Vec<String>,
 }
 
 pub const USAGE: &str = "usage: origami-gtk [--library DIR] [--config-dir DIR]
-                   [--vk-device NAME] [--no-import] [--one-to-one]
+                   [--vk-device NAME] [--no-import]
                    [--automation SOCKET] [--start NAME]... [--probe]";
 
 impl Config {
@@ -37,7 +35,6 @@ impl Config {
             no_import: false,
             automation: None,
             probe: false,
-            one_to_one: false,
             start: Vec::new(),
         };
         let mut a = args;
@@ -51,7 +48,6 @@ impl Config {
                 "--automation" => c.automation = Some(value("a socket path")?.into()),
                 "--start" => c.start.push(value("a machine name")?),
                 "--no-import" => c.no_import = true,
-                "--one-to-one" => c.one_to_one = true,
                 "--probe" => c.probe = true,
                 "-h" | "--help" => return Err(USAGE.into()),
                 other => return Err(format!("unknown argument {other}\n{USAGE}")),

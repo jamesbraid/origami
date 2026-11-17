@@ -667,7 +667,8 @@ fn screenshot(m: &MachineUi) {
     let saved = m
         .picture
         .paintable()
-        .and_then(|p| p.downcast::<gtk::gdk::Texture>().ok())
+        .and_then(|p| p.downcast::<crate::crisp::Crisp>().ok())
+        .and_then(|c| c.texture())
         .map(|t| t.save_to_png(&path));
     match saved {
         Some(Ok(())) => {}

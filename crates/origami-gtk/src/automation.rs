@@ -122,6 +122,10 @@ fn describe(m: &MachineUi) -> Value {
         "imported": m.stats.borrow().imported, "inputs": m.inputs.get(),
         "visible": m.root.is_mapped(), "captured": m.captured.get(), "motion_total": [m.motion_total.get().0, m.motion_total.get().1], "pointer_locked": m.lock.borrow().is_some(),
         "pointer": format!("{:?}", m.pointer.get()).to_lowercase(),
+        "pointer_at": [m.pointer_at.get().0, m.pointer_at.get().1],
+        "view": format!("{:?}", m.view.get()).to_lowercase(),
+        "scale_factor": m.scale_factor(),
+        "picture": m.layout().map(|l| json!({"rect": [l.alloc().0, l.alloc().1, l.alloc().2, l.alloc().3], "device": [l.dev.0, l.dev.1, l.dev.2, l.dev.3], "step": l.step, "nearest": l.nearest})),
         "presents_while_hidden": m.stats.borrow().presents_while_hidden,
         "screen_bounds": m.screen.root().and_then(|r| m.screen.compute_bounds(r.upcast_ref::<gtk::Widget>())).map(|b| json!([b.x(), b.y(), b.width(), b.height()])),
     })

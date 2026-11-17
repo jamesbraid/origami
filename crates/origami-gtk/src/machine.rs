@@ -4,11 +4,13 @@
 //! facts, never from what the UI last asked for.
 
 use crate::app::App;
+use crate::crisp::{Crisp, Place};
 use crate::library::Entry;
 use crate::prefs::PointerMode;
+use crate::view_scale::{self, Layout, ViewScale};
 use crate::vk;
 use adw::prelude::*;
-use gtk::glib;
+use gtk::{gdk, glib};
 use origami_core::facade::{HookId, Machine, MachineState, Operation, OperationState};
 use origami_engine::ImportedUpdate;
 use std::cell::{Cell, RefCell};
@@ -103,6 +105,11 @@ pub struct MachineUi {
     cube: RefCell<Option<crate::cube::Cube>>,
     pub screen: gtk::Overlay,
     pub picture: gtk::Picture,
+    offload: gtk::GraphicsOffload,
+    pub view: Cell<ViewScale>,
+    /// The guest pixel last sent as the pointer's place, for tests.
+    pub pointer_at: Cell<(i32, i32)>,
+    place: Cell<Place>,
     pub status: gtk::Label,
     pub hud: gtk::Label,
     pub page: RefCell<Option<adw::TabPage>>,
@@ -140,14 +147,8 @@ pub struct MachineUi {
 impl MachineUi {
     pub fn new(app: &Rc<App>, entry: Entry, machine: Machine) -> Rc<MachineUi> {
         let picture = gtk::Picture::builder()
-            .content_fit(if app.cfg.one_to_one {
-                gtk::ContentFit::ScaleDown
-            } else {
-                gtk::ContentFit::Contain
-            })
+            .content_fit(gtk::ContentFit::Fill)
             .can_shrink(true)
-            .hexpand(true)
-            .vexpand(true)
             .build();
         let offload = gtk::GraphicsOffload::new(Some(&picture));
         offload.set_enabled(gtk::GraphicsOffloadEnabled::Enabled);
@@ -169,15 +170,9 @@ impl MachineUi {
             .visible(false)
             .can_target(false)
             .build();
-        // The offload paints black over its whole area, so it takes the
-        // picture's aspect and the letterbox around it stays granite (at 1:1 the
-        // frame still fills the window, so that mode shows none).
-        let framed = gtk::AspectFrame::builder()
-            .obey_child(true)
-            .child(&offload)
-            .build();
+        // The offload paints black over its whole area, so it is placed on the
+        // picture's rectangle (see `view_scale`) and the letterbox stays granite.
         let screen = gtk::Overlay::builder()
-            .child(&framed)
             .focusable(true)
             .focus_on_click(true)
             .hexpand(true)
@@ -185,6 +180,7 @@ impl MachineUi {
             .build();
         let letterbox = crate::granite::Granite::new(crate::granite::neutral());
         letterbox.append(&screen);
+        screen.add_overlay(&offload);
         screen.add_overlay(&status);
         screen.add_overlay(&hud);
         screen.update_property(&[gtk::accessible::Property::Label(&format!(
@@ -236,7 +232,7 @@ impl MachineUi {
         root.add_named(&letterbox, Some("screen"));
 
         let pointer = app.prefs.borrow().pointer_for(&entry.dir);
-        Rc::new(MachineUi {
+        let m = Rc::new(MachineUi {
             dir: entry.dir.clone(),
             name: entry.name.clone(),
             entry: RefCell::new(entry),
@@ -258,6 +254,10 @@ impl MachineUi {
             cube: RefCell::new(None),
             screen,
             picture,
+            offload,
+            view: Cell::new(ViewScale::Fit),
+            pointer_at: Cell::new((-1, -1)),
+            place: Cell::new(Place::default()),
             status,
             hud,
             page: RefCell::new(None),
@@ -282,7 +282,81 @@ impl MachineUi {
             inputs: Cell::new(0),
             hud_timer: RefCell::new(None),
             console: RefCell::new(None),
-        })
+        });
+        m.place_picture();
+        m
+    }
+
+    /// The picture's rectangle in the screen widget, once there is a picture.
+    pub fn layout(&self) -> Option<Layout> {
+        view_scale::layout(
+            self.view.get(),
+            (self.screen.width(), self.screen.height()),
+            self.size.get(),
+            self.scale_factor(),
+        )
+    }
+
+    /// Device pixels per logical pixel, fractional where the window system says so.
+    pub fn scale_factor(&self) -> f64 {
+        self.screen
+            .native()
+            .and_then(|n| n.surface())
+            .map_or_else(|| f64::from(self.screen.scale_factor()), |s| s.scale())
+    }
+
+    /// Show a new picture, smoothed or not as the current layout wants.
+    pub fn set_texture(&self, tex: &gdk::Texture) {
+        self.picture
+            .set_paintable(Some(&Crisp::new(tex, self.place.get())));
+    }
+
+    /// Put the picture where `layout` says, and lay it out again when the
+    /// display's scale changes.
+    fn place_picture(self: &Rc<Self>) {
+        let weak = Rc::downgrade(self);
+        self.screen.connect_get_child_position(move |_, child| {
+            let m = weak.upgrade()?;
+            if child != m.offload.upcast_ref::<gtk::Widget>() {
+                return None;
+            }
+            let l = m.layout()?;
+            let place = Place {
+                nearest: l.nearest,
+                factor: l.factor,
+                off: l.offset(),
+                size: (f64::from(l.dev.2), f64::from(l.dev.3)),
+            };
+            m.place.set(place);
+            if let Some(c) = m
+                .picture
+                .paintable()
+                .and_then(|p| p.downcast::<Crisp>().ok())
+            {
+                c.set_place(place);
+            }
+            let (x, y, w, h) = l.alloc();
+            Some(gdk::Rectangle::new(x, y, w, h))
+        });
+        self.screen
+            .connect_scale_factor_notify(|s| s.queue_allocate());
+        let weak = Rc::downgrade(self);
+        let hooked = Cell::new(false);
+        self.screen.connect_map(move |s| {
+            let (Some(m), Some(surface)) = (weak.upgrade(), s.native().and_then(|n| n.surface()))
+            else {
+                return;
+            };
+            if hooked.replace(true) {
+                return;
+            }
+            let w = Rc::downgrade(&m);
+            surface.connect_scale_notify(move |_| {
+                if let Some(m) = w.upgrade() {
+                    m.screen.queue_allocate();
+                }
+            });
+        });
     }
 
     /// The state the core reports right now.
