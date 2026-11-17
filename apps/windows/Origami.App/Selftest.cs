@@ -511,6 +511,21 @@ public static class Selftest
         if (s1 != null) await Shot.Readback(s1, sw1, sh1, sw1 * 4, Path.Combine(dir, "starting-cube.png"));
         w.Restore();
         Check("starting: the cube is detached once the pane is gone", await Until(() => !cubeStart.Attached, 3000));
+        // --- the emulated CPU load panel: hidden means no polling; the fake engine reports 30/10 and 60/5 ---
+        var polls0 = w.CpuPolls;
+        await Task.Delay(1200);
+        Check("cpu: hidden, the panel does no polling", !w.CpuPanelShown && w.CpuPolls == polls0, $"shown {w.CpuPanelShown}, polls {polls0} -> {w.CpuPolls}");
+        w.SetCpuPanel(true);
+        Check("cpu: the bars show both CPUs with user plus system", await Until(() => w.CpuText.Contains("cpu 0") && w.CpuText.Contains("40%") && w.CpuText.Contains("cpu 1") && w.CpuText.Contains("65%"), 4000), w.CpuText);
+        Check("cpu: the title says the load is measured on the host", w.CpuTitleText == "Emulated CPU load (measured on the host)", w.CpuTitleText);
+        var p1 = w.CpuPolls;
+        await Task.Delay(2200);
+        Check("cpu: shown, it polls at about 2 Hz", w.CpuPolls - p1 >= 3 && w.CpuPolls - p1 <= 7, $"{w.CpuPolls - p1} polls in 2.2 s");
+        w.SetCpuPanel(false);
+        await Task.Delay(300);
+        var p2 = w.CpuPolls;
+        await Task.Delay(1200);
+        Check("cpu: hiding it stops the polling", w.CpuPolls == p2, $"polls {p2} -> {w.CpuPolls}");
 
         // --- stop ---
         Check("power off reaches Stopped", await Until(() => core.Status(key).State == MachineState.Stopped, 8000), core.Status(key).Reason);

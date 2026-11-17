@@ -388,5 +388,19 @@ Test("ppm: P6 to BGRX, and a short file is refused", () =>
 });
 
 
+Test("cpu panel: labels, totals, segment widths and the empty text", () =>
+{
+    Eq("cpu 0", CpuPanel.Label(0));
+    Eq("40%", CpuPanel.Total(new CpuBarInfo(0, 30, 10)));
+    Eq("65%", CpuPanel.Total(new CpuBarInfo(1, 60, 5)));
+    Eq("100%", CpuPanel.Total(new CpuBarInfo(1, 90, 40)), "clamped");
+    var (u, s) = CpuPanel.Segments(new CpuBarInfo(0, 30, 10), 200);
+    Eq(60.0, u); Eq(20.0, s);
+    var (u2, s2) = CpuPanel.Segments(new CpuBarInfo(0, 90, 40), 100);
+    Eq(true, Math.Abs(u2 + s2 - 100) < 1e-9, "never wider than the bar");
+    Eq("measuring…", CpuPanel.Empty(new CpuLoadInfo(Array.Empty<CpuBarInfo>(), null)));
+    Eq("not running", CpuPanel.Empty(new CpuLoadInfo(Array.Empty<CpuBarInfo>(), "not running")));
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;

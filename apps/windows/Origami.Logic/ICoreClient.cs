@@ -40,6 +40,8 @@ public interface ICoreClient : IDisposable
 
     DisplayInfo Display(string key, int head);
     MachineDiag Diagnostics(string key);
+    /// <summary>The latest emulated-CPU load; the core samples while this keeps being called, so call it only while the panel is shown.</summary>
+    Task<CpuLoadInfo> CpuLoadAsync(string key);
     IFrames OpenFrames(string key);
 
     /// <summary>Never blocks.</summary>

@@ -9,6 +9,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <MenuBar x:Name="Menus" Grid.Row="0"/>
@@ -37,6 +38,8 @@
             <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" Label="Follow"
                                 AutomationProperties.AutomationId="cmd.pointermode"
                                 ToolTipService.ToolTip="Pointer mode: Follow my mouse or Capture on click"/>
+            <AppBarToggleButton x:Name="CpuButton" Icon="Calculator" Label="CPU"
+                                AutomationProperties.AutomationId="cmd.cpu" ToolTipService.ToolTip="Show or hide the emulated CPU load"/>
             <AppBarButton x:Name="SettingsButton" Icon="Setting" Label="Settings"
                           AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Settings"/>
         </CommandBar>
@@ -106,7 +109,16 @@
             </Grid>
         </Grid>
 
-        <Grid Grid.Row="3" Padding="12,4" Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <!-- Emulated CPU load: below the machine's pane, because the screen is a native child window that XAML cannot draw over. -->
+        <Border x:Name="CpuPanelBox" Grid.Row="3" Visibility="Collapsed" Padding="12,8" Background="{ThemeResource LayerFillColorDefaultBrush}"
+                AutomationProperties.AutomationId="cpu.panel">
+            <StackPanel Spacing="6">
+                <TextBlock x:Name="CpuTitle" FontSize="12" FontWeight="SemiBold"/>
+                <StackPanel x:Name="CpuBars" Spacing="4"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="4" Padding="12,4" Background="{ThemeResource LayerFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock x:Name="StatusText" FontSize="12" Opacity="0.8" VerticalAlignment="Center" AutomationProperties.AutomationId="status.text"/>
                 <HyperlinkButton x:Name="ShowShot" Content="Show in Explorer" FontSize="12" Padding="4,0" Visibility="Collapsed"

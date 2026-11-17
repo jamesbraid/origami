@@ -329,6 +329,12 @@ public sealed class UniffiCoreClient : ICoreClient
             v.Console.Connected, v.Console.DownReason, v.Console.Total);
     }
 
+    public Task<CpuLoadInfo> CpuLoadAsync(string key) => Task.Run(() =>
+    {
+        var r = M(key).CpuLoad();
+        return new CpuLoadInfo(r.Cpus.Select(c => new CpuBarInfo((int)c.Cpu, c.UserPct, c.SysPct)).ToList(), r.Unavailable);
+    });
+
     public IFrames OpenFrames(string key)
     {
         var handle = (IntPtr)(long)M(key).FramePlaneHandle();

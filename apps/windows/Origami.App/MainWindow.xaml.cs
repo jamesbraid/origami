@@ -46,6 +46,7 @@ public sealed partial class MainWindow : Window
         PauseButton.Click += (_, _) => Invoke("machine.pause");
         ConsoleButton.Click += (_, _) => Invoke("window.console");
         SettingsButton.Click += (_, _) => Invoke("machine.settings");
+        CpuButton.Click += (_, _) => SetCpuPanel(CpuButton.IsChecked == true);
         PointerButton.Click += (_, _) => Invoke("machine.pointer-mode");
         ShowShot.Click += (_, _) => ShowInExplorer();
 
@@ -628,6 +629,66 @@ public sealed partial class MainWindow : Window
     {
         if (_lastShot is { } p && File.Exists(p))
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{p}\"") { UseShellExecute = true });
+    }
+
+    // ---- emulated CPU load -------------------------------------------------------------------
+
+    DispatcherQueueTimer? _cpuTimer;
+    int _cpuBusy;
+    public bool CpuPanelShown => CpuPanelBox.Visibility == Visibility.Visible;
+    public long CpuPolls { get; private set; }
+    public string CpuText => string.Join(" | ", CpuBars.Children.OfType<Grid>().Select(g => string.Join(" ", g.Children.OfType<TextBlock>().Select(t => t.Text)))) is { Length: > 0 } t ? t : string.Join(" ", CpuBars.Children.OfType<TextBlock>().Select(t => t.Text));
+    public string CpuTitleText => CpuTitle.Text;
+
+    public void SetCpuPanel(bool on)
+    {
+        CpuButton.IsChecked = on;
+        CpuPanelBox.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+        CpuTitle.Text = CpuPanel.Title;
+        if (!on) { _cpuTimer?.Stop(); return; } // hidden means no polling
+        _cpuTimer ??= _ui.CreateTimer();
+        _cpuTimer.Interval = CpuPanel.Interval;
+        _cpuTimer.Tick -= CpuTick; _cpuTimer.Tick += CpuTick;
+        _cpuTimer.Start();
+        CpuTick(null, null);
+    }
+
+    async void CpuTick(object? s, object? e)
+    {
+        if (Interlocked.Exchange(ref _cpuBusy, 1) == 1) return;
+        try
+        {
+            var key = SelectedKey;
+            CpuLoadInfo r = key is null ? new CpuLoadInfo(Array.Empty<CpuBarInfo>(), "Select a machine.") : await _core.CpuLoadAsync(key);
+            CpuPolls++;
+            ShowCpu(r);
+        }
+        catch (Exception ex) { ShowCpu(new CpuLoadInfo(Array.Empty<CpuBarInfo>(), ex.Message)); }
+        finally { _cpuBusy = 0; }
+    }
+
+    void ShowCpu(CpuLoadInfo r)
+    {
+        CpuBars.Children.Clear();
+        if (r.Cpus.Count == 0) { CpuBars.Children.Add(new TextBlock { Text = CpuPanel.Empty(r), FontSize = 12, Opacity = 0.7 }); return; }
+        foreach (var c in r.Cpus)
+        {
+            var (user, sys) = CpuPanel.Segments(c, 240);
+            var bar = new Grid { Width = 240, Height = 12, Background = new SolidColorBrush(Color.FromArgb(255, 0x1F, 0x21, 0x26)) };
+            var segs = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left };
+            segs.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Width = user, Height = 12, Fill = new SolidColorBrush(Color.FromArgb(255, 0x3B, 0x82, 0xF6)) });
+            segs.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Width = sys, Height = 12, Fill = new SolidColorBrush(Color.FromArgb(255, 0xDC, 0x26, 0x26)) });
+            bar.Children.Add(segs);
+            var row = new Grid { ColumnSpacing = 8 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+            var label = new TextBlock { Text = CpuPanel.Label(c.Cpu), FontSize = 12 };
+            var total = new TextBlock { Text = CpuPanel.Total(c), FontSize = 12, TextAlignment = TextAlignment.Right };
+            Grid.SetColumn(bar, 1); Grid.SetColumn(total, 2);
+            row.Children.Add(label); row.Children.Add(bar); row.Children.Add(total);
+            CpuBars.Children.Add(row);
+        }
     }
 
     void OpenConsole(string key)
