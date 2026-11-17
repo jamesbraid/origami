@@ -1432,10 +1432,10 @@ exit 1
 --- stderr
 origami: No such file or directory (os error 2)
 === origami stop <ROOT>/origin200_1
-exit 1
+exit 0
 --- stdout
+not running
 --- stderr
-origami: No such file or directory (os error 2)
 === origami no-such-command
 exit 2
 --- stdout

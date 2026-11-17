@@ -366,12 +366,20 @@ fn command(action: Action) -> Result<()> {
         }
         Action::Stop(args) => {
             let dir = origami_core::directory(&args.dir)?;
-            if args.force {
-                origami_host::client::force_stop(&dir)?;
+            // A machine that never ran, or has ended, has no run record.
+            if control::read(&dir).is_err_and(|e| {
+                e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+            }) {
+                emit(&Report::one("not running"));
             } else {
-                origami_host::client::stop(&dir)?;
+                if args.force {
+                    origami_host::client::force_stop(&dir)?;
+                } else {
+                    origami_host::client::stop(&dir)?;
+                }
+                emit(&Report::one("stopped"));
             }
-            emit(&Report::one("stopped"));
         }
         Action::Reset(args) => {
             origami_host::client::reset(&origami_core::directory(&args.dir)?)?;

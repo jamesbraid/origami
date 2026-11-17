@@ -859,3 +859,13 @@ fn an_edit_of_a_machine_another_process_runs_is_busy() {
     assert_eq!(error.kind, ErrorKind::Busy);
     assert_eq!(machine.settings().unwrap().memory_per_node_mib, 128);
 }
+
+#[test]
+fn stopping_a_machine_that_has_ended_says_it_is_not_running() {
+    let f = fixture();
+    let (machine, session) = f.started("m");
+    session.shut_down();
+    for how in [StopKind::Clean, StopKind::Force] {
+        assert_eq!(machine.stop(how).err().unwrap().kind, ErrorKind::NotRunning);
+    }
+}

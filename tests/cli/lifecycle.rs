@@ -368,3 +368,15 @@ fn show_command_points_qemu_at_its_data_directory() {
     let data = Path::new("share").join("origami").join("qemu");
     assert!(shown.contains(&data.display().to_string()), "{shown}");
 }
+
+#[test]
+fn stopping_a_machine_that_is_not_running_says_so() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path();
+    let machine = create(root, "machine", "origin200-1", &[]);
+    let path = machine.to_str().unwrap();
+    for args in [["stop", path, ""], ["stop", "--force", path]] {
+        let args: Vec<&str> = args.into_iter().filter(|a| !a.is_empty()).collect();
+        assert_eq!(ok(root, &args).trim(), "not running");
+    }
+}

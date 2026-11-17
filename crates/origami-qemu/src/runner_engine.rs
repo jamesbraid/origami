@@ -73,8 +73,10 @@ struct Shown {
     stop: AtomicBool,
     /// Set once the machine is gone.
     gone: AtomicBool,
-    /// How the machine ended, read once when `gone` is seen.
+    /// How the machine ended, kept once the runner's note has been read.
     ended: std::sync::OnceLock<machine_control::Exit>,
+    /// When `gone` was first seen, to give the runner's note time to land.
+    gone_seen: Mutex<Option<std::time::Instant>>,
     paused: AtomicBool,
     input: Mutex<Option<Sender<InputEvent>>>,
     /// Ends the display thread's blocked read when the session drops.
@@ -429,6 +431,7 @@ impl Engine for RunnerEngine {
             stop: AtomicBool::new(false),
             gone: AtomicBool::new(false),
             ended: std::sync::OnceLock::new(),
+            gone_seen: Mutex::new(None),
             paused: AtomicBool::new(false),
             input: Mutex::new(Some(tx)),
             interrupt: Mutex::new(None),
@@ -441,6 +444,25 @@ impl Engine for RunnerEngine {
             std::thread::Builder::new()
                 .name("shm-display".into())
                 .spawn(move || reader_thread(&shown))?
+        };
+        let watcher = {
+            let watched = shown.clone();
+            let spawned = std::thread::Builder::new()
+                .name("runner-watch".into())
+                .spawn(move || watch_runner(&watched, Duration::from_secs(1)));
+            match spawned {
+                Ok(watcher) => watcher,
+                Err(error) => {
+                    // End the threads already running before giving up.
+                    shown.stop.store(true, Ordering::Release);
+                    *lock(&shown.input) = None;
+                    if let Some(interrupt) = lock(&shown.interrupt).as_ref() {
+                        interrupt();
+                    }
+                    let _ = (input.join(), reader.join());
+                    return Err(error.into());
+                }
+            }
         };
         // A runner paused by an earlier session stays paused.
         let status = machine_control::read(&dir)
@@ -457,7 +479,7 @@ impl Engine for RunnerEngine {
         lock(&self.shown).insert(dir, shown.clone());
         Ok(Arc::new(RunnerSession {
             shown,
-            threads: Mutex::new(vec![input, reader]),
+            threads: Mutex::new(vec![input, reader, watcher]),
         }))
     }
 }
@@ -565,11 +587,16 @@ impl Session for RunnerSession {
 
     fn stop(&self, how: Stop) -> Result<()> {
         let dir = &self.shown.dir;
-        match how {
+        let stopped = match how {
             Stop::Clean { .. } => qemu_control::stop(dir),
             Stop::Force => qemu_control::force_stop(dir),
+        };
+        // A machine that already ended has nothing to stop: that is done.
+        if let Err(error) = stopped {
+            if runner_alive(dir) {
+                return Err(error.to_string().into());
+            }
         }
-        .map_err(|e| e.to_string())?;
         self.shown.gone.store(true, Ordering::Release);
         (self.shown.wake)(self.shown.id);
         Ok(())
@@ -577,12 +604,7 @@ impl Session for RunnerSession {
 
     fn status(&self) -> Facts {
         let state = if self.shown.gone.load(Ordering::Acquire) {
-            // The runner writes how QEMU ended before the machine is gone, so
-            // read it once; a status call is made on a UI thread.
-            let ended = self
-                .shown
-                .ended
-                .get_or_init(|| machine_control::read_exit(&self.shown.dir).unwrap_or_default());
+            let ended = self.shown.ended();
             RunState::Exited {
                 code: ended.code,
                 signal: ended.signal,
@@ -594,6 +616,25 @@ impl Session for RunnerSession {
             RunState::Running
         };
         Facts { state, pid: None }
+    }
+}
+
+impl Shown {
+    /// How the machine ended. The runner writes its note before the machine
+    /// is gone, so it is read once it is there; one that never comes is given
+    /// two seconds, then taken as none, so a status call stays cheap.
+    fn ended(&self) -> machine_control::Exit {
+        if let Some(ended) = self.ended.get() {
+            return ended.clone();
+        }
+        let first = *lock(&self.gone_seen).get_or_insert_with(std::time::Instant::now);
+        match machine_control::read_exit(&self.dir) {
+            Some(note) => self.ended.get_or_init(|| note).clone(),
+            None if first.elapsed() > Duration::from_secs(2) => {
+                self.ended.get_or_init(Default::default).clone()
+            }
+            None => Default::default(),
+        }
     }
 }
 
@@ -733,7 +774,8 @@ impl ConsoleIo for PrimedConsole {
 /// process lives. This does not probe the machine lock, which a probe holds
 /// for an instant and so can make a start, a stop or `origami status` at the
 /// same moment see a machine that is not there. A runner that is still
-/// starting has no record yet and counts as not running.
+/// starting has no record yet and counts as not running. A reused pid reads as
+/// alive; the record's removal at exit is what normally ends it.
 fn runner_alive(dir: &Path) -> bool {
     let Ok(record) = machine_control::read(dir) else {
         return false;
@@ -870,8 +912,11 @@ fn reader_thread_v4(m: &Arc<Shown>, viewer: &Arc<Viewer>) {
                         return;
                     }
                     eprintln!("origami: display: {e}");
-                    // A producer that breaks the protocol will do it again.
-                    if matches!(e, SessionError::Protocol(_) | SessionError::Producer(_)) {
+                    // A producer that breaks the protocol will do it again; one
+                    // that says it is quitting leads to the exit check below.
+                    if !producer_quitting(&e)
+                        && matches!(e, SessionError::Protocol(_) | SessionError::Producer(_))
+                    {
                         return;
                     }
                 }
@@ -903,6 +948,32 @@ fn reader_thread_v4(m: &Arc<Shown>, viewer: &Arc<Viewer>) {
     }
 }
 
+/// The producer sent its shutdown error: QEMU is quitting, not misbehaving.
+fn producer_quitting(error: &SessionError) -> bool {
+    matches!(error, SessionError::Producer(e) if e.code == origami_display::v4::wire::err::SHUTDOWN)
+}
+
+/// Mark the machine gone when its runner dies, however the display thread is
+/// placed: a thread that returned early or sits in a read sees nothing.
+fn watch_runner(m: &Arc<Shown>, tick: Duration) {
+    let mut missed = 0;
+    while !m.stop.load(Ordering::Acquire) && !m.gone.load(Ordering::Acquire) {
+        for _ in 0..10 {
+            if m.stop.load(Ordering::Acquire) {
+                return;
+            }
+            std::thread::sleep(tick / 10);
+        }
+        missed = if runner_alive(&m.dir) { 0 } else { missed + 1 };
+        // Two misses in a row: a runner is never in between for a second.
+        if missed == 2 {
+            m.gone.store(true, Ordering::Release);
+            (m.wake)(m.id);
+            return;
+        }
+    }
+}
+
 fn input_worker(mut sink: Box<dyn InputSink>, rx: Receiver<InputEvent>) {
     // Everything that arrived while the last batch was being written goes out
     // together, so one host frame of input is one guest report.
@@ -921,6 +992,92 @@ fn input_worker(mut sink: Box<dyn InputSink>, rx: Receiver<InputEvent>) {
 mod tests {
     use super::*;
     use std::net::{TcpListener, TcpStream};
+
+    fn shown(dir: &Path) -> Arc<Shown> {
+        Arc::new(Shown {
+            id: MachineId(1),
+            dir: dir.to_path_buf(),
+            heads: vec![],
+            backend: Backend::V4(Arc::new(Viewer::new())),
+            wake: Arc::new(|_| {}),
+            stop: AtomicBool::new(false),
+            gone: AtomicBool::new(false),
+            ended: std::sync::OnceLock::new(),
+            gone_seen: Mutex::new(None),
+            paused: AtomicBool::new(false),
+            input: Mutex::new(None),
+            interrupt: Mutex::new(None),
+        })
+    }
+
+    #[test]
+    fn an_exit_note_that_lands_late_is_still_read() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        let m = shown(dir.path());
+        assert_eq!(m.ended(), machine_control::Exit::default());
+        let note = machine_control::Exit {
+            signal: Some(9),
+            ..Default::default()
+        };
+        machine_control::write_exit(dir.path(), &note).unwrap();
+        assert_eq!(m.ended(), note);
+        // Once read it stays, whatever happens to the file.
+        machine_control::clear_exit(dir.path());
+        assert_eq!(m.ended(), note);
+    }
+
+    #[test]
+    fn a_producer_that_says_it_is_quitting_is_not_a_protocol_break() {
+        use origami_display::v4::wire::{err, ErrorMsg};
+        let said = |code| {
+            SessionError::Producer(ErrorMsg {
+                code,
+                major_min: 0,
+                major_max: 0,
+                text: String::new(),
+            })
+        };
+        assert!(producer_quitting(&said(err::SHUTDOWN)));
+        assert!(!producer_quitting(&said(err::INTERNAL)));
+        assert!(!producer_quitting(&SessionError::Closed));
+    }
+
+    #[test]
+    fn a_runner_that_died_marks_the_machine_gone_and_a_live_one_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        let record = machine_control::Record {
+            pid: std::process::id(),
+            ..Default::default()
+        };
+        machine_control::write(dir.path(), &record).unwrap();
+        assert!(runner_alive(dir.path()));
+        let m = shown(dir.path());
+        let watch = {
+            let m = m.clone();
+            std::thread::spawn(move || watch_runner(&m, Duration::from_millis(50)))
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!m.gone.load(Ordering::Acquire));
+        // The runner removes its record when it ends.
+        std::fs::remove_file(machine_control::path(dir.path())).unwrap();
+        watch.join().unwrap();
+        assert!(m.gone.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn stopping_a_machine_that_already_ended_is_done_not_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = RunnerSession {
+            shown: shown(dir.path()),
+            threads: Mutex::new(vec![]),
+        };
+        for how in [Stop::Clean { timeout: None }, Stop::Force] {
+            session.stop(how).unwrap();
+        }
+        assert!(session.shown.gone.load(Ordering::Acquire));
+    }
 
     #[test]
     fn the_console_reads_the_serial_log_before_the_socket() {
