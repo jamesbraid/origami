@@ -43,6 +43,10 @@ pub struct Dev {
     pub modifier: Option<ext::image_drm_format_modifier::Device>,
     /// The device can export images as dma-bufs (the GTK dmabuf-texture route).
     pub dma_buf_export: bool,
+    /// `minImportedHostPointerAlignment` when the device reads mapped shared
+    /// memory in place (`VK_EXT_external_memory_host`).
+    pub host_align: Option<u64>,
+    host: Option<ext::external_memory_host::Device>,
     pub mem: vk::PhysicalDeviceMemoryProperties,
     pub device_uuid: [u8; 16],
     pub driver_uuid: [u8; 16],
@@ -159,7 +163,11 @@ impl Dev {
             }
             with_modifier = true;
         }
-        for opt in [khr::external_memory::NAME, ext::queue_family_foreign::NAME] {
+        for opt in [
+            khr::external_memory::NAME,
+            ext::queue_family_foreign::NAME,
+            ext::external_memory_host::NAME,
+        ] {
             if has(&exts, opt) {
                 wanted.push(opt.as_ptr());
             }
@@ -181,10 +189,17 @@ impl Dev {
         let queue = unsafe { device.get_device_queue(qfam, 0) };
         let mut id = vk::PhysicalDeviceIDProperties::default();
         let mut driver = vk::PhysicalDeviceDriverProperties::default();
+        let mut host = vk::PhysicalDeviceExternalMemoryHostPropertiesEXT::default();
         let mut p2 = vk::PhysicalDeviceProperties2::default()
             .push_next(&mut id)
             .push_next(&mut driver);
+        let host_ext = has(&exts, ext::external_memory_host::NAME);
+        if host_ext {
+            p2 = p2.push_next(&mut host);
+        }
         unsafe { instance.get_physical_device_properties2(phys, &mut p2) };
+        let host_align =
+            Some(host.min_imported_host_pointer_alignment).filter(|a| host_ext && *a > 0);
         let driver_name = format!(
             "{} {}",
             driver
@@ -199,6 +214,8 @@ impl Dev {
         Ok(Arc::new(Dev {
             fd: khr::external_memory_fd::Device::new(&instance, &device),
             dma_buf_export,
+            host_align,
+            host: host_align.map(|_| ext::external_memory_host::Device::new(&instance, &device)),
             modifier: with_modifier
                 .then(|| ext::image_drm_format_modifier::Device::new(&instance, &device)),
             mem: unsafe { instance.get_physical_device_memory_properties(phys) },
@@ -220,7 +237,7 @@ impl Dev {
 
     pub fn describe(&self) -> String {
         format!(
-            "{} ({:?}, {}), Vulkan {}.{}, device {}, dma-buf export {}, modifiers {}",
+            "{} ({:?}, {}), Vulkan {}.{}, device {}, dma-buf export {}, host import {}, modifiers {}",
             self.name,
             self.dev_type,
             self.driver.trim(),
@@ -228,6 +245,7 @@ impl Dev {
             vk::api_version_minor(self.api_version),
             hex(&self.device_uuid),
             self.dma_buf_export,
+            self.host_align.is_some(),
             if self.modifier.is_some() {
                 "yes"
             } else {
@@ -256,6 +274,8 @@ pub struct ImportedBuffer {
     pub buffer: vk::Buffer,
     memory: vk::DeviceMemory,
     pub size: u64,
+    /// The mapping a host-pointer import reads, freed after the buffer.
+    _mapping: Option<Arc<dyn Memory>>,
 }
 
 impl GpuMemory for ImportedBuffer {
@@ -373,6 +393,7 @@ impl Importer for VkImporter {
                 buffer,
                 memory,
                 size: region.size,
+                _mapping: None,
             }))
         }
     }
@@ -380,8 +401,103 @@ impl Importer for VkImporter {
     fn wrap(&self, _: &Region, _: &Arc<dyn Memory>) -> Option<Arc<dyn GpuMemory>> {
         None
     }
+    fn wrap_shm(&self, size: u64, memory: &Arc<dyn Memory>) -> Result<Arc<dyn GpuMemory>, String> {
+        Ok(Arc::new(import_host(&self.dev, memory, size)?))
+    }
+    fn shm_needs_write(&self) -> bool {
+        // NVIDIA refuses to import a read-only mapping.
+        self.dev.host_align.is_some()
+    }
     fn name(&self) -> &'static str {
         "vulkan import"
+    }
+}
+
+/// `size` bytes of a mapped slot as a transfer-source buffer, read in place
+/// (`VK_EXT_external_memory_host`).
+fn import_host(
+    d: &Arc<Dev>,
+    memory: &Arc<dyn Memory>,
+    size: u64,
+) -> Result<ImportedBuffer, String> {
+    let (Some(align), Some(host)) = (d.host_align, &d.host) else {
+        return Err("the Vulkan device cannot import host memory".into());
+    };
+    let ptr = memory.base();
+    if size == 0 || size > memory.len() as u64 || !size.is_multiple_of(align) {
+        return Err(format!(
+            "{size} bytes of a {} byte mapping, imported in units of {align}",
+            memory.len()
+        ));
+    }
+    if !(ptr as u64).is_multiple_of(align) {
+        return Err(format!("{ptr:p} is not aligned to {align}"));
+    }
+    let kind = vk::ExternalMemoryHandleTypeFlags::HOST_ALLOCATION_EXT;
+    // SAFETY: Vulkan calls on this device; the buffer keeps `memory` mapped.
+    unsafe {
+        let mut allowed = vk::MemoryHostPointerPropertiesEXT::default();
+        (host.fp().get_memory_host_pointer_properties_ext)(
+            host.device(),
+            kind,
+            ptr.cast(),
+            &mut allowed,
+        )
+        .result()
+        .map_err(|e| format!("host pointer properties: {e}"))?;
+        let mut ext = vk::ExternalMemoryBufferCreateInfo::default().handle_types(kind);
+        let buffer = d
+            .device
+            .create_buffer(
+                &vk::BufferCreateInfo::default()
+                    .size(size)
+                    .usage(region_usage())
+                    .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                    .push_next(&mut ext),
+                None,
+            )
+            .map_err(|e| format!("vkCreateBuffer: {e}"))?;
+        let need = d.device.get_buffer_memory_requirements(buffer);
+        let bits = need.memory_type_bits & allowed.memory_type_bits;
+        // Coherent, so the producer's writes are seen without an invalidate.
+        let pick = |want: vk::MemoryPropertyFlags| {
+            (0..d.mem.memory_type_count).find(|&i| {
+                bits & (1 << i) != 0 && d.mem.memory_types[i as usize].property_flags.contains(want)
+            })
+        };
+        let visible = vk::MemoryPropertyFlags::HOST_VISIBLE;
+        let Some(index) =
+            pick(visible | vk::MemoryPropertyFlags::HOST_COHERENT).or_else(|| pick(visible))
+        else {
+            d.device.destroy_buffer(buffer, None);
+            return Err("no host visible memory type takes host pointers".into());
+        };
+        let mut import = vk::ImportMemoryHostPointerInfoEXT::default()
+            .handle_type(kind)
+            .host_pointer(ptr.cast());
+        let info = vk::MemoryAllocateInfo::default()
+            .allocation_size(size)
+            .memory_type_index(index)
+            .push_next(&mut import);
+        let mem = match d.device.allocate_memory(&info, None) {
+            Ok(m) => m,
+            Err(e) => {
+                d.device.destroy_buffer(buffer, None);
+                return Err(format!("vkAllocateMemory (host): {e}"));
+            }
+        };
+        if let Err(e) = d.device.bind_buffer_memory(buffer, mem, 0) {
+            d.device.destroy_buffer(buffer, None);
+            d.device.free_memory(mem, None);
+            return Err(format!("vkBindBufferMemory: {e}"));
+        }
+        Ok(ImportedBuffer {
+            dev: d.clone(),
+            buffer,
+            memory: mem,
+            size,
+            _mapping: Some(memory.clone()),
+        })
     }
 }
 
@@ -448,6 +564,9 @@ pub struct Pending {
     /// Keeps the imported buffer the copy reads alive until it has finished.
     #[allow(dead_code)]
     memory: Arc<dyn GpuMemory>,
+    /// The frame's lease: the producer may not rewrite the slot until it drops.
+    #[allow(dead_code)]
+    hold: Option<Arc<dyn Any + Send + Sync>>,
     wait_on: Option<Arc<FenceOwner>>,
 }
 
@@ -468,6 +587,18 @@ impl Pending {
                 .wait_for_fences(&[fence.fence], true, 2_000_000_000)
         }
         .map_err(|e| format!("fence: {e}"));
+        if r.is_err() {
+            // The copy may still be reading the slot: drain the device before the lease can end.
+            let _q = fence
+                .dev
+                .queue_lock
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            // SAFETY: the queue lock serialises this with every submit.
+            unsafe {
+                let _ = fence.dev.device.device_wait_idle();
+            }
+        }
         self.finished = Some(Instant::now());
         r
     }
@@ -624,6 +755,7 @@ impl Scanout {
             started: t0,
             finished: None,
             memory: frame.memory.clone(),
+            hold: frame.hold.clone(),
             wait_on: (lines > 0).then(|| slot.fence.clone()),
         }))
     }

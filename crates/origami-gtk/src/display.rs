@@ -142,6 +142,7 @@ fn present_imported(app: &Rc<App>, m: &Rc<MachineUi>, f: &ImportedUpdate) {
         match so.as_mut().unwrap().present(f) {
             Ok(r) => r,
             Err(e) => {
+                m.last.borrow_mut().take();
                 eprintln!("origami-gtk: present: {e}");
                 return;
             }
@@ -163,6 +164,8 @@ fn present_imported(app: &Rc<App>, m: &Rc<MachineUi>, f: &ImportedUpdate) {
         }
         return;
     };
+    // The copy holds the frame's lease now; the producer waits for it (credit 1).
+    m.last.borrow_mut().take();
     // The GPU copy is waited for on a worker thread, so the UI thread never
     // blocks on a fence.
     worker()

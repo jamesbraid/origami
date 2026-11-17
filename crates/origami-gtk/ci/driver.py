@@ -486,6 +486,8 @@ def first_light(quick=False):
         if sc:
             check("zero-copy: engine copied 0 bytes, app moved 0 CPU pixel bytes",
                   st["engine_copied_bytes"] == 0 and sc["cpu_pixel_bytes"] == 0, st)
+            check("zero-copy: the display backend imports",
+                  st["backend"] in ("vulkan import", "imported, zero-copy (vulkan import)"), st["backend"])
             check("only changed lines copied on the GPU", sc["gpu_bytes"] < sc["full_frame_bytes"], sc)
         else:
             check("copy fallback moved rows, not the full frame", st["rows_copied_fallback"] > 0, st)
