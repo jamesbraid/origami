@@ -78,7 +78,7 @@ func runSelfTest(library: String, out: String) {
                 name: "alpha", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil))
             check("create-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
         } catch { check("create-machine", false, ["error": "\(error)"]) }
-        app.rescan()
+        app.rescanNow()
     }
     #endif
     // Picture sizing: 1 guest pixel per point where it fits, else the largest whole-number scale.
@@ -112,7 +112,7 @@ func runSelfTest(library: String, out: String) {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
                 name: "beta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil))
             check("create-second-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
-            app.rescan()
+            app.rescanNow()
         } catch { check("create-second-machine", false, ["error": "\(error)"]) }
     }
     let wanted = ProcessInfo.processInfo.environment["ORIGAMI_TEST_MACHINE"]

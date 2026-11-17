@@ -303,7 +303,7 @@ final class AppModel: ObservableObject {
         host = h
         launchError = err
         h?.onChange = { [weak self] keys, library in self?.changed(keys, library: library) }
-        rescan()
+        rescanNow()
     }
 
     var defaultPointer: PointerMode {
@@ -318,8 +318,35 @@ final class AppModel: ObservableObject {
 
     // MARK: library and events
 
+    /// Re-read the library on a background queue; the models change only if it did.
     func rescan() {
-        guard let host, let summaries = try? host.core.listMachines() else { return }
+        guard let host else { return }
+        scanIssued += 1
+        let n = scanIssued
+        DispatchQueue.global(qos: .utility).async {
+            let found = try? host.core.listMachines()
+            DispatchQueue.main.async { MainActor.assumeIsolated { if let found { self.applyListing(found, issued: n) } } }
+        }
+    }
+
+    /// Listings are numbered when asked for; one that was asked for before the newest applied one is dropped.
+    private var scanIssued = 0, scanApplied = 0
+    private func applyListing(_ summaries: [OrigamiMachineSummary], issued: Int) {
+        guard issued > scanApplied else { return }
+        scanApplied = issued
+        apply(summaries)
+    }
+
+    /// The same on the calling thread, for callers that need the answer now.
+    func rescanNow() {
+        if let host, let found = try? host.core.listMachines() { scanIssued += 1; applyListing(found, issued: scanIssued) }
+    }
+
+    private var lastSummaries: [OrigamiMachineSummary]?
+
+    private func apply(_ summaries: [OrigamiMachineSummary]) {
+        guard let host, summaries != lastSummaries else { return }
+        lastSummaries = summaries
         var next: [MachineModel] = []
         for s in summaries {
             if let existing = models.first(where: { $0.id == s.key }) {
