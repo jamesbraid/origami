@@ -8,15 +8,14 @@
 
 mod catalogue;
 pub mod config;
-#[cfg(target_os = "linux")]
 pub mod display;
 mod engine;
 pub mod nvram;
 mod session;
 
-#[cfg(all(feature = "runner", target_os = "linux"))]
+#[cfg(feature = "runner")]
 mod keys;
-#[cfg(all(feature = "runner", target_os = "linux"))]
+#[cfg(feature = "runner")]
 mod publish;
 #[cfg(feature = "runner")]
 pub mod runner;

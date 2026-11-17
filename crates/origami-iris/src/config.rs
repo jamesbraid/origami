@@ -188,7 +188,8 @@ mod tests {
             text.contains("\n[scsi]\n"),
             "no drives must not mean iris's default ones"
         );
-        assert!(text.contains("nvram = \"/m/state/nvram.raw\""));
+        let nvram = quote(&Path::new("/m").join("state").join("nvram.raw"));
+        assert!(text.contains(&format!("nvram = {nvram}")));
         text.parse::<toml::Table>().unwrap();
     }
 

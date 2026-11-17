@@ -13,6 +13,8 @@ license = "BSD-3-Clause"
 runner = ["dep:iris", "dep:origami-host", "dep:winit"]
 
 [dependencies]
+origami-display = { path = "../origami-display" }
+origami-display-producer = { path = "../origami-display-producer" }
 origami-engine = { path = "../origami-engine" }
 origami-machine = { path = "../origami-machine" }
 origami-protocol = { path = "../origami-protocol" }
@@ -33,10 +35,5 @@ libc = "0.2"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
 
-# The v4 producer is built on eventfd and memfd.
-[target.'cfg(target_os = "linux")'.dependencies]
-origami-display = { path = "../origami-display" }
-origami-display-producer = { path = "../origami-display-producer" }
-
-[target.'cfg(target_os = "linux")'.dev-dependencies]
+[dev-dependencies]
 display-conformance = { path = "../display-conformance" }

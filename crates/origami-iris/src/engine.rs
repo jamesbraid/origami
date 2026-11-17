@@ -29,7 +29,6 @@ pub struct IrisEngine {
     embedded: Mutex<Option<tempfile::TempDir>>,
     /// Whether this process draws the display itself, and with what GPU
     /// import; otherwise the session hands out the runner's socket.
-    #[cfg(target_os = "linux")]
     attach: Mutex<Option<Option<Arc<dyn origami_display::Importer>>>>,
 }
 
@@ -40,14 +39,12 @@ impl IrisEngine {
             catalogue: OnceLock::new(),
             next_id: AtomicU32::new(1),
             embedded: Mutex::new(None),
-            #[cfg(target_os = "linux")]
             attach: Mutex::new(None),
         }
     }
 
     /// Draw machines' displays in this process: sessions started after this
     /// hand out frames, taken into the GPU with `importer` where it can.
-    #[cfg(target_os = "linux")]
     pub fn attach_display(&self, importer: Option<Arc<dyn origami_display::Importer>>) {
         *self.attach.lock().unwrap() = Some(importer);
     }
@@ -80,11 +77,7 @@ impl Engine for IrisEngine {
             id: ENGINE.into(),
             version: None,
             capabilities: Capabilities {
-                display: if cfg!(target_os = "linux") {
-                    DisplayKind::Socket
-                } else {
-                    DisplayKind::None
-                },
+                display: DisplayKind::Socket,
                 max_heads: 1,
                 gpu_regions: false,
                 // iris models neither a power button nor an NMI.
@@ -222,10 +215,7 @@ impl Engine for IrisEngine {
         }
         let spec: IrisPlan = serde_json::from_value(plan.payload().clone())?;
         let id = MachineId(self.next_id.fetch_add(1, Ordering::Relaxed));
-        #[cfg(target_os = "linux")]
         let attach = self.attach.lock().unwrap().clone();
-        #[cfg(not(target_os = "linux"))]
-        let attach = None;
         let session: Arc<IrisSession> = session::launch(id, plan.dir(), &spec, wake, attach)?;
         Ok(session)
     }

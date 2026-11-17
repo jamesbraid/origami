@@ -1,16 +1,11 @@
 //! A bare display protocol 4 viewer: `v4_shot SOCKET OUT.ppm [SECONDS]` writes the
 //! last frame of head 0 as a PPM. `V4_SHOT_TYPE` types letters; `V4_SHOT_DUMP=DIR` compares with the machine's screendump.
 
-#[cfg(target_os = "linux")]
 use origami_display::v4::session::{Event, HelloParams, Session};
-#[cfg(target_os = "linux")]
+use origami_display::v4::sys::UnixStream;
 use origami_display::v4::wire;
-#[cfg(target_os = "linux")]
-use std::os::unix::net::UnixStream;
-#[cfg(target_os = "linux")]
 use std::time::{Duration, Instant};
 
-#[cfg(target_os = "linux")]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (sock, out) = (&args[0], &args[1]);
@@ -75,6 +70,3 @@ fn main() {
         }
     }
 }
-
-#[cfg(not(target_os = "linux"))]
-fn main() {}

@@ -30,7 +30,7 @@ pub(crate) fn build() -> Result<Engines, CoreError> {
     engine.set_importer(Arc::new(lazy::LazyImporter::default()));
     #[allow(unused_mut)]
     let mut list: Vec<Arc<dyn Engine>> = vec![Arc::new(engine)];
-    #[cfg(all(feature = "iris", target_os = "linux"))]
+    #[cfg(feature = "iris")]
     {
         let iris = origami_iris::IrisEngine::new(
             origami_qemu::RunnerEngine::locate_runner().map_err(CoreError::machine)?,

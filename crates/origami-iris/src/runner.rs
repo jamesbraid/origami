@@ -103,12 +103,8 @@ pub fn serve(
     })
 }
 
-#[cfg(target_os = "linux")]
 type Published = origami_display_producer::Producer;
-#[cfg(not(target_os = "linux"))]
-type Published = std::convert::Infallible;
 
-#[cfg(target_os = "linux")]
 fn publish_display(
     display: &Arc<dyn GfxDisplay>,
     machine: &dyn Workstation,
@@ -119,11 +115,6 @@ fn publish_display(
         machine.get_ps2(),
         path,
     )?)
-}
-
-#[cfg(not(target_os = "linux"))]
-fn publish_display(_: &Arc<dyn GfxDisplay>, _: &dyn Workstation, _: &Path) -> Result<Published> {
-    Err("publishing an iris display needs Linux".into())
 }
 
 /// End the process at once with `code`, skipping the exit handlers a half

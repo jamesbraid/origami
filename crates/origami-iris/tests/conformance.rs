@@ -1,15 +1,13 @@
 //! The display protocol 4 conformance suite against the iris host, with synthetic
 //! boards presenting on their own threads through the runner's `IrisHost` and `Presenter`.
 
-#![cfg(target_os = "linux")]
-
 use display_conformance::client::Target;
 use display_conformance::{run, Outcome};
+use origami_display::v4::sys::{UnixListener, UnixStream};
 use origami_display::v4::testext::{self, kind, pattern, Stimulus};
 use origami_display::v4::wire;
 use origami_display_producer::{Config, Handle, HeadSpec, Host, InputEvent, Marks, Producer};
 use origami_iris::display::{Board, Hands, IrisHost, Presenter};
-use std::os::unix::net::UnixListener;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -234,11 +232,8 @@ fn a_still_board_publishes_nothing_until_its_picture_changes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("display.sock");
     let (_producer, boards) = start(&path, 64, 32);
-    let mut s = Session::connect(
-        std::os::unix::net::UnixStream::connect(&path).unwrap(),
-        &HelloParams::default(),
-    )
-    .unwrap();
+    let mut s =
+        Session::connect(UnixStream::connect(&path).unwrap(), &HelloParams::default()).unwrap();
     let frame = |s: &mut Session, wait: u64| {
         s.request(0, false).unwrap();
         match s.recv(Some(Duration::from_millis(wait))).unwrap() {
