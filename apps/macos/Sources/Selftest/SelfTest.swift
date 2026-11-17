@@ -127,7 +127,7 @@ func runSelfTest(library: String, out: String) {
     if fake {
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "beta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil))
+                name: "beta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil))
             check("create-second-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
             app.rescanNow()
         } catch { check("create-second-machine", false, ["error": "\(error)"]) }
@@ -242,7 +242,7 @@ func runSelfTest(library: String, out: String) {
     check("ui-hero-renders", hero.ok && hero.colours > 20, ["distinct_colours_sampled": hero.colours])
     // An O2's summary pane in dark and light, at 2x, for looking at the tint fade by eye.
     if let tint = ProcessInfo.processInfo.environment["ORIGAMI_TINT_PNG"] {
-        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", topology: "o2", nodes: 1,
+        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", nodes: 1,
                                                              memoryPerNodeMib: 512, state: .notRunning, problem: nil),
                               host: host, defaultPointer: .follow)
         let size = CGSize(width: 800, height: 600)
@@ -762,7 +762,7 @@ func runSelfTest(library: String, out: String) {
         // A machine nothing has opened, so a stale state on it can only be corrected by the listing.
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "delta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil))
+                name: "delta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil))
             check("create-quit-test-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
             app.rescanNow()
         } catch { check("create-quit-test-machine", false, ["error": "\(error)"]) }
