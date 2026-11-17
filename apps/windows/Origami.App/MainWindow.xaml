@@ -1,0 +1,83 @@
+<Window x:Class="Origami.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:Origami.App"
+        Title="Origami">
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <MenuBar x:Name="Menus" Grid.Row="0"/>
+
+        <CommandBar x:Name="Toolbar" Grid.Row="1" DefaultLabelPosition="Right" IsOpen="False"
+                    HorizontalAlignment="Stretch" Background="Transparent">
+            <CommandBar.Content>
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="TitleText" Text="Origami" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Border x:Name="PillBorder" CornerRadius="9" Padding="8,1" Background="Gray" VerticalAlignment="Center">
+                        <TextBlock x:Name="PillText" Text="" Foreground="White" FontSize="12"
+                                   AutomationProperties.AutomationId="status.pill"/>
+                    </Border>
+                </StackPanel>
+            </CommandBar.Content>
+            <AppBarButton x:Name="StartButton" Icon="Play" Label="Start"
+                          AutomationProperties.AutomationId="cmd.start" ToolTipService.ToolTip="Start"/>
+            <AppBarButton x:Name="PowerOffButton" Icon="Stop" Label="Power Off"
+                          AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power Off"/>
+            <AppBarSeparator/>
+            <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" Label="Follow"
+                                AutomationProperties.AutomationId="cmd.pointermode"
+                                ToolTipService.ToolTip="Pointer mode: Follow my mouse or Capture on click"/>
+            <AppBarButton x:Name="ConsoleButton" Icon="Message" Label="Console"
+                          AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Console"/>
+            <AppBarButton x:Name="SettingsButton" Icon="Setting" Label="Settings"
+                          AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Settings"/>
+        </CommandBar>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="LibraryColumn" Width="260"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <ListView x:Name="Library" Grid.Column="0" SelectionMode="Single"
+                      AutomationProperties.AutomationId="library" AutomationProperties.Name="Library"
+                      Background="{ThemeResource LayerFillColorDefaultBrush}"/>
+
+            <Grid x:Name="Stage" Grid.Column="1">
+                <!-- Stopped: the hero with Start. -->
+                <StackPanel x:Name="HeroPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                    <Rectangle x:Name="HeroBand" Height="6" Width="260" RadiusX="3" RadiusY="3"/>
+                    <TextBlock x:Name="HeroName" Style="{ThemeResource TitleTextBlockStyle}" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="HeroDetail" Opacity="0.7" HorizontalAlignment="Center"/>
+                    <Button x:Name="HeroStart" Content="Start" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
+                            AutomationProperties.AutomationId="hero.start" MinWidth="120"/>
+                </StackPanel>
+
+                <!-- Starting: stages, then the screen. -->
+                <StackPanel x:Name="StartingPanel" HorizontalAlignment="Center" VerticalAlignment="Center"
+                            Spacing="10" Visibility="Collapsed">
+                    <ProgressRing IsActive="True" Width="56" Height="56"/>
+                    <TextBlock Text="Starting up the system…" Style="{ThemeResource SubtitleTextBlockStyle}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="StageText" Opacity="0.7" HorizontalAlignment="Center"
+                               AutomationProperties.AutomationId="start.stage"/>
+                </StackPanel>
+
+                <local:DisplayView x:Name="Display" Visibility="Collapsed"/>
+
+                <local:SettingsPane x:Name="Settings" Visibility="Collapsed"/>
+            </Grid>
+        </Grid>
+
+        <Grid Grid.Row="3" Padding="12,4" Background="{ThemeResource LayerFillColorDefaultBrush}">
+            <TextBlock x:Name="StatusText" FontSize="12" Opacity="0.8" AutomationProperties.AutomationId="status.text"/>
+            <TextBlock x:Name="PointerStatus" FontSize="12" Opacity="0.8" HorizontalAlignment="Right"
+                       AutomationProperties.AutomationId="status.pointer"/>
+        </Grid>
+    </Grid>
+</Window>

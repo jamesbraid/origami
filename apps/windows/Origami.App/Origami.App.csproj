@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Origami.App</RootNamespace>
+    <AssemblyName>Origami</AssemblyName>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <!-- Unpackaged and self-contained: no MSIX, no framework package install, no admin. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <!-- The default build links the core's fake engine; -p:Qemu=true builds against the QEMU engine's bindings. -->
+  <PropertyGroup Condition="'$(Qemu)' != 'true'">
+    <DefineConstants>$(DefineConstants);ORIGAMI_FAKE</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <ProjectReference Include="../Origami.Logic/Origami.Logic.csproj" />
+  </ItemGroup>
+  <!-- Generated/origami_ffi.cs (uniffi-bindgen-cs output, made in CI) is compiled by the default globs. -->
+  <!-- The core's library and the fallback presenter, cross-built from Linux with mingw into native-out/. -->
+  <ItemGroup>
+    <None Include="native-out/*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

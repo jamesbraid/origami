@@ -1,0 +1,168 @@
+name: app-windows-qemu
+# The Windows app against the core's real QEMU engine (manual; the tag needs a Windows archive with the
+# shared-memory display). The archive's SHA-256 is pinned below from the release's SHA256SUMS.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: QEMU release tag
+        default: sgi-origami-11.1.90-1
+
+jobs:
+  native:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Cross compiler and Rust
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
+            --target x86_64-pc-windows-gnu
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build the fallback presenter
+        working-directory: apps/windows/native
+        run: cargo build --locked --release --target x86_64-pc-windows-gnu
+      - name: Build the core's FFI library (QEMU engine) and the runner
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-gnu -p origami-ffi
+          cargo build --locked --release --target x86_64-pc-windows-gnu --bin origami
+      - name: Install the C# generator
+        run: |
+          cargo install uniffi-bindgen-cs --locked \
+            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+      - name: Generate the C# bindings
+        # uniffi-bindgen-cs runs cargo metadata, so it must run inside a crate.
+        working-directory: crates/origami-ffi
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out/Generated" "$GITHUB_WORKSPACE/out/native-out"
+          uniffi-bindgen-cs --library ../../target/x86_64-pc-windows-gnu/release/origami_ffi.dll \
+            --out-dir "$GITHUB_WORKSPACE/out/Generated"
+      - name: Collect
+        run: |
+          cp target/x86_64-pc-windows-gnu/release/origami_ffi.dll out/native-out/
+          cp target/x86_64-pc-windows-gnu/release/origami.exe out/native-out/
+          cp apps/windows/native/target/x86_64-pc-windows-gnu/release/origami_present.dll out/native-out/
+          ls -la out out/*
+      - uses: actions/upload-artifact@v3
+        with:
+          name: windows-native-qemu
+          path: out
+          if-no-files-found: error
+          retention-days: 3
+
+  windows:
+    if: github.server_url != 'https://github.com'
+    needs: native
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      TAG: ${{ github.event.inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v3
+        with:
+          name: windows-native-qemu
+          path: apps/windows/Origami.App
+      - name: Install the .NET SDK (user level)
+        shell: powershell
+        run: |
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:RUNNER_TEMP\dotnet"
+      - name: Fetch the QEMU archive and lay out the runtime
+        shell: powershell
+        run: |
+          if ($env:TAG -notmatch '^sgi-origami-[0-9.]+-[0-9]+$') { throw "bad tag" }
+          $url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/$env:TAG/$env:TAG-windows-x86_64.zip"
+          Invoke-WebRequest $url -OutFile qemu.zip -UseBasicParsing
+          $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes("$PWD\qemu.zip"))).Replace("-","").ToLower()
+          # From the release's SHA256SUMS; a new tag adds its line here.
+          $pinned = @{ "sgi-origami-11.1.90-1" = "59794af95aa216892cbea2c2f7476bd6a2550678a399a6368e750a4b0222eea5" }
+          if ($pinned[$env:TAG] -ne $sha) { throw "QEMU archive $env:TAG has sha256 $sha, not the pinned one" }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [IO.Compression.ZipFile]::ExtractToDirectory("$PWD\qemu.zip", "$PWD\qemu")
+          # The core looks for QEMU in libexec/origami and its data in share/origami/qemu.
+          New-Item -ItemType Directory -Force "$PWD\runtime\libexec\origami", "$PWD\runtime\share\origami\qemu" | Out-Null
+          Copy-Item "$PWD\qemu\bin\*" "$PWD\runtime\libexec\origami" -Recurse
+          Copy-Item "$PWD\qemu\share\qemu\*" "$PWD\runtime\share\origami\qemu" -Recurse
+          Get-ChildItem "$PWD\qemu" -Recurse -Depth 2 | Select-Object -First 40 -ExpandProperty FullName
+          Get-ChildItem "$PWD\runtime\share\origami\qemu" | Select-Object -First 10 -ExpandProperty FullName
+          & "$PWD\runtime\libexec\origami\qemu-system-mips64.exe" --version
+      - name: Build the app (unpackaged, self-contained)
+        working-directory: apps/windows
+        run: |
+          export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          set -o pipefail
+          time dotnet build Origami.App/Origami.App.csproj -c Release -p:Platform=x64 -p:Qemu=true 2>&1 | tail -60
+      - name: Self-test with a desktop screenshot while the picture is up
+        shell: powershell
+        working-directory: apps/windows
+        run: |
+          $out = Join-Path $PWD "selftest-out"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $exe = Get-ChildItem -Recurse -Filter Origami.exe Origami.App\bin | Select-Object -First 1
+          "exe: $($exe.FullName)"
+          $root = (Resolve-Path "$PWD\..\..").Path
+          $env:ORIGAMI_RUNTIME_DIR = "$root\runtime\libexec\origami"
+          $env:ORIGAMI_BIN = "$PWD\Origami.App\native-out\origami.exe"
+          @(Get-Process qemu-system-mips64,origami -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }) + 0 | Set-Content "$env:RUNNER_TEMP\before.txt"
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--selftest","`"$out\selftest.json`"","--settings","`"$out\settings.json`"","--library","`"$out\library`"","--create-product","octane2","--stderr","`"$out\app-stderr.log`"" `
+               -WorkingDirectory $exe.DirectoryName -PassThru
+          $null = $p.Handle
+          $deadline = (Get-Date).AddSeconds(420)
+          while (-not (Test-Path "$out\ready.txt") -and -not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+          if (Test-Path "$out\ready.txt") {
+            Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width,$b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size)
+            $bmp.Save("$out\desktop.png")
+            "screenshot $($b.Width)x$($b.Height)"
+            # The desktop grab can miss DirectComposition content on a VM session; PrintWindow with
+            # PW_RENDERFULLCONTENT asks the compositor for the window itself.
+            Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class PW{[DllImport("user32.dll")]public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint f);[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RECT r);public struct RECT{public int L,T,R,B;}}'
+            $p.Refresh()
+            $r = New-Object PW+RECT
+            [void][PW]::GetWindowRect($p.MainWindowHandle,[ref]$r)
+            $wb = New-Object System.Drawing.Bitmap ($r.R-$r.L),($r.B-$r.T)
+            $wg = [System.Drawing.Graphics]::FromImage($wb)
+            $dc = $wg.GetHdc()
+            $ok = [PW]::PrintWindow($p.MainWindowHandle,$dc,2)
+            $wg.ReleaseHdc($dc)
+            $wb.Save("$out\window.png")
+            "printwindow ok=$ok $($wb.Width)x$($wb.Height)"
+          } else { "no ready marker" }
+          New-Item -ItemType File "$out\done.txt" -Force | Out-Null
+          if (Test-Path "$out\app.log") { "--- app.log"; Get-Content "$out\app.log" -Tail 40 }
+          if (-not $p.WaitForExit(120000)) { "self-test did not exit"; $p.Kill(); $code = 99 } else { $code = $p.ExitCode }
+          if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } else { "no selftest.json written"; if (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" } }
+          "exit code: $code"
+          exit $code
+      - name: Machine logs, then stop what is still running (machines outlive the app, and a running one locks its files)
+        if: always()
+        shell: powershell
+        working-directory: apps/windows
+        run: |
+          Get-ChildItem selftest-out\library -Recurse -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object {
+            "=== $($_.FullName)"; Get-Content $_.FullName -Tail 60 -ErrorAction SilentlyContinue }
+          if (Test-Path selftest-out\app-stderr.log) { "=== app stderr"; Get-Content selftest-out\app-stderr.log -Tail 80 }
+          # Only what this job started: processes that were not there before the self-test.
+          Get-Process qemu-system-mips64,origami -ErrorAction SilentlyContinue | Where-Object { $_.Id -notin (Get-Content "$env:RUNNER_TEMP\before.txt") } | Stop-Process -Force
+          Start-Sleep 2
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: windows-qemu-selftest
+          path: apps/windows/selftest-out
+          if-no-files-found: warn

@@ -1,0 +1,133 @@
+name: app-windows
+# WinUI 3 app (apps/windows). Rust parts cross-build from Linux with mingw; the app builds and
+# self-tests on a Windows runner with a desktop session (WARP, no GPU).
+on:
+  push:
+    branches: [app/windows]
+    paths: ['apps/windows/**', 'crates/origami-ffi/**', '.github/workflows/app-windows.yml']
+  workflow_dispatch:
+
+jobs:
+  native:
+    if: github.server_url != 'https://github.com'
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Cross compiler and Rust
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
+            --target x86_64-pc-windows-gnu
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build the fallback presenter
+        working-directory: apps/windows/native
+        run: cargo build --locked --release --target x86_64-pc-windows-gnu
+      - name: Build the core's FFI library (fake engine)
+        run: cargo build --locked --release --target x86_64-pc-windows-gnu -p origami-ffi --features fake
+      - name: Install the C# generator
+        run: |
+          cargo install uniffi-bindgen-cs --locked \
+            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+      - name: Generate the C# bindings
+        # uniffi-bindgen-cs runs cargo metadata, so it must run inside a crate.
+        working-directory: crates/origami-ffi
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/out/Generated" "$GITHUB_WORKSPACE/out/native-out"
+          uniffi-bindgen-cs --library ../../target/x86_64-pc-windows-gnu/release/origami_ffi.dll \
+            --out-dir "$GITHUB_WORKSPACE/out/Generated"
+      - name: Collect
+        run: |
+          cp target/x86_64-pc-windows-gnu/release/origami_ffi.dll out/native-out/
+          cp apps/windows/native/target/x86_64-pc-windows-gnu/release/origami_present.dll out/native-out/
+          ls -la out out/*
+      - uses: actions/upload-artifact@v3
+        with:
+          name: windows-native
+          path: out
+          if-no-files-found: error
+          retention-days: 3
+
+  windows:
+    if: github.server_url != 'https://github.com'
+    needs: native
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v3
+        with:
+          name: windows-native
+          path: apps/windows/Origami.App
+      - name: Install the .NET SDK (user level)
+        shell: powershell
+        run: |
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:RUNNER_TEMP\dotnet"
+      - name: Logic tests (keys, pointer modes, settings, fake core)
+        working-directory: apps/windows
+        run: |
+          export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          dotnet run -c Release --project Origami.Logic.Tests
+      - name: Build the app (unpackaged, self-contained)
+        working-directory: apps/windows
+        run: |
+          export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          set -o pipefail
+          time dotnet build Origami.App/Origami.App.csproj -c Release -p:Platform=x64 2>&1 | tail -60
+      - name: Self-test with a desktop screenshot while the picture is up
+        shell: powershell
+        working-directory: apps/windows
+        run: |
+          $out = Join-Path $PWD "selftest-out"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $exe = Get-ChildItem -Recurse -Filter Origami.exe Origami.App\bin | Select-Object -First 1
+          "exe: $($exe.FullName)"
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList "--selftest","`"$out\selftest.json`"","--settings","`"$out\settings.json`"","--library","`"$out\library`"","--seed-fake","--force-fallback","--expect-renderer","`"d3d12 copy fallback`"" `
+               -WorkingDirectory $exe.DirectoryName -PassThru
+          $null = $p.Handle
+          $deadline = (Get-Date).AddSeconds(90)
+          while (-not (Test-Path "$out\ready.txt") -and -not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+          if (Test-Path "$out\ready.txt") {
+            Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+            $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $b.Width,$b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size)
+            $bmp.Save("$out\desktop.png")
+            "screenshot $($b.Width)x$($b.Height)"
+            # The desktop grab can miss DirectComposition content on a VM session; PrintWindow with
+            # PW_RENDERFULLCONTENT asks the compositor for the window itself.
+            Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class PW{[DllImport("user32.dll")]public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint f);[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RECT r);public struct RECT{public int L,T,R,B;}}'
+            $p.Refresh()
+            $r = New-Object PW+RECT
+            [void][PW]::GetWindowRect($p.MainWindowHandle,[ref]$r)
+            $wb = New-Object System.Drawing.Bitmap ($r.R-$r.L),($r.B-$r.T)
+            $wg = [System.Drawing.Graphics]::FromImage($wb)
+            $dc = $wg.GetHdc()
+            $ok = [PW]::PrintWindow($p.MainWindowHandle,$dc,2)
+            $wg.ReleaseHdc($dc)
+            $wb.Save("$out\window.png")
+            "printwindow ok=$ok $($wb.Width)x$($wb.Height)"
+          } else { "no ready marker" }
+          New-Item -ItemType File "$out\done.txt" -Force | Out-Null
+          if (Test-Path "$out\app.log") { "--- app.log"; Get-Content "$out\app.log" -Tail 40 }
+          if (-not $p.WaitForExit(80000)) { "self-test did not exit"; $p.Kill(); $code = 99 } else { $code = $p.ExitCode }
+          if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } else { "no selftest.json written"; if (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" } }
+          "exit code: $code"
+          exit $code
+      - uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: windows-selftest
+          path: apps/windows/selftest-out
+          if-no-files-found: warn
