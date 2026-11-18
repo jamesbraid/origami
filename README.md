@@ -12,6 +12,7 @@ Somehow, IRIX boots.
 
 * [A website also stuck in the late ’90s](https://origami.irix.fans) ·
 * [User guide](docs/usage.md) ·
+* [The desktop app](docs/app.md) ·
 * [Gallery](docs/gallery.md) ·
 * [Contributing](.github/CONTRIBUTING.md)
 
