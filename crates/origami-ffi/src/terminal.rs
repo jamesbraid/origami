@@ -466,16 +466,6 @@ impl OrigamiTerminal {
         }
     }
 
-    /// Whether Backspace sends ^H (the default, which SGI consoles erase on)
-    /// or DEL.
-    pub fn backspace_sends_bs(&self) -> bool {
-        self.0.lock().term.backspace_sends_bs
-    }
-
-    pub fn set_backspace_sends_bs(&self, on: bool) {
-        self.0.lock().term.backspace_sends_bs = on;
-    }
-
     /// Paste text: line ends become `\r`, and the guest's bracketed-paste
     /// mode is honoured. Never blocks, like `send_key`.
     pub fn paste(&self, text: String) -> Res<()> {
@@ -614,22 +604,5 @@ mod tests {
             key_bytes(&up, true, false, false, modes(true)),
             Some(b"\x1b[1;2A".to_vec())
         );
-    }
-
-    #[test]
-    fn backspace_follows_the_terminal_option() {
-        let mut s = State::new(5, 20);
-        let bs = |s: &State| {
-            key_bytes(
-                &OrigamiTerminalKey::Backspace,
-                false,
-                false,
-                false,
-                s.term.key_modes(),
-            )
-        };
-        assert_eq!(bs(&s), Some(vec![0x08]));
-        s.term.backspace_sends_bs = false;
-        assert_eq!(bs(&s), Some(vec![0x7f]));
     }
 }

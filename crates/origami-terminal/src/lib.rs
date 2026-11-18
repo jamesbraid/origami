@@ -21,8 +21,11 @@ pub struct Terminal {
     engine: Box<dyn Engine>,
     /// Where a drag started and where it is now, in visible cells.
     selection: Option<(Cell, Cell)>,
-    /// Whether Backspace sends ^H (SGI consoles erase on BS) instead of DEL.
-    pub backspace_sends_bs: bool,
+    /// Backspace sends ^H until a Linux or OpenBSD banner says the guest
+    /// erases on DEL (see `sniff_guest`).
+    backspace_bs: bool,
+    /// Start of the current output line, enough to match a banner.
+    line: Vec<u8>,
     /// Bytes the guest has sent.
     pub received: u64,
     /// Console offset below which output was already there when this
@@ -44,7 +47,8 @@ impl Terminal {
         Terminal {
             engine,
             selection: None,
-            backspace_sends_bs: true,
+            backspace_bs: true,
+            line: Vec::new(),
             received: 0,
             history_end: None,
         }
@@ -54,7 +58,7 @@ impl Terminal {
     pub fn key_modes(&self) -> KeyModes {
         KeyModes {
             app_cursor: self.app_cursor(),
-            backspace_bs: self.backspace_sends_bs,
+            backspace_bs: self.backspace_bs,
         }
     }
 
@@ -63,10 +67,37 @@ impl Terminal {
             return;
         }
         self.received += bytes.len() as u64;
+        self.sniff_guest(bytes);
         // New output moves the text under a selection, and a viewer that has
         // scrolled back stays where it is looking (vt100 keeps the offset).
         self.selection = None;
         self.engine.feed(bytes);
+    }
+
+    /// Linux/OpenBSD erase on DEL; the PROM and IRIX on ^H (DEL is their INTR).
+    /// Banners start a line, after an optional printk `[ time ] `.
+    fn sniff_guest(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            if b == b'\n' {
+                self.line.clear();
+            } else if self.line.len() < 48 {
+                self.line.push(b);
+                let mut l = &self.line[..];
+                if l[0] == b'[' {
+                    match l.iter().position(|&c| c == b']') {
+                        Some(i) => l = l[i + 1..].trim_ascii_start(),
+                        None => continue,
+                    }
+                }
+                if l == b"Linux version "
+                    || (l.len() == 9 && l.starts_with(b"OpenBSD ") && l[8].is_ascii_digit())
+                {
+                    self.backspace_bs = false;
+                } else if l == b"IRIX Release" {
+                    self.backspace_bs = true;
+                }
+            }
+        }
     }
 
     /// Output before console offset `end` is history: `feed_at` answers none
@@ -478,13 +509,26 @@ mod tests {
     }
 
     #[test]
-    fn backspace_sends_bs_unless_the_option_is_off() {
+    fn backspace_follows_the_guest_banner() {
         let mut t = Terminal::new(5, 20);
         let bs = |t: &Terminal, alt| key_bytes(Key::Backspace, false, false, alt, t.key_modes());
-        assert!(t.backspace_sends_bs);
         assert_eq!(bs(&t, false), Some(vec![0x08]));
         assert_eq!(bs(&t, true), Some(vec![0x1b, 0x08]));
-        t.backspace_sends_bs = false;
+        // A mention mid-line is not a banner; split chunks still match.
+        t.feed(b"Array Services ( synchronized with Linux version )\r\n");
+        assert_eq!(bs(&t, false), Some(vec![0x08]));
+        t.feed(b"Linux ver");
+        t.feed(b"sion 7.2.0\r\n");
+        assert_eq!(bs(&t, false), Some(vec![0x7f]));
+        t.feed(b"IRIX Release 6.5 IP27\r\n");
+        assert_eq!(bs(&t, false), Some(vec![0x08]));
+        // A man page or listing that merely starts with the name is not a banner.
+        t.feed(b"OpenBSD is a Unix\r\n");
+        assert_eq!(bs(&t, false), Some(vec![0x08]));
+        t.feed(b"OpenBSD 6.9 (GENERIC-IP27) #0\r\n");
+        assert_eq!(bs(&t, false), Some(vec![0x7f]));
+        t.feed(b"IRIX Release 6.5 IP27\r\n");
+        t.feed(b"[    0.000000] Linux version 7.2.0\r\n");
         assert_eq!(bs(&t, false), Some(vec![0x7f]));
         // The cursor-key mode travels in the same value.
         t.feed(b"\x1b[?1h");
