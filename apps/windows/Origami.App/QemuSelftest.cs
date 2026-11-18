@@ -175,6 +175,7 @@ public static class Selftest
                 Add("resume: the core call returns without error", back == "ok", back);
             }
         }
+        await Until(() => core.Status(key).State == MachineState.Running, 30_000); // Invoke toggles on the cached state
         w.Invoke("machine.pause");
         Add("pause: the machine is Paused", await Until(() => core.Status(key).State == MachineState.Paused, 30_000), core.Status(key).Reason + " | status bar: " + w.StatusForTest + " | enabled: " + core.CommandEnabled("machine.pause", core.Status(key).State));
         if (core.Status(key).State == MachineState.Paused)

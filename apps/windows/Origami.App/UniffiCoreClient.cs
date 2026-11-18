@@ -270,14 +270,18 @@ public sealed class UniffiCoreClient : ICoreClient
         lock (_forced) _forced.Add(key);
         return Run(() => M(key).Stop(OrigamiStopKind.Force), ct, ignoreEnded: true);
     }
-    public Task ControlAsync(string key, MachineControl what, CancellationToken ct = default) => Task.Run(() => M(key).Control(what switch
+    public Task ControlAsync(string key, MachineControl what, CancellationToken ct = default) => Task.Run(() =>
     {
-        MachineControl.Reset => OrigamiControl.Reset,
-        MachineControl.PowerButton => OrigamiControl.PowerButton,
-        MachineControl.Nmi => OrigamiControl.Nmi,
-        MachineControl.Pause => OrigamiControl.Pause,
-        _ => OrigamiControl.Resume,
-    }), ct);
+        M(key).Control(what switch
+        {
+            MachineControl.Reset => OrigamiControl.Reset,
+            MachineControl.PowerButton => OrigamiControl.PowerButton,
+            MachineControl.Nmi => OrigamiControl.Nmi,
+            MachineControl.Pause => OrigamiControl.Pause,
+            _ => OrigamiControl.Resume,
+        });
+        ReadCore(false); // the pause/resume toggle reads this state; the 750 ms poll would leave it stale
+    }, ct);
 
     public IReadOnlyList<CommandInfo> Commands() => _commands ??= _core.Commands().Select(c =>
         new CommandInfo(c.Id, c.Title, c.Shortcuts.FirstOrDefault(s => s.Platform == OrigamiPlatform.Windows)?.Accelerator)).ToList();
