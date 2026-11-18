@@ -712,8 +712,11 @@ public sealed partial class MainWindow : Window
             : Display.Mode == PointerMode.Capture ? "Capture on click" : "Following your mouse";
     }
 
+    bool _previewStart;
+
     void Refresh()
     {
+        if (_previewStart) return; // the self-test is showing the starting pane by hand
         SyncLibrary();
         RebuildTabs();
         foreach (var m in _core.Machines())
@@ -857,6 +860,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Self-test hook: the starting pane as it looks while a machine starts.</summary>
     public void PreviewStarting()
     {
+        _previewStart = true;
         _prefsOpen = false;
         Display.Hide(); // the screen's child window is not hidden by collapsing its pane
         HeroPanel.Visibility = Display.Visibility = Visibility.Collapsed;
@@ -864,7 +868,7 @@ public sealed partial class MainWindow : Window
         ShowStartCube(_core.Machines().First(x => x.Key == SelectedKey));
     }
     public CubeHost StartCubeForTest => StartCube;
-    public void Restore() => Refresh();
+    public void Restore() { _previewStart = false; Refresh(); }
 
     void Detach() { Display.Detach(); _attachedKey = _modeKey = null; ClosePane(); }
 

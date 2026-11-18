@@ -124,18 +124,6 @@ public static unsafe class Frame
 public static class Win32
 {
     [DllImport("user32")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32")] public static extern bool GetCursorPos(out POINT p);
-    [DllImport("user32")] static extern IntPtr WindowFromPoint(POINT p);
-    [DllImport("user32", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int n);
-    [DllImport("user32")] static extern IntPtr GetAncestor(IntPtr h, uint flags);
-    /// <summary>The window class under a screen point, and its top-level window's class, for the self-test.</summary>
-    public static string UnderPoint(int x, int y)
-    {
-        var h = WindowFromPoint(new POINT { X = x, Y = y });
-        var a = new System.Text.StringBuilder(128); var b = new System.Text.StringBuilder(128);
-        GetClassNameW(h, a, 128); GetClassNameW(GetAncestor(h, 2), b, 128);
-        return $"0x{h.ToInt64():x} {a} in {b}";
-    }
     [DllImport("user32")] public static extern int ShowCursor(bool show);
     [DllImport("user32")] public static extern bool ClipCursor(ref RECT r);
     [DllImport("user32")] public static extern bool ClipCursor(IntPtr none);

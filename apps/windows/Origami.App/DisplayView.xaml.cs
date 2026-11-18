@@ -55,9 +55,6 @@ public sealed partial class DisplayView : UserControl
 
     public bool Attached => _hwnd != IntPtr.Zero && (_view != IntPtr.Zero || _op != IntPtr.Zero);
     public bool Captured => _ptr.Captured;
-    /// <summary>Left button presses the screen window has seen, for the self-test.</summary>
-    public int ButtonDowns { get; private set; }
-    public IntPtr HwndForTest => _hwnd;
     public int KeysDown => _keys.DownCount;
     public string? LastError { get; private set; }
     /// <summary>"core view" or "d3d12 copy fallback" once attached.</summary>
@@ -418,7 +415,7 @@ public sealed partial class DisplayView : UserControl
             case WM_CAPTURECHANGED when l != hwnd: LiftButtons(); return false;
             case WM_KILLFOCUS: LoseFocus(); return false;
             case WM_MOUSEMOVE: Move((short)(l.ToInt64() & 0xFFFF), (short)((l.ToInt64() >> 16) & 0xFFFF)); return true;
-            case WM_LBUTTONDOWN: ButtonDowns++; Button(hwnd, 0, true); return true;
+            case WM_LBUTTONDOWN: Button(hwnd, 0, true); return true;
             case WM_LBUTTONUP: Button(hwnd, 0, false); return true;
             case WM_MBUTTONDOWN: Button(hwnd, 1, true); return true;
             case WM_MBUTTONUP: Button(hwnd, 1, false); return true;
