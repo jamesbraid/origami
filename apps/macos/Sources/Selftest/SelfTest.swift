@@ -23,6 +23,12 @@ func snapshotRetina<V: View>(_ view: V, size: CGSize, dark: Bool, to path: Strin
     let host = NSHostingView(rootView: view.frame(width: size.width, height: size.height))
     host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
     host.frame = CGRect(origin: .zero, size: size)
+    // A list draws its rows only inside a window; this one is never ordered front.
+    let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView = host
+    host.layoutSubtreeIfNeeded()
+    spin(0.5)
     host.layoutSubtreeIfNeeded()
     guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
                                      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
