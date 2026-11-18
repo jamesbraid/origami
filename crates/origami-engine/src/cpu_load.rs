@@ -313,24 +313,39 @@ mod os {
     #[cfg(test)]
     mod tests {
         use super::super::{iris_cpu_index, named_thread_times};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
         use std::time::{Duration, Instant};
 
         #[test]
         fn a_named_busy_thread_is_found_and_accumulates_cpu_time() {
             let (ready, wait) = std::sync::mpsc::channel();
+            let stop = Arc::new(AtomicBool::new(false));
+            let spin = stop.clone();
             let busy = std::thread::Builder::new()
                 .name("MIPS-CPU1".into())
                 .spawn(move || {
                     ready.send(()).unwrap();
-                    let start = Instant::now();
-                    while start.elapsed() < Duration::from_millis(400) {
+                    while !spin.load(Ordering::Relaxed) {
                         std::hint::black_box(0);
                     }
                 })
                 .unwrap();
             wait.recv().unwrap();
-            std::thread::sleep(Duration::from_millis(300));
-            let times = named_thread_times(std::process::id(), iris_cpu_index).unwrap();
+            // The thread runs until told to stop, so a slow runner cannot
+            // end it before the sample; poll for the CPU time, with a bound.
+            let end = Instant::now() + Duration::from_secs(10);
+            let times = loop {
+                let times = named_thread_times(std::process::id(), iris_cpu_index).unwrap();
+                let busy_enough = times
+                    .get(1)
+                    .is_some_and(|t| t.user + t.sys >= Duration::from_millis(100));
+                if busy_enough || Instant::now() > end {
+                    break times;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            };
+            stop.store(true, Ordering::Relaxed);
             busy.join().unwrap();
             assert_eq!(times.len(), 2, "{times:?}");
             assert!(
