@@ -166,7 +166,7 @@ struct Staged<'a> {
     /// Files made on the way, removed if a later step fails.
     created: Vec<PathBuf>,
     /// Held until the machine file is written.
-    locks: Vec<fs::File>,
+    locks: Vec<origami_machine::control::EditLock>,
     report: Report,
 }
 

@@ -39,8 +39,8 @@ pub fn check_range(emu_id: u32) -> Result<()> {
 /// in `dir`'s parent directory. A second `create`, `network-set`,
 /// `install-init` or `upgrade` in that directory waits here, so it rescans the
 /// siblings after the first has written its machine.toml. Drop the returned
-/// file to release it.
-pub fn lock(dir: &Path) -> Result<fs::File> {
+/// lock to release it.
+pub fn lock(dir: &Path) -> Result<crate::control::EditLock> {
     let parent = dir
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -53,7 +53,7 @@ pub fn lock(dir: &Path) -> Result<fs::File> {
         .truncate(false)
         .open(parent.join(".origami-serials.lock"))?;
     file.lock()?;
-    Ok(file)
+    Ok(crate::control::EditLock(file))
 }
 
 /// A warning for each running machine beside `dir` that holds the same
@@ -354,6 +354,41 @@ mod tests {
         assert!(other.try_lock().is_err());
         drop(first);
         assert!(other.try_lock().is_ok());
+    }
+
+    /// A child forked by another thread shares the lock's descriptor until it
+    /// execs, so dropping the lock must release it explicitly.
+    #[cfg(unix)]
+    #[test]
+    fn dropping_the_minting_lock_releases_it_while_a_forked_child_holds_the_descriptor() {
+        use std::io::{Read, Write};
+        use std::os::unix::process::CommandExt;
+        let root = tempfile::tempdir().unwrap();
+        let first = lock(&root.path().join("a")).unwrap();
+        let (mut forked, forked_tx) = std::io::pipe().unwrap();
+        let (go_rx, mut go) = std::io::pipe().unwrap();
+        let mut command = std::process::Command::new("true");
+        // SAFETY: the hook only reads and writes pipes.
+        unsafe {
+            command.pre_exec(move || {
+                (&forked_tx).write_all(b"x")?;
+                (&go_rx).read_exact(&mut [0])
+            });
+        }
+        let child = std::thread::spawn(move || command.status());
+        forked.read_exact(&mut [0]).unwrap();
+        let other = fs::OpenOptions::new()
+            .write(true)
+            .open(root.path().join(".origami-serials.lock"))
+            .unwrap();
+        drop(first);
+        let released = other.try_lock().is_ok();
+        go.write_all(b"x").unwrap();
+        assert!(child.join().unwrap().unwrap().success());
+        assert!(
+            released,
+            "a forked child kept the lock after it was dropped"
+        );
     }
 
     #[test]

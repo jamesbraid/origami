@@ -110,8 +110,8 @@ pub fn clear_if_current(dir: &Path, record: &Record) {
     }
 }
 
-/// The machine lock, released when dropped.
-pub struct EditLock(fs::File);
+/// A lock on a machine or the serial minting, released when dropped.
+pub struct EditLock(pub(crate) fs::File);
 
 impl Drop for EditLock {
     // Closing alone is not enough: a child forked meanwhile holds the
