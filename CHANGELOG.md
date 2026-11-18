@@ -2,51 +2,35 @@
 
 ## Unreleased
 
-Origami is now a desktop app. There is a native one for macOS, Windows and
-Linux, all on the same core, and they run the same machines as the `origami`
-command. Next to QEMU there is a second engine, iris, for the Indy, Indigo2
-and Octane2. And the O2 boots IRIX.
+Origami is now a desktop app, with a native one for macOS, Windows and
+Linux on the same core as the `origami` command. A second engine, iris,
+runs the Indy, Indigo2 and Octane2 next to QEMU.
 
 - Breaking:
-  - Machines made by 0.5.1 need `origami upgrade` once. It keeps their state
-    and moves them to the new machine file, which 0.5.1 can no longer read
-    (the old file stays beside it). Origin 2000 and Onyx2 guests see a new
-    host id afterwards; `upgrade` says how to keep the old one.
-  - The `tezro-vpro` and `onyx350-vpro` presets are now `tezro` and
-    `onyx350`.
-  - An Onyx 4 made by 0.5.1 cannot be upgraded and has to be created again.
+  - Run `origami upgrade` once on machines made by 0.5.1; 0.5.1 can't read
+    the result. Origin 2000 and Onyx2 guests get a new host id, and
+    `upgrade` says how to keep the old one.
+  - Presets `tezro-vpro` and `onyx350-vpro` are now `tezro` and `onyx350`.
+  - An Onyx 4 made by 0.5.1 has to be created again.
 - New:
-  - Native apps: a machine library, tabs, a New Machine dialog that picks
-    the engine, per-machine settings, Pause and Resume, screenshots and a
-    Diagnostics window. GTK 4 on Linux, Apple Silicon on macOS, WinUI 3 on
-    Windows. A machine with no graphics opens straight to its console.
-  - No copying the picture: the guest's screen reaches your GPU without the
-    CPU touching it, through Vulkan on Linux and Direct3D 12 on Windows.
-    When that can't work, the app copies and Diagnostics says why.
-  - A real terminal: the serial console runs on Ghostty's terminal library,
-    so IRIX's tools see a proper terminal with colours, wide characters,
-    function keys and 5000 lines of history. Each run starts with a clean
-    console, and Backspace sends what the guest expects.
-  - iris: an Indy, Indigo2 or Octane2 can run on the iris emulator instead
-    of QEMU, in its own process, so a crash only takes down that machine.
-    Experimental: user networking only and no sound yet.
-  - O2: boots IRIX 6.5.30 to a login in about five minutes on SGI's
-    published PROM.
-  - CPU load: a panel under the picture shows how hard each emulated CPU
-    works, measured on the host.
-  - Sound: guests play through the host's audio, so the startup chime is
-    back.
-  - CHD disks: attach a MAME CHD hard disk image directly. Writes are kept
-    beside it and folded back in when the machine stops.
-  - Machine identity: every machine gets its own serial number, host id and
-    Ethernet address, so two machines on one network don't clash.
+  - Native apps in GTK 4, SwiftUI (Apple Silicon) and WinUI 3: create,
+    run, pause and configure machines, with a console and diagnostics.
+  - Zero-copy display: the guest's screen reaches the GPU without a CPU
+    copy, through Vulkan on Linux and Direct3D 12 on Windows.
+  - A real terminal on Ghostty's library: colours, function keys, 5000
+    lines of history, and Backspace that matches the guest.
+  - iris (experimental): runs in its own process, so a crash stops only
+    that machine. User networking only, no sound yet.
+  - Experimental O2 machine in QEMU.
+  - CPU load panel, measured on the host.
+  - Sound through the host's audio.
+  - QEMU reads CHD disk images, so one disk works on both engines.
+  - Each machine gets its own serial number, host id and Ethernet address.
 - Changed:
-  - When a machine stops, the apps say why: the guest powered off, you
-    stopped it, or it crashed. Power Off gives up after 30 seconds and
-    offers Force Quit.
-  - The library shows each machine's SGI product name, such as Origin 200
-    or Onyx2. New Origin 200s get 256 MiB per node.
-  - A second console on the same machine no longer hangs.
+  - The apps say why a machine stopped: guest power-off, you, or a crash.
+  - The library shows SGI product names. New Origin 200s get 256 MiB per
+    node.
+  - A second console on one machine no longer hangs.
 
 ## 0.5.1
 
