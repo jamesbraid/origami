@@ -212,11 +212,13 @@ fn kill(pid: u32) -> Result<()> {
 
 #[cfg(windows)]
 fn kill(pid: u32) -> Result<()> {
-    let status = std::process::Command::new("taskkill")
+    // taskkill reports on stdout, which would land in `origami stop`'s own.
+    let output = std::process::Command::new("taskkill")
         .args(["/F", "/T", "/PID", &pid.to_string()])
-        .status()?;
-    if !status.success() {
-        return Err(format!("taskkill exited with {status}").into());
+        .output()?;
+    if !output.status.success() {
+        let said = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("taskkill exited with {}: {}", output.status, said.trim()).into());
     }
     Ok(())
 }
