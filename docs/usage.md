@@ -17,6 +17,9 @@ tar -xzf origami-0.4.1-linux-x86_64.tar.gz      # Linux
 tar -xzf origami-0.4.1-macos-arm64.tar.gz       # macOS, Apple Silicon
 ```
 
+The other hosts have `linux-arm64` and `macos-x86_64` (Intel Macs) archives
+under the same naming.
+
 ```powershell
 Expand-Archive .\origami-0.4.1-windows-x86_64.zip -DestinationPath .\origami
 ```

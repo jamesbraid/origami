@@ -28,7 +28,7 @@ runs:
           ~/.cargo/git/db
           ${{ inputs.target }}
           ${{ inputs.extra }}
-        key: cargo-${{ runner.os }}-${{ inputs.name }}-${{ steps.v.outputs.rustc }}-${{ hashFiles('**/Cargo.lock') }}
+        key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ inputs.name }}-${{ steps.v.outputs.rustc }}-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
-          cargo-${{ runner.os }}-${{ inputs.name }}-${{ steps.v.outputs.rustc }}-
-          cargo-${{ runner.os }}-${{ inputs.name }}-
+          cargo-${{ runner.os }}-${{ runner.arch }}-${{ inputs.name }}-${{ steps.v.outputs.rustc }}-
+          cargo-${{ runner.os }}-${{ runner.arch }}-${{ inputs.name }}-

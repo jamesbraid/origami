@@ -45,8 +45,8 @@ cargo xtask bump instigator v0.5.1
 
 Plain `cargo test` needs no download. `origami-gui` is not a default member (it builds Slint and wgpu); select it with `-p origami-gui`. `cargo xtask dist` writes
 `origami-<version>-<platform>.tar.gz` (`.zip` on Windows) and its `.sha256`
-for the platform it runs on: `linux-x86_64`, `macos-arm64` or
-`windows-x86_64`. The archive holds `origami-<version>/` with:
+for the platform it runs on: `linux-x86_64`, `linux-arm64`, `macos-arm64`,
+`macos-x86_64` or `windows-x86_64`. The archive holds `origami-<version>/` with:
 
 - `bin/origami` and `bin/instigator`;
 - `libexec/origami/` with `qemu-system-mips64`, `qemu-img`,
@@ -117,8 +117,8 @@ release tag. The frontend embeds its Git description through `vergen-gitcl`.
 
 ## macOS, Linux and Windows
 
-Each platform builds natively with Cargo: Apple Silicon on macOS 15 or newer,
-x86-64 Linux, and x86-64 Windows with the MSVC toolchain. Native guest graphics
+Each platform builds natively with Cargo: Apple Silicon or Intel on macOS 15
+or newer, x86-64 or arm64 Linux, and x86-64 Windows with the MSVC toolchain. Native guest graphics
 and input remain unqualified on macOS and Windows. The Linux release needs
 the host's PulseAudio and ALSA client libraries, X11 and udev; the QEMU
 release is built on an older glibc so it runs on current distributions. SDL

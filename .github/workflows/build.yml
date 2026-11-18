@@ -17,7 +17,9 @@ jobs:
       matrix:
         include:
           - { runner: ubuntu-24.04, platform: linux-x86_64 }
+          - { runner: ubuntu-24.04-arm, platform: linux-arm64 }
           - { runner: macos-15, platform: macos-arm64 }
+          - { runner: macos-15-intel, platform: macos-x86_64 }
           - { runner: windows-latest, platform: windows-x86_64 }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
@@ -41,7 +43,7 @@ jobs:
       - uses: ./.github/actions/qapi-schema-copies
         if: matrix.platform == 'windows-x86_64'
       - name: QEMU links the host's audio clients
-        if: matrix.platform == 'linux-x86_64'
+        if: startsWith(matrix.platform, 'linux')
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpulse0 libasound2t64
       - name: Test
         run: cargo xtask test
@@ -74,7 +76,13 @@ jobs:
 
   app-linux:
     if: github.server_url == 'https://github.com'
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, platform: linux-x86_64 }
+          - { runner: ubuntu-24.04-arm, platform: linux-arm64 }
+    runs-on: ${{ matrix.runner }}
     # The GTK app needs GTK 4.14 or newer and its Forgejo job builds in this image.
     container:
       image: docker.io/library/node:22-trixie
@@ -108,7 +116,7 @@ jobs:
           set -eu
           root="$RUNNER_TEMP/origami extract"
           mkdir -p "$root"
-          tar -xzf dist/origami-*-linux-x86_64-app.tar.gz -C "$root"
+          tar -xzf dist/origami-*-${{ matrix.platform }}-app.tar.gz -C "$root"
           for top in "$root"/*/; do
             out=$("${top}bin/origami" version)
             echo "$out"
@@ -117,14 +125,20 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: origami-app-linux-x86_64
+          name: origami-app-${{ matrix.platform }}
           path: dist/origami-*
           if-no-files-found: error
           retention-days: 3
 
   app-macos:
     if: github.server_url == 'https://github.com'
-    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-26, platform: macos-arm64 }
+          - { runner: macos-26-intel, platform: macos-x86_64 }
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -145,7 +159,7 @@ jobs:
           set -eu
           root="$RUNNER_TEMP/origami extract"
           mkdir -p "$root"
-          ditto -x -k dist/origami-*-macos-arm64-app.zip "$root"
+          ditto -x -k dist/origami-*-${{ matrix.platform }}-app.zip "$root"
           app="$root/Origami.app"
           codesign --verify --deep --strict "$app"
           out=$("$app/Contents/MacOS/origami" version)
@@ -153,7 +167,7 @@ jobs:
           case $out in *unavailable*) exit 1 ;; esac
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: origami-app-macos-arm64
+          name: origami-app-${{ matrix.platform }}
           path: dist/origami-*
           if-no-files-found: error
           retention-days: 3
