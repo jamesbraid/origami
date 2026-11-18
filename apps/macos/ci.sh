@@ -22,7 +22,7 @@ rm -rf $work/machines $work/out; mkdir -p $work/machines $work/out
 set +e
 $work/Origami.app/Contents/MacOS/OrigamiApp \
     --selftest $work/machines $work/out | tee $work/out/selftest.jsonl
-status=${pipestatus[1]}
+exit_code=${pipestatus[1]}
 set -e
-echo "self-test exit status: $status"
-exit $status
+echo "self-test exit status: $exit_code"
+exit $exit_code
