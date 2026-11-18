@@ -313,9 +313,11 @@ func runSelfTest(library: String, out: String) {
             return seen.count
         }
         let studio = cube.readback()
-        check("cube-starting-draws", cube.cube != nil && studio != nil && colours(studio) > 8 && first.moving,
+        // With Reduce Motion on, as it is on some CI machines, the cube draws its still pose.
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        check("cube-starting-draws", cube.cube != nil && studio != nil && colours(studio) > 8 && first.moving == !reduceMotion,
               ["error": cube.lastError, "size": studio.map { "\($0.width)x\($0.height)" } ?? "none",
-               "colours": colours(studio), "spinning": first.moving])
+               "colours": colours(studio), "spinning": first.moving, "reduce_motion": reduceMotion])
         cube.configure(look: .empty, dark: true, machine: nil)
         let emptyView = cube.present()
         let emptyPic = cube.readback()
@@ -324,8 +326,8 @@ func runSelfTest(library: String, out: String) {
         let px = emptyPic.map { Array($0.bgra[0..<4]) } ?? [1, 2, 3, 255]
         let clear = px[3] == 0
         let window = abs(Int(px[2]) - Int((win >> 16) & 255)) <= 1 && abs(Int(px[1]) - Int((win >> 8) & 255)) <= 1 && abs(Int(px[0]) - Int(win & 255)) <= 1
-        check("empty-library-cube-is-studio-turning-and-has-no-square", emptyView.moving && emptyPic != nil && colours(emptyPic) > 8 && (clear || window),
-              ["turning": emptyView.moving, "corner_bgra": px, "clear": clear, "window_colour": window, "opaque_layer": cube.metalLayer.isOpaque])
+        check("empty-library-cube-is-studio-turning-and-has-no-square", emptyView.moving == !reduceMotion && emptyPic != nil && colours(emptyPic) > 8 && (clear || window),
+              ["turning": emptyView.moving, "reduce_motion": reduceMotion, "corner_bgra": px, "clear": clear, "window_colour": window, "opaque_layer": cube.metalLayer.isOpaque])
         cube.configure(look: .about, dark: true, machine: nil)
         let dusk = cube.present()
         let duskPic = cube.readback()
