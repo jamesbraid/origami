@@ -510,11 +510,23 @@ func runSelfTest(library: String, out: String) {
             check("headless-machine-runs-with-its-console-in-the-tab", waitFor(30) { model.headless && model.state == .running && !consoleViews(tabHost).isEmpty },
                   ["state": model.state.pill, "headless": model.headless, "console_views": consoleViews(tabHost).count])
             let console = model.console()
-            func screen() -> String { (0..<24).map { r in ((try? console.terminal?.row(index: UInt16(r))) ?? []).map { $0.text.isEmpty ? " " : $0.text }.joined() }.joined(separator: "\n") }
+            func screen() -> String { (0..<Int(console.terminal?.size().rows ?? 24)).map { r in ((try? console.terminal?.row(index: UInt16(r))) ?? []).map { $0.text.isEmpty ? " " : $0.text }.joined() }.joined(separator: "\n") }
             check("headless-console-has-output", waitFor(60) { !screen().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
                   ["screen_head": String(screen().trimmingCharacters(in: .whitespacesAndNewlines).prefix(100))])
             console.send(.enter); console.send(.text(text: "1")); console.drainInput(); spin(0.3)
             check("headless-console-accepts-input", console.error == nil, ["error": console.error ?? "none"])
+            // Backspace at the PROM: wait for the menu, open the command monitor, type, erase one, and read the line back.
+            _ = waitFor(120) { screen().contains("Option?") }
+            console.send(.text(text: "5")); console.send(.enter); console.drainInput()
+            _ = waitFor(30) { screen().contains(">>") }
+            console.send(.text(text: "xyz")); console.drainInput(); spin(1)
+            let before = screen()
+            console.send(.backspace); console.drainInput(); spin(2)
+            let after = screen()
+            func lineWith(_ t: String, _ pat: String) -> String { t.split(separator: "\n").last { $0.contains(pat) }.map(String.init) ?? "" }
+            let beforeLine = lineWith(before, "xyz"), afterLine = lineWith(after, "xy")
+            check("headless-backspace-erases-at-the-prom", before.contains("xyz") && !afterLine.contains("xyz") && after.contains("xy"),
+                  ["before": beforeLine.trimmingCharacters(in: .whitespaces), "after": afterLine.trimmingCharacters(in: .whitespaces), "tail": String(after.suffix(300))])
             check("console-first-attach-has-the-real-size", console.firstAttach.map { $0 == (Int(console.terminal?.size().rows ?? 0), Int(console.terminal?.size().cols ?? 0)) } ?? false
                   && (console.firstAttach?.rows ?? 0) > 20,
                   ["first": "\(String(describing: console.firstAttach))", "now": "\(String(describing: console.terminal?.size()))"])
