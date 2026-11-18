@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 /// How long a command waits for QEMU's reply: QEMU greets only when its main
 /// loop runs, which a busy host can delay by more than a few seconds.
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a liveness probe waits. UIs probe on their own thread, so a hung
 /// QEMU must not hold them for the command timeout.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -35,7 +35,7 @@ pub fn verified_qmp(record: &Record) -> Result<Qmp> {
     verified_qmp_within(record, COMMAND_TIMEOUT)
 }
 
-fn verified_qmp_within(record: &Record, read_timeout: Duration) -> Result<Qmp> {
+pub fn verified_qmp_within(record: &Record, read_timeout: Duration) -> Result<Qmp> {
     let stream = connect(record, read_timeout)?;
     let mut qmp = Qmp::new(qapi::Stream::new(
         BufReader::new(stream.try_clone()?),

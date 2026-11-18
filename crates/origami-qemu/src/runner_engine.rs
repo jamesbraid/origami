@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub use origami_display::{Importer, Stats};
 
@@ -481,6 +481,7 @@ impl Engine for RunnerEngine {
             shown,
             cpus: Default::default(),
             threads: Mutex::new(vec![input, reader, watcher]),
+            qmp_timeout: qemu_control::COMMAND_TIMEOUT,
         }))
     }
 }
@@ -489,7 +490,12 @@ struct RunnerSession {
     shown: Arc<Shown>,
     cpus: crate::cpus::VcpuThreads,
     threads: Mutex<Vec<std::thread::JoinHandle<()>>>,
+    /// How long a QMP read waits; a field so a test need not wait 10 s.
+    qmp_timeout: Duration,
 }
+
+/// How long a Pause or Resume whose reply was lost waits to learn the outcome.
+const SYNC_WINDOW: Duration = Duration::from_secs(15);
 
 impl Drop for RunnerSession {
     fn drop(&mut self) {
@@ -507,11 +513,45 @@ impl Drop for RunnerSession {
 impl RunnerSession {
     /// QMP is single-client, so each request connects and disconnects.
     fn qmp(&self) -> Result<qemu_control::Qmp> {
+        self.qmp_within(self.qmp_timeout)
+    }
+
+    fn qmp_within(&self, timeout: Duration) -> Result<qemu_control::Qmp> {
         if self.shown.gone.load(Ordering::Acquire) {
             return Err("the machine has exited".into());
         }
-        qemu_control::verified_qmp(&machine_control::read(&self.shown.dir)?)
+        let record = machine_control::read(&self.shown.dir)?;
+        qemu_control::verified_qmp_within(&record, timeout)
     }
+
+    /// Whether QEMU says it is paused. Its main loop answers only after a
+    /// pending stop or cont has run, so this also waits that out, up to
+    /// `SYNC_WINDOW`; None when it never answers or is gone.
+    fn sync_paused(&self) -> Option<bool> {
+        let deadline = Instant::now() + SYNC_WINDOW;
+        loop {
+            let left = deadline.checked_duration_since(Instant::now())?;
+            match self.qmp_within(left.min(self.qmp_timeout)) {
+                Ok(mut qmp) => {
+                    if let Ok(info) = qmp.execute(&qmp::query_status {}) {
+                        let prelaunch = matches!(info.status, qmp::RunState::prelaunch);
+                        return Some(!info.running && !prelaunch);
+                    }
+                }
+                Err(error) if machine_is_gone(&*error) => return None,
+                Err(_) => {}
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+}
+
+/// An exited machine, or a QMP port nobody listens on: retrying cannot help.
+fn machine_is_gone(error: &(dyn std::error::Error + Send + Sync + 'static)) -> bool {
+    error.to_string() == "the machine has exited"
+        || error
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|e| e.kind() == std::io::ErrorKind::ConnectionRefused)
 }
 
 impl Session for RunnerSession {
@@ -554,13 +594,22 @@ impl Session for RunnerSession {
             Control::Reset => qmp.execute(&qmp::system_reset {}).map(drop)?,
             Control::PowerButton => qmp.execute(&qmp::system_powerdown {}).map(drop)?,
             Control::Nmi => qmp.execute(&qmp::inject_nmi {}).map(drop)?,
-            Control::Pause => {
-                qmp.execute(&qmp::stop {})?;
-                self.shown.paused.store(true, Ordering::Release);
-            }
-            Control::Resume => {
-                qmp.execute(&qmp::cont {})?;
-                self.shown.paused.store(false, Ordering::Release);
+            Control::Pause | Control::Resume => {
+                let pause = c == Control::Pause;
+                let sent = if pause {
+                    qmp.execute(&qmp::stop {}).map(drop)
+                } else {
+                    qmp.execute(&qmp::cont {}).map(drop)
+                };
+                // A reply that timed out does not mean QEMU ignored the command.
+                // QMP is single-client: let go before asking again.
+                drop(qmp);
+                if let Err(error) = sent {
+                    if self.sync_paused() != Some(pause) {
+                        return Err(error.into());
+                    }
+                }
+                self.shown.paused.store(pause, Ordering::Release);
             }
         }
         Ok(())
@@ -1171,6 +1220,7 @@ mod tests {
             shown: shown(dir.path()),
             cpus: Default::default(),
             threads: Mutex::new(vec![]),
+            qmp_timeout: Duration::from_millis(300),
         };
         for how in [Stop::Clean { timeout: None }, Stop::Force] {
             session.stop(how).unwrap();
@@ -1211,6 +1261,90 @@ mod tests {
         assert!(runs_protocol_4(dir.path()).unwrap());
         write("not json");
         assert!(runs_protocol_4(dir.path()).is_err());
+    }
+
+    #[test]
+    fn a_pause_whose_reply_is_lost_still_shows_as_paused() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let paused = Arc::new(AtomicBool::new(false));
+        let server = paused.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut out = stream.unwrap();
+                let mut lines = BufReader::new(out.try_clone().unwrap()).lines();
+                let version = r#"{"qemu":{"major":9,"minor":0,"micro":0},"package":""}"#;
+                writeln!(
+                    out,
+                    r#"{{"QMP":{{"version":{version},"capabilities":[]}}}}"#
+                )
+                .unwrap();
+                while let Some(Ok(line)) = lines.next() {
+                    let reply = if line.contains("query-name") {
+                        r#"{"return":{"name":"m"}}"#.to_string()
+                    } else if line.contains("query-status") {
+                        let (status, running) = match server.load(Ordering::SeqCst) {
+                            true => ("paused", false),
+                            false => ("running", true),
+                        };
+                        format!(
+                            r#"{{"return":{{"status":"{status}","running":{running},"singlestep":false}}}}"#
+                        )
+                    } else if line.contains("\"stop\"") {
+                        // QEMU stops, but the reply is late; it serves one client at a time.
+                        server.store(true, Ordering::SeqCst);
+                        continue;
+                    } else {
+                        "{\"return\":{}}".to_string()
+                    };
+                    writeln!(out, "{reply}").unwrap();
+                }
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        let record = machine_control::Record {
+            qmp_port: port,
+            name: "m".into(),
+            ..Default::default()
+        };
+        machine_control::write(dir.path(), &record).unwrap();
+        let session = RunnerSession {
+            shown: shown(dir.path()),
+            cpus: Default::default(),
+            threads: Mutex::new(vec![]),
+            qmp_timeout: Duration::from_millis(300),
+        };
+        session.control(Control::Pause).unwrap();
+        assert_eq!(session.status().state, RunState::Paused);
+    }
+
+    #[test]
+    fn a_pause_that_cannot_reach_qmp_fails_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        // Nothing listens on the port the listener just released.
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let record = machine_control::Record {
+            qmp_port: port,
+            name: "m".into(),
+            ..Default::default()
+        };
+        machine_control::write(dir.path(), &record).unwrap();
+        let session = RunnerSession {
+            shown: shown(dir.path()),
+            cpus: Default::default(),
+            threads: Mutex::new(vec![]),
+            qmp_timeout: Duration::from_millis(300),
+        };
+        let started = Instant::now();
+        assert!(session.control(Control::Pause).is_err());
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[test]
