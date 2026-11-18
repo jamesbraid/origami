@@ -43,6 +43,12 @@ public static class Selftest
         return cond();
     }
 
+    static async Task Grab(string dir, string name, IntPtr hwnd)
+    {
+        File.WriteAllText(Path.Combine(dir, $"want-{name}.txt"), hwnd.ToInt64().ToString());
+        Add("capture " + name, await Until(() => File.Exists(Path.Combine(dir, $"got-{name}.txt")), 20_000));
+    }
+
     public static async Task RunAsync(MainWindow w, UniffiCoreClient core, string outFile)
     {
         _out = outFile;
@@ -71,7 +77,7 @@ public static class Selftest
         if (w.LibraryCount == 0)
         {
             var product = App.ArgValue("--create-product") ?? "octane2";
-            try { key = await Task.Run(() => core.CreateFrom("selftest-" + product, product, App.ArgValue("--graphics"))); }
+            try { key = await Task.Run(() => core.CreateFrom(App.ArgValue("--machine-name") ?? "selftest-" + product, product, App.ArgValue("--graphics"))); }
             catch (Exception e) { Add("create a machine (firmware download)", false, e.Message); return; }
             Add("create a machine (firmware download)", key.Length > 0, key);
             w.Reload();
@@ -165,19 +171,22 @@ public static class Selftest
         Add("library: the chassis colour is the measured one (octane2 #2e354e)", w.ChassisHex(key) == "#2e354e", w.ChassisHex(key));
         IdentityChecks.OutDir = dir;
         foreach (var (name, ok, detail) in await IdentityChecks.About(w, Until)) Add(name, ok, detail);
-        // The pictures docs/app.md shows, named as tools/screenshots expects. XAML renders leave out the
-        // machine's own picture, which the workflow's window capture (window.png) already has.
+        // The pictures docs/app.md shows: the workflow's window capture, asked for by file (PrintWindow sees the machine's own picture).
         w.SetCpuPanel(true);
         await Until(() => w.CpuText.Contains("cpu 0"), 10_000);
-        try { await Shot.Xaml((Microsoft.UI.Xaml.UIElement)w.Content, Path.Combine(dir, "windows-cpu-panel.png")); }
-        catch (Exception e) { Add("windows-cpu-panel.png", false, e.Message); }
+        await Task.Delay(1500);
+        await Grab(dir, "windows-cpu-panel", w.Hwnd);
         w.SetCpuPanel(false);
         w.Invoke("window.diagnostics");
         if (await Until(() => w.DiagnosticsForTest(key) != null, 5000) && w.DiagnosticsForTest(key) is { } diag)
         {
             await Until(() => diag.ReportText.Contains("wake-ups"), 5000);
-            try { await Shot.Xaml((Microsoft.UI.Xaml.UIElement)diag.Content, Path.Combine(dir, "windows-diagnostics.png")); }
-            catch (Exception e) { Add("windows-diagnostics.png", false, e.Message); }
+            // The main window is always on top for input; Diagnostics must be in front of it to be photographed.
+            if (w.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter top) top.IsAlwaysOnTop = false;
+            diag.Activate();
+            if (diag.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter dp) dp.IsAlwaysOnTop = true;
+            await Task.Delay(2000);
+            await Grab(dir, "windows-diagnostics", WinRT.Interop.WindowNative.GetWindowHandle(diag));
             diag.Close();
         }
         else Add("windows-diagnostics.png", false, "the Diagnostics window did not open");

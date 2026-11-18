@@ -2,7 +2,7 @@
 //   Origami                         the app
 //   Origami --machines DIR          use DIR as the library (repeatable)
 //   Origami --selftest DIR OUT      headless: no window is ever shown
-//   Origami --docs-shots DIR OUT    headless: the pictures the documentation shows
+//   Origami --docs-shots DIR OUT    the pictures the documentation shows, from real windows
 // The core finds its QEMU beside the executable (ORIGAMI_RUNTIME_DIR overrides).
 
 import AppKit
@@ -25,7 +25,8 @@ if args.first == "--selftest" {
         FileHandle.standardError.write(Data("usage: Origami --docs-shots MACHINES_DIR OUTDIR\n".utf8))
         exit(2)
     }
-    nsApp.setActivationPolicy(.prohibited)
+    nsApp.setActivationPolicy(.regular)
+    nsApp.finishLaunching()
     MainActor.assumeIsolated { runDocsShots(library: args[1], out: args[2]) }
 } else {
     nsApp.setActivationPolicy(.regular)

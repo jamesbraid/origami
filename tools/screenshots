@@ -21,7 +21,7 @@ SETS = {
               "linux-diagnostics", "linux-console", "linux-settings", "linux-about"],
     "cli": ["cli-machines", "cli-create", "cli-run"],
     "windows": ["windows-running", "windows-cpu-panel", "windows-diagnostics"],
-    "macos": ["macos-library", "macos-new-machine", "macos-diagnostics", "macos-cpu-panel", "macos-about"],
+    "macos": ["macos-library", "macos-new-machine", "macos-running", "macos-cpu-panel", "macos-diagnostics", "macos-about"],
 }
 def run(*cmd, **kw):
     print("+", " ".join(map(str, cmd)), flush=True)
