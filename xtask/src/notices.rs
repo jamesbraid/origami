@@ -164,6 +164,8 @@ const CLI_TITLE: &str = "Rust crates (origami)";
 /// `base` (the repository's THIRD_PARTY_NOTICES) with its crate section
 /// replaced by one generated for every crate `origami` links.
 pub fn cli(base: &str, triple: &str) -> Result<String> {
+    // A Windows checkout converts the file to CRLF, which the headings below do not match.
+    let base = &base.replace("\r\n", "\n");
     let crates = crates(&root().join("Cargo.toml"), &["origami"], triple)?;
     let bar = "=".repeat(78);
     let title = base
