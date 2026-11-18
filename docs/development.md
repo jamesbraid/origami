@@ -282,6 +282,17 @@ Each job also extracts its archive to a path with spaces and checks that
 tests below. Run artifacts contain archives and SHA-256 files. Firmware and
 guest media are not included.
 
+## App screenshots
+
+`tools/screenshots` regenerates `docs/images/app/`, the pictures in the
+[app guide](app.md) and the changelog. Run the `screenshots` workflow on GitHub
+(Actions, Run workflow), then `tools/screenshots pull` to collect its Linux,
+CLI, macOS and Windows sets; `tools/screenshots --help` lists the commands that
+make one platform's set locally. The Linux set is the `docs` scenario of
+`crates/origami-gtk/ci/driver.py`, run on lavapipe like the workflow, so About
+shows the plain dialog. A new picture goes in the table in `tools/screenshots`
+and in the page that shows it.
+
 ## Functional tests
 
 A functional test is a full-machine boot. `tests/functional` boots a published

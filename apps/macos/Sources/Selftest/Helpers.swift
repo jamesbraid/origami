@@ -40,3 +40,16 @@ func readPPM(_ path: String) -> Picture? {
     guard d.count >= i + w * h * 3 else { return nil }
     return Picture(w: w, h: h, rgb: Array(d[i..<(i + w * h * 3)]))
 }
+
+#if FAKE
+/// A machine on the fake engine, with its stand-in firmware file in `library`; the error if the core refuses it.
+func makeFakeMachine(_ host: CoreHost, library: String, name: String) -> Error? {
+    let prom = library + "/prom.bin"
+    FileManager.default.createFile(atPath: prom, contents: Data(count: 16))
+    do {
+        let op = try host.core.createMachine(request: OrigamiCreateRequest(
+            name: name, offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil))
+        return op.wait(timeoutMs: 10_000) == .succeeded ? nil : NSError(domain: "fake", code: 1)
+    } catch { return error }
+}
+#endif

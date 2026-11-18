@@ -1,0 +1,152 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["pillow"]
+# ///
+"""Regenerate the app screenshots in docs/images/app/: one fixed, named set per platform.
+`pull` takes the release set from GitHub; the other commands make one platform's."""
+import argparse, io, os, pathlib, shutil, subprocess, sys, tempfile
+
+from PIL import Image
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+CI = ROOT / "crates" / "origami-gtk" / "ci"
+OUT = ROOT / "docs" / "images" / "app"
+XVFB_SCREEN = "1440x960"
+GITHUB_REPO = "jamesbraid/origami"
+
+# The names docs/app.md and CHANGELOG.md use. Add a picture here and in the page that shows it.
+SETS = {
+    "linux": ["linux-library", "linux-engine", "linux-new-machine", "linux-starting", "linux-running", "linux-paused", "linux-cpu-panel",
+              "linux-diagnostics", "linux-console", "linux-settings", "linux-about"],
+    "cli": ["cli-machines", "cli-create", "cli-run"],
+    "windows": ["windows-running", "windows-cpu-panel", "windows-diagnostics"],
+    "macos": ["macos-library", "macos-new-machine", "macos-diagnostics", "macos-cpu-panel", "macos-about"],
+}
+def run(*cmd, **kw):
+    print("+", " ".join(map(str, cmd)), flush=True)
+    subprocess.run(list(map(str, cmd)), check=True, **kw)
+
+
+def save(src: pathlib.Path, name: str):
+    """Re-encode one picture into docs/images/app/NAME.png: no metadata, an adaptive palette when that is not visibly lossy."""
+    OUT.mkdir(parents=True, exist_ok=True)
+    im = Image.open(src).convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, "PNG", optimize=True)
+    best = buf.getvalue()
+    if len(best) > 120_000:
+        # Dither-free palette: flat UI and terminal pictures lose nothing; photographs of a PROM keep banding-free gradients at 256 colours.
+        q = im.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+        buf = io.BytesIO()
+        q.save(buf, "PNG", optimize=True)
+        if len(buf.getvalue()) < len(best):
+            best = buf.getvalue()
+    (OUT / f"{name}.png").write_bytes(best)
+    print(f"{name}.png  {im.width}x{im.height}  {len(best) // 1024} KiB")
+
+
+def collect(folder: pathlib.Path, platform: str):
+    missing = [n for n in SETS[platform] if not (folder / f"{n}.png").is_file()]
+    if missing:
+        sys.exit(f"{platform}: no picture for {', '.join(missing)} in {folder}")
+    for n in SETS[platform]:
+        save(folder / f"{n}.png", n)
+
+
+def scratch(a) -> pathlib.Path:
+    if not a.scratch:
+        sys.exit("--scratch DIR is required: a folder for the Cargo target, the runtime and the outputs (not /tmp)")
+    s = pathlib.Path(a.scratch).resolve()
+    for d in ("ctx", "cargo", "target", "cache", "work", "out"):
+        (s / d).mkdir(parents=True, exist_ok=True)
+    return s
+
+
+def linux(a):
+    s = scratch(a)
+    env = dict(os.environ, SHOTS_ONLY="1", XVFB_SCREEN=XVFB_SCREEN, NEUTRAL_LIB="1")
+    if a.gpu is not None:
+        env["GPU"] = f"gpu={a.gpu}"
+    run("sh", CI / "linux.sh", s, "docs", env=env)
+    collect(s / "out" / "docs", "linux")
+
+
+def cli(a):
+    s = scratch(a)
+    if not (s / "target" / "release" / "origami").is_file():
+        sys.exit("no built origami in SCRATCH: run `tools/screenshots linux` first")
+    dest = s / "out" / "cli"
+    shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True)
+    run("podman", "run", "--rm", "--network", "host", "--memory", "8g",
+        "-v", f"{s}:{s}", "-v", f"{ROOT / 'tools'}:/tools:ro",
+        "-e", f"ORIGAMI_BIN={s}/target/release/origami", "-e", f"WORK={s}/work/cli",
+        "-e", f"ORIGAMI_RUNTIME_DIR={s}/rt/libexec/origami", "-e", f"ORIGAMI_CACHE_DIR={s}/cache",
+        "localhost/app-linux-run:1", "sh", "/tools/screenshots-cli.sh", dest)
+    collect(dest, "cli")
+
+
+def windows(a):
+    collect(pathlib.Path(a.src), "windows")
+
+
+def pull(a):
+    """Download the screenshots workflow's artifacts and collect every set."""
+    repo = ["--repo", a.repo]
+    run_id = a.run
+    if not run_id:
+        listing = subprocess.run(["gh", "run", "list", *repo, "--workflow", "screenshots.yml", "--status", "success", "--limit", "1",
+                                  "--json", "databaseId", "--jq", ".[0].databaseId"], check=True, capture_output=True, text=True)
+        run_id = listing.stdout.strip()
+        if not run_id:
+            sys.exit("no successful screenshots run found: start the workflow first (Actions, screenshots, Run workflow)")
+    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR") or None) as t:
+        run("gh", "run", "download", run_id, *repo, "--dir", t,
+            "-n", "screenshots-linux", "-n", "screenshots-windows", "-n", "screenshots-macos")
+        for artifact, platforms in (("screenshots-linux", ("linux", "cli")), ("screenshots-windows", ("windows",)), ("screenshots-macos", ("macos",))):
+            for platform in platforms:
+                collect(pathlib.Path(t) / artifact, platform)
+
+
+def macos(a):
+    src = pathlib.Path(a.src) if a.src else None
+    if src is None:
+        if sys.platform != "darwin":
+            sys.exit("macos: run this on a Mac, or pass --from the folder `OrigamiApp --docs-shots` wrote")
+        src = pathlib.Path(a.scratch).resolve() / "macos-shots" if a.scratch else ROOT / "target" / "macos-shots"
+        run("zsh", ROOT / "apps" / "macos" / "screenshots.sh", src)
+    collect(src, "macos")
+
+
+HELP = {
+    "pull": "download the screenshots workflow's artifacts (GitHub, via gh) and collect every set",
+    "linux": "build the GTK app in the CI container and run the docs scenario (lavapipe, or --gpu N)",
+    "cli": "render origami command transcripts to PNG (run linux first)",
+    "windows": "collect the unzipped screenshots-windows artifact",
+    "macos": "on a Mac build and render the pictures; or collect a folder with --from",
+}
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    for name in ("linux", "cli"):
+        c = sub.add_parser(name, help=HELP[name])
+        c.add_argument("--scratch")
+        if name == "linux":
+            c.add_argument("--gpu", type=int, help="run on this NVIDIA device instead of lavapipe")
+    c = sub.add_parser("pull", help=HELP["pull"])
+    c.add_argument("--run", help="a workflow run id (default: the latest successful one)")
+    c.add_argument("--repo", default=GITHUB_REPO, help="GitHub OWNER/NAME (origin is Forgejo); default %(default)s")
+    c = sub.add_parser("windows", help=HELP["windows"])
+    c.add_argument("--from", dest="src", required=True, help="the unzipped screenshots-windows artifact")
+    c = sub.add_parser("macos", help=HELP["macos"])
+    c.add_argument("--from", dest="src", help="the folder OrigamiApp --docs-shots wrote, or the unzipped screenshots-macos artifact")
+    c.add_argument("--scratch")
+    a = p.parse_args()
+    {"linux": linux, "cli": cli, "windows": windows, "macos": macos, "pull": pull}[a.cmd](a)
+
+
+if __name__ == "__main__":
+    main()

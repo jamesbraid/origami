@@ -165,6 +165,22 @@ public static class Selftest
         Add("library: the chassis colour is the measured one (octane2 #2e354e)", w.ChassisHex(key) == "#2e354e", w.ChassisHex(key));
         IdentityChecks.OutDir = dir;
         foreach (var (name, ok, detail) in await IdentityChecks.About(w, Until)) Add(name, ok, detail);
+        // The pictures docs/app.md shows, named as tools/screenshots expects. XAML renders leave out the
+        // machine's own picture, which the workflow's window capture (window.png) already has.
+        w.SetCpuPanel(true);
+        await Until(() => w.CpuText.Contains("cpu 0"), 10_000);
+        try { await Shot.Xaml((Microsoft.UI.Xaml.UIElement)w.Content, Path.Combine(dir, "windows-cpu-panel.png")); }
+        catch (Exception e) { Add("windows-cpu-panel.png", false, e.Message); }
+        w.SetCpuPanel(false);
+        w.Invoke("window.diagnostics");
+        if (await Until(() => w.DiagnosticsForTest(key) != null, 5000) && w.DiagnosticsForTest(key) is { } diag)
+        {
+            await Until(() => diag.ReportText.Contains("wake-ups"), 5000);
+            try { await Shot.Xaml((Microsoft.UI.Xaml.UIElement)diag.Content, Path.Combine(dir, "windows-diagnostics.png")); }
+            catch (Exception e) { Add("windows-diagnostics.png", false, e.Message); }
+            diag.Close();
+        }
+        else Add("windows-diagnostics.png", false, "the Diagnostics window did not open");
         // Pause and resume the real machine; the picture keeps its head.
         // Call the core directly first, so a QMP failure shows its own error and timing (the status bar hides it).
         {

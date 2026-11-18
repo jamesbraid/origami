@@ -11,7 +11,10 @@ case $GPU in
   gpu=*) GPUARG="--device nvidia.com/gpu=${GPU#gpu=} --group-add keep-groups -e NVIDIA_RUN=1"; ENVARG="-e VK_DRIVER_FILES=/etc/vulkan/icd.d/nvidia_icd.json" ;;
 esac
 mkdir -p "$S/out/$NAME" "$S/work/$NAME"
-exec podman run --rm --pids-limit=-1 --network host --memory 16g $GPUARG $ENVARG \
+# NEUTRAL_LIB=1: the library is really at /home/user/Machines, so a picture shows a plain path.
+LIBARG=""
+[ -z "${NEUTRAL_LIB:-}" ] || { mkdir -p "$S/work/$NAME/library"; LIBARG="-v $S/work/$NAME/library:/home/user/Machines -e LIBRARY=/home/user/Machines"; }
+exec podman run --rm --pids-limit=-1 --network host --memory 16g $GPUARG $ENVARG $LIBARG \
   -v "$S":"$S" -v "$W":/ci:ro -v /dev/shm:/dev/shm \
   -e APP="$S/target/release/origami-gtk" -e VPTR="$S/target/release/vptr" -e WORK="$S/work/$NAME" -e ORIGAMI_BIN="$S/target/release/origami" \
   -e ORIGAMI_RUNTIME_DIR="$S/rt/libexec/origami" -e ORIGAMI_CACHE_DIR="$S/cache" \

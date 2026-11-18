@@ -6,6 +6,8 @@
 # exists beside linux.sh.
 #
 # usage: native.sh SCRATCH [scenario...]     (default: first-light settings popout)
+# SHOTS_ONLY=1 skips the lint, the unit tests and the pointer scenario: the
+# screenshots workflow wants the build and the named scenario alone.
 set -eu
 S=$(mkdir -p "$1" && cd "$1" && pwd); shift
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -23,11 +25,11 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 export CARGO_TARGET_DIR="$S/target"
 cd "$ROOT"
-cargo clippy --locked -p origami-gtk --features iris --all-targets -- -D warnings
+[ -n "${SHOTS_ONLY:-}" ] || cargo clippy --locked -p origami-gtk --features iris --all-targets -- -D warnings
 # iris is hosted by the origami runner, so both are built with it.
 cargo build --locked --release -p origami-gtk -p origami --features origami-gtk/iris,origami/iris
 cargo build --locked --release -p origami-gtk --features test-tools --bin vptr
-cargo test --locked -p origami-gtk -p origami-terminal
+[ -n "${SHOTS_ONLY:-}" ] || cargo test --locked -p origami-gtk -p origami-terminal
 cargo xtask runtime --platform linux-x86_64
 rm -rf "$S/rt" && mkdir -p "$S/rt"
 cp -rL "$S/target/runtime/linux-x86_64/tree/libexec" "$S/target/runtime/linux-x86_64/tree/share" "$S/rt/"
@@ -41,4 +43,4 @@ run() { # NAME MODE SCENARIO
     sh "$HERE/session.sh" "$S/out/$1" "$2" "$3"
 }
 for sc in $SCEN; do run "$sc" x11 "$sc"; done
-run pointer-sway sway pointer
+[ -n "${SHOTS_ONLY:-}" ] || run pointer-sway sway pointer

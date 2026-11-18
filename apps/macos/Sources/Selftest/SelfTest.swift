@@ -88,13 +88,8 @@ func runSelfTest(library: String, out: String) {
     // 1. The library. With the fake engine we make our own machine.
     #if FAKE
     if fake {
-        let prom = library + "/prom.bin"
-        FileManager.default.createFile(atPath: prom, contents: Data(count: 16))
-        do {
-            let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "alpha", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil))
-            check("create-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
-        } catch { check("create-machine", false, ["error": "\(error)"]) }
+        let made = makeFakeMachine(host, library: library, name: "alpha")
+        check("create-machine", made == nil, made.map { ["error": "\($0)"] } ?? [:])
         app.rescanNow()
     }
     #endif

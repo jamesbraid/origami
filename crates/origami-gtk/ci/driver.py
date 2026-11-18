@@ -15,7 +15,7 @@ extra = sys.argv[4:]
 app = os.environ["APP"]
 work = os.environ["WORK"]
 origami = os.environ["ORIGAMI_BIN"]
-lib = os.path.join(work, "library")
+lib = os.environ.get("LIBRARY") or os.path.join(work, "library")
 sock_path = os.path.join(work, "automation.sock")
 os.makedirs(out, exist_ok=True)
 results = []
@@ -1022,7 +1022,113 @@ def headless():
         a.stop()
 
 
-SCENARIOS = {"headless": headless, "cube": cube, "hinv": hinv, "about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+# The named set `tools/screenshots linux` collects into docs/images/app/.
+DOCS_SHOTS = ["linux-library", "linux-engine", "linux-new-machine", "linux-starting", "linux-running", "linux-paused", "linux-cpu-panel",
+              "linux-diagnostics", "linux-console", "linux-settings", "linux-about"]
+
+
+def window_ids(title):
+    return sh("xdotool", "search", "--onlyvisible", "--name", title).stdout.split()
+
+
+def doc_shot(name, title="Origami"):
+    """One window, cropped out of the screen, as the documentation's picture."""
+    ids = window_ids(title)
+    if not ids:
+        check("a window titled %s to photograph for %s" % (title, name), False, sh("wmctrl", "-l").stdout)
+        return
+    g = dict(l.split("=") for l in sh("xdotool", "getwindowgeometry", "--shell", ids[-1]).stdout.split())
+    root = shot("_root")
+    p = os.path.join(out, name + ".png")
+    sh("convert", root, "-crop", "%sx%s+%s+%s" % (g["WIDTH"], g["HEIGHT"], g["X"], g["Y"]), "+repage", "-strip", p)
+    os.remove(root)
+    check("saved " + name, os.path.exists(p), g)
+
+
+def docs():
+    """The walkthrough in docs/app.md: one real session, each step photographed under its name.
+    The console shot needs a second boot, after the first has set up NVRAM."""
+    if mode != "x11":
+        skip("docs", "needs XTest")
+        return
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        time.sleep(2)
+        doc_shot("linux-library")
+        # New Machine: the Engine list open, then iris chosen and a name typed.
+        a.req("invoke machine.new")
+        time.sleep(2)
+        key("Return")
+        time.sleep(1)
+        doc_shot("linux-engine")
+        key("Down")
+        key("Return")
+        time.sleep(1)
+        key("Tab")
+        key("Tab")
+        type_text("indy")
+        time.sleep(1)
+        doc_shot("linux-new-machine")
+        key("Escape")
+        time.sleep(1)
+        # The dialog's close leaves a focus ring on the + button; a click on the empty page takes it away.
+        pointer_to(900, 700)
+        click()
+        a.req("invoke machine.start octane2")
+        a.wait("Starting", lambda: (a.machine("octane2") or {}).get("state") == "Starting", 15, 0.1)
+        time.sleep(0.5)
+        doc_shot("linux-starting")
+        check("the PROM draws its menu", prom_menu(a, "octane2") is not None)
+        a.wait("menu settled", lambda: a.machine("octane2")["idle_ms"] > 3000, 60, 0.5)
+        doc_shot("linux-running")
+        a.req("invoke machine.pause octane2")
+        a.wait("Paused", lambda: a.machine("octane2")["state"] == "Paused", 15, 0.2)
+        time.sleep(1)
+        doc_shot("linux-paused")
+        a.req("invoke machine.resume octane2")
+        a.wait("Running", lambda: a.machine("octane2")["state"] == "Running", 15, 0.2)
+        b = a.state()["cpu_btn"]
+        pointer_to(b[0] + b[2] / 2, b[1] + b[3] / 2)
+        click()
+        a.wait("CPU rows", lambda: (a.machine("octane2")["cpu_panel"]["rows"] or None), 20, 0.5)
+        time.sleep(2)
+        doc_shot("linux-cpu-panel")
+        click()
+        a.req("invoke window.diagnostics octane2")
+        diagnostics_window(a, "octane2")
+        doc_shot("linux-diagnostics", "Diagnostics")
+        sh("wmctrl", "-c", "Diagnostics")
+        a.req("invoke machine.force-quit octane2")
+        a.wait("stopped", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+        sh(origami, "nvram", os.path.join(lib, "octane2"), "set", "console=d")
+        a.req("invoke window.console octane2")
+        a.wait("console window", lambda: window_ids("Console"), 15, 0.3)
+        a.req("invoke machine.start octane2")
+        probe = lambda: (a.machine("octane2") or {}).get("console")
+        check("the console shows the PROM's output", a.wait("diagnostics", lambda: probe() and "Press any key" in probe()["screen"], 600, 2) is not None)
+        time.sleep(3)
+        doc_shot("linux-console", "Console")
+        sh("wmctrl", "-c", "Console")
+        a.req("invoke machine.force-quit octane2")
+        a.wait("stopped", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+        a.req("invoke machine.settings octane2")
+        time.sleep(3)
+        doc_shot("linux-settings")
+        key("Escape")
+        time.sleep(1)
+        a.req("invoke app.about")
+        time.sleep(3)
+        doc_shot("linux-about")
+        for n in DOCS_SHOTS:
+            check("%s.png exists" % n, os.path.exists(os.path.join(out, n + ".png")))
+    finally:
+        a.stop()
+
+
+SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

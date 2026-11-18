@@ -6,7 +6,8 @@ struct NewMachineSheet: View {
     @StateObject private var model: NewMachineModel
     @Environment(\.dismiss) private var dismiss
 
-    init(app: AppModel) { _model = StateObject(wrappedValue: NewMachineModel(app: app)) }
+    init(app: AppModel) { self.init(model: NewMachineModel(app: app)) }
+    init(model: NewMachineModel) { _model = StateObject(wrappedValue: model) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {

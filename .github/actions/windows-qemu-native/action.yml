@@ -1,0 +1,51 @@
+name: Windows app natives (QEMU engine)
+description: Cross-build the Windows app's native pieces from Linux with mingw, with the QEMU engine and the runner, and leave them in out/ for the app build.
+inputs:
+  cache-name:
+    description: Distinguishes this caller's cargo cache
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Cross compiler and Rust
+      shell: bash
+      run: |
+        SUDO=; [ "$(id -u)" = 0 ] || SUDO=sudo
+        $SUDO apt-get update
+        $SUDO apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+        if ! command -v rustup >/dev/null 2>&1; then
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+        fi
+        rustup toolchain install stable --profile minimal --target x86_64-pc-windows-gnu
+        rustup default stable
+    - uses: ./.github/actions/cargo-cache
+      with:
+        name: ${{ inputs.cache-name }}
+        extra: apps/windows/native/target
+    - name: Build the fallback presenter
+      shell: bash
+      working-directory: apps/windows/native
+      run: cargo build --locked --release --target x86_64-pc-windows-gnu
+    - name: Build the core's FFI library (QEMU engine) and the runner
+      shell: bash
+      run: |
+        cargo build --locked --release --target x86_64-pc-windows-gnu -p origami-ffi
+        cargo build --locked --release --target x86_64-pc-windows-gnu --bin origami
+    - uses: ./.github/actions/cargo-bin
+      with:
+        bin: uniffi-bindgen-cs
+        key: uniffi-bindgen-cs-v0.12.0+v0.32.0
+        install: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+    - name: Generate the C# bindings and collect
+      shell: bash
+      # uniffi-bindgen-cs runs cargo metadata, so it must run inside a crate.
+      run: |
+        mkdir -p out/Generated out/native-out
+        (cd crates/origami-ffi && uniffi-bindgen-cs --library ../../target/x86_64-pc-windows-gnu/release/origami_ffi.dll --out-dir "$GITHUB_WORKSPACE/out/Generated")
+        cp target/x86_64-pc-windows-gnu/release/origami_ffi.dll out/native-out/
+        cp target/ghostty-vt/1.0.1-windows-x86_64/ghostty-vt.dll out/native-out/
+        cp target/x86_64-pc-windows-gnu/release/origami.exe out/native-out/
+        cp apps/windows/native/target/x86_64-pc-windows-gnu/release/origami_present.dll out/native-out/

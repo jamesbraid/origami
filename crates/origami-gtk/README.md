@@ -53,6 +53,8 @@ Xvfb, wtype under cage, a virtual pointer under sway):
 - `console`: the Console window under real input, with the PROM's serial output
   on screen: mouse selection, copy, paste, scrollback and one window per machine.
 - `settings`: edits through the core on a stopped machine, refused while it runs.
+- `docs`: one real session photographed under the names `docs/app.md` shows
+  (`tools/screenshots linux` runs it and collects the pictures).
 
 Capture takes the window system's pointer lock: Wayland pointer constraints
 with relative pointer (sway), or warp-to-centre on X11. Cage has no pointer

@@ -1,0 +1,132 @@
+name: screenshots
+# App pictures for the docs, one job per platform; `tools/screenshots pull` collects the artifacts.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-24.04
+    container:
+      image: docker.io/library/node:22-trixie
+    timeout-minutes: 90
+    env:
+      XVFB_SCREEN: 1440x960
+      SHOTS_ONLY: '1'
+      LIBRARY: /home/user/Machines
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: screenshots-linux
+          target: ${{ runner.temp }}/shots/target
+          extra: ${{ runner.temp }}/shots/cache
+      - name: Build the app and take the app's pictures
+        run: sh crates/origami-gtk/ci/native.sh "$RUNNER_TEMP/shots" docs
+      - name: Take the command line's pictures
+        run: |
+          S="$RUNNER_TEMP/shots"
+          mkdir -p "$S/work/cli" "$S/out/cli" set
+          ORIGAMI_BIN="$S/target/release/origami" WORK="$S/work/cli" ORIGAMI_RUNTIME_DIR="$S/rt/libexec/origami" \
+            ORIGAMI_CACHE_DIR="$S/cache" sh tools/screenshots-cli.sh "$S/out/cli"
+          cp "$S"/out/docs/linux-*.png "$S"/out/cli/cli-*.png set/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-linux
+          path: set
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: screenshots-linux-logs
+          path: ${{ runner.temp }}/shots/out
+          retention-days: 3
+
+  windows-native:
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/windows-qemu-native
+        with:
+          cache-name: screenshots-windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-native-qemu
+          path: out
+          if-no-files-found: error
+          retention-days: 1
+
+  windows:
+    if: github.server_url == 'https://github.com'
+    needs: windows-native
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-native-qemu
+          path: apps/windows/Origami.App
+      - run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo xtask runtime --platform windows-x86_64
+      - uses: ./.github/actions/windows-qemu-selftest
+        with:
+          runtime-dir: target/runtime/windows-x86_64/tree/libexec/origami
+          fail-on-selftest: 'false'
+      - run: |
+          mkdir set
+          cp apps/windows/selftest-out/window.png set/windows-running.png
+          cp apps/windows/selftest-out/windows-cpu-panel.png apps/windows/selftest-out/windows-diagnostics.png set/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-windows
+          path: set
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: screenshots-windows-logs
+          path: apps/windows/selftest-out
+          retention-days: 3
+
+  macos:
+    # macos-26 and Rust 1.97.1 are what app-macos.yml builds this app with.
+    if: github.server_url == 'https://github.com'
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+      - name: Build the app on the fake engine and render its pictures
+        run: apps/macos/screenshots.sh "$RUNNER_TEMP/macos-shots"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: screenshots-macos
+          path: ${{ runner.temp }}/macos-shots/macos-*.png
+          if-no-files-found: error
+          retention-days: 14
