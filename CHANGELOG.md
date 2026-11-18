@@ -2,48 +2,51 @@
 
 ## Unreleased
 
-The O2 runs, machines get stable identities, and disks can be MAME CHD images.
+Origami is now a desktop app. There is a native one for macOS, Windows and
+Linux, all on the same core, and they run the same machines as the `origami`
+command. Next to QEMU there is a second engine, iris, for the Indy, Indigo2
+and Octane2. And the O2 boots IRIX.
 
-Breaking:
-- Presets: `tezro-vpro` and `onyx350-vpro` are now `tezro` and `onyx350`. Migration: use the new names.
-- origami upgrade: machines made by 0.5.1 must be upgraded to QEMU's topology names (`tezro-tower-multi` is `tezro-ip53`, `onyx350-compat` is `onyx350-ip53`, and the Origin 3000 clock topologies are processor modules). State is kept. Migration: run `origami upgrade` on each machine made by 0.5.1.
-- Onyx 4: a host made by 0.5.1 cannot be upgraded, because QEMU now builds it only on the IP59 node board.
-
-Features:
-- CPU load: `OrigamiMachine::cpu_load()` returns each emulated CPU's load, user and system, sampled twice a second. It is the host's CPU time on the threads that emulate the CPUs, not the guest's own accounting. QEMU is measured on Linux and Windows, iris on Linux and macOS; otherwise the call says why not.
-- iris: `origami create DIR --preset indy`, `indigo2` or `octane2-iris` makes an SGI Indy, Indigo2 or Octane2 (VPro V12, a 195 MHz R10000, the one iris offers) that runs on the iris emulator instead of QEMU. It runs in the runner process, so an iris fault ends that machine and nothing else. It needs a build with `--features iris`, and it is experimental: on Linux `run --display shm` serves the picture on a display protocol 4 socket (`state/display/v4.sock`; no pointer steering, so a viewer captures the mouse), a new Indy or Indigo2 PROM console is the graphics head (`setenv console d` at the PROM puts it on the serial line), it takes user networking only, no port forwards or shares, no power button or NMI, and no sound. The engine and its display also build for Windows and macOS: the display passes its conformance suite on Windows, the runner has not been built there yet (it needs an MSVC build), and macOS is compile-checked only until it runs on a Mac. Other iris machines (O2, Origin, Onyx, Fuel, Tezro) are not offered yet. `origami machines` still lists QEMU's presets; `origami machines indy` shows one of these.
-- O2: the `o2` preset creates an R10000 O2 (IP32) with its published 4.18 PROM, which `create` strips of its update header and pads to the 512 KiB flash. The preset supplies the four board inputs QEMU requires (a password clear input of 1 and an unprotected, unlocked ROM part), and `--set` changes them. A run counts instructions with the virtual-time clock, as QEMU's machine list asks. Disks attach with `drive-attach --target`. `origami nvram` does not support the O2 yet, so a new O2's PROM keeps its console on the graphics head. The IRIX 6.5.30 login appears about five minutes after start.
-- emu-id: every machine gets one at `create`, the lowest free number from 1 to 2999 among the machines beside it, and QEMU builds the guest's system serial, host id and Ethernet address from it. It is recorded in `machine.toml` as `[identity] emu-id` and passed to QEMU as `emu-id=N`. Concurrent creates in one directory never take the same one. `create --emu-id N` picks one from 1 to 2999; 3000 to 4095 are reserved for harness and CI machines. `show` prints it and `validate` warns when a neighbouring machine has the same one, or has emu-id 0 on tap or vmnet networking.
-- Ethernet: a new machine's MAC derives from its emu-id unless `--mac` is given (42 gives `08:00:69:e1:02:a0`, and host id `69e102a0` on an Octane, Octane2, Origin 200 or Fuel). A machine that first gets a MAC from `network-set` or `install-init` gets an emu-id the same way.
-- CHD disks: `drive-attach --type disk` takes a MAME CHD hard disk image. A compressed CHD takes guest writes in a `.diff.chd` beside it, folded back into the image when QEMU exits cleanly; `--overlay` keeps the diff instead. CD-ROM and tape CHDs are refused. Never use one CHD with iris and origami at the same time.
-- Settings: `--set` takes the inputs the preset lists as settings, each checked for its kind of value. A list takes a slot, as in `--set chassis-eeprom.0=FILE`. `origami machines PRESET` lists them. A CPU input is `prid` or `fpu-id` instead of one name for each CPU part. `l2-controller` is listed but refused: the CLI starts no such process.
-- CPU clock: `--processor` also picks the clock of an Origin 3200, 3400 or Onyx 3000.
-- origami-gui: a viewer that draws each machine's graphics from shared memory (`run --display shm`), with serial and log views and controls. It is a testbed outside the release build: select it with `cargo build -p origami-gui`.
-- Headless machines: a machine created without graphics (`--graphics none`) gets the serial line as its PROM console, since the PROM's default is the graphics head and a headless Octane2 panics installing from CD. A new machine's NVRAM is blank until the PROM has run, so the setting waits in `machine.toml` as `[firstboot]` and applies at the first start after the PROM has initialised the NVRAM, so the very first boot still uses the graphics console (not yet tested against a real first boot). Machines whose NVRAM `origami nvram` does not edit, such as the O2, are unchanged.
-- machine-set: `origami machine-set DIR` changes a stopped machine's CPUs per node (`--cpus-per-node`), memory (`--memory-per-node`) and settings (`--set NAME=VALUE`, as `create` takes them) in one step, all or none. A running machine is refused, and so is a processor module other than the one the machine was made with, which its node flash records. `--set` replaces the value for its name and cannot remove one.
-- Audio: a run gives the guest sound on the host's audio output (CoreAudio on macOS, PipeWire else PulseAudio on Linux, WASAPI else DirectSound on Windows), so the PROM's power-on chime plays on the machines that model audio. A QEMU without one of those backends runs the guest silent and says so in the runner log. `run --no-audio` turns it off. `show-command` no longer prints `-audio none`; the host's backend is chosen at run.
-- reset and stop --force: `origami reset DIR` resets a running guest, and `origami stop --force DIR` kills QEMU at once. `state/run.json` records QEMU's own pid as `qemu_pid`.
-- Cube: `origami-render` draws the SGI cube live on the GPU into a host window (`origami_cube_*` in the C frame plane): chrome reflecting a studio with a tintable horizon, a photograph of Howe Sound, Garibaldi Lake or Vancouver at dusk, or a running machine's screen, over granite. It turns at 10 rpm only when asked, drags and flings, draws at most 60 frames a second (30 while only the calm spin moves it) and nothing at rest or hidden.
-- Linux app: machines show their product still in the sidebar, tabs, hero and New Machine, in the light or dark treatment, with a wash of the machine's measured colour. The start screen sits on granite of that colour under a plate, and the guest picture's letterbox is neutral granite. A machine with no still keeps its glyph tile.
-- GTK app: the start page shows the SGI cube turning on chassis-coloured granite while a machine starts, and About is a dialog with the cube on a BC scene picked by the time of day. Both need a hardware GPU; with none, or a software one, the page keeps its spinner and About is the stock dialog.
-- App packages: `cargo xtask dist --app` builds the native app's package for the host: a tarball with `bin/origami-gtk` on Linux, a `.app` archive on macOS (ad hoc signed, not notarized), and on Windows a zip with the WinUI app in `app/`. Each holds the `origami` tool, Instigator and the pinned QEMU, with the app's extra Rust crates and, on Windows, the .NET and Windows App SDK licences added to the notices. There is no installer or AppImage yet.
-
-Changed:
-- Console: the apps' serial console terminal runs on libghostty-vt 1.0.1 (MIT) instead of vt100, so it answers device attribute and cursor position queries, tracks wide characters and OSC 8 links, and keeps at least 5000 lines of history. Backspace sends ^H, which the PROM and IRIX erase on, and DEL once a Linux or OpenBSD banner appears, and a new run's console starts empty instead of replaying earlier boots. Linux builds the library with Zig on first build, once per target directory; macOS and Windows fetch upstream's prebuilt files, and the Windows app ships `ghostty-vt.dll` beside `origami_ffi.dll`. `--no-default-features` on origami-terminal or origami-ffi builds with vt100 only.
-- Display: machines run on a QEMU with the `display-shm` device show through display protocol version 4, which lends the viewer a slot per frame and takes input and pointer steering on the same socket; an older QEMU keeps version 3. On Linux the GPU reads the slots in place, so the CPU copies no picture bytes.
-- iris: the C frame plane can draw an iris machine's display (the `iris` feature of origami-ffi) and send it input, over display protocol 4; iris's red-first pixels are accepted without an extra copy on the GPU.
-- Console: a second client of a machine's serial console no longer hangs. A runner process now owns the console, `origami console` and `install-apply` share it, and while an install holds the input lease the others are read-only, with a notice on standard error. `state/run.json` gains `control_port`, `engine_console` and `started_by`; `console_port` is now the runner's, and QEMU's own console is on `engine_console`. If the runner dies and QEMU lives, `status` says so, `stop` quits QEMU over QMP, and `console` connects to QEMU directly with a warning. `origami console` also shows a prompt that does not end in a newline at once.
-- stop: waits until QEMU has exited and prints `stopped`, instead of returning once the quit is requested. A CHD disk folds its diff into the image during that exit, which takes minutes for a large image.
-- origami upgrade: adds an emu-id to a machine that has none and keeps its MAC. On an Octane, Octane2, Fuel or Origin 200 the host id comes from the station address and stays the same. On the IP35 machines, Origin 2000 and Onyx2 it comes from a system serial that the emu-id sets, so the guest sees a new host id; `upgrade` says so and how to keep the old one.
-- Origin 200: new machines get 256 MiB per node, up from 64 MiB (the `origin200-impact` GigaChannel preset had 128 MiB). Existing machines keep their size, and `--memory-per-node` still picks another.
-- Origin 3000, Onyx 3000 and Origin 300: the NUMAlink expansion takes its onboard Ethernet address from the machine's, where they all used 08:00:69:12:34:56.
-- Library: each machine shows its SGI product name, such as Origin 200, Origin 2000 or Onyx2. The Mac app showed "Origin" and "Onyx" for those models, and GTK and Windows showed the model id.
-- Copied machines: a copied machine directory keeps its emu-id, and `run` warns, but still starts it, while the machine it was copied from is running. The two share a host id and Ethernet address, which clash on a shared network.
-- Archive: the bundled QEMU is built with its chd driver, and the licence notices for MAME's CHD code ship with it.
-- Archive: `THIRD_PARTY_NOTICES` lists every Rust crate `origami` links, generated from `cargo metadata`; it named about two thirds of them.
-- QEMU: updated to 11169497b07, which reports machine list version 3. An older QEMU is refused.
-- machine.toml: `origami upgrade` writes format 5, which names the engine in `[engine]` instead of `[qemu]` and records the firmware images a new machine's stores came from, and keeps the old file as `machine.toml.format4` (`.format1` to `.format3` for older machines). Older Origami versions cannot read format 5. Commands read a format 4 machine as it is, and a command that edits one writes format 5 and keeps the old file. A machine file from a later format is refused.
-- Power Off: the core's clean stop gives up waiting after `stop_patience` (30 seconds). The operation then fails with a message that offers Force Quit, and the machine stays up instead of the front end waiting forever on a guest or QEMU that does not exit.
+- Breaking:
+  - Machines made by 0.5.1 need `origami upgrade` once. It keeps their state
+    and moves them to the new machine file, which 0.5.1 can no longer read
+    (the old file stays beside it). Origin 2000 and Onyx2 guests see a new
+    host id afterwards; `upgrade` says how to keep the old one.
+  - The `tezro-vpro` and `onyx350-vpro` presets are now `tezro` and
+    `onyx350`.
+  - An Onyx 4 made by 0.5.1 cannot be upgraded and has to be created again.
+- New:
+  - Native apps: a machine library, tabs, a New Machine dialog that picks
+    the engine, per-machine settings, Pause and Resume, screenshots and a
+    Diagnostics window. GTK 4 on Linux, Apple Silicon on macOS, WinUI 3 on
+    Windows. A machine with no graphics opens straight to its console.
+  - No copying the picture: the guest's screen reaches your GPU without the
+    CPU touching it, through Vulkan on Linux and Direct3D 12 on Windows.
+    When that can't work, the app copies and Diagnostics says why.
+  - A real terminal: the serial console runs on Ghostty's terminal library,
+    so IRIX's tools see a proper terminal with colours, wide characters,
+    function keys and 5000 lines of history. Each run starts with a clean
+    console, and Backspace sends what the guest expects.
+  - iris: an Indy, Indigo2 or Octane2 can run on the iris emulator instead
+    of QEMU, in its own process, so a crash only takes down that machine.
+    Experimental: user networking only and no sound yet.
+  - O2: boots IRIX 6.5.30 to a login in about five minutes on SGI's
+    published PROM.
+  - CPU load: a panel under the picture shows how hard each emulated CPU
+    works, measured on the host.
+  - Sound: guests play through the host's audio, so the startup chime is
+    back.
+  - CHD disks: attach a MAME CHD hard disk image directly. Writes are kept
+    beside it and folded back in when the machine stops.
+  - Machine identity: every machine gets its own serial number, host id and
+    Ethernet address, so two machines on one network don't clash.
+- Changed:
+  - When a machine stops, the apps say why: the guest powered off, you
+    stopped it, or it crashed. Power Off gives up after 30 seconds and
+    offers Force Quit.
+  - The library shows each machine's SGI product name, such as Origin 200
+    or Onyx2. New Origin 200s get 256 MiB per node.
+  - A second console on the same machine no longer hangs.
 
 ## 0.5.1
 
