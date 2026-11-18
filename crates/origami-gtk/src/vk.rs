@@ -137,7 +137,7 @@ impl Dev {
                     .intersects(vk::QueueFlags::GRAPHICS | vk::QueueFlags::TRANSFER)
             })
             .ok_or("no queue family")? as u32;
-        let mut wanted: Vec<*const i8> = vec![khr::external_memory_fd::NAME.as_ptr()];
+        let mut wanted: Vec<*const std::ffi::c_char> = vec![khr::external_memory_fd::NAME.as_ptr()];
         let dma_buf_export = has(&exts, ext::external_memory_dma_buf::NAME);
         if dma_buf_export {
             wanted.push(ext::external_memory_dma_buf::NAME.as_ptr());
