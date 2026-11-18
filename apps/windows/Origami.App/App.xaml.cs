@@ -24,8 +24,9 @@ public partial class App : Application
     public App()
     {
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log("domain unhandled: " + e.ExceptionObject);
+        TaskScheduler.UnobservedTaskException += (_, e) => Log("unobserved task exception: " + e.Exception);
         if (Array.IndexOf(Environment.GetCommandLineArgs(), "--log-first-chance") >= 0)
-            AppDomain.CurrentDomain.FirstChanceException += (_, e) => Log("first chance: " + e.Exception.GetType().Name + ": " + e.Exception.Message);
+            AppDomain.CurrentDomain.FirstChanceException += (_, e) => Log("first chance: " + e.Exception.GetType().Name + ": " + e.Exception.Message + Environment.NewLine + Environment.StackTrace);
         InitializeComponent();
         UnhandledException += (_, e) =>
         {
