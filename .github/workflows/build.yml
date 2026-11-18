@@ -1,11 +1,7 @@
 name: Build
 
-# Builds the product natively on each OS against the QEMU and Instigator
-# releases in runtime.lock: tests, release archive, and a check that the
-# extracted archive starts. Nothing here compiles QEMU or Instigator.
-#
-# Reusable: release.yml calls it for tags. It uploads one artifact per
-# platform, origami-<platform>, holding the archive and its .sha256.
+# Builds the product natively on each OS against the QEMU and Instigator releases in runtime.lock.
+# Reusable: release.yml calls it; it uploads origami-<platform> and origami-app-<platform> artifacts.
 on:
   workflow_call:
   workflow_dispatch:
@@ -72,6 +68,200 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: origami-${{ matrix.platform }}
+          path: dist/origami-*
+          if-no-files-found: error
+          retention-days: 3
+
+  app-linux:
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-24.04
+    # The GTK app needs GTK 4.14 or newer and its Forgejo job builds in this image.
+    container:
+      image: docker.io/library/node:22-trixie
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Packages and Rust
+        run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git xz-utils build-essential pkg-config clang cmake \
+            libgtk-4-dev libadwaita-1-dev libvulkan-dev libdrm-dev libgbm-dev libegl-dev libgles-dev glslc spirv-tools \
+            libxkbcommon-dev libssl-dev libpulse0 libasound2t64
+          curl --fail --show-error --silent --proto '=https' --tlsv1.2 \
+            https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
+          sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: The checkout has a version
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          v=$(git describe --tags --match 'v[0-9]*' --always)
+          echo "$v"
+          test -n "$v" && test "$v" != unknown
+      - name: Package
+        run: cargo xtask dist --app --out dist
+      - name: Start the extracted package
+        run: |
+          set -eu
+          root="$RUNNER_TEMP/origami extract"
+          mkdir -p "$root"
+          tar -xzf dist/origami-*-linux-x86_64-app.tar.gz -C "$root"
+          for top in "$root"/*/; do
+            out=$("${top}bin/origami" version)
+            echo "$out"
+            case $out in *unavailable*) exit 1 ;; esac
+            test -x "${top}bin/origami-gtk"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: origami-app-linux-x86_64
+          path: dist/origami-*
+          if-no-files-found: error
+          retention-days: 3
+
+  app-macos:
+    if: github.server_url == 'https://github.com'
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+          rustc -Vv
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      # xtask runs apps/macos/build.sh with the iris engine, then ad hoc signs the bundle.
+      - name: Package
+        run: cargo xtask dist --app --out dist
+      - name: Start the extracted package and check its signature
+        run: |
+          set -eu
+          root="$RUNNER_TEMP/origami extract"
+          mkdir -p "$root"
+          ditto -x -k dist/origami-*-macos-arm64-app.zip "$root"
+          app="$root/Origami.app"
+          codesign --verify --deep --strict "$app"
+          out=$("$app/Contents/MacOS/origami" version)
+          echo "$out"
+          case $out in *unavailable*) exit 1 ;; esac
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: origami-app-macos-arm64
+          path: dist/origami-*
+          if-no-files-found: error
+          retention-days: 3
+
+  # The Windows app's Rust parts are cross-built with MinGW on Linux, as
+  # package-windows.yml does, and the C# app and the zip are made on Windows.
+  app-windows-native:
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Cross compiler and Rust
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64
+          rustup toolchain install stable --profile minimal --target x86_64-pc-windows-gnu
+          rustup default stable
+          rustc -Vv
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: package-windows
+      - name: Install the C# generator (the pin crates/origami-ffi/bindings/csharp/gen.sh names)
+        uses: ./.github/actions/cargo-bin
+        with:
+          bin: uniffi-bindgen-cs
+          key: uniffi-bindgen-cs-v0.12.0+v0.32.0
+          install: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+      # The runner must not import libstdc++-6.dll, which a user's machine lacks: put only the
+      # static archives where the linker looks first, so -lstdc++ and -lwinpthread resolve to them.
+      - name: Static MinGW runtime
+        run: |
+          mkdir -p "$RUNNER_TEMP/static"
+          for l in stdc++ winpthread; do
+            ln -sf "$(x86_64-w64-mingw32-g++-posix -print-file-name=lib$l.a)" "$RUNNER_TEMP/static/lib$l.a"
+          done
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS=-L native=$RUNNER_TEMP/static -C link-arg=-static-libgcc" >> "$GITHUB_ENV"
+      # libchdman-rs has no prebuilt for MinGW, so it builds from source. Its FLAC needs HAVE_FSEEKO and a 64-bit
+      # off_t to match MinGW's fseeko64, and the posix thread model for libgcc to link.
+      - name: Build the Rust parts
+        env:
+          LIBCHDMAN_FORCE_SOURCE: '1'
+          CFLAGS_x86_64_pc_windows_gnu: -D_FILE_OFFSET_BITS=64 -DHAVE_FSEEKO=1
+          CXXFLAGS_x86_64_pc_windows_gnu: -D_FILE_OFFSET_BITS=64 -DHAVE_FSEEKO=1
+          CC_x86_64_pc_windows_gnu: x86_64-w64-mingw32-gcc-posix
+          CXX_x86_64_pc_windows_gnu: x86_64-w64-mingw32-g++-posix
+          CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-g++-posix
+        run: cargo xtask dist --app --platform windows-x86_64 --target x86_64-pc-windows-gnu --prebuild "$PWD/prebuilt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-prebuilt
+          path: prebuilt
+          if-no-files-found: error
+          retention-days: 3
+
+  app-windows:
+    if: github.server_url == 'https://github.com'
+    needs: app-windows-native
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-prebuilt
+          path: prebuilt
+      - uses: ./.github/actions/windows-dotnet
+      - name: Package
+        run: |
+          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          prebuilt/xtask.exe dist --app --platform windows-x86_64 --prebuilt prebuilt --out dist
+          ls -la dist
+      - name: The packaged runner has iris linked
+        run: |
+          mkdir check && /c/Windows/System32/tar.exe -xf dist/origami-*-app.zip -C check
+          grep -c "iris runner panicked" check/*/bin/origami.exe
+      - name: Start the extracted package
+        # From a path with spaces, as a user's home may be.
+        shell: powershell
+        run: |
+          $zip = (Get-ChildItem dist\origami-*-app.zip).FullName
+          $root = Join-Path $env:RUNNER_TEMP "origami extract"
+          New-Item -ItemType Directory -Force $root | Out-Null
+          tar -xf $zip -C $root
+          $top = (Get-ChildItem $root).FullName
+          & "$top\bin\origami.exe" version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $out = Join-Path $env:RUNNER_TEMP "selftest-out"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $p = Start-Process -FilePath "$top\app\Origami.exe" -ArgumentList "--selftest","`"$out\selftest.json`"","--settings","`"$out\settings.json`"","--stderr","`"$out\stderr.log`"","--library","`"$out\library`"","--create-product","octane2" -WorkingDirectory "$top\app" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(240000)) { $p.Kill(); "self-test did not exit"; exit 99 }
+          if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } elseif (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" }
+          foreach ($f in "app.log","stderr.log") { if (Test-Path "$out\$f") { "--- $f"; Get-Content "$out\$f" -Tail 60 } }
+          "exit code: $($p.ExitCode)"
+          exit $p.ExitCode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: origami-app-windows-x86_64
           path: dist/origami-*
           if-no-files-found: error
           retention-days: 3

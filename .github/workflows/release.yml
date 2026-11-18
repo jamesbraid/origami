@@ -1,8 +1,9 @@
 name: Release
 
-# A v* tag builds the three archives and publishes them as a GitHub release,
-# with SHA256SUMS and the CHANGELOG.md section for the version. The tag is
-# made on the canonical repository and mirrored here.
+# A v* tag builds the three command-line archives and the three native app
+# packages and publishes them as a GitHub release, with SHA256SUMS and the
+# CHANGELOG.md section for the version. The tag is made on the canonical
+# repository and mirrored here.
 on:
   push:
     tags: ['v*']
@@ -38,7 +39,8 @@ jobs:
           set -eu
           version=${TAG#v}
           ls assets
-          test "$(ls assets/*.tar.gz assets/*.zip | wc -l)" = 3
+          test "$(ls assets/*.tar.gz assets/*.zip | wc -l)" = 6
+          test "$(ls assets/*-app.tar.gz assets/*-app.zip | wc -l)" = 3
           # A dirty or untagged build would be named for the commit instead.
           for f in assets/origami-*; do
             case $f in

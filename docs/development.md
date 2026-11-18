@@ -267,9 +267,12 @@ the QEMU repository's `subprojects/` at the release tag named in
 `.github/workflows/build.yml` is a reusable workflow. On each of
 ubuntu-24.04, macos-15 and windows-latest it checks out the product, runs
 `cargo xtask test` and `cargo xtask dist`, and uploads
-`origami-<platform>` containing the archive and its `.sha256`.
+`origami-<platform>` containing the archive and its `.sha256`. It also runs
+`cargo xtask dist --app` and uploads `origami-app-<platform>`: the GTK tarball
+on Linux, the ad hoc signed `.app` zip on macOS, and the WinUI app zip on
+Windows, whose Rust parts are cross-built with MinGW on Linux first.
 `.github/workflows/release.yml` calls it for `v*` tags and publishes a GitHub
-release with the three archives, `SHA256SUMS` and the `CHANGELOG.md`
+release with the six archives, `SHA256SUMS` and the `CHANGELOG.md`
 section for that version. Pull requests and `main` pushes on GitHub do not
 build archives. Forgejo's required check is `cli.yml`: formatting, Clippy and
 `cargo test` on Linux.
