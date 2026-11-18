@@ -29,10 +29,15 @@ jobs:
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
             --target x86_64-pc-windows-gnu
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: package-windows
       - name: Install the C# generator (the pin crates/origami-ffi/bindings/csharp/gen.sh names)
-        run: |
-          cargo install uniffi-bindgen-cs --locked \
-            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+        uses: ./.github/actions/cargo-bin
+        with:
+          bin: uniffi-bindgen-cs
+          key: uniffi-bindgen-cs-v0.12.0+v0.32.0
+          install: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
       # The runner must not import libstdc++-6.dll, which a user's machine lacks: put only the
       # static archives where the linker looks first, so -lstdc++ and -lwinpthread resolve to them.
       - name: Static MinGW runtime
@@ -76,14 +81,10 @@ jobs:
         with:
           name: windows-prebuilt
           path: prebuilt
-      - name: Install the .NET SDK (user level)
-        shell: powershell
-        run: |
-          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
-          ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:RUNNER_TEMP\dotnet"
+      - uses: ./.github/actions/windows-dotnet
       - name: Package
         run: |
-          export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
           prebuilt/xtask.exe dist --app --platform windows-x86_64 --prebuilt prebuilt --out dist
           ls -la dist
       - name: The packaged runner has iris linked

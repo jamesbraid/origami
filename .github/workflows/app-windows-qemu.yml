@@ -25,6 +25,10 @@ jobs:
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
             --target x86_64-pc-windows-gnu
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: app-windows-qemu
+          extra: apps/windows/native/target
       - name: Build the fallback presenter
         working-directory: apps/windows/native
         run: cargo build --locked --release --target x86_64-pc-windows-gnu
@@ -33,9 +37,11 @@ jobs:
           cargo build --locked --release --target x86_64-pc-windows-gnu -p origami-ffi
           cargo build --locked --release --target x86_64-pc-windows-gnu --bin origami
       - name: Install the C# generator
-        run: |
-          cargo install uniffi-bindgen-cs --locked \
-            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+        uses: ./.github/actions/cargo-bin
+        with:
+          bin: uniffi-bindgen-cs
+          key: uniffi-bindgen-cs-v0.12.0+v0.32.0
+          install: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
       - name: Generate the C# bindings
         # uniffi-bindgen-cs runs cargo metadata, so it must run inside a crate.
         working-directory: crates/origami-ffi
@@ -75,17 +81,17 @@ jobs:
         with:
           name: windows-native-qemu
           path: apps/windows/Origami.App
-      - name: Install the .NET SDK (user level)
-        shell: powershell
-        run: |
-          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
-          ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:RUNNER_TEMP\dotnet"
+      - uses: ./.github/actions/windows-dotnet
+      - uses: actions/cache@v4
+        with:
+          path: qemu.zip
+          key: qemu-windows-zip-${{ inputs.tag }}
       - name: Fetch the QEMU archive and lay out the runtime
         shell: powershell
         run: |
           if ($env:TAG -notmatch '^sgi-origami-[0-9.]+-[0-9]+$') { throw "bad tag" }
           $url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/$env:TAG/$env:TAG-windows-x86_64.zip"
-          Invoke-WebRequest $url -OutFile qemu.zip -UseBasicParsing
+          if (-not (Test-Path qemu.zip)) { Invoke-WebRequest $url -OutFile qemu.zip -UseBasicParsing }
           $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes("$PWD\qemu.zip"))).Replace("-","").ToLower()
           # From the release's SHA256SUMS; a new tag adds its line here.
           $pinned = @{ "sgi-origami-11.1.90-1" = "59794af95aa216892cbea2c2f7476bd6a2550678a399a6368e750a4b0222eea5" }
@@ -102,7 +108,7 @@ jobs:
       - name: Build the app (unpackaged, self-contained)
         working-directory: apps/windows
         run: |
-          export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
           set -o pipefail
           time dotnet build Origami.App/Origami.App.csproj -c Release -p:Platform=x64 -p:Qemu=true 2>&1 | tail -60
       - name: Self-test with a desktop screenshot while the picture is up

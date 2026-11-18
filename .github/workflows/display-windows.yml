@@ -31,6 +31,9 @@ jobs:
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
             --target x86_64-pc-windows-gnu
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: display-windows
       - name: Build the Windows test and tool binaries
         run: |
           cargo test --target x86_64-pc-windows-gnu --no-run --message-format=json \

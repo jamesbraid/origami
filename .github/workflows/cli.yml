@@ -30,6 +30,9 @@ jobs:
             https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --component clippy,rustfmt --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: cli-test
       - name: Record toolchain
         run: rustc -Vv
       - name: Check formatting
@@ -64,6 +67,9 @@ jobs:
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
             --target x86_64-pc-windows-gnu
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: cli-windows
       # The runner feature links iris, whose CHD library has no MinGW build; it
       # needs the MSVC toolchain.
       - name: Check the iris engine and display producer for Windows

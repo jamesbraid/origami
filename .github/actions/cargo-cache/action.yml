@@ -1,0 +1,34 @@
+name: Cache cargo
+description: Restore and save the cargo registry, git checkouts and the target directory (which holds the ghostty-vt and Zig downloads and the QEMU runtime). Run it after Rust is installed.
+inputs:
+  name:
+    description: Distinguishes jobs whose features or targets differ
+    required: true
+  target:
+    description: The target directory
+    default: target
+  extra:
+    description: More paths to cache, one per line
+    default: ''
+runs:
+  using: composite
+  steps:
+    - id: v
+      shell: bash
+      # Incremental state is large and useless in CI; line tables keep backtraces at a fraction of the size.
+      run: |
+        echo "rustc=$(rustc --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+        echo "CARGO_INCREMENTAL=0" >> "$GITHUB_ENV"
+        echo "CARGO_PROFILE_DEV_DEBUG=line-tables-only" >> "$GITHUB_ENV"
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          ${{ inputs.target }}
+          ${{ inputs.extra }}
+        key: cargo-${{ runner.os }}-${{ inputs.name }}-${{ steps.v.outputs.rustc }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          cargo-${{ runner.os }}-${{ inputs.name }}-${{ steps.v.outputs.rustc }}-
+          cargo-${{ runner.os }}-${{ inputs.name }}-

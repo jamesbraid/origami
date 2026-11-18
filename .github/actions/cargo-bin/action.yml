@@ -1,0 +1,23 @@
+name: Cached cargo tool
+description: Restore a cargo-installed binary from the cache, or run the install command and save it. Run it after Rust is installed.
+inputs:
+  bin:
+    description: The binary's name in ~/.cargo/bin
+    required: true
+  key:
+    description: Names the tool and its version or tag
+    required: true
+  install:
+    description: The command that installs it
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: c
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/${{ inputs.bin }}
+        key: cargo-bin-${{ runner.os }}-${{ inputs.key }}
+    - if: steps.c.outputs.cache-hit != 'true'
+      shell: bash
+      run: ${{ inputs.install }}

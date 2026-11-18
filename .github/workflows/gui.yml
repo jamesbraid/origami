@@ -35,6 +35,9 @@ jobs:
             https://sh.rustup.rs -o "$RUNNER_TEMP/rustup-init.sh"
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --component clippy,rustfmt --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: gui-test
       - name: Lint
         run: cargo clippy --locked -p origami-render -p origami-gui --all-targets -- -D warnings
       - name: Test (the boot test stays ignored)
@@ -58,5 +61,8 @@ jobs:
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
             --target x86_64-pc-windows-gnu
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: gui-windows
       - name: Check for Windows
         run: cargo check --locked -p origami-gui --target x86_64-pc-windows-gnu

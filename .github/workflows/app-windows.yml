@@ -24,6 +24,10 @@ jobs:
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --default-toolchain stable \
             --target x86_64-pc-windows-gnu
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: app-windows
+          extra: apps/windows/native/target
       - name: Build the fallback presenter
         working-directory: apps/windows/native
         run: cargo build --locked --release --target x86_64-pc-windows-gnu
@@ -48,9 +52,11 @@ jobs:
           CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER: x86_64-w64-mingw32-g++-posix
         run: cargo build --locked --release --target x86_64-pc-windows-gnu --features iris --bin origami
       - name: Install the C# generator
-        run: |
-          cargo install uniffi-bindgen-cs --locked \
-            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+        uses: ./.github/actions/cargo-bin
+        with:
+          bin: uniffi-bindgen-cs
+          key: uniffi-bindgen-cs-v0.12.0+v0.32.0
+          install: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
       - name: Generate the C# bindings
         # uniffi-bindgen-cs runs cargo metadata, so it must run inside a crate.
         working-directory: crates/origami-ffi
@@ -99,20 +105,16 @@ jobs:
           path: iris-runner
       - name: The runner with iris starts
         run: iris-runner/origami.exe version
-      - name: Install the .NET SDK (user level)
-        shell: powershell
-        run: |
-          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
-          ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:RUNNER_TEMP\dotnet"
+      - uses: ./.github/actions/windows-dotnet
       - name: Logic tests (keys, pointer modes, settings, fake core)
         working-directory: apps/windows
         run: |
-          export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
           dotnet run -c Release --project Origami.Logic.Tests
       - name: Build the app (unpackaged, self-contained)
         working-directory: apps/windows
         run: |
-          export PATH="$RUNNER_TEMP/dotnet:$PATH" DOTNET_ROOT="$RUNNER_TEMP/dotnet" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
           set -o pipefail
           time dotnet build Origami.App/Origami.App.csproj -c Release -p:Platform=x64 2>&1 | tail -60
       - name: Self-test with a desktop screenshot while the picture is up

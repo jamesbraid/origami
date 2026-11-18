@@ -43,11 +43,21 @@ jobs:
           sh "$RUNNER_TEMP/rustup-init.sh" -y --profile minimal --component clippy,rustfmt \
             --default-toolchain stable --target x86_64-pc-windows-gnu
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-      - name: Install the binding generators
-        run: |
-          cargo install cbindgen --version "$CBINDGEN_VERSION" --locked
-          cargo install uniffi-bindgen-cs --locked \
-            --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag "$UNIFFI_BINDGEN_CS_TAG"
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: bindings
+      - name: Install cbindgen
+        uses: ./.github/actions/cargo-bin
+        with:
+          bin: cbindgen
+          key: cbindgen-${{ env.CBINDGEN_VERSION }}
+          install: cargo install cbindgen --version "$CBINDGEN_VERSION" --locked
+      - name: Install the C# generator
+        uses: ./.github/actions/cargo-bin
+        with:
+          bin: uniffi-bindgen-cs
+          key: uniffi-bindgen-cs-${{ env.UNIFFI_BINDGEN_CS_TAG }}
+          install: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag "$UNIFFI_BINDGEN_CS_TAG"
       - name: Format
         run: cargo fmt --all --check
       - name: Lint

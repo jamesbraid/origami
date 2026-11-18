@@ -1,0 +1,16 @@
+name: Windows .NET SDK
+description: Install the .NET 8 SDK under the user profile, from the runner cache when it has one.
+runs:
+  using: composite
+  steps:
+    - id: sdk
+      uses: actions/cache@v4
+      with:
+        # A fixed path: the cache version hashes it, and RUNNER_TEMP changes every job.
+        path: ~/.dotnet-ci
+        key: dotnet-sdk-8.0-${{ runner.os }}
+    - if: steps.sdk.outputs.cache-hit != 'true'
+      shell: powershell
+      run: |
+        Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+        ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:USERPROFILE\.dotnet-ci"
