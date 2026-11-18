@@ -1838,8 +1838,9 @@ mod tests {
             option.contains(&format!(",display-shm={name},")),
             "{option}"
         );
+        let socket = display_socket(dir).display().to_string();
         assert!(
-            option.contains(",display-shm-socket=/machines/one/state/display.sock"),
+            option.contains(&format!(",display-shm-socket={socket}")),
             "{option}"
         );
         assert!(args.windows(2).any(|pair| pair == ["-display", "none"]));
@@ -1864,11 +1865,8 @@ mod tests {
         assert!(!args.iter().any(|a| a.contains("display-shm=")));
         assert!(args.windows(2).any(|p| p == ["-display", "none"]));
         let args = build(Display::ShmV4 { fd: None });
-        assert!(args.windows(2).any(|p| p
-            == [
-                "-device",
-                "display-shm,path=/machines/one/state/display.sock"
-            ]));
+        let device = format!("display-shm,path={}", display_socket(dir).display());
+        assert!(args.windows(2).any(|p| p == ["-device", device.as_str()]));
     }
 
     #[cfg(unix)]
