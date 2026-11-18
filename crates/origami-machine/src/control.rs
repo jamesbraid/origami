@@ -92,6 +92,12 @@ pub fn path(dir: &Path) -> std::path::PathBuf {
     dir.join("state/run.json")
 }
 
+/// Exists once the runner has connected to the engine's console and replayed
+/// the run's serial log to its first client; absent before, and at each start.
+pub fn console_attached_path(dir: &Path) -> std::path::PathBuf {
+    dir.join("state/console-attached")
+}
+
 pub fn read(dir: &Path) -> Result<Record> {
     Ok(serde_json::from_slice(&fs::read(path(dir))?)?)
 }

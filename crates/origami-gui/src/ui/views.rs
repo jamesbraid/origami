@@ -597,20 +597,15 @@ impl Ui {
     /// Take what the serial console has sent into the terminal.
     pub fn feed_console(&mut self, mi: usize) {
         let m = &mut self.machines[mi];
-        if m.x.term.history_end().is_none() {
-            // What the console holds now is history: its queries get no answer.
-            m.x.term
-                .set_history_end(m.fm.console_read(u64::MAX, 0).next);
-        }
         let mut chunk = m.fm.console_read(m.x.console_from, CONSOLE_READ);
         if chunk.next < m.x.console_from {
             // The machine started again and its offsets began from zero.
             chunk = m.fm.console_read(0, CONSOLE_READ);
-            m.x.term.set_history_end(0);
         }
         m.x.console_from = chunk.next;
         if !chunk.bytes.is_empty() {
             let start = chunk.next - chunk.bytes.len() as u64;
+            m.x.term.set_history_end(chunk.live_from);
             let replies = m.x.term.feed_at(start, &chunk.bytes);
             if !replies.is_empty() {
                 let _ = m.fm.console_send(&replies);

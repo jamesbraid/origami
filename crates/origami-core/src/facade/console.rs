@@ -14,6 +14,8 @@ struct Ring {
     connected: bool,
     down: Option<String>,
     generation: u64,
+    /// Offset where output printed after the connection begins.
+    live_from: u64,
 }
 
 pub(crate) struct Console {
@@ -32,6 +34,7 @@ impl Console {
                 connected: false,
                 down: Some("the machine has not started".into()),
                 generation: 0,
+                live_from: 0,
             }),
             writer: Mutex::new(None),
         })
@@ -44,15 +47,18 @@ impl Console {
             ring.data.clear();
             ring.start = 0;
             ring.generation += 1;
+            ring.live_from = 0;
             ring.connected = false;
             ring.down = Some("the console is not open".into());
         }
         *self.writer.lock().unwrap() = None;
     }
 
-    pub(crate) fn connect(&self, writer: Box<dyn Write + Send>) {
+    /// `history` is how many bytes the reader will first replay.
+    pub(crate) fn connect(&self, writer: Box<dyn Write + Send>, history: u64) {
         *self.writer.lock().unwrap() = Some(writer);
         let mut ring = self.ring.lock().unwrap();
+        ring.live_from = history;
         ring.connected = true;
         ring.down = None;
     }
@@ -106,6 +112,7 @@ impl Console {
             next: first + count as u64,
             dropped,
             generation: ring.generation,
+            live_from: ring.live_from,
         }
     }
 
@@ -132,5 +139,23 @@ impl Console {
             ring.down.clone(),
             ring.start + ring.data.len() as u64,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_output_begins_after_the_replayed_history() {
+        let console = Console::new(1024);
+        // A terminal that opens first sees no live output yet.
+        assert_eq!(console.read(0, 16).live_from, 0);
+        console.connect(Box::new(std::io::sink()), 5);
+        console.append(b"\x1b[c old\x1b[c");
+        let chunk = console.read(0, 64);
+        assert_eq!(chunk.live_from, 5);
+        console.reset();
+        assert_eq!(console.read(0, 16).live_from, 0);
     }
 }

@@ -24,6 +24,7 @@ pub const PRIME_BYTES: u64 = 1 << 20;
 pub struct Link {
     port: AtomicU16,
     log: PathBuf,
+    attached: PathBuf,
     /// Where the serial log stood when the runner began: later bytes are the
     /// guest's and reach the ring on first connect.
     log_from: u64,
@@ -40,10 +41,13 @@ impl Link {
     /// has not connected yet.
     pub fn new(dir: &Path) -> (Arc<Link>, Vec<u8>) {
         let log = dir.join("logs/serial.log");
+        let attached = origami_machine::control::console_attached_path(dir);
+        let _ = fs::remove_file(&attached);
         let (tail, len) = read_tail(&log, PRIME_BYTES);
         let link = Arc::new(Link {
             port: AtomicU16::new(0),
             log,
+            attached,
             log_from: len,
             inner: Mutex::new(Inner {
                 writer: None,
@@ -106,6 +110,7 @@ impl Link {
             }
         };
         writer.append(&missed);
+        let _ = fs::write(&self.attached, b"");
         g.stream = Some(stream);
         drop(g);
         thread::Builder::new()
@@ -162,4 +167,27 @@ fn read_range(path: &Path, from: u64) -> (Vec<u8>, u64) {
         let _ = f.take(PRIME_BYTES).read_to_end(&mut out);
     }
     (out, len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_attached_marker_is_cleared_at_start_and_written_on_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("state")).unwrap();
+        fs::create_dir_all(dir.path().join("logs")).unwrap();
+        let marker = origami_machine::control::console_attached_path(dir.path());
+        fs::write(&marker, b"").unwrap();
+        let (link, _) = Link::new(dir.path());
+        assert!(!marker.exists(), "a new run starts without the marker");
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        link.set_port(listener.local_addr().unwrap().port());
+        let (writer, _ring) = crate::broker::ring::new(1024);
+        link.set_writer(writer);
+        link.ensure().unwrap();
+        assert!(marker.exists(), "the first connect leaves the marker");
+    }
 }

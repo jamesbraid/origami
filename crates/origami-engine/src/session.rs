@@ -72,6 +72,12 @@ pub struct ConsoleInfo {
 
 /// A console's bytes, both ways.
 pub trait ConsoleIo: Read + Write + Send {
+    /// How many of the first bytes read are history, replayed from before
+    /// the connection rather than printed by the guest just now.
+    fn history_len(&self) -> u64 {
+        0
+    }
+
     /// Separate the two directions, so one thread can block reading while
     /// another writes.
     fn split(self: Box<Self>) -> io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)>;

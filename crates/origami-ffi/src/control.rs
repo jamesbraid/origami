@@ -463,6 +463,8 @@ pub struct OrigamiConsoleChunk {
     pub next: u64,
     pub dropped: u64,
     pub generation: u64,
+    /// Output below this offset is replayed history, not just printed.
+    pub live_from: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
@@ -964,6 +966,7 @@ impl OrigamiMachine {
             next: chunk.next,
             dropped: chunk.dropped,
             generation: chunk.generation,
+            live_from: chunk.live_from,
         }
     }
 

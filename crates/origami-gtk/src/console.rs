@@ -164,9 +164,7 @@ fn terminal(app: &Rc<App>, m: &Rc<MachineUi>) -> (gtk::DrawingArea, Rc<View>) {
         "{} console",
         m.name
     ))]);
-    let mut term = Terminal::new(24, 80);
-    // What the console holds now is history: its queries get no answer.
-    term.set_history_end(m.machine.console_read(u64::MAX, 0).next);
+    let term = Terminal::new(24, 80);
     let view = Rc::new(View {
         term: RefCell::new(term),
         cell: std::cell::Cell::new((9.0, 18.0)),
@@ -379,7 +377,10 @@ fn puller(
         view.next.set(chunk.next);
         if !chunk.bytes.is_empty() {
             let start = chunk.next - chunk.bytes.len() as u64;
-            let replies = view.term.borrow_mut().feed_at(start, &chunk.bytes);
+            let mut term = view.term.borrow_mut();
+            term.set_history_end(chunk.live_from);
+            let replies = term.feed_at(start, &chunk.bytes);
+            drop(term);
             if !replies.is_empty() {
                 let _ = m.machine.console_send(&replies);
             }

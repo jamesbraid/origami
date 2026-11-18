@@ -533,6 +533,9 @@ impl Session for RunnerSession {
     fn open_console(&self, _name: &str) -> Result<Box<dyn ConsoleIo>> {
         let dir = &self.shown.dir;
         let record = machine_control::read(dir)?;
+        // The runner replays the run's log only to its first client, and
+        // this connection is what makes it, unless it has already.
+        let replay = !machine_control::console_attached_path(dir).exists();
         let stream = std::net::TcpStream::connect(("127.0.0.1", record.console_port))?;
         // The console socket carries only what is written while someone is
         // connected, so a login prompt printed earlier would never show.
@@ -542,11 +545,7 @@ impl Session for RunnerSession {
             record.serial_from,
         )
         .unwrap_or_default();
-        Ok(Box::new(PrimedConsole {
-            prime,
-            at: 0,
-            stream,
-        }))
+        Ok(Box::new(PrimedConsole::new(prime, stream, replay)))
     }
 
     fn control(&self, c: Control) -> Result<()> {
@@ -741,15 +740,66 @@ fn runs_protocol_4(dir: &Path) -> Result<bool> {
     Ok(record.display_protocol == 4)
 }
 
-/// How much of `serial.log` primes a console that connects to a guest that
-/// has been talking.
-const CONSOLE_PRIME: u64 = 16 << 10;
+/// How much of `serial.log` primes a console; the runner replays the same
+/// cap to its first client, which `PrimedConsole` relies on to drop it.
+const CONSOLE_PRIME: u64 = 1 << 20;
+
+/// How long a partly matched replay is held before it counts as live output.
+const REPLAY_WAIT: Duration = Duration::from_millis(100);
 
 /// The console socket, preceded by what the serial log already holds.
 struct PrimedConsole {
     prime: Vec<u8>,
     at: usize,
     stream: std::net::TcpStream,
+    /// How much of `prime` the stream's replay of it has repeated; the
+    /// replay is dropped while it matches (None when none is expected).
+    matched: Option<usize>,
+    /// Stream bytes ready to hand out after a mismatch.
+    out: Vec<u8>,
+}
+
+impl PrimedConsole {
+    fn new(prime: Vec<u8>, stream: std::net::TcpStream, replay: bool) -> Self {
+        let matched = (replay && !prime.is_empty()).then_some(0);
+        PrimedConsole {
+            prime,
+            at: 0,
+            stream,
+            matched,
+            out: Vec::new(),
+        }
+    }
+
+    /// Stop matching, keeping the `held` part of the prime that did.
+    fn give_up(&mut self, held: usize) {
+        self.out.extend_from_slice(&self.prime[..held]);
+        self.matched = None;
+        let _ = self.stream.set_read_timeout(None);
+    }
+
+    /// Take stream bytes: those repeating the prime are dropped, and on the
+    /// first byte that differs the repeated part so far is kept after all.
+    fn filter(&mut self, data: &[u8]) {
+        for (i, &b) in data.iter().enumerate() {
+            let Some(m) = self.matched else {
+                self.out.extend_from_slice(&data[i..]);
+                return;
+            };
+            if self.prime[m] != b {
+                self.give_up(m);
+                self.out.extend_from_slice(&data[i..]);
+                return;
+            }
+            if m + 1 == self.prime.len() {
+                // The whole replay arrived; what follows is live.
+                self.matched = None;
+                let _ = self.stream.set_read_timeout(None);
+            } else {
+                self.matched = Some(m + 1);
+            }
+        }
+    }
 }
 
 impl Read for PrimedConsole {
@@ -760,7 +810,40 @@ impl Read for PrimedConsole {
             self.at += n;
             return Ok(n);
         }
-        self.stream.read(buf)
+        loop {
+            if !self.out.is_empty() {
+                let n = buf.len().min(self.out.len());
+                buf[..n].copy_from_slice(&self.out[..n]);
+                self.out.drain(..n);
+                return Ok(n);
+            }
+            let Some(held) = self.matched else {
+                return self.stream.read(buf);
+            };
+            // Only a partial match holds bytes back, and only for a moment.
+            let wait = (held > 0).then_some(REPLAY_WAIT);
+            let _ = self.stream.set_read_timeout(wait);
+            let mut chunk = [0u8; 4096];
+            match self.stream.read(&mut chunk) {
+                Ok(0) => {
+                    // The stream ended mid-repeat: what matched was real output.
+                    self.give_up(held);
+                    if self.out.is_empty() {
+                        return Ok(0);
+                    }
+                }
+                Ok(n) => self.filter(&chunk[..n]),
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    self.give_up(held);
+                }
+                Err(e) => return Err(e),
+            }
+        }
     }
 }
 
@@ -775,6 +858,10 @@ impl Write for PrimedConsole {
 }
 
 impl ConsoleIo for PrimedConsole {
+    fn history_len(&self) -> u64 {
+        self.prime.len() as u64
+    }
+
     fn split(self: Box<Self>) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>)> {
         let writer = self.stream.try_clone()?;
         Ok((Box::new(*self), Box::new(writer)))
@@ -1097,11 +1184,7 @@ mod tests {
         let stream = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (mut peer, _) = listener.accept().unwrap();
         peer.write_all(b"live").unwrap();
-        let console = Box::new(PrimedConsole {
-            prime: b"login: ".to_vec(),
-            at: 0,
-            stream,
-        });
+        let console = Box::new(PrimedConsole::new(b"login: ".to_vec(), stream, true));
         let (mut reader, mut writer) = console.split().unwrap();
         let mut got = [0u8; 11];
         reader.read_exact(&mut got).unwrap();
@@ -1152,5 +1235,77 @@ mod tests {
         // Nothing yet from this run, and a log shorter than the offset.
         assert_eq!(serial_log_tail(&log, 100, 27).unwrap(), b"");
         assert_eq!(serial_log_tail(&log, 100, 999).unwrap(), b"");
+    }
+
+    /// A console over a loopback socket whose peer is returned.
+    fn console(prime: &[u8], replay: bool) -> (Box<dyn Read + Send>, std::net::TcpStream) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (peer, _) = listener.accept().unwrap();
+        let console = Box::new(PrimedConsole::new(prime.to_vec(), stream, replay));
+        assert_eq!(console.history_len(), prime.len() as u64);
+        (console.split().unwrap().0, peer)
+    }
+
+    fn read_n(r: &mut dyn Read, n: usize) -> Vec<u8> {
+        let mut got = vec![0u8; n];
+        r.read_exact(&mut got).unwrap();
+        got
+    }
+
+    #[test]
+    fn a_first_clients_replay_of_the_prime_is_dropped() {
+        let prime = b"boot\r\nlogin: \x1b[c";
+        let (mut r, mut peer) = console(prime, true);
+        peer.write_all(&prime[..6]).unwrap();
+        peer.write_all(&prime[6..]).unwrap();
+        peer.write_all(b"live").unwrap();
+        assert_eq!(
+            read_n(&mut *r, prime.len() + 4),
+            [&prime[..], b"live"].concat()
+        );
+    }
+
+    #[test]
+    fn output_that_is_not_the_replay_is_kept() {
+        let (mut r, mut peer) = console(b"login: ", true);
+        peer.write_all(b"xyz").unwrap();
+        assert_eq!(read_n(&mut *r, 7 + 3), b"login: xyz");
+    }
+
+    #[test]
+    fn a_partial_match_then_a_mismatch_comes_back_intact() {
+        let (mut r, mut peer) = console(b"login: ", true);
+        peer.write_all(b"logout").unwrap();
+        assert_eq!(read_n(&mut *r, 7 + 6), b"login: logout");
+    }
+
+    #[test]
+    fn the_stream_ending_mid_match_keeps_what_matched() {
+        let (mut r, peer) = console(b"login: ", true);
+        let mut peer = peer;
+        peer.write_all(b"log").unwrap();
+        drop(peer);
+        let mut all = Vec::new();
+        r.read_to_end(&mut all).unwrap();
+        assert_eq!(all, b"login: log");
+    }
+
+    #[test]
+    fn a_partial_match_is_released_after_a_short_wait() {
+        let (mut r, mut peer) = console(b"login: ", true);
+        peer.write_all(b"l").unwrap();
+        // The lone byte is live output that happens to start like the prime.
+        let t = std::time::Instant::now();
+        assert_eq!(read_n(&mut *r, 7 + 1), b"login: l");
+        assert!(t.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn a_later_client_holds_nothing_back() {
+        let (mut r, mut peer) = console(b"login: ", false);
+        peer.write_all(b"login: ").unwrap();
+        // No replay is expected, so even output equal to the prime is live.
+        assert_eq!(read_n(&mut *r, 14), b"login: login: ");
     }
 }

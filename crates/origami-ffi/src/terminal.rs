@@ -311,8 +311,9 @@ impl Shared {
                     s.reset();
                 }
                 s.next = chunk.next;
-                // Answers to the guest's queries (device attributes and the like).
+                s.term.set_history_end(chunk.live_from);
                 let start = chunk.next - chunk.bytes.len() as u64;
+                // Answers to the guest's queries (device attributes and the like).
                 let replies = s.feed_at(start, &chunk.bytes);
                 if !replies.is_empty() {
                     let _ = self.tx.try_send(replies);
@@ -348,11 +349,7 @@ impl OrigamiTerminal {
     #[uniffi::constructor]
     pub fn new(machine: Arc<OrigamiMachine>, rows: u16, cols: u16) -> Res<Arc<OrigamiTerminal>> {
         let (tx, rx) = sync_channel(QUEUE);
-        let mut state = State::new(rows, cols);
-        // What the console holds now is history: its queries get no answer.
-        state
-            .term
-            .set_history_end(machine.console_read(u64::MAX, 0).next);
+        let state = State::new(rows, cols);
         let shared = Arc::new(Shared {
             machine,
             tx: tx.clone(),

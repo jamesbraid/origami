@@ -104,6 +104,9 @@ pub struct ConsoleChunk {
     pub dropped: u64,
     /// Changes when the machine restarts and the offsets begin again.
     pub generation: u64,
+    /// Offset where output printed after the console connected begins;
+    /// bytes below it are history (a replay), which must not be answered.
+    pub live_from: u64,
 }
 
 /// Why the engine's program ended; `MachineView::exit_detail` says more.
@@ -888,11 +891,12 @@ impl MachineInner {
     }
 
     fn attach_console(self: &Arc<Self>, io: Box<dyn ConsoleIo>) {
+        let history = io.history_len();
         let (reader, writer) = match io.split() {
             Ok(halves) => halves,
             Err(error) => return self.console.down(error.to_string()),
         };
-        self.console.connect(writer);
+        self.console.connect(writer, history);
         let machine = self.clone();
         let spawned = std::thread::Builder::new()
             .name("origami-console".into())
