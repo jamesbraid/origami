@@ -6,6 +6,8 @@ Origami is now a desktop app, with a native one for macOS, Windows and
 Linux on the same core as the `origami` command. A second engine, iris,
 runs the Indy, Indigo2 and Octane2 next to QEMU.
 
+<img src="https://raw.githubusercontent.com/jamesbraid/origami/main/docs/images/app/macos-library.png" alt="Origami on macOS: the library and a stopped machine" width="400"> <img src="https://raw.githubusercontent.com/jamesbraid/origami/main/docs/images/app/windows-running.png" alt="Origami on Windows with a machine running" width="400"> <img src="https://raw.githubusercontent.com/jamesbraid/origami/main/docs/images/app/linux-running.png" alt="Origami on Linux with an Octane2 at its PROM menu" width="400">
+
 - Breaking:
   - Run `origami upgrade` once on machines made by 0.5.1; 0.5.1 can't read
     the result. Origin 2000 and Onyx2 guests get a new host id, and
