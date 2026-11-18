@@ -6,9 +6,14 @@ Origami has a desktop app for Linux, macOS (Apple Silicon) and Windows. It
 keeps a library of machines, starts them, shows their screens and serial
 consoles, and edits their settings. It runs the same machines as the
 [`origami` command](usage.md) and uses the same machine directories, so you can
-create a machine in one and run it from the other. The pictures below are from
-the Linux app; macOS and Windows have the same windows with their own look and
-shortcuts.
+create a machine in one and run it from the other.
+
+| Linux | macOS | Windows |
+|---|---|---|
+| ![Linux](images/app/linux-running.png) | ![macOS](images/app/macos-library.png) | ![Windows](images/app/windows-running.png) |
+
+The walkthrough below uses the Linux app; macOS and Windows have the same
+windows with their own look and shortcuts.
 
 This guide follows one session: create a machine, pick an engine, start it,
 use the console, pause it, take a screenshot, and look at Diagnostics, the CPU
