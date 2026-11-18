@@ -36,9 +36,34 @@ struct Recorder<'a> {
 }
 
 impl Recorder<'_> {
+    /// `text` as the Linux record has it: the temporary root named `<ROOT>`,
+    /// and on Windows no `.exe`, the quotes of the Linux shell and the
+    /// Linux wording of a missing file.
     fn scrub(&self, text: &str) -> String {
-        let root = self.root.to_str().unwrap();
-        text.replace(root, "<ROOT>").replace('\\', "/")
+        let root = self.root.to_str().unwrap().replace('\\', "/");
+        let text = text.replace('\\', "/").replace(&root, "<ROOT>");
+        if !cfg!(windows) {
+            return text;
+        }
+        // Windows quotes every word with a backslash; Linux quotes only
+        // the word holding the `<hosted-port>` placeholder.
+        let text = text.replace(".exe", "");
+        let text = text
+            .split('"')
+            .enumerate()
+            .map(|(i, part)| match (i % 2, part.contains("<hosted-port>")) {
+                (1, true) => format!("'{part}'"),
+                _ => part.to_string(),
+            })
+            .collect::<String>();
+        text.replace(
+            "The system cannot find the file specified. (os error 2)",
+            "No such file or directory (os error 2)",
+        )
+        .replace(
+            "The system cannot find the path specified. (os error 3)",
+            "No such file or directory (os error 2)",
+        )
     }
 
     fn section(&mut self, title: &str, body: &str) {
@@ -124,7 +149,10 @@ fn console_session(root: &Path, rec: &mut Recorder) {
 #[test]
 fn the_command_line_output_is_unchanged() {
     let root = tempfile::tempdir().unwrap();
-    let root = root.path();
+    // The origin of every path the product prints: macOS's temporary
+    // directory is a link, and Windows's has an 8.3 short name.
+    let root = dunce::canonicalize(root.path()).unwrap();
+    let root = root.as_path();
     let mut rec = Recorder {
         root,
         text: String::new(),
