@@ -36,14 +36,14 @@ fn snapshot(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
             let path = entry.unwrap().path();
             if path.is_dir() {
                 walk(&path, out);
-            } else {
+            } else if path.file_name().is_some_and(|name| name != "machine.lock") {
+                // Windows cannot read the lock file a held lock covers.
                 out.insert(path.clone(), fs::read(&path).unwrap());
             }
         }
     }
     let mut out = BTreeMap::new();
     walk(dir, &mut out);
-    out.retain(|path, _| !path.ends_with("state/machine.lock"));
     out
 }
 
