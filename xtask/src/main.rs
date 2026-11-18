@@ -13,6 +13,7 @@
 
 mod app;
 mod archive;
+mod instigator;
 mod lock;
 mod notices;
 mod tokens;
@@ -156,15 +157,22 @@ fn runtime(platform: &str, qemu_archive: Option<&Path>) -> Result<PathBuf> {
         }
     };
     let instigator = lock.instigator.platform("instigator", platform)?;
-    let instigator_file = archive::fetch(&instigator.url, &instigator.sha256, &cache)?;
+    let instigator_file = match &instigator.commit {
+        Some(_) => None,
+        None => Some(archive::fetch(&instigator.url, &instigator.sha256, &cache)?),
+    };
 
     let dir = base.join(platform);
+    let instigator_pin = match &instigator.commit {
+        Some(commit) => format!("{commit} {}", instigator::go_version()?),
+        None => instigator.pin().to_string(),
+    };
     let stamp = format!(
         "qemu {} {}\ninstigator {} {}\n",
         lock.qemu.tag,
         archive::sha256_file(&qemu_file)?,
         lock.instigator.tag,
-        instigator.sha256
+        instigator_pin
     );
     let stamp_file = dir.join("stamp");
     if fs::read_to_string(&stamp_file).is_ok_and(|s| s == stamp) {
@@ -175,7 +183,17 @@ fn runtime(platform: &str, qemu_archive: Option<&Path>) -> Result<PathBuf> {
     let (qemu_dir, instigator_dir, tree) =
         (raw.join("qemu"), raw.join("instigator"), dir.join("tree"));
     archive::unpack(&qemu_file, &qemu_dir)?;
-    archive::unpack(&instigator_file, &instigator_dir)?;
+    match (&instigator_file, &instigator.commit) {
+        (Some(file), _) => archive::unpack(file, &instigator_dir)?,
+        (None, Some(commit)) => instigator::build(
+            platform,
+            commit,
+            &lock.instigator.tag,
+            &cache,
+            &instigator_dir,
+        )?,
+        (None, None) => unreachable!("Lock::read gives every asset an archive or a commit"),
+    }
     check_configs(&instigator_dir)?;
 
     for required in ["qemu-system-mips64", "qemu-img", "qemu-sgi-machine-init"] {
@@ -368,6 +386,28 @@ fn github_text(repo: &str, tag: &str, asset: &str) -> Result<String> {
     Ok(String::from_utf8(archive::http_get(&url)?)?)
 }
 
+/// The commit a tag names, which `git ls-remote` reports on the peeled line
+/// of an annotated tag.
+fn tag_commit(repo: &str, tag: &str) -> Result<String> {
+    let url = format!("https://github.com/{repo}.git");
+    let out = Command::new("git")
+        .args([
+            "ls-remote",
+            &url,
+            &format!("refs/tags/{tag}^{{}}"),
+            &format!("refs/tags/{tag}"),
+        ])
+        .output()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let found = text.lines().filter_map(|l| l.split_once('\t'));
+    let commit = found
+        .clone()
+        .find(|(_, name)| name.ends_with("^{}"))
+        .or_else(|| found.clone().next())
+        .map(|(sha, _)| sha.to_string());
+    commit.ok_or_else(|| format!("cannot find tag {tag} in {url}").into())
+}
+
 /// Each platform's checksum from the release's published list, falling back
 /// to a per-archive `.sha256` file for any platform the combined list lacks.
 /// A release that has neither list is reported as that, not as every
@@ -377,6 +417,7 @@ fn release_pin(
     tag: &str,
     combined: &str,
     asset_name: &dyn Fn(&str) -> Result<String>,
+    source_platform: Option<&str>,
 ) -> Result<Pin> {
     let combined_sums = match github_text(repo, tag, combined) {
         Ok(text) => lock::parse_checksums(&text),
@@ -399,9 +440,17 @@ fn release_pin(
             Some(sha256) => {
                 platforms.insert(
                     platform.to_string(),
+                    Asset::release(lock::download_url(repo, tag, &asset), sha256),
+                );
+            }
+            // No archive for this platform yet: build the tagged source.
+            None if source_platform == Some(platform) => {
+                platforms.insert(
+                    platform.to_string(),
                     Asset {
-                        url: lock::download_url(repo, tag, &asset),
-                        sha256,
+                        url: String::new(),
+                        sha256: String::new(),
+                        commit: Some(tag_commit(repo, tag)?),
                     },
                 );
             }
@@ -424,7 +473,13 @@ fn release_pin(
 /// Replaces the embedded configs with the ones in the Instigator archive at
 /// `pin`, checking that archive has them before anything is removed.
 fn refresh_configs(pin: &Pin) -> Result<()> {
-    let platform = lock::host_platform()?;
+    // A source-built platform has no archive to read the configs from.
+    let has_archive = |p: &str| pin.platforms.get(p).is_some_and(|a| a.commit.is_none());
+    let platform = lock::host_platform()
+        .ok()
+        .filter(|p| has_archive(p))
+        .or_else(|| PLATFORMS.iter().copied().find(|p| has_archive(p)))
+        .ok_or("no platform has an Instigator archive")?;
     let asset = pin.platform("instigator", platform)?;
     let file = archive::fetch(
         &asset.url,
@@ -452,14 +507,24 @@ fn bump(what: &str, tag: &str) -> Result<()> {
     let mut lock = Lock::read(&path)?;
     match what {
         "qemu" => {
-            lock.qemu = release_pin(lock::QEMU_REPO, tag, "SHA256SUMS", &|p| {
-                Ok(lock::qemu_asset_name(tag, p))
-            })?;
+            lock.qemu = release_pin(
+                lock::QEMU_REPO,
+                tag,
+                "SHA256SUMS",
+                &|p| Ok(lock::qemu_asset_name(tag, p)),
+                None,
+            )?;
         }
         "instigator" => {
-            lock.instigator = release_pin(lock::INSTIGATOR_REPO, tag, "checksums.txt", &|p| {
-                lock::instigator_asset_name(tag, p).map_err(Into::into)
-            })?;
+            // Releases have no Windows arm64 archive yet, so that platform is
+            // built from the tag's source.
+            lock.instigator = release_pin(
+                lock::INSTIGATOR_REPO,
+                tag,
+                "checksums.txt",
+                &|p| lock::instigator_asset_name(tag, p).map_err(Into::into),
+                Some("windows-arm64"),
+            )?;
             // Before the lock changes, so a release that cannot supply the
             // configs leaves both the lock and the configs as they were.
             refresh_configs(&lock.instigator)?;

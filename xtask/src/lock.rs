@@ -28,10 +28,16 @@ pub struct Pin {
     pub platforms: BTreeMap<String, Asset>,
 }
 
+/// A release archive (`url` and `sha256`), or for a platform the project
+/// publishes no archive for, the `commit` of its source to build.
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct Asset {
+    #[serde(default)]
     pub url: String,
+    #[serde(default)]
     pub sha256: String,
+    #[serde(default)]
+    pub commit: Option<String>,
 }
 
 impl Pin {
@@ -43,6 +49,21 @@ impl Pin {
                 self.tag
             )
         })
+    }
+}
+
+impl Asset {
+    pub fn release(url: String, sha256: String) -> Asset {
+        Asset {
+            url,
+            sha256,
+            commit: None,
+        }
+    }
+
+    /// What identifies the bytes: the archive's hash or the source commit.
+    pub fn pin(&self) -> &str {
+        self.commit.as_deref().unwrap_or(&self.sha256)
     }
 }
 
@@ -62,9 +83,15 @@ impl Lock {
         // A platform may lack an entry until `bump` finds a release with its
         // archive; asking for that platform fails then, in `Pin::platform`.
         for (name, pin) in [("qemu", &lock.qemu), ("instigator", &lock.instigator)] {
-            for platform in pin.platforms.keys() {
+            for (platform, asset) in &pin.platforms {
                 if !PLATFORMS.contains(&platform.as_str()) {
                     return Err(format!("{name} pin names unknown platform {platform}"));
+                }
+                let archive = !asset.url.is_empty() && !asset.sha256.is_empty();
+                if !archive && asset.commit.is_none() {
+                    return Err(format!(
+                        "{name} {platform} needs a url and sha256, or a commit"
+                    ));
                 }
             }
         }
@@ -132,10 +159,15 @@ fn table(out: &mut String, name: &str, pin: &Pin) {
         pin.tag
     ));
     for (platform, asset) in &pin.platforms {
-        out.push_str(&format!(
-            "{platform:<14} = {{ url = \"{}\", sha256 = \"{}\" }}\n",
-            asset.url, asset.sha256
-        ));
+        match &asset.commit {
+            Some(commit) => {
+                out.push_str(&format!("{platform:<14} = {{ commit = \"{commit}\" }}\n"))
+            }
+            None => out.push_str(&format!(
+                "{platform:<14} = {{ url = \"{}\", sha256 = \"{}\" }}\n",
+                asset.url, asset.sha256
+            )),
+        }
     }
 }
 
@@ -172,10 +204,7 @@ mod tests {
                 .map(|p| {
                     (
                         p.to_string(),
-                        Asset {
-                            url: format!("https://example.invalid/{tag}/{p}"),
-                            sha256: hash.into(),
-                        },
+                        Asset::release(format!("https://example.invalid/{tag}/{p}"), hash.into()),
                     )
                 })
                 .collect(),
@@ -228,6 +257,31 @@ mod tests {
         };
         let text = render(&lock);
         let path = std::env::temp_dir().join(format!("xtask-lock-{}", std::process::id()));
+        std::fs::write(&path, &text).unwrap();
+        let back = Lock::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(back, lock);
+    }
+
+    #[test]
+    fn a_source_pinned_platform_reads_back() {
+        let mut lock = Lock {
+            format: 1,
+            qemu: pin("sgi-origami-11.1.50-1", &"cd".repeat(32)),
+            instigator: pin("v0.5.0", &"ab".repeat(32)),
+        };
+        let commit = "793926e3b1f784e26f9c14f06cc1a587a7c07507";
+        lock.instigator.platforms.insert(
+            "windows-arm64".into(),
+            Asset {
+                url: String::new(),
+                sha256: String::new(),
+                commit: Some(commit.into()),
+            },
+        );
+        let text = render(&lock);
+        assert!(text.contains(&format!("windows-arm64  = {{ commit = \"{commit}\" }}")));
+        let path = std::env::temp_dir().join(format!("xtask-lock-src-{}", std::process::id()));
         std::fs::write(&path, &text).unwrap();
         let back = Lock::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
