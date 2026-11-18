@@ -135,7 +135,9 @@ pub fn table(machines: &Machines) -> Result<String> {
     let mut rows = vec![];
     for (name, offering) in ordered(machines) {
         let pipes = default_pipes(machines, &name, offering)?;
-        let graphics = if pipes.is_empty() {
+        let graphics = if pipes.is_empty() && declares_display(offering) {
+            "graphics".to_string()
+        } else if pipes.is_empty() {
             "none".to_string()
         } else {
             pipes
@@ -280,6 +282,15 @@ pub fn detail(machines: &Machines, name: &str) -> Result<String> {
     detail_of(machines, name, offering)
 }
 
+/// Whether the offering's engine declares a display. An engine with no
+/// graphics records (iris) says so in its own data instead.
+fn declares_display(offering: &Offering) -> bool {
+    offering
+        .engine
+        .values()
+        .any(|data| data["display"].as_bool() == Some(true))
+}
+
 fn detail_of(machines: &Machines, name: &str, offering: &Offering) -> Result<String> {
     let pipes = default_pipes(machines, name, offering)?;
     let mut header = format!(
@@ -289,6 +300,7 @@ fn detail_of(machines: &Machines, name: &str, offering: &Offering) -> Result<Str
         crate::profiles::default_memory(offering)
     );
     match pipes.as_slice() {
+        [] if declares_display(offering) => header.push_str("graphics"),
         [] => header.push_str("no graphics"),
         pipes => {
             let fitted: Vec<_> = pipes
@@ -460,6 +472,27 @@ Details and graphics choices: origami machines PRESET
             assert!(o2.contains(line), "{line}\n{o2}");
         }
         assert!(!o2.contains("required"), "{o2}");
+    }
+
+    #[test]
+    fn an_iris_offering_with_a_display_is_not_called_headless() {
+        let mut machines = crate::test_machines();
+        let offering = machines
+            .offerings
+            .iter_mut()
+            .find(|o| o.id == "o2.1")
+            .unwrap();
+        offering
+            .engine
+            .insert("iris".into(), serde_json::json!({"display": true}));
+        let text = detail(&machines, "o2").unwrap();
+        assert!(
+            text.starts_with("o2: O2, 1 CPU, 1024 MiB per node, graphics\n"),
+            "{text}"
+        );
+        let table = table(&machines).unwrap();
+        let row = table.lines().find(|line| line.starts_with("o2 ")).unwrap();
+        assert!(row.ends_with("graphics"), "{row}");
     }
 
     #[test]
