@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1 - DATE
+
+Packages for Intel Macs (one universal macOS download for both kinds of Mac), Windows on Arm and Linux on arm64 (the Linux app needs Debian 13 or newer). Bundles QEMU 11.1.90-3.
+Release files are renamed: `origami-cli-<version>-<platform>` is the command line alone, and `origami-<version>-<platform>` is the app, which includes the command.
+Smoke-tested on GitHub's runners only, not on a Raspberry Pi, an Intel Mac or a Windows on Arm machine.
+
 ## 0.6.0 - 2026-11-18
 
 Origami is now a desktop app, with a native one for macOS, Windows and
