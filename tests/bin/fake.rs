@@ -30,7 +30,7 @@
 //! - `no-qmp`: QEMU stays alive and never opens QMP;
 //! - `hang`: QEMU opens QMP, accepts clients and never answers;
 //! - `crash-after=S`: QEMU says so on standard error and exits with status 70
-//!   S seconds after it is ready;
+//!   S seconds after it first answers QMP;
 //! - `fold=MS`: after `quit`, QEMU lingers MS milliseconds before it exits,
 //!   as it does while it folds a CHD disk's changes into the image;
 //! - `audio-drivers=a+b`: the backends `-audiodev help` lists;
@@ -373,13 +373,7 @@ fn qemu(args: &[String]) -> Result<(), String> {
         let log = log.clone();
         thread::spawn(move || join_netdev(&id, &endpoint, &log));
     }
-    if let Some(seconds) = switches.number("crash-after") {
-        thread::spawn(move || {
-            thread::sleep(Duration::from_secs(seconds));
-            eprintln!("qemu-system-mips64: crashing, as asked");
-            std::process::exit(70);
-        });
-    }
+    let mut crash_after = switches.number("crash-after");
     log.line("ready");
     let name = parsed.name.unwrap_or_default();
     let hang = switches.has("hang");
@@ -393,7 +387,7 @@ fn qemu(args: &[String]) -> Result<(), String> {
             let mut stream = stream;
             while stream.read(&mut sink).is_ok_and(|count| count > 0) {}
         } else {
-            qmp_session(stream, &state, &name, fold, &log);
+            qmp_session(stream, &state, &name, fold, &log, &mut crash_after);
         }
     }
     Ok(())
@@ -482,7 +476,14 @@ fn command_name(line: &str) -> String {
         .unwrap_or_default()
 }
 
-fn qmp_session(stream: TcpStream, state: &Mutex<Run>, name: &str, fold: Duration, log: &Log) {
+fn qmp_session(
+    stream: TcpStream,
+    state: &Mutex<Run>,
+    name: &str,
+    fold: Duration,
+    log: &Log,
+    crash_after: &mut Option<u64>,
+) {
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };
@@ -549,6 +550,15 @@ fn qmp_session(stream: TcpStream, state: &Mutex<Run>, name: &str, fold: Duration
                 "class": "CommandNotFound",
                 "desc": format!("The command {other} has not been found"),
             }})),
+        }
+        // Count from the first answer, not process start, so a slow host cannot
+        // crash the machine before the runner has seen it start.
+        if let Some(seconds) = crash_after.take() {
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(seconds));
+                eprintln!("qemu-system-mips64: crashing, as asked");
+                std::process::exit(70);
+            });
         }
     }
 }
