@@ -29,6 +29,13 @@ jobs:
         run: cargo build --locked --release --target x86_64-pc-windows-gnu
       - name: Build the core's FFI library (fake engine)
         run: cargo build --locked --release --target x86_64-pc-windows-gnu -p origami-ffi --features fake
+      - name: Static MinGW runtime
+        run: |
+          mkdir -p "$RUNNER_TEMP/static"
+          for l in stdc++ winpthread; do
+            ln -sf "$(x86_64-w64-mingw32-g++-posix -print-file-name=lib$l.a)" "$RUNNER_TEMP/static/lib$l.a"
+          done
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_RUSTFLAGS=-L native=$RUNNER_TEMP/static -C link-arg=-static-libgcc" >> "$GITHUB_ENV"
       # libchdman-rs has no prebuilt for MinGW, so it builds from source. Its FLAC needs HAVE_FSEEKO and a 64-bit
       # off_t to match MinGW's fseeko64, and the posix thread model for libgcc to link.
       - name: Build the runner with iris
