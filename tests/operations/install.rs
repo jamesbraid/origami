@@ -310,8 +310,20 @@ fn an_install_needs_a_background_run() {
     assert_eq!(error.kind, ErrorKind::Invalid);
 }
 
+/// Whether process `pid` is gone; a zombie nobody reaped counts. macOS has no
+/// /proc, which would read as gone for every process.
+#[cfg(all(unix, not(target_os = "linux")))]
+fn gone(pid: u32) -> bool {
+    let out = std::process::Command::new("ps")
+        .args(["-o", "stat=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    let stat = String::from_utf8_lossy(&out.stdout);
+    stat.trim().is_empty() || stat.trim_start().starts_with('Z')
+}
+
 /// Whether process `pid` is gone; a zombie nobody reaped counts.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn gone(pid: u32) -> bool {
     fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
         stat.rsplit(')')
