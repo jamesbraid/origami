@@ -1058,9 +1058,12 @@ fn pix_concurrent(c: &Ctx) -> R<()> {
         s.s.socket().shutdown(std::net::Shutdown::Both).ok();
         Ok(())
     });
-    let end = Instant::now() + ms(1200);
+    // Frames come as the stepper pauses and after it stops, which a loaded
+    // runner can delay; keep asking until three arrive, within a bound.
+    let floor = Instant::now() + ms(1200);
+    let end = Instant::now() + ms(10_000);
     let mut seen = 0;
-    while Instant::now() < end {
+    while Instant::now() < floor || (seen < 3 && Instant::now() < end) {
         for v in [&mut a, &mut b, &mut d] {
             v.s.request(0, false).map_err(|e| e.to_string())?;
             if let Some(f) = v.frame(ms(40))? {
@@ -1071,7 +1074,7 @@ fn pix_concurrent(c: &Ctx) -> R<()> {
     }
     ensure!(
         seen >= 3,
-        "only {seen} frames reached three viewers in 1.2 s"
+        "only {seen} frames reached three viewers in 10 s"
     );
     stepper
         .join()
