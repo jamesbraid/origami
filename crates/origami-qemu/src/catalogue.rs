@@ -350,7 +350,8 @@ mod tests {
     }
 }
 
-#[cfg(all(test, unix))]
+// macOS drops a blocked SIGPIPE raised at the thread: sigpending never shows it.
+#[cfg(all(test, target_os = "linux"))]
 mod sigpipe_tests {
     use super::without_sigpipe;
 
