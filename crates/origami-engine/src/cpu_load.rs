@@ -141,18 +141,27 @@ mod os {
 
     pub(super) fn threads_of(pid: u32) -> io::Result<Vec<(String, CpuTimes)>> {
         let hz = hz();
+        // procfs can cut the task listing short when a thread exits mid-read;
+        // a vanished entry is that sign, so list again.
         let mut out = Vec::new();
-        for entry in std::fs::read_dir(format!("/proc/{pid}/task"))? {
-            let dir = entry?.path();
-            // A thread can exit between the listing and the read.
-            let (Ok(name), Ok(stat)) = (
-                std::fs::read_to_string(dir.join("comm")),
-                std::fs::read_to_string(dir.join("stat")),
-            ) else {
-                continue;
-            };
-            if let Some(times) = parse_stat(&stat, hz) {
-                out.push((name.trim_end().to_string(), times));
+        for _ in 0..8 {
+            out.clear();
+            let mut vanished = false;
+            for entry in std::fs::read_dir(format!("/proc/{pid}/task"))? {
+                let dir = entry?.path();
+                let (Ok(name), Ok(stat)) = (
+                    std::fs::read_to_string(dir.join("comm")),
+                    std::fs::read_to_string(dir.join("stat")),
+                ) else {
+                    vanished = true;
+                    continue;
+                };
+                if let Some(times) = parse_stat(&stat, hz) {
+                    out.push((name.trim_end().to_string(), times));
+                }
+            }
+            if !vanished {
+                break;
             }
         }
         Ok(out)
