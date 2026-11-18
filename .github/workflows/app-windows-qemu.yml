@@ -6,7 +6,7 @@ on:
     inputs:
       tag:
         description: QEMU release tag
-        default: sgi-origami-11.1.90-1
+        default: sgi-origami-11.1.90-2
 
 jobs:
   native:
@@ -94,7 +94,7 @@ jobs:
           if (-not (Test-Path qemu.zip)) { Invoke-WebRequest $url -OutFile qemu.zip -UseBasicParsing }
           $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([IO.File]::ReadAllBytes("$PWD\qemu.zip"))).Replace("-","").ToLower()
           # From the release's SHA256SUMS; a new tag adds its line here.
-          $pinned = @{ "sgi-origami-11.1.90-1" = "59794af95aa216892cbea2c2f7476bd6a2550678a399a6368e750a4b0222eea5" }
+          $pinned = @{ "sgi-origami-11.1.90-2" = "42e82fb531ac960c60603fbee69f76c1bd810fc57928221393f9af33659c59f9" }
           if ($pinned[$env:TAG] -ne $sha) { throw "QEMU archive $env:TAG has sha256 $sha, not the pinned one" }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [IO.Compression.ZipFile]::ExtractToDirectory("$PWD\qemu.zip", "$PWD\qemu")

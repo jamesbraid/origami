@@ -5,11 +5,11 @@
 format = 1
 
 [qemu]
-tag = "sgi-origami-11.1.90-1"
+tag = "sgi-origami-11.1.90-2"
 [qemu.platforms]
-linux-x86_64   = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.90-1/sgi-origami-11.1.90-1-linux-x86_64.tar.gz", sha256 = "4d4d427af267ea78e8692a93a1360bcea139aa2356d0c3c5bc45e3e0a3a8f48b" }
-macos-arm64    = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.90-1/sgi-origami-11.1.90-1-macos-arm64.tar.gz", sha256 = "4e393a0023a4ac058e22db7c9b8b19fa9832f658c435a20b4b65b460c21a7dd4" }
-windows-x86_64 = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.90-1/sgi-origami-11.1.90-1-windows-x86_64.zip", sha256 = "59794af95aa216892cbea2c2f7476bd6a2550678a399a6368e750a4b0222eea5" }
+linux-x86_64   = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.90-2/sgi-origami-11.1.90-2-linux-x86_64.tar.gz", sha256 = "60744d5580ed2097485d9a60b6ee2b3a3a2597bc03c2af2866cc1adc15c2e4dd" }
+macos-arm64    = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.90-2/sgi-origami-11.1.90-2-macos-arm64.tar.gz", sha256 = "4913265d1b5772f94bf4682690e5d366c64ef81eb9a25710d8c598cae90a9bb3" }
+windows-x86_64 = { url = "https://github.com/jamesbraid/qemu-sgi-origami/releases/download/sgi-origami-11.1.90-2/sgi-origami-11.1.90-2-windows-x86_64.zip", sha256 = "42e82fb531ac960c60603fbee69f76c1bd810fc57928221393f9af33659c59f9" }
 
 [instigator]
 tag = "v0.5.0"
