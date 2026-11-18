@@ -80,14 +80,17 @@ pub fn stop(dir: &Path) -> Result<()> {
     origami_machine::control::note_stop(dir, "stop");
     // No runner holds the lock: QEMU outlived it, so there is no runner to
     // wait for and no one to remove the record.
-    let runner_gone = record.qemu_pid != 0 && !is_locked(dir)?;
+    let locked = is_locked(dir)?;
+    let runner_gone = record.qemu_pid != 0 && !locked;
     // QEMU may already have taken a quit and stopped answering QMP while it
     // folds, as when an earlier stop was interrupted. The runner's lock says
     // it is still alive, so keep waiting instead of reporting a dead machine.
+    // The lock is read before the attempt: a refused connection takes 2 s to
+    // fail on Windows, long enough for the runner to finish and let go.
     if let Err(error) =
         verified_qmp(&record).and_then(|mut qmp| Ok(qmp.write_command(&qmp::quit {})?))
     {
-        if !is_locked(dir)? {
+        if !locked {
             return Err(error);
         }
     }
