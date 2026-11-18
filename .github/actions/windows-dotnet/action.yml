@@ -8,7 +8,7 @@ runs:
       with:
         # A fixed path: the cache version hashes it, and RUNNER_TEMP changes every job.
         path: ~/.dotnet-ci
-        key: dotnet-sdk-8.0-${{ runner.os }}
+        key: dotnet-sdk-8.0-${{ runner.os }}-${{ runner.arch }}
     - if: steps.sdk.outputs.cache-hit != 'true'
       shell: powershell
       run: |

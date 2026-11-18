@@ -11,7 +11,8 @@ Examples use version 0.4.1. Substitute the version you downloaded.
 Download the command-line archive for your host from the
 [release page](https://github.com/jamesbraid/origami/releases): the one named
 `origami-cli-<version>-<platform>`, with `<platform>` one of `linux-x86_64`,
-`linux-arm64`, `macos-universal` (Apple silicon and Intel) or `windows-x86_64`.
+`linux-arm64`, `macos-universal` (Apple silicon and Intel), `windows-x86_64`
+or `windows-arm64`.
 The `origami-<version>-<platform>` archives hold the desktop app, which
 includes this command, so pick one or the other. Extract it:
 

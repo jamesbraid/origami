@@ -58,15 +58,33 @@ pub fn prebuild(platform: &str, dir: &Path, target: Option<&str>) -> Result<()> 
         return Err("--prebuild is for windows-x86_64".into());
     }
     require("apps/windows", "the Windows app")?;
-    windows_prebuild(dir, target)
+    windows_prebuild(dir, target, platform)
 }
 
 pub fn dist(product: &Product, options: &crate::Options) -> Result<()> {
     match product.platform {
         "linux-x86_64" | "linux-arm64" => linux(product),
         "macos-arm64" | "macos-x86_64" => macos(product),
-        "windows-x86_64" => windows(product, options),
+        "windows-x86_64" | "windows-arm64" => windows(product, options),
         other => Err(format!("no app for {other}").into()),
+    }
+}
+
+/// MSBuild's `Platform` for a Windows package.
+fn msbuild_platform(platform: &str) -> &'static str {
+    if platform == "windows-arm64" {
+        "ARM64"
+    } else {
+        "x64"
+    }
+}
+
+/// The CPU name Rust, and so the ghostty-vt cache directory, uses.
+fn rust_arch(platform: &str) -> &'static str {
+    if platform.ends_with("arm64") {
+        "aarch64"
+    } else {
+        "x86_64"
     }
 }
 
@@ -207,7 +225,7 @@ fn windows(product: &Product, options: &crate::Options) -> Result<()> {
         Some(dir) => dir.clone(),
         None => {
             let dir = target_dir().join("dist/windows-prebuilt");
-            windows_prebuild(&dir, options.target.as_deref())?;
+            windows_prebuild(&dir, options.target.as_deref(), product.platform)?;
             dir
         }
     };
@@ -220,13 +238,20 @@ fn windows(product: &Product, options: &crate::Options) -> Result<()> {
         }
         archive::copy_tree(&prebuilt.join(from), &to)?;
     }
-    let publish = target_dir().join("dist/windows-x86_64/publish");
+    let publish = target_dir()
+        .join("dist")
+        .join(product.platform)
+        .join("publish");
     let _ = fs::remove_dir_all(&publish);
     let mut dotnet = Command::new("dotnet");
     dotnet
         .args(["publish"])
         .arg(app_project.join("Origami.App.csproj"))
-        .args(["-c", "Release", "-p:Platform=x64", "-p:Qemu=true"])
+        .args(["-c", "Release", "-p:Qemu=true"])
+        .arg(format!(
+            "-p:Platform={}",
+            msbuild_platform(product.platform)
+        ))
         // The assembly version is numeric: the tag part of the description.
         .arg(format!(
             "-p:Version={}",
@@ -322,8 +347,8 @@ fn dotnet_notices(project: &Path, publish: &Path, to: &Path) -> Result<String> {
 
 /// Builds the Windows app's Rust parts into `out`: tools, DLLs, C# bindings,
 /// `xtask.exe` and `THIRD_PARTY_NOTICES`.
-fn windows_prebuild(out: &Path, target: Option<&str>) -> Result<()> {
-    let triple_name = notices::triple("windows-x86_64", target);
+fn windows_prebuild(out: &Path, target: Option<&str>, platform: &str) -> Result<()> {
+    let triple_name = notices::triple(platform, target);
     let native = root().join("apps/windows/native");
     let base = fs::read_to_string(root().join("THIRD_PARTY_NOTICES"))?;
     let mut text = notices::cli(&base, triple_name)?;
@@ -393,7 +418,10 @@ fn windows_prebuild(out: &Path, target: Option<&str>) -> Result<()> {
         // The terminal engine's DLL, which ghostty-vt-sys's build script
         // fetched beside the build output; origami_ffi.dll imports it.
         (
-            target_dir().join("ghostty-vt/1.0.1-windows-x86_64/ghostty-vt.dll"),
+            target_dir().join(format!(
+                "ghostty-vt/1.0.1-windows-{}/ghostty-vt.dll",
+                rust_arch(platform)
+            )),
             "native-out/ghostty-vt.dll",
         ),
     ] {

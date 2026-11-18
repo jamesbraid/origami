@@ -61,7 +61,7 @@ things and frequent changes.
 
 ## Trying it
 
-Preview builds target Linux and macOS on x86-64 and arm64, and Windows x86-64.
+Preview builds target Linux, Windows and macOS on x86-64 and arm64.
 PROMs and default IRIX installation media are pulled on-demand, or you can use local copies.
 Start with `origami machines` and the [user guide](docs/usage.md).
 

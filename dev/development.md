@@ -47,7 +47,8 @@ cargo xtask bump instigator v0.5.1
 Plain `cargo test` needs no download. `origami-gui` is not a default member (it builds Slint and wgpu); select it with `-p origami-gui`. `cargo xtask dist` writes
 `origami-cli-<version>-<platform>.tar.gz` (`.zip` on Windows)
 for the platform it runs on: `linux-x86_64`, `linux-arm64`, `macos-arm64`,
-`macos-x86_64` or `windows-x86_64`. The archive holds `origami-<version>/` with:
+`macos-x86_64`, `windows-x86_64` or `windows-arm64`. The archive holds
+`origami-cli-<version>/` with:
 
 - `bin/origami` and `bin/instigator`;
 - `libexec/origami/` with `qemu-system-mips64`, `qemu-img`,
@@ -98,6 +99,12 @@ The Windows runner has no compiler. Build the Rust parts elsewhere with
 `DIR/xtask.exe dist --app --prebuilt DIR` on Windows, where `dotnet publish`
 builds the app. `.github/workflows/package-windows.yml` does both.
 
+Windows arm64 builds natively on a Windows on Arm host, so there is no
+prebuild step: `cargo xtask dist --app` does it all. No Instigator release has
+a Windows arm64 archive, so `runtime.lock` pins that platform to a source
+commit instead, and `cargo xtask runtime` builds it with Go (`git` and `go`
+must be on PATH).
+
 ### Instigator's install configurations
 
 The install recipes embed the five YAML files in `resources/instigator/configs`
@@ -118,8 +125,9 @@ release tag. The frontend embeds its Git description through `vergen-gitcl`.
 ## macOS, Linux and Windows
 
 Each platform builds natively with Cargo: Apple Silicon or Intel on macOS 15
-or newer, x86-64 or arm64 Linux, and x86-64 Windows with the MSVC toolchain. Native guest graphics
-and input remain unqualified on macOS and Windows. The Linux release needs
+or newer, x86-64 or arm64 Linux, and x86-64 or arm64 Windows with the MSVC
+toolchain.
+Native guest graphics and input remain unqualified on macOS and Windows. The Linux release needs
 the host's PulseAudio and ALSA client libraries, X11 and udev; the QEMU
 release is built on an older glibc so it runs on current distributions. SDL
 uses the host's display and input services.
@@ -275,7 +283,7 @@ the QEMU repository's `subprojects/` at the release tag named in
 ## Release archive workflow
 
 `.github/workflows/build.yml` is a reusable workflow. On each of
-ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel and windows-latest it checks out the product, runs
+ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-latest and windows-11-arm it checks out the product, runs
 `cargo xtask test` and `cargo xtask dist`, and uploads
 `origami-<platform>` containing the archive. It also runs
 `cargo xtask dist --app` and uploads `origami-app-<platform>`: the GTK tarball
@@ -288,7 +296,7 @@ for macOS; the thin ones stay artifacts. A release has `SHA256SUMS` only, no
 per-file checksums. The signing step is `universal::sign`, between the join
 and the zip.
 `.github/workflows/release.yml` calls it for `v*` tags and publishes a GitHub
-release with the eight archives, `SHA256SUMS` and the `CHANGELOG.md`
+release with the ten archives and `SHA256SUMS`, and the `CHANGELOG.md`
 section for that version. Pull requests and `main` pushes on GitHub do not
 build archives. Forgejo's required check is `cli.yml`: formatting, Clippy and
 `cargo test` on Linux.

@@ -25,7 +25,8 @@ Pick the app archive for your computer from the
 [release page](https://github.com/jamesbraid/origami/releases):
 `origami-<version>-linux-x86_64.tar.gz`, `origami-<version>-linux-arm64.tar.gz`,
 `origami-<version>-macos-universal.zip` (one download for Apple silicon and
-Intel Macs) or `origami-<version>-windows-x86_64.zip`. The app archive includes
+Intel Macs), `origami-<version>-windows-x86_64.zip` or
+`origami-<version>-windows-arm64.zip`. The app archive includes
 the `origami` command, so you do not need the `origami-cli-` archive beside
 it. Extract it, keep the extracted files together, and start `bin/origami-gtk`
 (Linux), `Origami.app` (macOS) or the executable in the `app` folder (Windows).

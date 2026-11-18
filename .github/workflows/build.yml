@@ -21,6 +21,7 @@ jobs:
           - { runner: macos-15, platform: macos-arm64 }
           - { runner: macos-15-intel, platform: macos-x86_64 }
           - { runner: windows-latest, platform: windows-x86_64 }
+          - { runner: windows-11-arm, platform: windows-arm64 }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     defaults:
@@ -41,7 +42,14 @@ jobs:
           rustup default stable
           rustc -Vv
       - uses: ./.github/actions/qapi-schema-copies
-        if: matrix.platform == 'windows-x86_64'
+        if: startsWith(matrix.platform, 'windows')
+      # No Instigator release has a Windows arm64 archive, so xtask builds the pinned source
+      # (Go is the version in its go.mod).
+      - uses: actions/setup-go@v5
+        if: matrix.platform == 'windows-arm64'
+        with:
+          go-version: '1.27.1'
+          cache: false
       - name: QEMU links the host's audio clients
         if: startsWith(matrix.platform, 'linux')
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libpulse0 libasound2t64
@@ -275,6 +283,78 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: origami-app-windows-x86_64
+          path: dist/origami-*
+          if-no-files-found: error
+          retention-days: 3
+
+  # No cross toolchain targets Windows arm64 from Linux with MSVC's ABI, so one
+  # native job builds the Rust parts, the C# bindings, the app and the zip.
+  app-windows-arm64:
+    if: github.server_url == 'https://github.com'
+    runs-on: windows-11-arm
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc -Vv
+      - uses: ./.github/actions/qapi-schema-copies
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - uses: ./.github/actions/cargo-cache
+        with:
+          name: app-windows-arm64
+      - name: Install the C# generator (the pin crates/origami-ffi/bindings/csharp/gen.sh names)
+        uses: ./.github/actions/cargo-bin
+        with:
+          bin: uniffi-bindgen-cs
+          key: uniffi-bindgen-cs-v0.12.0+v0.32.0
+          install: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.12.0+v0.32.0
+      - uses: ./.github/actions/windows-dotnet
+      - name: Package
+        run: |
+          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          cargo xtask dist --app --out dist
+          ls -la dist
+      - name: Start the extracted package
+        # From a path with spaces, as a user's home may be.
+        shell: powershell
+        run: |
+          $zip = (Get-ChildItem dist\origami-*-windows-arm64.zip).FullName
+          $root = Join-Path $env:RUNNER_TEMP "origami extract"
+          New-Item -ItemType Directory -Force $root | Out-Null
+          tar -xf $zip -C $root
+          $top = (Get-ChildItem $root).FullName
+          & "$top\bin\origami.exe" version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $out = Join-Path $env:RUNNER_TEMP "selftest-out"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          $p = Start-Process -FilePath "$top\app\Origami.exe" -ArgumentList "--selftest","`"$out\selftest.json`"","--settings","`"$out\settings.json`"","--stderr","`"$out\stderr.log`"","--library","`"$out\library`"","--create-product","octane2" -WorkingDirectory "$top\app" -PassThru
+          $null = $p.Handle
+          if (-not $p.WaitForExit(240000)) { $p.Kill(); "self-test did not exit"; exit 99 }
+          if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } elseif (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" }
+          foreach ($f in "app.log","stderr.log") { if (Test-Path "$out\$f") { "--- $f"; Get-Content "$out\$f" -Tail 60 } }
+          "exit code: $($p.ExitCode)"
+          # This runner's desktop session never gives the app the foreground or keyboard focus,
+          # which the x64 runner does, so the checks that need them are not held against it.
+          $json = if (Test-Path "$out\selftest.json") { "$out\selftest.json" } else { "$out\selftest.json.partial" }
+          $steps = (Get-Content -Raw $json | ConvertFrom-Json).steps
+          $needsFocus = '^(window is the foreground window|about: (the right arrow|typing))'
+          $failed = @($steps | Where-Object { -not $_.Ok -and $_.Name -notmatch $needsFocus })
+          if ($failed.Count -gt 0) { "failed: $($failed.Name -join ', ')"; exit 1 }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: origami-app-windows-arm64
           path: dist/origami-*
           if-no-files-found: error
           retention-days: 3

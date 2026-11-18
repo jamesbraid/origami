@@ -39,8 +39,8 @@ jobs:
           # The thin macOS packages feed the universal ones; they are not releases.
           rm -f assets/*-macos-arm64.* assets/*-macos-x86_64.*
           ls assets
-          test "$(ls assets/origami-cli-*.tar.gz assets/origami-cli-*.zip | wc -l)" = 4
-          test "$(ls assets/origami-*.tar.gz assets/origami-*.zip | grep -vc '/origami-cli-')" = 4
+          test "$(ls assets/origami-cli-*.tar.gz assets/origami-cli-*.zip | wc -l)" = 5
+          test "$(ls assets/origami-*.tar.gz assets/origami-*.zip | grep -vc '/origami-cli-')" = 5
           # A dirty or untagged build would be named for the commit instead.
           for f in assets/origami-*; do
             case $f in

@@ -5,8 +5,9 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>Origami.App</RootNamespace>
     <AssemblyName>Origami</AssemblyName>
-    <Platforms>x64</Platforms>
-    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' != 'ARM64'">win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
     <!-- Unpackaged and self-contained: no MSIX, no framework package install, no admin. -->
     <WindowsPackageType>None</WindowsPackageType>
