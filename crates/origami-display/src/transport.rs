@@ -536,7 +536,9 @@ mod sock {
     }
 }
 
-#[cfg(test)]
+// These script handles the Unix way, on the message; Windows takes the value
+// from the message body, and the version 4 tests cover it there.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use crate::display::Taken;
