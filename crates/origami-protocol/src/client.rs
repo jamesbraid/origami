@@ -108,7 +108,9 @@ impl Client {
         if self.poisoned {
             return Err(ClientError::Closed);
         }
-        self.writer
+        // On the stream that is read: Windows keeps a cloned socket's timeouts apart.
+        self.reader
+            .get_ref()
             .set_read_timeout(Some(timeout.max(Duration::from_millis(1))))
             .map_err(ClientError::Io)?;
         loop {
@@ -161,7 +163,9 @@ impl Client {
 
     fn exchange(&mut self, req: &Request, timeout: Duration) -> Result<Reply, ClientError> {
         write_line(&mut self.writer, &req.to_line()).map_err(io_err)?;
-        self.writer
+        // On the stream that is read: Windows keeps a cloned socket's timeouts apart.
+        self.reader
+            .get_ref()
             .set_read_timeout(Some(timeout.max(Duration::from_millis(1))))
             .map_err(ClientError::Io)?;
         loop {

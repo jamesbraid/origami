@@ -346,12 +346,8 @@ fn timeout_poisons_the_client() {
         std::thread::sleep(Duration::from_secs(2));
     });
     let mut c = Client::connect(port, Duration::from_millis(100)).unwrap();
-    assert!(matches!(
-        c.call(&Request::Status {}),
-        Err(ClientError::Timeout)
-    ));
-    assert!(matches!(
-        c.call(&Request::Status {}),
-        Err(ClientError::Closed)
-    ));
+    let first = c.call(&Request::Status {});
+    assert!(matches!(first, Err(ClientError::Timeout)), "{first:?}");
+    let second = c.call(&Request::Status {});
+    assert!(matches!(second, Err(ClientError::Closed)), "{second:?}");
 }

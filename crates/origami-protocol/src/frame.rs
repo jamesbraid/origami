@@ -52,6 +52,11 @@ impl<R: Read> LineReader<R> {
         }
     }
 
+    /// The stream being read.
+    pub fn get_ref(&self) -> &R {
+        &self.inner
+    }
+
     /// The next line without its terminator (and any `\r`), or `None` at a
     /// clean end of stream. A final unterminated line is returned too.
     pub fn read_line(&mut self) -> Result<Option<Vec<u8>>, FrameError> {
