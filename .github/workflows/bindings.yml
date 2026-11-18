@@ -9,8 +9,10 @@ name: Bindings
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md', 'crates/origami-gtk/**', 'crates/origami-gui/**']
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md', 'crates/origami-gtk/**', 'crates/origami-gui/**']
   workflow_dispatch:
 
 permissions:

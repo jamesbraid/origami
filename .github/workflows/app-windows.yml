@@ -3,9 +3,67 @@ name: app-windows
 # self-tests on a Windows runner with a desktop session (WARP, no GPU).
 on:
   push:
-    branches: [app/windows]
-    paths: ['apps/windows/**', 'crates/origami-ffi/**', '.github/workflows/app-windows.yml']
+    branches: [main, app/windows]
+    paths:
+      - 'apps/windows/**'
+      - 'resources/identity/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'src/**'
+      - 'xtask/**'
+      - 'crates/origami-ffi/**'
+      - 'crates/origami-core/**'
+      - 'crates/origami-engine/**'
+      - 'crates/origami-display/**'
+      - 'crates/origami-display-producer/**'
+      - 'crates/origami-machine/**'
+      - 'crates/origami-qemu/**'
+      - 'crates/origami-nfs/**'
+      - 'crates/origami-net/**'
+      - 'crates/origami-protocol/**'
+      - 'crates/origami-host/**'
+      - 'crates/origami-iris/**'
+      - 'crates/origami-render/**'
+      - 'crates/origami-terminal/**'
+      - 'crates/ghostty-vt-sys/**'
+      - 'crates/display-conformance/**'
+      - '.github/workflows/app-windows.yml'
+      - '.github/actions/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/windows/**'
+      - 'resources/identity/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'build.rs'
+      - 'src/**'
+      - 'xtask/**'
+      - 'crates/origami-ffi/**'
+      - 'crates/origami-core/**'
+      - 'crates/origami-engine/**'
+      - 'crates/origami-display/**'
+      - 'crates/origami-display-producer/**'
+      - 'crates/origami-machine/**'
+      - 'crates/origami-qemu/**'
+      - 'crates/origami-nfs/**'
+      - 'crates/origami-net/**'
+      - 'crates/origami-protocol/**'
+      - 'crates/origami-host/**'
+      - 'crates/origami-iris/**'
+      - 'crates/origami-render/**'
+      - 'crates/origami-terminal/**'
+      - 'crates/ghostty-vt-sys/**'
+      - 'crates/display-conformance/**'
+      - '.github/workflows/app-windows.yml'
+      - '.github/actions/**'
   workflow_dispatch:
+
+# A newer push to the same ref supersedes the run in progress.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   native:

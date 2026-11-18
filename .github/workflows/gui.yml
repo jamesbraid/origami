@@ -8,8 +8,10 @@ name: GUI
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md', 'apps/**', 'crates/origami-gtk/**', 'crates/origami-ffi/**', 'crates/origami-iris/**', 'crates/display-conformance/**']
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md', 'apps/**', 'crates/origami-gtk/**', 'crates/origami-ffi/**', 'crates/origami-iris/**', 'crates/display-conformance/**']
   workflow_dispatch:
 
 permissions:

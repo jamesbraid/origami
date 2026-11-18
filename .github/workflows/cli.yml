@@ -3,8 +3,10 @@ name: CLI tests
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md', 'apps/**']
   pull_request:
     branches: [main]
+    paths-ignore: ['docs/**', '**.md', 'apps/**']
   workflow_dispatch:
 
 permissions:
