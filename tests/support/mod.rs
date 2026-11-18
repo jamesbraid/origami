@@ -139,9 +139,34 @@ pub fn create(root: &Path, name: &str, preset: &str, extra: &[&str]) -> PathBuf 
         "--prom",
         prom.to_str().unwrap(),
     ];
+    let io_prom = root.join("synthetic-io-prom.bin");
+    if takes_io_prom(preset) {
+        fs::write(&io_prom, vec![0; 1024 * 1024]).unwrap();
+        args.extend(["--io-prom", io_prom.to_str().unwrap()]);
+    }
     args.extend(extra);
     ok(root, &args);
     dir
+}
+
+/// Whether `preset` needs an IO PROM, which a create without one downloads.
+/// A test must not depend on the network, so it supplies a synthetic one.
+fn takes_io_prom(preset: &str) -> bool {
+    let catalogue: serde_json::Value =
+        serde_json::from_str(include_str!("../fixtures/sgi-machines.json")).unwrap();
+    let Some(profile) = origami_machine::profiles::STARTERS
+        .iter()
+        .find(|profile| profile.id == preset)
+    else {
+        return false;
+    };
+    catalogue["offerings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|offering| offering["id"] == profile.offering)
+        .flat_map(|offering| offering["init-inputs"].as_array().unwrap())
+        .any(|input| input["name"] == "io-prom" && input["required"] == true)
 }
 
 /// Poll `condition` until it holds, or fail after `timeout`.
