@@ -74,8 +74,8 @@ pub fn prebuild(platform: &str, dir: &Path, target: Option<&str>) -> Result<()> 
 
 pub fn dist(product: &Product, options: &crate::Options) -> Result<()> {
     match product.platform {
-        "linux-x86_64" => linux(product),
-        "macos-arm64" => macos(product),
+        "linux-x86_64" | "linux-arm64" => linux(product),
+        "macos-arm64" | "macos-x86_64" => macos(product),
         "windows-x86_64" => windows(product, options),
         other => Err(format!("no app for {other}").into()),
     }
@@ -174,7 +174,7 @@ fn macos(product: &Product) -> Result<()> {
         &target_dir().join("release/origami"),
         &product.stage.join("bin/origami"),
     )?;
-    let work = target_dir().join("dist/macos-arm64");
+    let work = target_dir().join("dist").join(product.platform);
     let app = work.join("Origami.app");
     let _ = fs::remove_dir_all(&app);
     let mut build = Command::new(root().join("apps/macos/build.sh"));
@@ -199,9 +199,10 @@ fn macos(product: &Product) -> Result<()> {
     sign.args(["--force", "--deep", "--sign", "-"]).arg(&app);
     run(sign)?;
     fs::create_dir_all(product.out)?;
-    let file = product
-        .out
-        .join(format!("origami-{}-macos-arm64-app.zip", product.version));
+    let file = product.out.join(format!(
+        "origami-{}-{}-app.zip",
+        product.version, product.platform
+    ));
     let _ = fs::remove_file(&file);
     let mut zip = Command::new("ditto");
     zip.args(["-c", "-k", "--keepParent"]).arg(&app).arg(&file);

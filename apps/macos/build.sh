@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Build Origami for macOS: the core's FFI library, its Swift bindings from
 # UniFFI, then the Swift app compiled against both and wrapped in Origami.app.
-# Needs only the command-line tools (swiftc); there is no Xcode project.
+# Needs only the command-line tools (swiftc); there is no Xcode project. It
+# builds for the host's architecture, arm64 or x86_64.
 #
 #   apps/macos/build.sh
 #   APP_OUT=/path/Origami.app          where to put the bundle (default: apps/macos/build)
@@ -38,7 +39,7 @@ rm -rf $app; mkdir -p $app/Contents/MacOS $app/Contents/Resources $app/Contents/
 cp $dylib $app/Contents/Frameworks/liborigami_ffi.dylib
 install_name_tool -id @rpath/liborigami_ffi.dylib $app/Contents/Frameworks/liborigami_ffi.dylib
 include=$root/crates/origami-ffi/include
-swiftc -O -swift-version 5 -target arm64-apple-macos14.0 $swift_defines \
+swiftc -O -swift-version 5 -target $(uname -m)-apple-macos14.0 $swift_defines \
     -o $app/Contents/MacOS/OrigamiApp \
     -Xcc -fmodule-map-file=$gen/origami_ffiFFI.modulemap \
     -Xcc -fmodule-map-file=$include/module.modulemap -I $include \
@@ -84,7 +85,8 @@ ${library_xml:+<key>OrigamiDefaultLibrary</key><string>$library_xml</string>}
 <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
 </dict></plist>
 PLIST
-# Apple silicon refuses unsigned code; ad hoc is enough to run.
+# Apple silicon refuses unsigned code; ad hoc is enough to run. --deep signs the
+# Rust binaries beside the app, which an Intel linker leaves unsigned.
 codesign --force --sign - $app/Contents/Frameworks/liborigami_ffi.dylib
-codesign --force --sign - $app
+codesign --force --deep --sign - $app
 echo $app

@@ -14,6 +14,8 @@ windows-x86_64 = { url = "https://github.com/jamesbraid/qemu-sgi-origami/release
 [instigator]
 tag = "v0.5.0"
 [instigator.platforms]
+linux-arm64    = { url = "https://github.com/jamesbraid/instigator/releases/download/v0.5.0/instigator_0.5.0_linux_arm64.tar.gz", sha256 = "a3c7c16e27ff6d0899aeab92ed0c788374f933d7cf16763175eed3e68157e199" }
 linux-x86_64   = { url = "https://github.com/jamesbraid/instigator/releases/download/v0.5.0/instigator_0.5.0_linux_amd64.tar.gz", sha256 = "3d7b375027acdceef71eec2c5998da861058949297f892d60a38f2d29d5b8d30" }
 macos-arm64    = { url = "https://github.com/jamesbraid/instigator/releases/download/v0.5.0/instigator_0.5.0_darwin_arm64.tar.gz", sha256 = "ddfc1514dde418aa9dbfc964b7afed1224d008f7d45786243220045900de2e8f" }
+macos-x86_64   = { url = "https://github.com/jamesbraid/instigator/releases/download/v0.5.0/instigator_0.5.0_darwin_amd64.tar.gz", sha256 = "6aca350551b25b84a3aab2b297b118e5412a48235130e7bc23416ef04748c4b2" }
 windows-x86_64 = { url = "https://github.com/jamesbraid/instigator/releases/download/v0.5.0/instigator_0.5.0_windows_amd64.zip", sha256 = "09452307b1942a1700fc6385221a2d4389839f5aed61cf16c89257997e1949b9" }

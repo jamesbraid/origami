@@ -4,7 +4,14 @@ use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-pub const PLATFORMS: [&str; 3] = ["linux-x86_64", "macos-arm64", "windows-x86_64"];
+pub const PLATFORMS: [&str; 6] = [
+    "linux-x86_64",
+    "linux-arm64",
+    "macos-arm64",
+    "macos-x86_64",
+    "windows-x86_64",
+    "windows-arm64",
+];
 pub const QEMU_REPO: &str = "jamesbraid/qemu-sgi-origami";
 pub const INSTIGATOR_REPO: &str = "jamesbraid/instigator";
 
@@ -27,6 +34,18 @@ pub struct Asset {
     pub sha256: String,
 }
 
+impl Pin {
+    pub fn platform(&self, name: &str, platform: &str) -> Result<&Asset, String> {
+        self.platforms.get(platform).ok_or_else(|| {
+            format!(
+                "runtime.lock pins no {name} {platform} {}; `cargo xtask bump {name} TAG` adds it \
+                 from a release that has one",
+                self.tag
+            )
+        })
+    }
+}
+
 impl Lock {
     pub fn read(path: &Path) -> Result<Lock, String> {
         let text = std::fs::read_to_string(path)
@@ -40,10 +59,12 @@ impl Lock {
                 lock.format
             ));
         }
+        // A platform may lack an entry until `bump` finds a release with its
+        // archive; asking for that platform fails then, in `Pin::platform`.
         for (name, pin) in [("qemu", &lock.qemu), ("instigator", &lock.instigator)] {
-            for platform in PLATFORMS {
-                if !pin.platforms.contains_key(platform) {
-                    return Err(format!("{name} pin has no {platform} entry"));
+            for platform in pin.platforms.keys() {
+                if !PLATFORMS.contains(&platform.as_str()) {
+                    return Err(format!("{name} pin names unknown platform {platform}"));
                 }
             }
         }
@@ -55,8 +76,11 @@ impl Lock {
 pub fn host_platform() -> Result<&'static str, String> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("linux", "x86_64") => Ok("linux-x86_64"),
+        ("linux", "aarch64") => Ok("linux-arm64"),
         ("macos", "aarch64") => Ok("macos-arm64"),
+        ("macos", "x86_64") => Ok("macos-x86_64"),
         ("windows", "x86_64") => Ok("windows-x86_64"),
+        ("windows", "aarch64") => Ok("windows-arm64"),
         (os, arch) => Err(format!("no product platform for {os} on {arch}")),
     }
 }
@@ -79,8 +103,11 @@ pub fn instigator_asset_name(tag: &str, platform: &str) -> Result<String, String
     let version = tag.strip_prefix('v').unwrap_or(tag);
     let target = match platform {
         "linux-x86_64" => "linux_amd64",
+        "linux-arm64" => "linux_arm64",
         "macos-arm64" => "darwin_arm64",
+        "macos-x86_64" => "darwin_amd64",
         "windows-x86_64" => "windows_amd64",
+        "windows-arm64" => "windows_arm64",
         other => return Err(format!("unknown platform {other}")),
     };
     Ok(format!(
@@ -167,12 +194,28 @@ mod tests {
             "sgi-origami-11.1.50-1-windows-x86_64.zip"
         );
         assert_eq!(
+            qemu_asset_name(tag, "macos-x86_64"),
+            "sgi-origami-11.1.50-1-macos-x86_64.tar.gz"
+        );
+        assert_eq!(
+            qemu_asset_name(tag, "windows-arm64"),
+            "sgi-origami-11.1.50-1-windows-arm64.zip"
+        );
+        assert_eq!(
             instigator_asset_name("v0.5.0", "macos-arm64").unwrap(),
             "instigator_0.5.0_darwin_arm64.tar.gz"
         );
         assert_eq!(
             instigator_asset_name("v0.5.0", "windows-x86_64").unwrap(),
             "instigator_0.5.0_windows_amd64.zip"
+        );
+        assert_eq!(
+            instigator_asset_name("v0.5.0", "macos-x86_64").unwrap(),
+            "instigator_0.5.0_darwin_amd64.tar.gz"
+        );
+        assert_eq!(
+            instigator_asset_name("v0.5.0", "linux-arm64").unwrap(),
+            "instigator_0.5.0_linux_arm64.tar.gz"
         );
     }
 
@@ -189,6 +232,15 @@ mod tests {
         let back = Lock::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         assert_eq!(back, lock);
+    }
+
+    #[test]
+    fn a_missing_platform_fails_only_when_asked_for() {
+        let mut qemu = pin("sgi-origami-11.1.50-1", &"cd".repeat(32));
+        qemu.platforms.remove("windows-arm64");
+        assert!(qemu.platform("qemu", "linux-x86_64").is_ok());
+        let error = qemu.platform("qemu", "windows-arm64").unwrap_err();
+        assert!(error.contains("cargo xtask bump qemu"), "{error}");
     }
 
     #[test]

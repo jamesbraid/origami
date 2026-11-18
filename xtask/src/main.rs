@@ -145,11 +145,11 @@ fn runtime(platform: &str, qemu_archive: Option<&Path>) -> Result<PathBuf> {
     let qemu_file = match qemu_archive {
         Some(path) => path.to_path_buf(),
         None => {
-            let asset = &lock.qemu.platforms[platform];
+            let asset = lock.qemu.platform("qemu", platform)?;
             archive::fetch(&asset.url, &asset.sha256, &cache)?
         }
     };
-    let instigator = &lock.instigator.platforms[platform];
+    let instigator = lock.instigator.platform("instigator", platform)?;
     let instigator_file = archive::fetch(&instigator.url, &instigator.sha256, &cache)?;
 
     let dir = base.join(platform);
@@ -425,7 +425,7 @@ fn release_pin(
 /// `pin`, checking that archive has them before anything is removed.
 fn refresh_configs(pin: &Pin) -> Result<()> {
     let platform = lock::host_platform()?;
-    let asset = &pin.platforms[platform];
+    let asset = pin.platform("instigator", platform)?;
     let file = archive::fetch(
         &asset.url,
         &asset.sha256,

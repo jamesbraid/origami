@@ -24,8 +24,11 @@ impl Krate {
 /// The cargo target a platform's package is built for.
 pub fn triple<'a>(platform: &str, target: Option<&'a str>) -> &'a str {
     target.unwrap_or(match platform {
+        "linux-arm64" => "aarch64-unknown-linux-gnu",
         "macos-arm64" => "aarch64-apple-darwin",
+        "macos-x86_64" => "x86_64-apple-darwin",
         "windows-x86_64" => "x86_64-pc-windows-msvc",
+        "windows-arm64" => "aarch64-pc-windows-msvc",
         _ => "x86_64-unknown-linux-gnu",
     })
 }
