@@ -184,6 +184,28 @@ func runSelfTest(library: String, out: String) {
               ["first_line": String(text.split(separator: "\n").first ?? "")])
     }
 
+    // About's Acknowledgements and Licences: the core's credits document reads back with a credit and a link for
+    // every photograph and QEMU's GPL text, and both sheets open and lay out.
+    do {
+        let doc = CreditsDocument.load()
+        let scenes = Int(origami_cube_scene_count())
+        let credited = doc.map { d in d.photographs.count == scenes && d.photographs.allSatisfy {
+            !$0.author.isEmpty && !$0.year.isEmpty && !$0.licence.isEmpty && URL(string: $0.licenceUrl) != nil && URL(string: $0.source) != nil
+        } } ?? false
+        let gpl = doc?.licences.first { $0.name == "GNU General Public License" }
+        check("credits-every-photograph-has-a-credit-and-a-link", credited, ["scenes": scenes, "photographs": doc?.photographs.count ?? -1])
+        check("credits-licences-carry-qemus-gpl-and-source", gpl?.entries.contains { $0.components == ["QEMU"] && $0.text.contains("Version 2") } == true
+              && doc?.qemu.url.contains("/tree/sgi-origami-") == true, ["licences": doc?.licences.map(\.name) ?? []])
+        func opens<V: View>(_ view: V) -> NSSize {
+            let hosting = NSHostingView(rootView: view)
+            hosting.layoutSubtreeIfNeeded()
+            return hosting.fittingSize
+        }
+        let ack = opens(AcknowledgementsView()), lic = opens(LicencesView())
+        check("about-acknowledgements-and-licences-open", ack.width > 100 && ack.height > 100 && lic.width > 100 && lic.height > 100,
+              ["acknowledgements": "\(ack)", "licences": "\(lic)"])
+    }
+
     // Console keys: what a serial terminal is sent, and Option as Meta only when asked for.
     do {
         func k(_ code: UInt16, _ ch: String, _ ign: String? = nil, _ flags: NSEvent.ModifierFlags = [], meta: Bool = false) -> ConsoleKeys.Mapped? {

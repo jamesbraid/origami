@@ -1,5 +1,5 @@
-// The About window: the cube on its granite band, the credits and an
-// acknowledgements sheet.
+// The About window: the cube on its granite band, who made it and two buttons
+// for the Acknowledgements and Licences sheets (Credits.swift).
 
 import OrigamiFrame
 import SwiftUI
@@ -19,7 +19,12 @@ struct EggBuffer {
 
 struct AboutView: View {
     @EnvironmentObject var app: AppModel
-    @State private var acknowledgements = false
+    enum Sheet: String, Identifiable {
+        case acknowledgements, licences
+        var id: String { rawValue }
+    }
+    @State private var sheet: Sheet?
+    private let about = CreditsDocument.load()
 
     /// Reflecting a running machine's screen is off for now; the code stays for when it returns.
     static let reflectsRunningMachine = false
@@ -30,7 +35,6 @@ struct AboutView: View {
         return app.models.first { $0.state == .running && $0.view?.isPresenting == true }
     }
 
-    @State private var qemuVersion: String?
     @Environment(\.colorScheme) private var scheme
     static let bandHeight: CGFloat = 240
     /// The cube's view is a square 60% of the band tall; the cube fills 90% of it, so about 23% of the band is clear above and below.
@@ -45,8 +49,7 @@ struct AboutView: View {
     final class CubeRef { weak var view: CubeNSView? }
 
     private var version: String {
-        let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
-        return "Version \(v)" + (qemuVersion.map { " · QEMU \($0)" } ?? "")
+        "Version " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
     }
 
     var body: some View {
@@ -75,26 +78,32 @@ struct AboutView: View {
                 }
             }
             .frame(height: 150).clipped()
-            Button("Acknowledgements…") { acknowledgements = true }.padding(.bottom, 12)
+            HStack(spacing: 10) {
+                Button("Acknowledgements") { sheet = .acknowledgements }
+                Button("Licences") { sheet = .licences }
+            }
+            .padding(.bottom, 12)
         }
         .frame(width: 360)
-        .sheet(isPresented: $acknowledgements) { Acknowledgements() }
+        .sheet(item: $sheet) { which in
+            switch which {
+            case .acknowledgements: AcknowledgementsView()
+            case .licences: LicencesView()
+            }
+        }
         .onAppear { startListening() }
         .onDisappear { stopListening() }
-        .task {
-            // The core is asked off the main actor; the line fills in when it answers.
-            guard let core = app.host?.core else { return }
-            qemuVersion = await Task.detached { core.engines().first(where: { $0.id == "qemu" })?.version }.value
-        }
     }
 
     private var credits: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Text("Origami").font(.title.weight(.semibold))
             Text(version).font(.caption).foregroundStyle(.secondary)
-            Text("Released under the BSD 3-Clause licence.").font(.caption).foregroundStyle(.secondary)
-            Text("All trademarks are the property of their respective owners.")
-                .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text(about?.copyright ?? "").font(.caption).foregroundStyle(.secondary)
+            Text(about?.licenceName ?? "").font(.caption).foregroundStyle(.secondary)
+            if let site = about?.projectUrl, let url = URL(string: site) {
+                Link(site.replacingOccurrences(of: "https://", with: ""), destination: url).font(.caption)
+            }
         }
         .padding(16)
     }
@@ -135,31 +144,5 @@ struct AboutView: View {
             let text = await Task.detached { core.hinv() }.value
             withAnimation { hinv = text }
         }
-    }
-}
-
-struct Acknowledgements: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Acknowledgements").font(.headline)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(0..<origami_cube_scene_count(), id: \.self) { i in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(sceneText(i, Int32(ORIGAMI_CUBE_SCENE_TITLE))).font(.caption.weight(.medium))
-                            Text(sceneText(i, Int32(ORIGAMI_CUBE_SCENE_CREDIT))).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Text("SGI cube model from martin-steen.de. The granite tile is from the IRIX desktop.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text("Machines run on QEMU.").font(.caption).foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.defaultAction) }
-        }
-        .padding(16).frame(width: 420, height: 300)
     }
 }

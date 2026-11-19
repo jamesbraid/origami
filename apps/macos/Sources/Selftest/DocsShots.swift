@@ -138,6 +138,8 @@ func runDocsShots(library: String, out: String) {
     app.showsCpu = false
     capture(window("Diagnostics", DiagnosticsView(), 640, 400), "macos-diagnostics")
     capture(window("About Origami", AboutView(), 360, 0, fit: true), "macos-about", settle: 4)
+    capture(window("Acknowledgements", AcknowledgementsView(), 480, 560), "macos-acknowledgements")
+    capture(window("Licences", LicencesView(), 520, 600), "macos-licences")
 
     main.orderOut(nil)
     var stopped = false
