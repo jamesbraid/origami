@@ -1,6 +1,6 @@
 # Contributing to Origami
 
-The [developer guide](../docs/development.md) covers source builds, archive
+The [developer guide](../dev/development.md) covers source builds, archive
 contents and CI.
 
 Open issues and pull requests on GitHub against `main`. Accepted changes retain

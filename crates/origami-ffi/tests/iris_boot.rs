@@ -1,6 +1,6 @@
 //! An iris Indy booted from the published IRIX 5.3 disk, seen through the C
 //! frame plane and compared with iris's own screendump. Ignored by default;
-//! the variables and the command are in docs/development.md.
+//! the variables and the command are in dev/development.md.
 #![cfg(all(
     target_os = "linux",
     feature = "iris",

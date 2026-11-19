@@ -1,7 +1,7 @@
 # Developing Origami
 
 [Contributing](../.github/CONTRIBUTING.md) covers changes and bug reports.
-The [user guide](usage.md) covers running downloaded archives.
+The [user guide](../docs/usage.md) covers running downloaded archives.
 
 ## Build identity
 
@@ -285,7 +285,7 @@ guest media are not included.
 ## App screenshots
 
 `tools/screenshots` regenerates `docs/images/app/`, the pictures in the
-[app guide](app.md) and the changelog. Run the `screenshots` workflow on GitHub
+[app guide](../docs/app.md) and the changelog. Run the `screenshots` workflow on GitHub
 (Actions, Run workflow), then `tools/screenshots pull` to collect its Linux,
 CLI, macOS and Windows sets; `tools/screenshots --help` lists the commands that
 make one platform's set locally. The Linux set is the `docs` scenario of

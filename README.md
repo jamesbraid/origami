@@ -70,7 +70,7 @@ Start with `origami machines` and the [user guide](docs/usage.md).
 Have fun vibing away...
 
 Build steps, prerequisites and packaging are in
-[Developing Origami](docs/development.md).
+[Developing Origami](dev/development.md).
 
 Machine models pass IRIX online diags as well as offline field diags where they exist.
 
