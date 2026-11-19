@@ -823,57 +823,74 @@ impl OrigamiCore {
     }
 }
 
-/// Where a CPU load figure comes from. More sources may be added.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum OrigamiCpuLoadSource {
-    /// Host CPU time of the threads that emulate the CPUs, as a percentage
-    /// of one host core. It is not the guest's own accounting: a guest CPU
-    /// idling in the emulator can read busy.
-    Host,
-}
-
-/// One emulated CPU's load. `user_pct` and `sys_pct` are always set and sum
-/// to at most 100. The other states are for a source that sees inside the
-/// guest and are `None` for `Host`.
+/// One legend entry of an activity bar, and the name of its segment.
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
-pub struct OrigamiCpuLoad {
-    pub cpu: u32,
-    pub user_pct: f32,
-    pub sys_pct: f32,
-    pub intr_pct: Option<f32>,
-    pub wait_pct: Option<f32>,
-    pub idle_pct: Option<f32>,
+pub struct OrigamiOsviewKey {
+    pub label: String,
+    /// 0xRRGGBB.
+    pub rgb: u32,
 }
 
-/// The latest CPU load sample. `cpus` is empty while the first sample is
-/// pending, and when the load cannot be measured, with the reason in
-/// `unavailable`.
+/// One segment of an activity bar: a share of its length from 0 to 1, in
+/// order from the left.
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
-pub struct OrigamiCpuLoadReport {
-    pub source: OrigamiCpuLoadSource,
-    pub cpus: Vec<OrigamiCpuLoad>,
-    pub unavailable: Option<String>,
+pub struct OrigamiOsviewSegment {
+    pub fraction: f32,
+    pub rgb: u32,
 }
 
-impl From<f::CpuLoadReport> for OrigamiCpuLoadReport {
-    fn from(r: f::CpuLoadReport) -> Self {
+/// A labelled bar: a title, a legend and one segment per legend entry.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct OrigamiOsviewBar {
+    pub title: String,
+    pub legend: Vec<OrigamiOsviewKey>,
+    pub segments: Vec<OrigamiOsviewSegment>,
+}
+
+/// The activity view as the core describes it, for the app to paint: the
+/// bars, the colours, how many ruler marks, and what the numbers are. With no
+/// bars, `note` says why.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct OrigamiOsview {
+    pub bars: Vec<OrigamiOsviewBar>,
+    pub ticks: u32,
+    pub background: u32,
+    pub bar_background: u32,
+    pub caption: String,
+    pub note: Option<String>,
+}
+
+impl From<f::Osview> for OrigamiOsview {
+    fn from(v: f::Osview) -> Self {
         Self {
-            source: match r.source {
-                f::CpuLoadSource::Host => OrigamiCpuLoadSource::Host,
-            },
-            cpus: r
-                .cpus
+            bars: v
+                .bars
                 .into_iter()
-                .map(|c| OrigamiCpuLoad {
-                    cpu: c.cpu,
-                    user_pct: c.user_pct,
-                    sys_pct: c.sys_pct,
-                    intr_pct: None,
-                    wait_pct: None,
-                    idle_pct: None,
+                .map(|b| OrigamiOsviewBar {
+                    title: b.title,
+                    legend: b
+                        .legend
+                        .into_iter()
+                        .map(|k| OrigamiOsviewKey {
+                            label: k.label,
+                            rgb: k.rgb,
+                        })
+                        .collect(),
+                    segments: b
+                        .segments
+                        .into_iter()
+                        .map(|s| OrigamiOsviewSegment {
+                            fraction: s.fraction,
+                            rgb: s.rgb,
+                        })
+                        .collect(),
                 })
                 .collect(),
-            unavailable: r.unavailable,
+            ticks: v.ticks,
+            background: v.background,
+            bar_background: v.bar_background,
+            caption: v.caption,
+            note: v.note,
         }
     }
 }
@@ -990,11 +1007,12 @@ impl OrigamiMachine {
         Ok(self.0.console_send(&bytes)?)
     }
 
-    /// The latest CPU load. Does not block; the core samples on its own
-    /// thread, twice a second, while this keeps being called. Poll it at
-    /// about 2 Hz. Empty, with a reason, when the machine is not running.
-    pub fn cpu_load(&self) -> OrigamiCpuLoadReport {
-        self.0.cpu_load().into()
+    /// The activity view to paint: bars for the latest per-CPU host load,
+    /// gliding from the last one returned. Does not block; the core samples
+    /// on its own thread while this keeps being called, so poll it at about
+    /// 2 Hz and only while it is shown. With no bars, `note` says why.
+    pub fn osview(&self) -> OrigamiOsview {
+        self.0.osview().into()
     }
 
     /// An owned `origami_machine*` for the C frame plane, as an integer. The

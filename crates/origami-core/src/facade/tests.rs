@@ -922,6 +922,9 @@ fn cpu_load_follows_the_engine_and_is_empty_when_the_machine_is_not_running() {
     let (a, b) = (report.cpus[0], report.cpus[1]);
     assert!(near(a.user_pct, 30.0) && near(a.sys_pct, 10.0), "{a:?}");
     assert!(near(b.user_pct, 60.0) && near(b.sys_pct, 5.0), "{b:?}");
+    let view = machine.osview();
+    assert_eq!(view.bars.len(), 2);
+    assert_eq!(view.bars[1].title, "CPU 1 host time");
 }
 
 #[test]

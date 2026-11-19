@@ -154,11 +154,15 @@ When a machine stops unexpectedly, the report's Reason and Last error say why.
 
 ![The CPU panel under a running machine's picture](images/app/linux-cpu-panel.png)
 
-The CPU button shows a bar for each emulated CPU under the picture, user time
-in blue and system time in red, with the total at the right. The numbers are
-measured on your computer, not inside the guest, so they show how hard the
-emulation works, not what IRIX reports. The panel updates twice a second while it is
-shown and does no work when hidden.
+The CPU button shows a bar for each emulated CPU under the picture, drawn in
+the style of IRIX's `gr_osview`: a title and a coloured legend over a framed
+bar cut into user (blue), sys (red) and spare (green), with a ruler marked in
+tenths. The numbers are measured on your computer, not inside the guest, so
+they show how hard the emulation works, not what IRIX reports. Spare is the
+share of a host core the CPU's thread did not use. `gr_osview`'s interrupt,
+wait, memory and graphics bars need a view inside the guest and are not shown.
+The panel updates twice a second while it is shown and does no work when
+hidden.
 
 ## Settings
 

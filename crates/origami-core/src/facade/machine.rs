@@ -10,6 +10,7 @@ use super::cpu::{self, CpuLoadReport, CpuMonitor};
 use super::error::{CoreError, CoreResult, ErrorKind};
 use super::event::{EventKind, Slot};
 use super::operation::{self, Control as OpControl, Operation};
+use super::osview::Osview;
 use super::settings::{self, MachineSettings};
 use crate::Change;
 use origami_engine::{
@@ -185,6 +186,8 @@ struct Run {
     exit_note: Option<origami_machine::control::Exit>,
     /// Samples the session's CPU threads; made by the first `cpu_load`.
     cpu: Option<Arc<CpuMonitor>>,
+    /// The activity view last returned, which the next one glides from.
+    osview: Option<Osview>,
 }
 
 #[derive(Default, Clone)]
@@ -258,6 +261,7 @@ impl Machine {
                     power_button: None,
                     exit_note: None,
                     cpu: None,
+                    osview: None,
                 }),
                 held: Mutex::default(),
                 hooks: Mutex::new(Arc::new(Vec::new())),
@@ -476,6 +480,16 @@ impl Machine {
 
     pub fn heads(&self) -> Vec<HeadView> {
         self.inner.heads()
+    }
+
+    /// The activity view for the latest [`cpu_load`](Self::cpu_load), gliding
+    /// from the one this returned last. Same polling rules as `cpu_load`.
+    pub fn osview(&self) -> Osview {
+        let report = self.cpu_load();
+        let mut run = self.inner.run.lock().unwrap();
+        let view = Osview::from_cpu_load(&report, run.osview.as_ref());
+        run.osview = Some(view.clone());
+        view
     }
 
     /// The latest per-CPU load, measured on the host (see [`CpuLoadReport`]).
