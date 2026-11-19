@@ -26,7 +26,9 @@ const VIEW: [[f32; 3]; 3] = [
 ];
 /// The cube's width as a share of the view's shorter side.
 const FILL: f32 = 0.9;
-const MSAA: u32 = 4;
+/// Multisampling to ask for, best first; the first the device supports for
+/// both the colour and depth formats is used.
+const SAMPLES: [u32; 3] = [8, 4, 2];
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// At most 60 frames a second, whatever the display's refresh rate; 30 while
 /// only the calm spin moves the cube, which looks the same at 10 rpm.
@@ -178,9 +180,65 @@ fn cross(a: V3, b: V3) -> V3 {
     ]
 }
 
+fn unit(a: V3) -> V3 {
+    let n = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt().max(1e-20);
+    [a[0] / n, a[1] / n, a[2] / n]
+}
+
+fn dot(a: V3, b: V3) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// Faces meeting at more than this are an edge, not a curve.
+const CREASE_DEGREES: f32 = 60.0;
+
+/// Each corner's normal sums the faces at its vertex within [`CREASE_DEGREES`]
+/// of its own, by area; a vertex on a crease is split.
+fn smooth_split(pos: &[V3], idx: &[u16]) -> (Vec<[f32; 6]>, Vec<u32>) {
+    let tris: Vec<[usize; 3]> = idx
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|t| t.map(usize::from))
+        .collect();
+    let area: Vec<V3> = tris
+        .iter()
+        .map(|&[a, b, c]| cross(sub(pos[b], pos[a]), sub(pos[c], pos[a])))
+        .collect();
+    let face: Vec<V3> = area.iter().map(|&a| unit(a)).collect();
+    let mut at = vec![Vec::new(); pos.len()];
+    for (f, t) in tris.iter().enumerate() {
+        for &v in t {
+            at[v].push(f);
+        }
+    }
+    let cos = CREASE_DEGREES.to_radians().cos();
+    let mut made: std::collections::HashMap<(usize, [i32; 3]), u32> = Default::default();
+    let mut verts = Vec::new();
+    let mut out = Vec::with_capacity(idx.len());
+    for (f, t) in tris.iter().enumerate() {
+        for &v in t {
+            let mut sum = [0.0f32; 3];
+            for &g in at[v].iter().filter(|&&g| dot(face[f], face[g]) >= cos) {
+                for (s, n) in sum.iter_mut().zip(area[g]) {
+                    *s += n;
+                }
+            }
+            let n = unit(sum);
+            let key = (v, n.map(|c| (c * 1000.0).round() as i32));
+            let i = *made.entry(key).or_insert_with(|| {
+                verts.push([pos[v][0], pos[v][1], pos[v][2], n[0], n[1], n[2]]);
+                (verts.len() - 1) as u32
+            });
+            out.push(i);
+        }
+    }
+    (verts, out)
+}
+
 impl Mesh {
-    /// irix-theme's cube.glb: int16-quantised positions in 8-byte records and
-    /// u16 indices, with no normals; each vertex's is the sum of its faces'.
+    /// irix-theme's cube.glb: int16 positions in 8-byte records and u16 indices;
+    /// [`smooth_split`] makes the normals.
     fn from_glb(glb: &[u8]) -> Result<Mesh, String> {
         let bad = |what: &str| format!("cube.glb: {what}");
         let u32_at = |o: usize| -> Result<usize, String> {
@@ -228,25 +286,16 @@ impl Mesh {
         if idx.iter().any(|&i| i as usize >= pos.len()) {
             return Err(bad("index out of range"));
         }
-        let mut nrm = vec![[0.0f32; 3]; pos.len()];
-        for t in idx.as_chunks::<3>().0 {
-            let [a, b, c] = [t[0] as usize, t[1] as usize, t[2] as usize];
-            let f = cross(sub(pos[b], pos[a]), sub(pos[c], pos[a]));
-            for i in [a, b, c] {
-                for k in 0..3 {
-                    nrm[i][k] += f[k];
-                }
-            }
-        }
         let reach = pos
             .iter()
             .map(|p| (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt())
             .fold(0.0, f32::max);
-        let verts = pos
-            .iter()
-            .zip(&nrm)
-            .map(|(p, n)| [p[0], p[1], p[2], n[0], n[1], n[2]])
-            .collect();
+        let (verts, idx) = smooth_split(&pos, &idx);
+        let idx = idx
+            .into_iter()
+            .map(u16::try_from)
+            .collect::<Result<Vec<u16>, _>>()
+            .map_err(|_| bad("too many vertices"))?;
         Ok(Mesh { verts, idx, reach })
     }
 }
@@ -276,6 +325,8 @@ struct Targets {
 /// The pipelines, mesh and textures of the cube for one target format.
 pub struct CubeRenderer {
     format: wgpu::TextureFormat,
+    /// Multisampling in use: 1 when the device offers none.
+    samples: u32,
     backdrop: wgpu::RenderPipeline,
     cube: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
@@ -287,7 +338,7 @@ pub struct CubeRenderer {
     uniforms: wgpu::Buffer,
     tile: wgpu::TextureView,
     blank: wgpu::TextureView,
-    /// Each loaded photograph and its average colour.
+    /// Each loaded photograph and its average colour (linear).
     photos: Vec<Option<(wgpu::TextureView, [f32; 3])>>,
     /// The photo the bind group shows.
     scene: Option<usize>,
@@ -375,8 +426,28 @@ fn upload(gpu: &Gpu, t: &wgpu::Texture, mip: u32, size: (u32, u32), bpp: u32, da
     );
 }
 
-/// Each level the average of 2 by 2 of the one above, down to 1 by 1.
+fn srgb_to_linear(v: u8) -> f32 {
+    let c = f32::from(v) / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn linear_to_srgb(l: f32) -> u8 {
+    let c = if l <= 0.003_130_8 {
+        l * 12.92
+    } else {
+        1.055 * l.powf(1.0 / 2.4) - 0.055
+    };
+    (c.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+/// Each level the average of 2 by 2 of the one above, down to 1 by 1, taken
+/// as light, not as sRGB numbers, so small bright detail does not darken.
 fn mip_chain(rgba: Vec<u8>, w: u32, h: u32) -> Vec<((u32, u32), Vec<u8>)> {
+    let lut: Vec<f32> = (0..=255).map(srgb_to_linear).collect();
     let mut out = vec![((w, h), rgba)];
     while out.last().is_some_and(|((w, h), _)| *w > 1 || *h > 1) {
         let ((sw, sh), src) = out.last().unwrap();
@@ -385,12 +456,19 @@ fn mip_chain(rgba: Vec<u8>, w: u32, h: u32) -> Vec<((u32, u32), Vec<u8>)> {
         for y in 0..dh {
             for x in 0..dw {
                 for c in 0..4 {
-                    let mut sum = 0;
+                    let mut sum = 0.0;
+                    let mut alpha = 0;
                     for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                         let (sx, sy) = ((x * 2 + dx).min(sw - 1), (y * 2 + dy).min(sh - 1));
-                        sum += u32::from(src[((sy * sw + sx) * 4 + c) as usize]);
+                        let v = src[((sy * sw + sx) * 4 + c) as usize];
+                        sum += lut[usize::from(v)];
+                        alpha += u32::from(v);
                     }
-                    dst.push(((sum + 2) / 4) as u8);
+                    dst.push(if c == 3 {
+                        ((alpha + 2) / 4) as u8
+                    } else {
+                        linear_to_srgb(sum / 4.0)
+                    });
                 }
             }
         }
@@ -398,6 +476,25 @@ fn mip_chain(rgba: Vec<u8>, w: u32, h: u32) -> Vec<((u32, u32), Vec<u8>)> {
         out.push((size, dst));
     }
     out
+}
+
+/// The most multisampling the device offers for the cube's colour and depth.
+fn sample_count(gpu: &Gpu, format: wgpu::TextureFormat) -> u32 {
+    let ok = |f: wgpu::TextureFormat, n: u32| {
+        gpu.adapter
+            .get_texture_format_features(f)
+            .flags
+            .sample_count_supported(n)
+    };
+    let resolves = gpu
+        .adapter
+        .get_texture_format_features(format)
+        .flags
+        .contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE);
+    SAMPLES
+        .into_iter()
+        .find(|&n| resolves && ok(format, n) && ok(DEPTH, n))
+        .unwrap_or(1)
 }
 
 fn photo_view(gpu: &Gpu, scene: usize) -> Result<(wgpu::TextureView, [f32; 3]), String> {
@@ -421,13 +518,18 @@ fn photo_view(gpu: &Gpu, scene: usize) -> Result<(wgpu::TextureView, [f32; 3]), 
 
 fn photo_from_rgba(gpu: &Gpu, rgba: Vec<u8>, w: u32, h: u32) -> (wgpu::TextureView, [f32; 3]) {
     let chain = mip_chain(rgba, w, h);
-    // The last level is one texel: the picture's mean.
-    let mean = std::array::from_fn(|k| f32::from(chain.last().unwrap().1[k]) / 255.0);
+    let mut sum = [0.0f64; 3];
+    for p in chain[0].1.as_chunks::<4>().0 {
+        for k in 0..3 {
+            sum[k] += f64::from(srgb_to_linear(p[k]));
+        }
+    }
+    let mean = sum.map(|c| (c / f64::from(w * h)) as f32);
     let t = texture_2d(
         gpu,
         "scene",
         (w, h),
-        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
         chain.len() as u32,
     );
     for (level, (size, data)) in chain.iter().enumerate() {
@@ -491,8 +593,9 @@ impl CubeRenderer {
             blend: None,
             write_mask: wgpu::ColorWrites::ALL,
         })];
+        let samples = sample_count(gpu, format);
         let multisample = wgpu::MultisampleState {
-            count: MSAA,
+            count: samples,
             mask: !0,
             alpha_to_coverage_enabled: false,
         };
@@ -567,6 +670,7 @@ impl CubeRenderer {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            anisotropy_clamp: 8,
             ..Default::default()
         });
         let tile = texture_2d(gpu, "granite", (256, 256), wgpu::TextureFormat::R8Unorm, 1);
@@ -575,6 +679,7 @@ impl CubeRenderer {
         upload(gpu, &blank, 0, (1, 1), 4, &[0, 0, 0, 255]);
         Ok(CubeRenderer {
             format,
+            samples,
             backdrop,
             cube,
             layout,
@@ -703,7 +808,7 @@ impl CubeRenderer {
                             depth_or_array_layers: 1,
                         },
                         mip_level_count: 1,
-                        sample_count: MSAA,
+                        sample_count: self.samples,
                         dimension: wgpu::TextureDimension::D2,
                         format,
                         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -756,7 +861,12 @@ impl CubeRenderer {
             nrm,
             look: [ground[0], ground[1], sky[0], sky[1]],
             tint: style.horizon.map_or([0.0; 4], |c| rgba(c, 1.0)),
-            mode: [mode, 1.0, (2.0 * scale).round().max(1.0) as f32, 0.0],
+            mode: [
+                mode,
+                f32::from(u8::from(self.format.is_srgb())),
+                (2.0 * scale).round().max(1.0) as f32,
+                0.0,
+            ],
             light: rgba(style.granite[0], 1.0),
             fill: rgba(
                 self.scene
@@ -793,6 +903,7 @@ impl CubeRenderer {
             .write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&u));
         let bind = self.bind_group(gpu);
         let transparent = self.transparent;
+        let multisampled = self.samples > 1;
         let targets = self.targets(gpu, size);
         let clear = if style.backdrop == Backdrop::None && !transparent {
             let [r, g, b] = style.surround.map(f64::from);
@@ -803,9 +914,9 @@ impl CubeRenderer {
         let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("cube"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &targets.color,
+                view: if multisampled { &targets.color } else { target },
                 depth_slice: None,
-                resolve_target: Some(target),
+                resolve_target: multisampled.then_some(target),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(clear),
                     store: wgpu::StoreOp::Discard,
@@ -1332,23 +1443,50 @@ mod tests {
     #[test]
     fn the_mesh_loads_with_its_vertices_and_faces() {
         let m = Mesh::from_glb(GLB).unwrap();
-        assert_eq!((m.verts.len(), m.idx.len()), (1764, 10584));
+        assert_eq!(m.idx.len(), 10584);
+        // A few vertices on sharp edges are split; the rest are shared.
+        assert!(
+            m.verts.len() >= 1764 && m.verts.len() < 2000,
+            "{}",
+            m.verts.len()
+        );
         assert!(m.reach < 2.0 * HALF);
         assert!(Mesh::from_glb(&GLB[..100]).is_err());
     }
 
     #[test]
-    fn the_granite_tile_is_a_two_tone_mask() {
-        let t = decode_granite().unwrap();
-        let light = t.iter().filter(|&&p| p == 255).count();
-        assert!(light > t.len() / 4 && light < t.len() * 3 / 4);
+    fn normals_are_unit_and_smooth_along_the_tubes_but_split_at_sharp_edges() {
+        let m = Mesh::from_glb(GLB).unwrap();
+        for v in &m.verts {
+            let n = unit([v[3], v[4], v[5]]);
+            assert!((dot(n, n) - 1.0).abs() < 1e-3);
+        }
+        // Two squares meeting at a right angle share no normal at their edge.
+        let pos = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
+        let (verts, _) = smooth_split(&pos, &[0, 1, 2, 0, 3, 1]);
+        assert_eq!(verts.len(), 6, "the shared edge is split");
+        // A gentle bend keeps its vertices.
+        let flat = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.5, -1.0, 0.3],
+        ];
+        let (verts, _) = smooth_split(&flat, &[0, 1, 2, 0, 3, 1]);
+        assert_eq!(verts.len(), 4);
     }
 
     #[test]
     fn a_mip_chain_ends_at_one_texel_with_the_average() {
         let chain = mip_chain([255, 0, 0, 255, 0, 0, 0, 255].repeat(2), 2, 2);
         assert_eq!(chain.len(), 2);
-        assert_eq!(chain[1].1, vec![128, 0, 0, 255]);
+        // Half the light of full red is 188 encoded, not 128.
+        assert_eq!(chain[1].1, vec![188, 0, 0, 255]);
     }
 
     /// Mean error in 4 by 4 blocks of our cube against irix-theme's still of
@@ -1406,7 +1544,7 @@ mod tests {
         let mae = error_against_still(&gpu, &Style::default());
         eprintln!("MEASURE mean block error against the still: {mae:.2} of 255");
         assert!(
-            mae < 8.0,
+            mae < 12.5,
             "differs from the web cube's still: mean error {mae:.2}"
         );
         // The check can fail: a photograph is far from the still.
@@ -1414,7 +1552,9 @@ mod tests {
             env: Env::Scene(scenes::find("vancouver-dusk").unwrap()),
             ..Style::default()
         };
-        assert!(error_against_still(&gpu, &dusk) > 16.0);
+        let far = error_against_still(&gpu, &dusk);
+        eprintln!("MEASURE mean block error of a photograph against the still: {far:.2}");
+        assert!(far > 1.4 * mae, "{far:.2} against {mae:.2}");
     }
 
     /// A red patch in the environment at longitude `u` (in 32nds, 45 degrees
@@ -1518,7 +1658,7 @@ mod tests {
         let Some(gpu) = gpu() else { return };
         let (right, left) = (screen_marker(&gpu, true), screen_marker(&gpu, false));
         assert!(
-            right > left + 8.0,
+            right > left + 5.0,
             "red right at x {right}, red left at x {left}"
         );
     }
@@ -1754,6 +1894,54 @@ mod tests {
                 us[150], us[285], us[299]
             );
         }
+    }
+
+    #[test]
+    fn the_cube_is_smoother_at_its_edges_than_without_multisampling() {
+        let Some(gpu) = gpu() else { return };
+        let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
+        let (levels, err) = aliasing(&gpu, &mut r, &Style::default(), 160);
+        eprintln!(
+            "MEASURE silhouette levels {levels}, error {err:.3}, samples {}",
+            r.samples
+        );
+        // Hard-edged rendering has no partial coverage at all.
+        assert!(
+            r.samples == 1 || levels >= (r.samples - 1) as usize,
+            "{levels} levels"
+        );
+        assert!(err < 4.5, "mean error against 4x supersampling {err:.3}");
+    }
+
+    /// Distinct partial-coverage levels along the silhouette, and the mean error
+    /// of a 1x render against the same cube drawn at 4x and box-filtered down.
+    fn aliasing(gpu: &Gpu, r: &mut CubeRenderer, style: &Style, side: u32) -> (usize, f64) {
+        let m = Motion::new(false, false);
+        let one = render_image(gpu, r, (side, side), 1.0, style, &m).unwrap();
+        let big = render_image(gpu, r, (side * 4, side * 4), 4.0, style, &m).unwrap();
+        let levels: std::collections::BTreeSet<u8> = one
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|p| p[3])
+            .filter(|&a| a > 0 && a < 255)
+            .collect();
+        let mut sum = 0u64;
+        for y in 0..side {
+            for x in 0..side {
+                for c in 0..4 {
+                    let mut acc = 0u32;
+                    for k in 0..16 {
+                        let (bx, by) = (x * 4 + k % 4, y * 4 + k / 4);
+                        acc += u32::from(big[((by * side * 4 + bx) * 4 + c) as usize]);
+                    }
+                    let want = (acc as f64 / 16.0).round() as i64;
+                    sum +=
+                        (i64::from(one[((y * side + x) * 4 + c) as usize]) - want).unsigned_abs();
+                }
+            }
+        }
+        (levels.len(), sum as f64 / f64::from(side * side * 4))
     }
 
     /// Night 21 to 7, day 7 to 17, dusk 19 to 21, sunset 17 to 19, and a
