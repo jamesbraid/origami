@@ -27,6 +27,7 @@ iris = ["dep:origami-iris"]
 [dependencies]
 wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
 origami-core = { path = "../origami-core" }
+origami-credits = { path = "../origami-credits" }
 origami-display = { path = "../origami-display" }
 origami-engine = { path = "../origami-engine" }
 origami-iris = { path = "../origami-iris", optional = true }

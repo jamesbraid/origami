@@ -1363,24 +1363,16 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
     m.hero.append(&flow);
 }
 
-/// The About window: the cube on granite, the version and the photographs'
-/// credits. Without a GPU for the cube it is the stock dialog.
+/// The About window: the cube on granite (an icon where there is no GPU for
+/// it), the version, who made it and two buttons for the credits.
 fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     let version = option_env!("ORIGAMI_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     let dark = adw::StyleManager::default().is_dark();
     let scene = crate::cube::about_scene();
-    let Some(cube) = crate::cube::Cube::new(160, crate::cube::about_style(dark, scene)) else {
-        adw::AboutDialog::builder()
-            .application_name("Origami")
-            .application_icon("computer-symbolic")
-            .developer_name("Origami")
-            .version(version)
-            .comments("SGI workstations and servers on your desktop")
-            .license_type(gtk::License::Bsd3)
-            .build()
-            .present(Some(parent));
-        return;
-    };
+    let about = origami_credits::credits().ok();
+    let copyright = about.as_ref().map_or("", |c| c.copyright.as_str());
+    let url = about.as_ref().map_or("", |c| c.project_url.as_str());
+    let cube = crate::cube::Cube::new(160, crate::cube::about_style(dark, scene)).map(Rc::new);
     let label = |text: &str, css: &[&str]| {
         gtk::Label::builder()
             .label(text)
@@ -1389,11 +1381,6 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
             .justify(gtk::Justification::Center)
             .build()
     };
-    let credits: String = origami_render::scenes::SCENES
-        .iter()
-        .map(|s| format!("{}: {}", s.title, s.credit))
-        .collect::<Vec<_>>()
-        .join("\n");
     let page = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(10)
@@ -1401,10 +1388,18 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         .margin_start(18)
         .margin_end(18)
         .build();
-    page.append(&cube.widget);
+    match &cube {
+        Some(cube) => page.append(&cube.widget),
+        None => page.append(
+            &gtk::Image::builder()
+                .icon_name("computer-symbolic")
+                .pixel_size(96)
+                .margin_top(24)
+                .build(),
+        ),
+    }
     page.append(&label("Origami", &["title-1"]));
     page.append(&label(version, &["dim-label"]));
-    page.append(&label("SGI workstations and servers on your desktop", &[]));
     // Typing h, i, n, v slides the host inventory over the credits; Escape or
     // a click puts them back.
     let stack = gtk::Stack::builder()
@@ -1412,7 +1407,16 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         .hhomogeneous(true)
         .vhomogeneous(true)
         .build();
-    stack.add_named(&label(&credits, &["caption", "dim-label"]), Some("credits"));
+    let who = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(2)
+        .valign(gtk::Align::Start)
+        .build();
+    who.append(&label(copyright, &[]));
+    who.append(&label("BSD 3-Clause licence", &[]));
+    let site = gtk::LinkButton::with_label(url, url.trim_start_matches("https://"));
+    who.append(&site);
+    stack.add_named(&who, Some("credits"));
     let inventory = gtk::Label::builder()
         .wrap(true)
         .wrap_mode(gtk::pango::WrapMode::WordChar)
@@ -1439,55 +1443,52 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     shelf.add_controller(back);
     stack.add_named(&shelf, Some("hinv"));
     page.append(&stack);
-    page.append(&label(
-        "All trademarks are the property of their respective owners.",
-        &["caption", "dim-label"],
-    ));
-    // What the stock dialog's licence row showed: BSD 3-Clause, with its text.
-    let licence = gtk::Expander::builder()
-        .label("Licensed under the BSD 3-Clause License. No warranty.")
-        .child(
-            &gtk::ScrolledWindow::builder()
-                .min_content_height(160)
-                .child(&label(
-                    include_str!("../../../LICENSE"),
-                    &["caption", "monospace"],
-                ))
-                .build(),
-        )
+    let buttons = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::Center)
         .build();
-    page.append(&licence);
+    let acknowledgements = gtk::Button::with_label("Acknowledgements");
+    acknowledgements.connect_clicked(crate::credits::acknowledgements);
+    let licences = gtk::Button::with_label("Licences");
+    licences.connect_clicked(crate::credits::licences);
+    buttons.append(&acknowledgements);
+    buttons.append(&licences);
+    page.append(&buttons);
     // The scene was picked from the clock at open; only the tones follow the appearance.
     let style = adw::StyleManager::default();
-    let cube = Rc::new(cube);
-    let handler = RefCell::new(Some(style.connect_dark_notify({
+    let handler = RefCell::new(cube.as_ref().map(|cube| {
         let cube = cube.clone();
-        move |s| cube.set_style(crate::cube::about_style(s.is_dark(), scene))
-    })));
+        style.connect_dark_notify(move |s| {
+            cube.set_style(crate::cube::about_style(s.is_dark(), scene))
+        })
+    }));
     // Shift-click on the cube and the right arrow step through the scenes.
-    let click = gtk::GestureClick::new();
-    click.connect_pressed({
-        let step = cube.stepper();
-        move |g, _, _, _| {
-            if g.current_event_state()
-                .contains(gtk::gdk::ModifierType::SHIFT_MASK)
-            {
-                step();
-            }
-        }
-    });
-    cube.widget.add_controller(click);
     let keys = gtk::EventControllerKey::new();
-    keys.connect_key_pressed({
-        let step = cube.stepper();
-        move |_, key, _, _| {
-            if key == gtk::gdk::Key::Right {
-                step();
-                return glib::Propagation::Stop;
+    if let Some(cube) = &cube {
+        let click = gtk::GestureClick::new();
+        click.connect_pressed({
+            let step = cube.stepper();
+            move |g, _, _, _| {
+                if g.current_event_state()
+                    .contains(gtk::gdk::ModifierType::SHIFT_MASK)
+                {
+                    step();
+                }
             }
-            glib::Propagation::Proceed
-        }
-    });
+        });
+        cube.widget.add_controller(click);
+        keys.connect_key_pressed({
+            let step = cube.stepper();
+            move |_, key, _, _| {
+                if key == gtk::gdk::Key::Right {
+                    step();
+                    return glib::Propagation::Stop;
+                }
+                glib::Propagation::Proceed
+            }
+        });
+    }
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&adw::HeaderBar::new());
     toolbar.set_content(Some(&page));

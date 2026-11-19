@@ -13,6 +13,7 @@ mod commands;
 mod config;
 mod console;
 mod cpu_panel;
+mod credits;
 mod crisp;
 mod cube;
 mod diagnostics;

@@ -18,10 +18,10 @@ GITHUB_REPO = "jamesbraid/origami"
 # The names docs/app.md and CHANGELOG.md use. Add a picture here and in the page that shows it.
 SETS = {
     "linux": ["linux-library", "linux-engine", "linux-new-machine", "linux-starting", "linux-running", "linux-paused", "linux-cpu-panel",
-              "linux-diagnostics", "linux-console", "linux-settings", "linux-about"],
+              "linux-diagnostics", "linux-console", "linux-settings", "linux-about", "linux-acknowledgements", "linux-licences"],
     "cli": ["cli-machines", "cli-create", "cli-run"],
-    "windows": ["windows-running", "windows-cpu-panel", "windows-diagnostics"],
-    "macos": ["macos-library", "macos-new-machine", "macos-running", "macos-cpu-panel", "macos-diagnostics", "macos-about"],
+    "windows": ["windows-running", "windows-cpu-panel", "windows-diagnostics", "windows-acknowledgements", "windows-licences"],
+    "macos": ["macos-library", "macos-new-machine", "macos-running", "macos-cpu-panel", "macos-diagnostics", "macos-about", "macos-acknowledgements", "macos-licences"],
 }
 def run(*cmd, **kw):
     print("+", " ".join(map(str, cmd)), flush=True)

@@ -173,7 +173,12 @@ machine refuses edits; stop it first.
 
 ![The About window](images/app/linux-about.png)
 
-About shows the version, the credits and the licence.
+About shows the version, who made Origami and the project link. Its
+Acknowledgements button lists what Origami is built on (QEMU with the link to
+the source of the bundled build, iris, Ghostty's terminal library and
+Instigator), the thanks, and each photograph and the artwork with its licence.
+Its Licences button opens the full text of every licence bundled, grouped by
+licence with the components under each, and a search box.
 
 ## The same from the command line
 

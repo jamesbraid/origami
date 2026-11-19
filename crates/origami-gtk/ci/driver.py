@@ -1001,6 +1001,31 @@ def hinv():
         a.stop()
 
 
+def credits():
+    """About's Acknowledgements and Licences sheets open, and Licences' search narrows its list."""
+    if mode != "x11":
+        skip("credits", "needs XTest")
+        return
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("credits acknowledgements")
+        time.sleep(3)
+        text = ocr(shot("credits-acknowledgements")).lower()
+        check("Acknowledgements opens with what Origami is built on", "built on" in text and "qemu" in text, text[-300:])
+        key("Escape")
+        time.sleep(1)
+        a.req("credits licences")
+        time.sleep(3)
+        type_text("ghostty")
+        time.sleep(2)
+        text = ocr(shot("credits-licences")).lower()
+        check("Licences narrows to the searched component", "ghostty" in text and "general public license" not in text, text[-300:])
+    finally:
+        a.stop()
+
+
 def cube():
     """The empty-window cube and About's cube draw, and draw again after the
     renderer's device is dropped (when the tab hides the empty window's cube)
@@ -1059,7 +1084,7 @@ def headless():
 
 # The named set `tools/screenshots linux` collects into docs/images/app/.
 DOCS_SHOTS = ["linux-library", "linux-engine", "linux-new-machine", "linux-starting", "linux-running", "linux-paused", "linux-cpu-panel",
-              "linux-diagnostics", "linux-console", "linux-settings", "linux-about"]
+              "linux-diagnostics", "linux-console", "linux-settings", "linux-about", "linux-acknowledgements", "linux-licences"]
 
 
 def window_ids(title):
@@ -1162,13 +1187,23 @@ def docs():
         a.req("invoke app.about")
         time.sleep(3)
         doc_shot("linux-about")
+        key("Escape")
+        time.sleep(1)
+        a.req("credits acknowledgements")
+        time.sleep(3)
+        doc_shot("linux-acknowledgements")
+        key("Escape")
+        time.sleep(1)
+        a.req("credits licences")
+        time.sleep(3)
+        doc_shot("linux-licences")
         for n in DOCS_SHOTS:
             check("%s.png exists" % n, os.path.exists(os.path.join(out, n + ".png")))
     finally:
         a.stop()
 
 
-SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

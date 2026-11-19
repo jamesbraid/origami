@@ -307,6 +307,17 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             window::run(app, &w, id);
             json!({"ok": true, "command": id})
         }
+        "credits" => {
+            let Some(w) = window::active(app) else {
+                return json!({"error": "no window"});
+            };
+            match a1 {
+                Some("acknowledgements") => crate::credits::acknowledgements(&w.win),
+                Some("licences") => crate::credits::licences(&w.win),
+                _ => return json!({"error": "needs acknowledgements or licences"}),
+            }
+            json!({"ok": true})
+        }
         "cursor" => {
             let Some(m) = machine(app, a1) else {
                 return json!({"error": "no machine"});
