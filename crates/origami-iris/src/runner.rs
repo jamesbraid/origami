@@ -108,11 +108,13 @@ type Published = origami_display_producer::Producer;
 fn publish_display(
     display: &Arc<dyn GfxDisplay>,
     machine: &dyn Workstation,
+    cpu: Arc<dyn CpuDebug>,
     path: &Path,
 ) -> Result<Published> {
     Ok(crate::publish::start(
         display.clone(),
         machine.get_ps2(),
+        cpu,
         path,
     )?)
 }
@@ -200,7 +202,9 @@ impl LocalSession {
         let cpu = machine.get_cpu_debug();
         let display = machine.get_display();
         let published = match (publish, &display) {
-            (Some(path), Some(display)) => Some(publish_display(display, &*machine, path)?),
+            (Some(path), Some(display)) => {
+                Some(publish_display(display, &*machine, cpu.clone(), path)?)
+            }
             (Some(_), None) => return Err("this machine has no display to publish".into()),
             _ => None,
         };

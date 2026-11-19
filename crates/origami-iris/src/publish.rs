@@ -1,7 +1,7 @@
 //! The runner's display: iris's boards present through [`IrisRenderer`] into
 //! the shared display protocol 4 producer.
 
-use crate::display::{Attach, Board, Hands, IrisHost, Presenter};
+use crate::display::{follow_cursor, Attach, Board, Hands, IrisHost, Presenter};
 use crate::keys;
 use iris::compositor::SwCompositor;
 use iris::debug_overlay::DebugOverlay;
@@ -18,10 +18,12 @@ use std::sync::{Arc, OnceLock};
 pub fn start(
     display: Arc<dyn GfxDisplay>,
     ps2: Arc<iris::dev::ps2::Ps2Controller>,
+    cpu: Arc<dyn iris::gdb_stub::CpuDebug>,
     path: &Path,
 ) -> std::io::Result<Producer> {
     let handle = Arc::new(OnceLock::new());
     let board = display.clone();
+    let cursor = display.clone();
     let attach: Attach = Box::new(move |head, presenter| {
         if head != 0 {
             return None;
@@ -38,6 +40,7 @@ pub fn start(
     let producer = Producer::start_at(
         Config {
             name: "iris".into(),
+            steering: true,
             ..Default::default()
         },
         path,
@@ -45,6 +48,14 @@ pub fn start(
         Producer::waker()?,
     )?;
     let _ = handle.set(producer.handle());
+    // Tested on Newport and VPro. Other boards with `hw_cursor` (Gr2, Mgras,
+    // GBE) get steering untested; one without reports no cursor.
+    follow_cursor(
+        producer.handle(),
+        0,
+        move || cpu.is_running(),
+        move || cursor.hw_cursor().map(|c| (c.x, c.y)),
+    );
     // The head has no mode until the PROM sets one; its first present gives it.
     producer.with(|e| {
         e.add_head(HeadSpec {

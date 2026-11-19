@@ -28,6 +28,22 @@ impl Handle {
         self.0.waker.wake();
         r
     }
+
+    /// [`Engine::steer`] without waking the socket thread: viewers read the
+    /// block from shared memory, so nothing is queued for them.
+    pub fn steer(&self, head: u32, kind: u32, x: i32, y: i32) {
+        self.0.engine.lock().unwrap().steer(head, kind, x, y);
+    }
+
+    /// Whether a viewer is steering by the cursor block; does not wake the socket thread.
+    pub fn steered(&self) -> bool {
+        self.0.engine.lock().unwrap().steered()
+    }
+
+    /// Whether the producer has been told to stop.
+    pub fn stopped(&self) -> bool {
+        self.0.stop.load(Ordering::SeqCst)
+    }
 }
 
 pub struct Producer {

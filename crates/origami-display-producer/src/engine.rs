@@ -83,6 +83,8 @@ pub struct Config {
     pub max_queue_bytes: usize,
     pub head_capacity: u32,
     pub test: bool,
+    /// Offer `qemu.pointer-steering`; the host fills it with [`Engine::steer`].
+    pub steering: bool,
     pub allow_uids: Vec<u32>,
     pub test_head: HeadSpec,
 }
@@ -98,6 +100,7 @@ impl Default for Config {
             max_queue_bytes: 4 << 20,
             head_capacity: 16,
             test: false,
+            steering: false,
             allow_uids: vec![],
             test_head: HeadSpec::default(),
         }
@@ -269,6 +272,8 @@ pub(crate) struct Viewer {
     pub heads: Vec<VHead>,
     pub announced: HashSet<u32>,
     pub test_index: Option<u8>,
+    /// The viewer accepted `qemu.pointer-steering`.
+    pub steers: bool,
     pub hold_writes: bool,
     pub max_queued: u32,
     pub dev_lost_used: bool,
@@ -306,6 +311,8 @@ pub struct Engine {
     pub(crate) next_msg: u64,
     pub(crate) state: Shm,
     pub(crate) state_region: u32,
+    /// Where the steering blocks start in the state region.
+    pub(crate) steer_offset: usize,
     pub(crate) heads: Vec<HeadData>,
     pub(crate) viewers: Vec<Viewer>,
     pub(crate) host: Box<dyn Host>,
@@ -340,10 +347,13 @@ pub(crate) fn align_up(v: u64, a: u64) -> u64 {
 impl Engine {
     pub fn new(cfg: Config, host: Box<dyn Host>, waker: Arc<Waker>) -> io::Result<Engine> {
         let cap = cfg.head_capacity.min(wire::FEEDBACK_HEADS as u32);
-        let size = align_up(
-            (wire::state::HEADER + cap as usize * wire::state::HEAD_STRIDE) as u64,
-            65_536,
-        );
+        let steer_offset = wire::state::HEADER + cap as usize * wire::state::HEAD_STRIDE;
+        let steer_bytes = if cfg.steering {
+            cap as usize * wire::STEER_BLOCK_BYTES
+        } else {
+            0
+        };
+        let size = align_up((steer_offset + steer_bytes) as u64, 65_536);
         let state = storage::create(size, false)?;
         let session_id = plat::random_u64();
         let m = &state.map;
@@ -366,6 +376,7 @@ impl Engine {
             next_msg: 1,
             state,
             state_region: 0,
+            steer_offset,
             heads: vec![],
             viewers: vec![],
             host,
@@ -387,6 +398,11 @@ impl Engine {
         let r = self.next_region;
         self.next_region += 1;
         r
+    }
+
+    /// Whether a live viewer follows the guest's cursor through the steering block.
+    pub fn steered(&self) -> bool {
+        self.viewers.iter().any(|v| v.live && v.steers)
     }
 
     pub fn head_count(&self) -> usize {
@@ -615,6 +631,7 @@ impl Engine {
             heads: vec![],
             announced: HashSet::new(),
             test_index: None,
+            steers: false,
             hold_writes: false,
             max_queued: 0,
             dev_lost_used: false,
@@ -794,6 +811,21 @@ impl Engine {
                 });
                 self.viewers[vi].test_index = Some(1);
             }
+        }
+        let steer = hello
+            .offers
+            .iter()
+            .any(|o| o.name == wire::STEERING_EXT && o.version_min <= 1 && 1 <= o.version_max);
+        if self.cfg.steering && steer {
+            self.viewers[vi].steers = true;
+            let mut payload = (self.steer_offset as u32).to_le_bytes().to_vec();
+            payload.extend((wire::STEER_BLOCK_BYTES as u32).to_le_bytes());
+            accepts.push(wire::Accept {
+                name: wire::STEERING_EXT.into(),
+                version: 1,
+                index: accepts.len() as u8 + 1,
+                payload,
+            });
         }
         let orphans = if cfg!(windows) && hello.prev_viewer_id != 0 {
             match self.recover_orphans(vi, &hello) {

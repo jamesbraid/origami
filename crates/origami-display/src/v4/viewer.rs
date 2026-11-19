@@ -105,7 +105,7 @@ impl Viewer {
             features: wire::feat::INPUT | wire::feat::CURSOR_OVERLAY,
             credit: 1,
             offers: vec![wire::Offer {
-                name: STEERING.into(),
+                name: wire::STEERING_EXT.into(),
                 version_min: 1,
                 version_max: 1,
                 payload: vec![],
@@ -329,7 +329,7 @@ impl Viewer {
             .welcome
             .accepts
             .iter()
-            .find(|a| a.name == STEERING)?;
+            .find(|a| a.name == wire::STEERING_EXT)?;
         let block = u32::from_le_bytes(accept.payload.get(..4)?.try_into().ok()?) as usize;
         let view = session.state.clone();
         let sink = handle.clone();
@@ -760,8 +760,6 @@ impl InputSink for ViewerInput {
         self.0.send_input(events)
     }
 }
-
-const STEERING: &str = "qemu.pointer-steering";
 
 /// The changed lines as runs `y0..y1`. Only damaged lines are valid in a slot, so touching runs join and nothing else does.
 fn runs_of(damage: &wire::Damage, height: u32) -> Vec<(u32, u32)> {

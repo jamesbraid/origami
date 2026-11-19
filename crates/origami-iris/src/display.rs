@@ -5,6 +5,7 @@ use origami_display_producer::{Handle, Host, InputEvent, Marks};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 /// Most lines a head can have.
 const MAX_LINES: u32 = 16384;
@@ -86,6 +87,37 @@ impl Presenter {
             None => e.push_complete(self.link.head, ticket.0, None),
         });
     }
+}
+
+/// How often the guest's cursor registers are read for steering. The viewer
+/// steers at about 100 Hz, so a faster read gains nothing.
+const CURSOR_POLL: Duration = Duration::from_millis(10);
+
+/// Publish the glyph corner `read` returns, a board's live hardware cursor
+/// register, for `head` until the producer stops. `None` means no cursor is drawn.
+/// `read` runs only while a viewer steers and `running` says the machine does.
+pub fn follow_cursor(
+    handle: Handle,
+    head: u32,
+    running: impl Fn() -> bool + Send + 'static,
+    mut read: impl FnMut() -> Option<(i32, i32)> + Send + 'static,
+) {
+    let spawned = std::thread::Builder::new()
+        .name("iris-cursor".into())
+        .spawn(move || {
+            while !handle.stopped() {
+                if !handle.steered() || !running() {
+                    std::thread::sleep(CURSOR_POLL);
+                    continue;
+                }
+                // Kind 2: the registers place the glyph, not its hot spot.
+                let (kind, x, y) = read().map_or((0, 0, 0), |(x, y)| (2, x, y));
+                handle.steer(head, kind, x, y);
+                std::thread::sleep(CURSOR_POLL);
+            }
+        });
+    // Without the thread the viewer simply sees no cursor and does not follow.
+    drop(spawned);
 }
 
 /// Makes the board for a head the producer attaches, given its presenter.

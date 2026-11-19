@@ -66,6 +66,9 @@ pub mod feat {
     pub const TEST: u32 = 16;
 }
 
+/// The extension that publishes where the guest drew its cursor.
+pub const STEERING_EXT: &str = "qemu.pointer-steering";
+pub const STEER_BLOCK_BYTES: usize = 32;
 pub const STORAGE_SHM: u32 = 1;
 pub const POINTER_ABSOLUTE: u32 = 1;
 pub const POINTER_RELATIVE: u32 = 2;

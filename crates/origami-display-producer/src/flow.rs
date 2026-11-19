@@ -61,6 +61,26 @@ impl Engine {
         self.heads[h as usize].cursor.seq = seq;
     }
 
+    /// Publish where the guest drew its cursor on `head` in the steering
+    /// block: `kind` 1 is a hot spot, 2 the glyph's corner, 0 no cursor.
+    /// Unchanged values publish nothing, so `seq` counts moves.
+    pub fn steer(&self, head: u32, kind: u32, x: i32, y: i32) {
+        if !self.cfg.steering || head as usize >= self.heads.len() {
+            return;
+        }
+        let b = self.steer_offset + head as usize * wire::STEER_BLOCK_BYTES;
+        let m = &self.state.map;
+        let now = [kind, x as u32, y as u32];
+        if (0..3).all(|i| m.load32(b + 4 + 4 * i, Ordering::Relaxed) == now[i]) {
+            return;
+        }
+        self.seqlock_write(b, |st| {
+            for (i, v) in now.into_iter().enumerate() {
+                st.map.store32(b + 4 + 4 * i, v, Ordering::Relaxed);
+            }
+        });
+    }
+
     pub fn cursor_move(&mut self, h: u32, x: i32, y: i32, visible: bool) {
         let Some(hd) = self.heads.get_mut(h as usize) else {
             return;
