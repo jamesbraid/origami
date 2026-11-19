@@ -144,6 +144,21 @@ func runSelfTest(library: String, out: String) {
             app.rescanNow()
         } catch { check("create-second-machine", false, ["error": "\(error)"]) }
     }
+    #if FAKE
+    // Choosing another library folder takes effect at once, with no restart.
+    if fake {
+        let other = out + "/other-library"
+        try? FileManager.default.createDirectory(atPath: other, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: other + "/prom.bin", contents: Data(count: 16))
+        let before = app.models.map(\.name)
+        app.useLibrary(URL(fileURLWithPath: other))
+        check("library-switch-empties-the-list", waitFor(10) { app.models.isEmpty }, ["was": before])
+        check("library-switch-makes-in-the-new-folder", makeFakeMachine(host, library: other, name: "gamma") == nil, [:])
+        check("library-switch-lists-the-new-folder", waitFor(10) { app.models.map(\.name) == ["gamma"] }, [:])
+        app.useLibrary(libraryURL)
+        check("library-switch-back", waitFor(10) { app.models.map(\.name) == before }, ["now": app.models.map(\.name)])
+    }
+    #endif
     // Settings: read through the core off the main thread, edit while stopped, refused while running. A machine of its
     // own, because editing the file must not change the one the rest of the run starts.
     if fake {

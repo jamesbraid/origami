@@ -243,7 +243,7 @@ struct PreferencesView: View {
             .formStyle(.grouped).tabItem { Label("General", systemImage: "gearshape") }
 
             Form {
-                Picker("New machines", selection: $pointerMode) {
+                Picker("Pointer", selection: $pointerMode) {
                     Text("Follow my mouse").tag(PointerMode.follow.rawValue)
                     Text("Capture on click").tag(PointerMode.capture.rawValue)
                 }
@@ -252,6 +252,7 @@ struct PreferencesView: View {
                 Toggle("Use Option as Meta in the console", isOn: $optionAsMeta)
             }
             .formStyle(.grouped).tabItem { Label("Input", systemImage: "cursorarrow") }
+            .onChange(of: pointerMode) { _ in app.defaultPointerChanged() }
         }
         .frame(width: 480, height: 260)
     }

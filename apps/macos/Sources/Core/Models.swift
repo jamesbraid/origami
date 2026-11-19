@@ -377,7 +377,7 @@ final class MachineModel: ObservableObject, Identifiable {
 final class AppModel: ObservableObject {
     let host: CoreHost?
     let launchError: String?
-    let root: URL
+    @Published private(set) var root: URL
     @Published private(set) var models: [MachineModel] = []
     /// Machines open as tabs, and which one shows.
     @Published private(set) var tabs: [String] = []
@@ -524,8 +524,19 @@ final class AppModel: ObservableObject {
 
     func chooseLibrary(_ url: URL) {
         AppModel.defaults.set(url.path, forKey: "libraryRoot")
-        _ = confirm("Library changed", "Origami uses \(url.path) the next time it opens.", "OK")
+        useLibrary(url)
     }
+
+    /// Switch the library now. Machines running from the old folder keep running in the core.
+    func useLibrary(_ url: URL) {
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        host?.core.setLibraryRoot(libraryRoot: url.path)
+        root = url
+        rescanNow()
+    }
+
+    /// The Input preference changed: every machine follows it at once.
+    func defaultPointerChanged() { for m in models { m.pointerMode = defaultPointer } }
 
     // MARK: tabs
 
