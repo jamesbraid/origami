@@ -21,12 +21,13 @@ impl Krate {
     }
 }
 
-/// The cargo target a platform's package is built for.
+/// The cargo target a platform's package is built for. Both Mac packages
+/// name both Mac targets, comma-separated, so the two list the same crates
+/// and `xtask universal` can join them.
 pub fn triple<'a>(platform: &str, target: Option<&'a str>) -> &'a str {
     target.unwrap_or(match platform {
         "linux-arm64" => "aarch64-unknown-linux-gnu",
-        "macos-arm64" => "aarch64-apple-darwin",
-        "macos-x86_64" => "x86_64-apple-darwin",
+        "macos-arm64" | "macos-x86_64" => "aarch64-apple-darwin,x86_64-apple-darwin",
         "windows-x86_64" => "x86_64-pc-windows-msvc",
         "windows-arm64" => "aarch64-pc-windows-msvc",
         _ => "x86_64-unknown-linux-gnu",
@@ -36,7 +37,10 @@ pub fn triple<'a>(platform: &str, target: Option<&'a str>) -> &'a str {
 fn metadata(manifest: &Path, triple: &str) -> Result<Value> {
     let mut command = Command::new(std::env::var_os("CARGO").unwrap_or("cargo".into()));
     command.args(["metadata", "--format-version", "1", "--locked"]);
-    command.args(["--filter-platform", triple, "--manifest-path"]);
+    for target in triple.split(',') {
+        command.args(["--filter-platform", target]);
+    }
+    command.arg("--manifest-path");
     let out = command.arg(manifest).output()?;
     if !out.status.success() {
         return Err(format!("cargo metadata: {}", String::from_utf8_lossy(&out.stderr)).into());

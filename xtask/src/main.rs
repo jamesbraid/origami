@@ -6,6 +6,7 @@
 //! cargo xtask test    [--qemu-archive FILE]
 //! cargo xtask dist    [--qemu-archive FILE] [--out DIR]
 //! cargo xtask dist --app [--prebuild DIR | --prebuilt DIR] [--target TRIPLE]
+//! cargo xtask universal --arm64 FILE --x86_64 FILE [--out DIR]
 //! cargo xtask bump    qemu|instigator TAG
 //! cargo xtask tokens [--check]
 //! ```
@@ -15,6 +16,7 @@ mod archive;
 mod lock;
 mod notices;
 mod tokens;
+mod universal;
 
 use archive::Result;
 use lock::{Asset, Lock, Pin, PLATFORMS};
@@ -56,6 +58,8 @@ struct Options {
     target: Option<String>,
     prebuild: Option<PathBuf>,
     prebuilt: Option<PathBuf>,
+    arm64: Option<PathBuf>,
+    x86_64: Option<PathBuf>,
     positional: Vec<String>,
 }
 
@@ -76,6 +80,8 @@ fn parse(args: &[String]) -> Result<Options> {
             "--target" => options.target = Some(value("--target")?),
             "--prebuild" => options.prebuild = Some(value("--prebuild")?.into()),
             "--prebuilt" => options.prebuilt = Some(value("--prebuilt")?.into()),
+            "--arm64" => options.arm64 = Some(value("--arm64")?.into()),
+            "--x86_64" => options.x86_64 = Some(value("--x86_64")?.into()),
             flag if flag.starts_with("--") => return Err(format!("unknown option {flag}").into()),
             _ => options.positional.push(arg.clone()),
         }
@@ -499,6 +505,18 @@ fn main() {
                 );
                 Ok(())
             }
+            "universal" => match (&options.arm64, &options.x86_64) {
+                (Some(arm64), Some(x86_64)) => {
+                    let out = options
+                        .out
+                        .clone()
+                        .unwrap_or_else(|| target_dir().join("dist"));
+                    universal::run_universal(arm64, x86_64, &out)
+                }
+                _ => Err(
+                    "usage: cargo xtask universal --arm64 FILE --x86_64 FILE [--out DIR]".into(),
+                ),
+            },
             "test" => test(&options),
             "dist" => dist(&options),
             "bump" => match options.positional.as_slice() {
