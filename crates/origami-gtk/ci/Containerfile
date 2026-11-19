@@ -8,5 +8,5 @@ COPY packages.txt /tmp/packages.txt
 RUN apt-get update && apt-get install -y --no-install-recommends $(grep -v '^#' /tmp/packages.txt) \
  && rm -rf /var/lib/apt/lists/*
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
-RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --component clippy --default-toolchain stable \
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --component clippy,rustfmt --default-toolchain stable \
  && chmod -R a+rX /opt/rustup /opt/cargo
