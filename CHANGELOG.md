@@ -23,7 +23,6 @@ runs the Indy, Indigo2 and Octane2 next to QEMU.
     lines of history, and Backspace that matches the guest.
   - iris (experimental): runs in its own process, so a crash stops only
     that machine. User networking only, no sound yet.
-  - Experimental O2 machine in QEMU.
   - CPU load panel, measured on the host.
   - Sound through the host's audio.
   - QEMU reads CHD disk images, so one disk works on both engines.
