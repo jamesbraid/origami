@@ -137,7 +137,12 @@ func runDocsShots(library: String, out: String) {
     laidOverPicture(main, model, "macos-cpu-panel")
     app.showsCpu = false
     capture(window("Diagnostics", DiagnosticsView(), 640, 400), "macos-diagnostics")
-    capture(window("About Origami", AboutView(), 360, 0, fit: true), "macos-about", settle: 4)
+    let about = window("About Origami", AboutView(), 360, 0, fit: true)
+    capture(about, "macos-about", settle: 4, hide: false)
+    // The window capture cannot see the Metal layer on a runner, so the cube's own readback is kept beside it.
+    func cubes(_ v: NSView) -> [CubeNSView] { (v as? CubeNSView).map { [$0] } ?? v.subviews.flatMap(cubes) }
+    if let c = about.contentView.flatMap(cubes)?.first, let f = c.readback() { writePNG(f, to: "\(out)/macos-about-readback.png") }
+    about.orderOut(nil)
     capture(window("Acknowledgements", AcknowledgementsView(), 480, 560), "macos-acknowledgements")
     capture(window("Licences", LicencesView(), 520, 600), "macos-licences")
 

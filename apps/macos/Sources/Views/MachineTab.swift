@@ -210,9 +210,9 @@ struct StartingCard: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
         ZStack {
-            GraniteBackground()
+            LinearGradient(colors: [Color(rgb: Granite.neutral.0), Color(rgb: Granite.neutral.1)], startPoint: .top, endPoint: .bottom)
             VStack(spacing: 18) {
-                // 96 pt of cube: it fills 90% of its view, and composites over the card's granite.
+                // 96 pt of cube: it fills 90% of its view, and sits on the card's gradient.
                 CubeHost(look: .starting(chassis: model.record.product.colour))
                     .frame(width: 108, height: 108)
                     .accessibilityHidden(true)

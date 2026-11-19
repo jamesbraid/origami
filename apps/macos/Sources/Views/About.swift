@@ -1,4 +1,4 @@
-// The About window: the cube on its granite band, who made it and two buttons
+// The About window: the cube on a band the scene colours, who made it and two buttons
 // for the Acknowledgements and Licences sheets (Credits.swift).
 
 import OrigamiFrame
@@ -35,10 +35,7 @@ struct AboutView: View {
         return app.models.first { $0.state == .running && $0.view?.isPresenting == true }
     }
 
-    @Environment(\.colorScheme) private var scheme
     static let bandHeight: CGFloat = 240
-    /// The cube's view is a square 60% of the band tall; the cube fills 90% of it, so about 23% of the band is clear above and below.
-    static let cubeSide: CGFloat = bandHeight * 0.6
     @State private var hinv: String?
     @State private var egg = EggBuffer()
     @State private var keys: Any?
@@ -54,15 +51,10 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // The band: granite across the width, the cube in its middle with a fifth of the band's height
-            // clear above and below it (the cube fills 90% of its own view).
-            ZStack {
-                GraniteBackground(tones: scheme == .dark ? Granite.neutral : Granite.light)
-                CubeHost(look: .about, machine: Self.reflectsRunningMachine ? running : nil, made: { [cube] in cube.view = $0 })
-                    .frame(width: Self.cubeSide, height: Self.cubeSide)
-                    .accessibilityLabel("The SGI cube")
-            }
-            .frame(width: 360, height: Self.bandHeight)
+            // The band: the cube draws its own gradient and floor shadow across the whole view.
+            CubeHost(look: .about, machine: Self.reflectsRunningMachine ? running : nil, made: { [cube] in cube.view = $0 })
+                .frame(width: 360, height: Self.bandHeight)
+                .accessibilityLabel("The SGI cube")
             ZStack {
                 if let hinv {
                     ScrollView {

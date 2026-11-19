@@ -361,6 +361,7 @@ func runSelfTest(library: String, out: String) {
             return seen.count
         }
         let studio = cube.readback()
+        if let studio { writePNG(studio, to: "\(out)/starting-readback.png") }
         // With Reduce Motion on, as it is on some CI machines, the cube draws its still pose.
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         check("cube-starting-draws", cube.cube != nil && studio != nil && colours(studio) > 8 && first.moving == !reduceMotion,
@@ -391,6 +392,43 @@ func runSelfTest(library: String, out: String) {
         var seen = [firstScene]
         for _ in 0..<Int(origami_cube_scene_count()) { cube.stepScene(); seen.append(cube.currentScene) }
         check("about-scene-steps-and-comes-back-round", firstScene >= 0 && seen[1] != firstScene && Set(seen).count > 1 && seen.last == firstScene, ["scenes": seen])
+        // About's backdrop is a smooth gradient from the scene, not a tile: a strip down the left edge steps through many
+        // levels where a two-tone tile has two, and the top is not the bottom.
+        cube.configure(look: .about, dark: true, machine: nil)
+        _ = cube.present()
+        if let f = cube.readback() {
+            var seen = Set<UInt32>()
+            for y in 0..<f.height { let o = y * f.width * 4; seen.insert(UInt32(f.bgra[o]) | UInt32(f.bgra[o + 1]) << 8 | UInt32(f.bgra[o + 2]) << 16) }
+            let top = Array(f.bgra[0..<4]), bottom = Array(f.bgra[((f.height - 1) * f.width * 4)..<((f.height - 1) * f.width * 4 + 4)])
+            check("about-background-is-a-gradient-not-granite", seen.count >= 8 && top != bottom,
+                  ["levels_down_the_edge": seen.count, "top_bgra": top, "bottom_bgra": bottom])
+            writePNG(f, to: "\(out)/about-readback-dark.png")
+        } else { check("about-background-is-a-gradient-not-granite", false, ["error": "no readback"]) }
+        cube.configure(look: .about, dark: false, machine: nil)
+        _ = cube.present()
+        if let f = cube.readback() { writePNG(f, to: "\(out)/about-readback-light.png") }
+        cube.configure(look: .about, dark: true, machine: nil)
+        _ = cube.present()
+        // A drag turns the cube; once released it comes to rest at the logo pose, the same pixels as before.
+        // The last scene step's crossfade has to be over first, or the two frames differ by it.
+        _ = waitFor(5) { !cube.present().moving }
+        let rest = cube.readback()
+        let (vw, vh) = (cube.bounds.width, cube.bounds.height)
+        cube.pointerForTest(UInt32(ORIGAMI_CUBE_POINTER_PRESS), vw * 0.3, vh * 0.5, ms: 0)
+        cube.pointerForTest(UInt32(ORIGAMI_CUBE_POINTER_MOVE), vw * 0.6, vh * 0.55, ms: 16)
+        let turned = cube.readback()
+        cube.pointerForTest(UInt32(ORIGAMI_CUBE_POINTER_RELEASE), vw * 0.6, vh * 0.55, ms: 500)
+        let returned = waitFor(10) { !cube.present().moving }
+        let back = cube.readback()
+        check("about-cube-turns-when-dragged-and-returns-to-rest",
+              rest != nil && turned != nil && turned?.bgra != rest?.bgra && returned && back?.bgra == rest?.bgra,
+              ["turned": turned?.bgra != rest?.bgra, "returned_to_rest": returned, "same_pixels_as_before": back?.bgra == rest?.bgra,
+               "reduce_motion": NSWorkspace.shared.accessibilityDisplayShouldReduceMotion])
+        // Edges: the silhouette has partial-coverage pixels from 4x multisampling or better, and a render at the view's size
+        // is close to the same render at 4x filtered down.
+        let edges = edgeQuality(side: 160, scene: origami_cube_scene_for_time(12, 0))
+        check("cube-edges-are-antialiased", (edges?.levels ?? 0) >= 3 && (edges?.error ?? 99) < 4.5,
+              ["partial_coverage_levels": edges?.levels ?? -1, "mean_error_vs_4x_supersampling_of_255": edges?.error ?? -1])
         let count = origami_cube_scene_count()
         let credits = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_CREDIT)) }
         let titles = (0..<count).map { sceneText($0, Int32(ORIGAMI_CUBE_SCENE_TITLE)) }

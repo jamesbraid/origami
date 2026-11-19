@@ -1,5 +1,5 @@
 // The SGI cube, drawn by the core into a CAMetalLayer we host. It draws on request
-// only: the display link runs while the cube moves and stops at rest. No pointer input.
+// only: the display link runs while the cube moves and stops at rest. About's cube turns when dragged.
 
 import AppKit
 import OrigamiFrame
@@ -73,7 +73,10 @@ final class CubeNSView: NSView {
     /// A layer-backed view copies this onto its layer, so the layer is non-opaque only if the view says so.
     override var isOpaque: Bool { false }
     override var acceptsFirstResponder: Bool { false }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Only About's cube takes the pointer; the others let clicks through.
+    override func hitTest(_ point: NSPoint) -> NSView? { look == .about ? super.hitTest(point) : nil }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     private var pixelSize: (w: UInt32, h: UInt32) {
         let s = metalLayer.contentsScale
@@ -114,12 +117,12 @@ final class CubeNSView: NSView {
         s.reduce_motion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0
         s.horizon_rgb = UInt32.max
         // The cube composites over its host. Metal gives the layer no premultiplied alpha, so the core
-        // fills the view with `surround_rgb`, the host's own colour. Only About draws the granite tile.
+        // fills the view with `surround_rgb`, the host's own colour. Only About draws a backdrop.
         s.backdrop = UInt32(ORIGAMI_CUBE_BACKDROP_NONE)
         s.surround_rgb = Self.windowColour(dark: dark)
         switch look {
         case .starting(let chassis):
-            s.surround_rgb = Granite.neutral.1   // the start card's granite, flat
+            s.surround_rgb = Granite.mid   // the middle of the start card's gradient, flat
             s.env = UInt32(ORIGAMI_CUBE_ENV_STUDIO)
             s.horizon_rgb = chassis
             s.spin = 1
@@ -128,9 +131,11 @@ final class CubeNSView: NSView {
             s.light_look = dark ? 0 : 1
             s.spin = 1   // slowly turning; the view takes no pointer input
         case .about:
-            // The band's granite is drawn behind the view, so the cube can sit in it with room around it;
-            // the flat tone is the fallback where the layer is not transparent.
-            s.surround_rgb = (dark ? Granite.neutral : Granite.light).1
+            // The view is the band: the core draws a gradient from the scene, the cube a little over half its height
+            // with a floor shadow under it. A drag turns it, and it coasts and eases back to the logo pose.
+            s.backdrop = UInt32(ORIGAMI_CUBE_BACKDROP_BAND)
+            s.settle = 1
+            s.fill_percent = 60
             s.light_look = dark ? 0 : 1
             if reflected != nil {
                 s.env = UInt32(ORIGAMI_CUBE_ENV_MACHINE)
@@ -243,7 +248,28 @@ final class CubeNSView: NSView {
         present()
     }
 
-    // No pointer interaction: the cube turns on its own at start and is otherwise at rest.
+    // MARK: pointer (About only)
+
+    private func send(_ phase: UInt32, _ event: NSEvent) {
+        guard let cube else { return }
+        let p = convert(event.locationInWindow, from: nil)
+        let st = origami_cube_pointer(cube, phase, Float(p.x), Float(p.y), UInt64(event.timestamp * 1000))
+        if st != 0 { lastError = "cube pointer: \(st)" }
+        present()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        send(UInt32(event.clickCount == 2 ? ORIGAMI_CUBE_POINTER_DOUBLE_CLICK : ORIGAMI_CUBE_POINTER_PRESS), event)
+    }
+    override func mouseDragged(with event: NSEvent) { send(UInt32(ORIGAMI_CUBE_POINTER_MOVE), event) }
+    override func mouseUp(with event: NSEvent) { send(UInt32(ORIGAMI_CUBE_POINTER_RELEASE), event) }
+
+    /// Self-test: the same events a drag would send, at times `ms` (any steady clock).
+    func pointerForTest(_ phase: UInt32, _ x: CGFloat, _ y: CGFloat, ms: UInt64) {
+        guard let cube else { return }
+        origami_cube_pointer(cube, phase, Float(x), Float(y), ms)
+        present()
+    }
 
     // MARK: for self-tests
 

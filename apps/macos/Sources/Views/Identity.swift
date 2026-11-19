@@ -60,8 +60,12 @@ struct ChassisGlyph: View {
 /// The IRIX granite tile (two colours, 256 px) recoloured to two tones and
 /// pixel-doubled for a Retina display, never smoothed.
 enum Granite {
-    /// Tones as 0xRRGGBB. Neutral dark behind the screen, light for About's light band.
+    /// Tones as 0xRRGGBB: neutral dark behind the screen. The start card uses them as a gradient, `mid` under its cube.
     static let neutral = (Tokens.Colour.graniteNeutral[0], Tokens.Colour.graniteNeutral[1])
+    static let mid: UInt32 = {
+        func half(_ shift: UInt32) -> UInt32 { (((neutral.0 >> shift) & 255) + ((neutral.1 >> shift) & 255)) / 2 }
+        return half(16) << 16 | half(8) << 8 | half(0)
+    }()
 
     /// The tile's pixels: true where it is the lighter of its two colours.
     private static let mask: (side: Int, bits: [Bool])? = {
