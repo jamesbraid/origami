@@ -12,7 +12,7 @@ use origami_machine::model;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 #[derive(Clone, Debug)]
@@ -115,6 +115,8 @@ fn preset_of(machines: &origami_machine::Machines, offering: &origami_machine::O
 
 pub(crate) struct CoreInner {
     config: Config,
+    /// The live library root; `config.root` is only where it started.
+    root: RwLock<PathBuf>,
     engines: Vec<Arc<dyn Engine>>,
     catalogues: Mutex<Vec<Option<Arc<Catalogue>>>>,
     dispatcher: Dispatcher,
@@ -161,6 +163,7 @@ impl Core {
         let slot = dispatcher.slot(None);
         Ok(Core {
             inner: Arc::new(CoreInner {
+                root: RwLock::new(config.root.clone()),
                 config,
                 catalogues: Mutex::new(vec![None; engines.len()]),
                 engines,
@@ -180,8 +183,15 @@ impl Core {
         self.inner.dispatcher.shutdown();
     }
 
-    pub fn root(&self) -> &Path {
-        &self.inner.config.root
+    pub fn root(&self) -> PathBuf {
+        self.inner.root()
+    }
+
+    /// Point the library at another folder and tell the observer it changed.
+    /// Open and running machines are untouched: they keep their own paths.
+    pub fn set_root(&self, root: impl Into<PathBuf>) {
+        *self.inner.root.write().unwrap() = root.into();
+        self.inner.slot.raise(&[EventKind::Library]);
     }
 
     pub fn engines(&self) -> Vec<EngineSummary> {
@@ -246,8 +256,7 @@ impl Core {
     /// The machines under the library root, by name. A machine whose file
     /// cannot be read is listed with a `problem`.
     pub fn list_machines(&self) -> CoreResult<Vec<MachineSummary>> {
-        let root = &self.inner.config.root;
-        let entries = match std::fs::read_dir(root) {
+        let entries = match std::fs::read_dir(self.inner.root()) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
             Err(error) => return Err(error.into()),
@@ -331,10 +340,11 @@ impl Core {
             .with_detail("name"));
         }
         let slot = self.inner.slot.clone();
+        // Read now: a switch made while this waits must not move the machine.
+        let dir = inner.root().join(&request.name);
         Ok(self
             .inner
             .operation("Create machine", None, true, slot, move |control| {
-                let dir = inner.config.root.join(&request.name);
                 let (index, offering) =
                     inner.find_offering(&request.offering, request.engine.as_deref())?;
                 let engine = inner.engines[index].clone();
@@ -370,7 +380,7 @@ impl Core {
         let path = if given.is_absolute() || given.exists() {
             given.to_path_buf()
         } else {
-            self.inner.config.root.join(given)
+            self.inner.root().join(given)
         };
         let path = path.canonicalize().map_err(|_| {
             CoreError::new(ErrorKind::NotFound, format!("there is no machine {key}"))
@@ -452,6 +462,10 @@ fn entry_name(path: &Path) -> String {
 }
 
 impl CoreInner {
+    fn root(&self) -> PathBuf {
+        self.root.read().unwrap().clone()
+    }
+
     fn catalogue(&self, index: usize) -> CoreResult<Arc<Catalogue>> {
         let mut cache = self.catalogues.lock().unwrap();
         if let Some(found) = &cache[index] {

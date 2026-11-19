@@ -646,6 +646,12 @@ impl OrigamiCore {
         self.core.root().to_string_lossy().into_owned()
     }
 
+    /// Switch the library to another folder. Raises a library event; running
+    /// machines keep their own paths.
+    pub fn set_library_root(&self, library_root: String) {
+        self.core.set_root(library_root);
+    }
+
     pub fn engines(&self) -> Vec<OrigamiEngineInfo> {
         self.core
             .engines()
@@ -712,7 +718,11 @@ impl OrigamiCore {
             .ok()
             .map(|l| l.into_iter().map(|m| (m.name, m.product)).collect());
         let gpu = crate::engines::gpu_name();
-        origami_core::hinv::format(&origami_core::hinv::gather(self.core.root(), machines, gpu))
+        origami_core::hinv::format(&origami_core::hinv::gather(
+            &self.core.root(),
+            machines,
+            gpu,
+        ))
     }
 
     /// Long. The finished operation's `result_machine` is the new key.

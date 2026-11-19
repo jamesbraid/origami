@@ -965,3 +965,36 @@ fn offerings_and_machines_say_what_they_are_called_and_whether_they_have_a_displ
     .unwrap();
     assert_eq!(summary(&f).topology_name.as_deref(), Some("Origin 200"));
 }
+
+#[test]
+fn changing_the_root_relists_at_once_and_keeps_a_running_machine() {
+    let recorder = Arc::new(Recorder::default());
+    let f = fixture_with(Some(recorder.clone()), 1 << 20);
+    let (machine, _session) = f.started("old");
+    let other = tempfile::tempdir().unwrap();
+    f.core.set_root(other.path());
+    assert!(recorder.wait_for(|e| e.machine.is_none() && e.kinds.contains(&EventKind::Library)));
+    assert_eq!(f.core.root(), other.path());
+    assert!(f.core.list_machines().unwrap().is_empty());
+    assert_eq!(machine.view().state, MachineState::Running);
+    let prom = other.path().join("prom.bin");
+    std::fs::write(&prom, [0u8; 16]).unwrap();
+    let op = f
+        .core
+        .create_machine(CreateRequest {
+            name: "new".into(),
+            offering: "fake.1".into(),
+            boot_prom: Some(prom),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(op.wait(Some(WAIT)), OperationState::Succeeded);
+    let names: Vec<_> = f
+        .core
+        .list_machines()
+        .unwrap()
+        .into_iter()
+        .map(|m| m.name)
+        .collect();
+    assert_eq!(names, ["new"]);
+}

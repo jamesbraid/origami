@@ -91,3 +91,25 @@ fn a_running_machine_refuses_an_edit_with_busy() {
         .unwrap_err();
     assert!(matches!(error, CoreError::Busy { .. }), "{error}");
 }
+
+#[test]
+fn another_library_root_lists_at_once_and_the_old_one_comes_back() {
+    let lab = Lab::new(None);
+    let other = tempfile::tempdir().unwrap();
+    let names = |lab: &Lab| -> Vec<String> {
+        lab.core
+            .list_machines()
+            .unwrap()
+            .into_iter()
+            .map(|m| m.name)
+            .collect()
+    };
+    assert_eq!(names(&lab), ["m"]);
+    lab.core
+        .set_library_root(other.path().to_str().unwrap().into());
+    assert_eq!(lab.core.library_root(), other.path().to_str().unwrap());
+    assert!(names(&lab).is_empty());
+    lab.core
+        .set_library_root(lab.root.path().to_str().unwrap().into());
+    assert_eq!(names(&lab), ["m"]);
+}
