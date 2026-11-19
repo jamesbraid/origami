@@ -208,7 +208,7 @@ fn describe(m: &MachineUi) -> Value {
         "imported": m.stats.borrow().imported, "inputs": m.inputs.get(),
         "visible": m.root.is_mapped(), "captured": m.captured.get(), "motion_total": [m.motion_total.get().0, m.motion_total.get().1], "pointer_locked": m.lock.borrow().is_some(),
         "pointer": format!("{:?}", m.pointer.get()).to_lowercase(),
-        "cpu_panel": json!({"visible": m.cpu.root.is_visible(), "rows": m.cpu.shown(), "note": m.cpu.note(), "title": crate::cpu_panel::TITLE}),
+        "cpu_panel": json!({"visible": m.cpu.root.is_visible(), "rows": m.cpu.shown(), "legend": m.cpu.legend(), "note": m.cpu.note(), "title": crate::cpu_panel::TITLE}),
         "pointer_at": [m.pointer_at.get().0, m.pointer_at.get().1],
         "view": format!("{:?}", m.view.get()).to_lowercase(),
         "scale_factor": m.scale_factor(),

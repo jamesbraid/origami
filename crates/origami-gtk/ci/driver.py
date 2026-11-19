@@ -648,8 +648,9 @@ def first_light(quick=False):
             got = a.wait("CPU rows", lambda: (a.machine("octane2")["cpu_panel"]["rows"] or None), 20, 0.5)
             panel = a.machine("octane2")["cpu_panel"]
             check("the CPU button shows one bar per CPU", panel["visible"] and got and [r[0] for r in got] == [0], panel)
-            check("each bar's user and system time are percentages", all(0 <= r[1] <= 100 and 0 <= r[2] <= 100 and r[1] + r[2] <= 100.01 for r in got or []), panel)
-            check("the panel is titled as measured on the host", panel["title"] == "Emulated CPU load (measured on the host)")
+            check("each bar's user, system and spare time are percentages that fill it", all(min(r[1:]) >= 0 and abs(sum(r[1:]) - 100) < 0.1 for r in got or []), panel)
+            check("the legend names user, sys and spare", panel["legend"] == ["user", "sys", "spare"], panel)
+            check("the panel is titled as measured on the host", panel["title"] == "Emulated CPU load, measured on the host, not the guest")
             shot("cpu-panel")
             click()
             time.sleep(0.5)

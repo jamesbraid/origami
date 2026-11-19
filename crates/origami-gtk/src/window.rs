@@ -527,7 +527,7 @@ pub fn sync_cpu_panel(app: &Rc<App>, w: &Rc<Win>) {
         if m.cpu.root.is_visible() != show {
             m.cpu.root.set_visible(show);
             if show {
-                m.cpu.show(&m.machine.cpu_load());
+                m.cpu.show(m.machine.osview());
                 let (m2, btn) = (m.clone(), w.cpu_btn.clone());
                 crate::cpu_panel::poll(move || btn.is_active() && m2.cpu.root.is_visible(), m);
             }
