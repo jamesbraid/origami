@@ -13,6 +13,9 @@ public interface IFrames : IDisposable
 public interface ICoreClient : IDisposable
 {
     IReadOnlyList<MachineSummary> Machines();
+    string LibraryRoot { get; }
+    /// <summary>Lists another folder now. Running machines keep running from their own folders.</summary>
+    void SetLibraryRoot(string root);
     MachineStatus Status(string key);
 
     /// <summary>What can be created. The first call may start an engine's program: call it off the UI thread.</summary>

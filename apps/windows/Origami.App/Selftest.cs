@@ -568,6 +568,17 @@ public static class Selftest
         if (e1 != null) await Shot.Readback(e1, ew, eh, ew * 4, Path.Combine(dir, "empty-cube.png"));
         w.SelectForTest(key);
         Check("empty: the cube is detached once a machine is chosen", await Until(() => !cubeEmpty.Attached, 3000));
+
+        // --- saving another library folder re-lists at once, with no restart ---
+        var home = core.LibraryRoot;
+        var before = core.Machines().Count;
+        var elsewhere = Path.Combine(dir, "elsewhere-library");
+        w.ApplySettings(new AppSettings { LibraryRoot = elsewhere });
+        Check("library folder: the list switches to the new, empty folder", await Until(() => w.LibraryCount == 0 && core.LibraryRoot == elsewhere, 5000), $"count {w.LibraryCount}");
+        await core.CreateMachineAsync("Other folder", core.Catalogue()[0].Id);
+        Check("library folder: a machine made there is listed", await Until(() => w.LibraryCount == 1, 5000), $"count {w.LibraryCount}");
+        w.ApplySettings(new AppSettings { LibraryRoot = home });
+        Check("library folder: the old folder's machines are back", await Until(() => w.LibraryCount == before, 5000), $"count {w.LibraryCount}, want {before}");
     }
 }
 #endif

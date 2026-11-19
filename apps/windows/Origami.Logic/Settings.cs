@@ -12,6 +12,9 @@ public sealed class AppSettings
     public Dictionary<string, PointerMode> PointerModeByMachine { get; set; } = new();
     public bool ConfirmQuitWithRunningMachines { get; set; } = true;
 
+    public static string DefaultLibraryRoot() =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Origami", "Machines");
+
     public PointerMode ModeFor(string key) =>
         PointerModeByMachine.TryGetValue(key, out var m) ? m : DefaultPointerMode;
 }

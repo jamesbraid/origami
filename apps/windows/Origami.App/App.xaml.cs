@@ -57,8 +57,7 @@ public partial class App : Application
         var store = new SettingsStore(ArgValue("--settings") ?? SettingsStore.DefaultPath());
         var settings = store.Load();
         var root = ArgValue("--library")
-            ?? (settings.LibraryRoot is { Length: > 0 } r ? r
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Origami", "Machines"));
+            ?? (settings.LibraryRoot is { Length: > 0 } r ? r : AppSettings.DefaultLibraryRoot());
         var core = new UniffiCoreClient(root);
 #if ORIGAMI_FAKE
         // A build with only the fake engine has no machines of its own.

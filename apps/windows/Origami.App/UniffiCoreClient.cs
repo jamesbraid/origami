@@ -49,7 +49,7 @@ public sealed class UniffiCoreClient : ICoreClient
     readonly SemaphoreSlim _wake = new(0, 1); // one pending wake is enough: the pass reads everything
     readonly ManualResetEventSlim _first = new(false);
     readonly CancellationTokenSource _stop = new();
-    int _tick;
+    int _tick, _relist;
 
     public UniffiCoreClient(string libraryRoot)
     {
@@ -66,7 +66,7 @@ public sealed class UniffiCoreClient : ICoreClient
         while (!_stop.IsCancellationRequested)
         {
             try { await _wake.WaitAsync(TimeSpan.FromMilliseconds(750), _stop.Token); } catch (OperationCanceledException) { return; }
-            try { ReadCore(++_tick % 4 == 0); } catch (Exception e) { App.Log("core read failed: " + e.Message); }
+            try { ReadCore(++_tick % 4 == 0 | Interlocked.Exchange(ref _relist, 0) == 1); } catch (Exception e) { App.Log("core read failed: " + e.Message); }
         }
     }
 
@@ -83,6 +83,15 @@ public sealed class UniffiCoreClient : ICoreClient
         var before = _snap.List.Select(m => m.Key).ToList();
         _snap = new Snapshot(list, views);
         if (!before.SequenceEqual(list.Select(m => m.Key))) Events?.Invoke(new MachineEvent("", MachineEventKind.LibraryChanged));
+    }
+
+    public string LibraryRoot => _core.LibraryRoot();
+
+    public void SetLibraryRoot(string root)
+    {
+        Directory.CreateDirectory(root);
+        _relist = 1; // the core's library event wakes the loop, which then lists the new folder
+        _core.SetLibraryRoot(root);
     }
 
     /// <summary>Ask the loop to read the core now; a core event calls it. A create reads at once itself.</summary>

@@ -71,7 +71,7 @@ public sealed partial class MainWindow : Window
         PointerButton.Click += (_, _) => Invoke("machine.pointer-mode");
         ShowShot.Click += (_, _) => ShowInExplorer();
 
-        Settings.Saved += s => { _settings = s; _store.Save(s); _modeKey = null; Refresh(); };
+        Settings.Saved += s => { _store.Save(s); ApplySettings(s); };
         Settings.Closed += () => { _prefsOpen = false; Refresh(); };
 
         // Core callbacks arrive on the core's thread; hop to the UI thread.
@@ -103,6 +103,17 @@ public sealed partial class MainWindow : Window
     }
 
     DispatcherQueueTimer? _recheck;
+
+    /// <summary>Takes a saved setting into effect at once: pointer mode and quit prompt are read from it; a new library folder is listed now.</summary>
+    public void ApplySettings(AppSettings s)
+    {
+        var want = s.LibraryRoot is { Length: > 0 } r ? r : AppSettings.DefaultLibraryRoot();
+        var newRoot = want != _core.LibraryRoot ? want : null;
+        _settings = s; _modeKey = null;
+        if (newRoot is not null)
+            _ = Task.Run(() => { try { _core.SetLibraryRoot(newRoot); } catch (Exception e) { App.Log("library folder: " + e.Message); } });
+        Refresh();
+    }
 
     // ---- accessors for the automation (self-test) hooks ------------------------------------
 
