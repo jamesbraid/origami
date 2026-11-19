@@ -33,9 +33,10 @@ it. Extract it, keep the extracted files together, and start `bin/origami-gtk`
 The first time a machine needs
 firmware, the app downloads and checks it, as `origami create` does.
 
-A macOS build that is not signed, such as one from a fork or a development
-build, is blocked by Gatekeeper. Run `xattr -dr com.apple.quarantine Origami.app`
-once after extracting. Signed releases need no such step.
+Builds that are not signed, such as one from a fork or a development build,
+are blocked by macOS Gatekeeper and flagged by Windows SmartScreen. On macOS,
+run `xattr -dr com.apple.quarantine Origami.app` once after extracting. On
+Windows, choose More info, then Run anyway. Signed releases need neither.
 
 The library is a folder of machine directories. The app starts with:
 

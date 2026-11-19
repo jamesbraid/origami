@@ -309,17 +309,19 @@ guest media are not included.
 
 ### Code signing
 
-`v*` tag builds sign and notarize the macOS archives when signing is
-configured. The `macos-universal` job runs in the `release` environment, which
-holds the signing secrets and allows only `v*` tags. Other runs (manual runs on
+`v*` tag builds sign the macOS and Windows archives. Their jobs run in the
+`release` environment, which holds the signing secrets and variables and allows
+only `v*` tags. Other runs (manual runs on
 a branch, forks, the nightly checks) never enter it, build unsigned and say so
 in a notice. A tag build fails if signing is only partly configured or any
-signing step fails, and so does a tag build with nothing configured, which
-would publish unsigned macOS archives.
+signing step fails. A tag build with nothing configured fails on macOS, which
+would publish unsigned archives, and skips Windows signing with a notice.
 The scripts are in `build/sign/`. They unpack an archive, sign it and pack it
 again before `SHA256SUMS` is computed at publish. macOS is signed once, in the
 `macos-universal` job after `cargo xtask universal` joins the two builds, so the
-thin per-architecture packages stay ad hoc signed.
+thin per-architecture packages stay ad hoc signed. Windows is signed after the
+build, by the four-leg `sign-windows` job in `release.yml`, which re-uploads each
+Windows artifact; only that job requests `id-token: write`.
 
 Environment secrets: `MACOS_CERT_P12_BASE64` (Developer ID Application
 certificate and key), `MACOS_CERT_PASSWORD`, `APPLE_TEAM_ID`, `ASC_KEY_ID`,
@@ -332,6 +334,16 @@ off by default in a release build, so the `MAP_JIT` path is the one taken; a
 `allow-unsigned-executable-memory`). The app is notarized and stapled; the
 command-line archive is notarized but cannot be stapled. After signing, the job
 starts the signed `qemu-system-mips64` once (`build/sign/macos-smoke.sh`).
+
+Windows signing uses Azure Artifact Signing over OIDC, with no stored secret.
+Environment variables `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_SUBSCRIPTION_ID`,
+`AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT` and `AZURE_SIGNING_PROFILE`.
+The Entra app's federated credential subject must be the one GitHub presents,
+which for this repository carries immutable IDs:
+`repo:jamesbraid@251628/origami@1396565476:environment:release`. A login that
+fails with AADSTS700213 prints the subject it saw. The app needs the Artifact
+Signing Certificate Profile Signer role. Only PE files with no signature yet
+are signed, which leaves Microsoft's own DLLs alone.
 
 ## App screenshots
 

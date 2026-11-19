@@ -16,8 +16,90 @@ jobs:
     # The signing jobs read the release environment's secrets, which a called workflow only sees when inherited.
     secrets: inherit
 
-  publish:
+  # Signs the four Windows zips after the build, so id-token: write is granted to this job alone.
+  sign-windows:
     needs: build
+    if: github.server_url == 'https://github.com'
+    name: sign ${{ matrix.artifact }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: [origami-windows-x86_64, origami-windows-arm64, origami-app-windows-x86_64, origami-app-windows-arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+      - name: Signing plan
+        id: sign-win
+        uses: ./.github/actions/signing-plan
+        with:
+          platform: windows
+          required: |
+            AZURE_TENANT_ID=${{ vars.AZURE_TENANT_ID != '' }}
+            AZURE_CLIENT_ID=${{ vars.AZURE_CLIENT_ID != '' }}
+            AZURE_SUBSCRIPTION_ID=${{ vars.AZURE_SUBSCRIPTION_ID != '' }}
+            AZURE_SIGNING_ENDPOINT=${{ vars.AZURE_SIGNING_ENDPOINT != '' }}
+            AZURE_SIGNING_ACCOUNT=${{ vars.AZURE_SIGNING_ACCOUNT != '' }}
+            AZURE_SIGNING_PROFILE=${{ vars.AZURE_SIGNING_PROFILE != '' }}
+      - name: Unpack the archive for signing
+        id: files
+        if: steps.sign-win.outputs.sign == 'true'
+        shell: pwsh
+        run: build/sign/windows-list.ps1 -Archive (Get-Item dist/origami-*.zip).FullName -Work "$env:RUNNER_TEMP\sign"
+      - name: Azure login
+        if: steps.sign-win.outputs.sign == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign with Artifact Signing
+        if: steps.sign-win.outputs.sign == 'true'
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_SIGNING_PROFILE }}
+          files: ${{ steps.files.outputs.files }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+      - name: Check the signatures and re-pack the archive
+        if: steps.sign-win.outputs.sign == 'true'
+        shell: pwsh
+        env:
+          SIGNED_FILES: ${{ steps.files.outputs.files }}
+        run: build/sign/windows-pack.ps1 -Archive (Get-Item dist/origami-*.zip).FullName -Work "${{ steps.files.outputs.root }}" -Files $env:SIGNED_FILES
+      - uses: actions/upload-artifact@v4
+        if: steps.sign-win.outputs.sign == 'true'
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/origami-*
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: [build, sign-windows]
     if: github.server_url == 'https://github.com'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
