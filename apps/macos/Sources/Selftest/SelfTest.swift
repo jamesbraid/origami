@@ -501,6 +501,83 @@ func runSelfTest(library: String, out: String) {
         check("about-cube-detaches-when-its-view-goes", waitFor(10) { CubeNSView.attachedCount == 0 }, ["attached": CubeNSView.attachedCount])
     }
 
+    // About as the app builds it, read back from Metal: the scene reaches the chrome and the cube is chrome.
+    do {
+        typealias Frame = (width: Int, height: Int, bgra: [UInt8])
+        /// The cube's pixels: those in its centred square (60% of the band's height) that differ from the band's colour on the
+        /// same row, read from a column left of the square. Returns their share of the square, mean colour and 5-to-95% luminance spread.
+        func chrome(_ f: Frame) -> (covered: Double, mean: [Double], spread: Double) {
+            let side = f.height * 6 / 10, x0 = (f.width - side) / 2, y0 = (f.height - side) / 2
+            var n = 0.0, sum = [0.0, 0.0, 0.0], lum: [Double] = []
+            for y in y0..<(y0 + side) {
+                let ref = (y * f.width + max(x0 - 4, 0)) * 4
+                for x in x0..<(x0 + side) {
+                    let i = (y * f.width + x) * 4
+                    guard (0..<3).contains(where: { abs(Int(f.bgra[i + $0]) - Int(f.bgra[ref + $0])) > 12 }) else { continue }
+                    n += 1
+                    let b = Double(f.bgra[i]), g = Double(f.bgra[i + 1]), r = Double(f.bgra[i + 2])
+                    sum[0] += r; sum[1] += g; sum[2] += b
+                    lum.append(0.2126 * r + 0.7152 * g + 0.0722 * b)
+                }
+            }
+            lum.sort()
+            let spread = lum.isEmpty ? 0 : lum[lum.count * 95 / 100] - lum[lum.count * 5 / 100]
+            return (n / Double(max(1, side * side)), sum.map { $0 / max(n, 1) }, spread)
+        }
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 460), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: AboutView().environmentObject(app).frame(width: 360))
+        w.contentView = host
+        func find(_ v: NSView) -> CubeNSView? { (v as? CubeNSView) ?? v.subviews.lazy.compactMap(find).first }
+        _ = waitFor(10) { find(host) != nil }
+        var stats: [(id: String, c: (covered: Double, mean: [Double], spread: Double))] = []
+        var rest = false, stepped = false
+        if let v = find(host) {
+            v.countsOffscreen = true
+            host.layoutSubtreeIfNeeded()
+            _ = waitFor(5) { v.cube != nil }
+            for step in 0..<Int(origami_cube_scene_count()) {
+                _ = v.present(); spin(0.3)
+                let id = v.currentScene >= 0 ? sceneText(UInt32(v.currentScene), Int32(ORIGAMI_CUBE_SCENE_ID)) : "none"
+                guard let f = v.readback() else { continue }
+                writePNG(f, to: "\(out)/about-\(step)-\(id).png")
+                stats.append((id, chrome(f)))
+                // About rests (the design has no spin): a second frame is the same picture.
+                if step == 0 { _ = v.present(); spin(0.2); rest = v.readback()?.bgra == f.bgra }
+                v.stepScene(); spin(0.4)
+                if step == 0 { _ = v.present(); stepped = v.readback()?.bgra != f.bgra }
+                spin(1.0)
+            }
+        }
+        w.contentView = NSView()
+        // The photographs are embedded in the core, so a bundle needs no file for them; each reaches the chrome as its own colours.
+        let means = Set(stats.map { $0.c.mean.map { Int($0 / 4) } })
+        check("about-scenes-reach-the-chrome", stats.count == Int(origami_cube_scene_count()) && means.count >= stats.count - 2,
+              ["scenes": stats.map { $0.id }, "distinct_means": means.count])
+        // Chrome: the cube covers a good part of its view, spans dark to bright and is neither black nor white.
+        let bad = stats.filter { $0.c.covered < 0.3 || $0.c.covered > 0.55 || $0.c.spread < 60 || $0.c.mean.contains { $0 < 30 || $0 > 220 } }
+        check("about-cube-pixels-are-chrome", !stats.isEmpty && bad.isEmpty, ["outside_range": bad.map { $0.id }, "measured": stats.map { "\($0.id) covered=\(String(format: "%.3f", $0.c.covered)) spread=\(String(format: "%.1f", $0.c.spread)) mean=\($0.c.mean.map { Int($0) })" }])
+        check("about-rests-and-the-fade-moves", rest && stepped, ["rest": rest, "stepped": stepped])
+    }
+
+    // The start screen's cube turns unless Reduce Motion is on, and then it stays at its still pose.
+    do {
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 108, height: 108), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        let cube = CubeNSView(frame: NSRect(x: 0, y: 0, width: 108, height: 108))
+        w.contentView = cube
+        cube.countsOffscreen = true
+        cube.configure(look: .starting(chassis: 0x2e354e), dark: true, machine: nil)
+        _ = cube.present(); spin(1.5)
+        let a = cube.readback()
+        _ = cube.present(); spin(0.5); _ = cube.present()
+        let b = cube.readback()
+        let reduce = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        check("start-cube-moves-between-frames-unless-reduce-motion", a != nil && b != nil && (a?.bgra != b?.bgra) == !reduce,
+              ["reduce_motion": reduce, "moved": a?.bgra != b?.bgra])
+        cube.detach()
+    }
+
     // New Machine: default model, name rules, an error that keeps the sheet, and open on success.
     do {
         let nm = NewMachineModel(app: app)
