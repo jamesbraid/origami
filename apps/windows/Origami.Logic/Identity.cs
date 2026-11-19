@@ -46,7 +46,7 @@ public static class PaneTint
 /// <summary>The two granite tones the app draws on, light and dark window themes.</summary>
 public static class Granite
 {
-    public const uint DarkLight = 0x282A30, DarkDark = 0x1F2126, LightLight = 0xE2E4E8, LightDark = 0xD6D8DD;
+    public const uint DarkLight = 0x282A30, DarkDark = 0x1F2126;
 
     /// <summary>Recolours a two-tone BGRA tile to <paramref name="hi"/> and <paramref name="lo"/> and repeats it over
     /// <paramref name="w"/> by <paramref name="h"/> pixels, each tile pixel <paramref name="factor"/> wide, never smoothed.</summary>

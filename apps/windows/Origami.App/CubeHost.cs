@@ -5,11 +5,11 @@ using Origami.Logic;
 
 namespace Origami.App;
 
-/// <summary>The tube cube: a child window the core draws into, placed over this element. It takes no pointer input,
-/// and a timer draws only while the cube moves.</summary>
+/// <summary>The tube cube: a child window the core draws into, placed over this element. A drag turns it (see <c>SetStyle</c>'s
+/// <c>interactive</c>), and a timer draws only while the cube moves.</summary>
 public sealed class CubeHost : Grid
 {
-    const uint WM_ERASEBKGND = 0x14, WM_LBUTTONDOWN = 0x201;
+    const uint WM_ERASEBKGND = 0x14, WM_LBUTTONDOWN = 0x201, WM_LBUTTONUP = 0x202, WM_LBUTTONDBLCLK = 0x203, WM_MOUSEMOVE = 0x200, WM_CAPTURECHANGED = 0x215;
     const long MK_SHIFT = 0x4;
     const string ClassName = "OrigamiCube";
     static Win32.WndProc? s_proc;
@@ -20,7 +20,8 @@ public sealed class CubeHost : Grid
     bool _visible = true;
     (int, int, int, int, double) _last;
     Frame.CubeStyle _style;
-    (uint, uint, uint?, bool, bool, bool, uint?)? _styleKey;
+    (uint, uint, uint?, bool, bool, bool, uint?, bool)? _styleKey;
+    bool _dragging;
 
     static readonly Dictionary<IntPtr, CubeHost> s_hosts = new();
 
@@ -41,22 +42,21 @@ public sealed class CubeHost : Grid
         Unloaded += (_, _) => Close();
     }
 
-    /// <summary>How the cube looks; a repeat of the current style is ignored. Draws one frame, and more while it moves.
-    /// With <paramref name="surround"/> (0xRRGGBB) the cube has no granite and the child window is filled with that colour,
-    /// which a child window cannot do as alpha.</summary>
-    public void SetStyle(uint env, uint scene, uint? horizon, bool dark, bool spin, bool reduceMotion, uint? surround = null)
+    /// <summary>How the cube looks; a repeat is ignored. With <paramref name="surround"/> (0xRRGGBB) there is no backdrop and the window
+    /// is filled with it; without, the view is the band. <paramref name="interactive"/> lets a drag turn the cube and settle.</summary>
+    public void SetStyle(uint env, uint scene, uint? horizon, bool dark, bool spin, bool reduceMotion, uint? surround = null, bool interactive = false)
     {
-        var key = (env, scene, horizon, dark, spin, reduceMotion, surround);
+        var key = (env, scene, horizon, dark, spin, reduceMotion, surround, interactive);
         if (_styleKey == key) return;
         _styleKey = key;
         _style = new Frame.CubeStyle
         {
             Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Frame.CubeStyle>(),
             Env = env, Scene = scene, HorizonRgb = horizon ?? Frame.CubeNoColour,
-            GraniteLightRgb = dark ? Granite.DarkLight : Granite.LightLight,
-            GraniteDarkRgb = dark ? Granite.DarkDark : Granite.LightDark,
+            GraniteLightRgb = Granite.DarkLight, GraniteDarkRgb = Granite.DarkDark,
             LightLook = dark ? 0u : 1u, Spin = spin ? 1u : 0u, ReduceMotion = reduceMotion ? 1u : 0u,
-            Backdrop = surround is null ? Frame.CubeBackdropGranite : Frame.CubeBackdropNone, SurroundRgb = surround ?? 0,
+            Backdrop = surround is null ? Frame.CubeBackdropBand : Frame.CubeBackdropNone, SurroundRgb = surround ?? 0,
+            Settle = interactive ? 1u : 0u, FillPercent = interactive ? 60u : 0u,
         };
         if (_cube != IntPtr.Zero) { Frame.origami_cube_set_style(_cube, ref _style); Pump(); }
     }
@@ -73,7 +73,38 @@ public sealed class CubeHost : Grid
     public int CurrentScene => _cube == IntPtr.Zero ? -1 : Frame.origami_cube_current_scene(_cube);
 
     /// <summary>Self-test hook: a left click on the cube's window, with or without Shift.</summary>
-    public void ClickForTest(bool shift) { if (_hwnd != IntPtr.Zero) Win32.SendMessageW(_hwnd, WM_LBUTTONDOWN, new IntPtr(shift ? MK_SHIFT : 0), IntPtr.Zero); }
+    public void ClickForTest(bool shift)
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        Win32.SendMessageW(_hwnd, WM_LBUTTONDOWN, new IntPtr(shift ? MK_SHIFT : 0), IntPtr.Zero);
+        if (!shift) Win32.SendMessageW(_hwnd, WM_LBUTTONUP, IntPtr.Zero, IntPtr.Zero);
+    }
+
+    /// <summary>Self-test hook: the events a drag sends, in view points at times <paramref name="ms"/>.</summary>
+    public void PointerForTest(uint phase, double x, double y, ulong ms)
+    {
+        if (_cube == IntPtr.Zero) return;
+        Frame.origami_cube_pointer(_cube, phase, (float)x, (float)y, ms);
+        Pump();
+    }
+
+    void OnMouse(uint msg, IntPtr l)
+    {
+        if (!_interactive || _cube == IntPtr.Zero) return;
+        var scale = _last.Item5 > 0 ? _last.Item5 : 1;
+        var x = (short)(l.ToInt64() & 0xFFFF) / scale;
+        var y = (short)((l.ToInt64() >> 16) & 0xFFFF) / scale;
+        var ms = (ulong)(uint)Win32.GetMessageTime();
+        switch (msg)
+        {
+            case WM_LBUTTONDOWN: _dragging = true; Win32.SetCapture(_hwnd); PointerForTest(Frame.CubePointerPress, x, y, ms); break;
+            case WM_MOUSEMOVE when _dragging: PointerForTest(Frame.CubePointerMove, x, y, ms); break;
+            case WM_LBUTTONUP when _dragging: _dragging = false; Win32.ReleaseCapture(); PointerForTest(Frame.CubePointerRelease, x, y, ms); break;
+            case WM_LBUTTONDBLCLK: PointerForTest(Frame.CubePointerDoubleClick, x, y, ms); break;
+        }
+    }
+
+    bool _interactive => _styleKey is { Item8: true };
 
     public void SetMachine(IntPtr machine)
     {
@@ -156,6 +187,7 @@ public sealed class CubeHost : Grid
             var wc = new Win32.WNDCLASSEX
             {
                 cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Win32.WNDCLASSEX>(),
+                style = 0x8, // CS_DBLCLKS
                 lpfnWndProc = s_proc,
                 hInstance = Win32.GetModuleHandleW(null),
                 hCursor = Win32.LoadCursorW(IntPtr.Zero, new IntPtr(32512)),
@@ -198,7 +230,11 @@ public sealed class CubeHost : Grid
     static IntPtr Proc(IntPtr hwnd, uint msg, IntPtr w, IntPtr l)
     {
         if (msg == WM_ERASEBKGND) return new IntPtr(1);
-        if (msg == WM_LBUTTONDOWN && (w.ToInt64() & MK_SHIFT) != 0 && s_hosts.TryGetValue(hwnd, out var host)) host.ShiftClicked?.Invoke();
+        if (s_hosts.TryGetValue(hwnd, out var host))
+        {
+            if (msg == WM_LBUTTONDOWN && (w.ToInt64() & MK_SHIFT) != 0) host.ShiftClicked?.Invoke();
+            else if (msg is WM_LBUTTONDOWN or WM_LBUTTONUP or WM_LBUTTONDBLCLK or WM_MOUSEMOVE) host.OnMouse(msg, l);
+        }
         return Win32.DefWindowProcW(hwnd, msg, w, l);
     }
 }

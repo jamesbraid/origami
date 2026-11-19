@@ -109,7 +109,7 @@
                     <TextBlock x:Name="EmptyHint" Opacity="0.7" HorizontalAlignment="Center"/>
                 </StackPanel>
 
-                <!-- Starting: the live cube on granite, then the screen. -->
+                <!-- Starting: the live cube on the window background, then the screen. -->
                 <Grid x:Name="StartingPanel" Visibility="Collapsed">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="*"/>

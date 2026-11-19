@@ -147,7 +147,7 @@ public sealed class AboutWindow : Window
             try
             {
                 _frames = _core.OpenFrames(runningKey);
-                Cube.SetStyle(Frame.CubeEnvMachine, 0, null, _dark, false, reduce);
+                Cube.SetStyle(Frame.CubeEnvMachine, 0, null, _dark, false, reduce, interactive: true);
                 Cube.SetMachine(_frames.MachineHandle);
                 return;
             }
@@ -155,6 +155,6 @@ public sealed class AboutWindow : Window
         }
         // The scene is the one for the local time, read once when About opens.
         var now = DateTime.Now;
-        Cube.SetStyle(Frame.CubeEnvScene, Frame.origami_cube_scene_for_time((uint)now.Hour, (uint)now.Minute), null, _dark, false, reduce);
+        Cube.SetStyle(Frame.CubeEnvScene, Frame.origami_cube_scene_for_time((uint)now.Hour, (uint)now.Minute), null, _dark, false, reduce, interactive: true);
     }
 }

@@ -520,7 +520,7 @@ public static class Selftest
         await Task.Delay(800);
         var s1 = cubeStart.Readback(out var sw1, out var sh1);
         var turns = s1 != null && await IdentityChecks.Turns(cubeStart, s1);
-        Check("starting: the cube draws on granite and turns by itself", s1 != null && turns && IdentityChecks.Colours(s1) > 50, s1 == null ? cubeStart.LastError ?? "no readback" : $"{sw1}x{sh1}, {IdentityChecks.Colours(s1)} colours, moving={cubeStart.Moving}");
+        Check("starting: the cube draws and turns by itself", s1 != null && turns && IdentityChecks.Colours(s1) > 50, s1 == null ? cubeStart.LastError ?? "no readback" : $"{sw1}x{sh1}, {IdentityChecks.Colours(s1)} colours, moving={cubeStart.Moving}");
         if (s1 != null) await Shot.Readback(s1, sw1, sh1, sw1 * 4, Path.Combine(dir, "starting-cube.png"));
         w.Restore();
         Check("starting: the cube is detached once the pane is gone", await Until(() => !cubeStart.Attached, 3000));

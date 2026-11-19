@@ -106,6 +106,8 @@ jobs:
           cp apps/windows/selftest-out/window.png set/windows-running.png
           cp apps/windows/selftest-out/windows-cpu-panel.png apps/windows/selftest-out/windows-diagnostics.png set/
           cp apps/windows/selftest-out/windows-acknowledgements.png apps/windows/selftest-out/windows-licences.png set/
+          # The cube's own readback, which a window capture of the Direct3D child window may miss.
+          cp apps/windows/selftest-out/about-cube.png set/windows-about-cube.png
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots-windows

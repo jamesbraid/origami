@@ -80,15 +80,18 @@ public static unsafe class Frame
     [DllImport(Dll)] public static extern int origami_view_set_visible(IntPtr view, uint visible);
     [DllImport(Dll)] public static extern int origami_view_readback(IntPtr view, byte* buf, nuint cap, out uint w, out uint h, out uint stride);
     public const uint CubeEnvStudio = 0, CubeEnvScene = 1, CubeEnvMachine = 2;
-    public const uint CubeNoColour = 0xFFFFFFFF, CubeBackdropNone = 0, CubeBackdropGranite = 1;
+    public const uint CubeNoColour = 0xFFFFFFFF, CubeBackdropNone = 0, CubeBackdropBand = 1;
+    public const uint CubePointerPress = 0, CubePointerMove = 1, CubePointerRelease = 2, CubePointerDoubleClick = 3;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct CubeStyle
     {
-        public uint Size, Env, Scene, HorizonRgb, GraniteLightRgb, GraniteDarkRgb, LightLook, Spin, ReduceMotion, Backdrop, SurroundRgb;
+        public uint Size, Env, Scene, HorizonRgb, GraniteLightRgb, GraniteDarkRgb, LightLook, Spin, ReduceMotion, Backdrop, SurroundRgb, Settle, FillPercent;
     }
 
     [DllImport(Dll)] public static extern int origami_cube_attach(ref Surface s, uint w, uint h, double scale, out IntPtr cube);
+    [DllImport(Dll)] public static extern int origami_cube_attach_offscreen(uint w, uint h, double scale, out IntPtr cube);
+    [DllImport(Dll)] public static extern int origami_cube_pointer(IntPtr cube, uint phase, float x, float y, ulong timeMs);
     [DllImport(Dll)] public static extern int origami_cube_resize(IntPtr cube, uint w, uint h, double scale);
     [DllImport(Dll)] public static extern int origami_cube_set_visible(IntPtr cube, uint visible);
     [DllImport(Dll)] public static extern int origami_cube_set_style(IntPtr cube, ref CubeStyle style);
@@ -131,6 +134,7 @@ public static class Win32
     [DllImport("user32")] public static extern bool GetClientRect(IntPtr hwnd, out RECT r);
     [DllImport("user32")] public static extern IntPtr SetFocus(IntPtr hwnd);
     [DllImport("user32")] public static extern IntPtr SetCapture(IntPtr hwnd);
+    [DllImport("user32")] public static extern int GetMessageTime();
     [DllImport("user32")] public static extern bool ReleaseCapture();
     [DllImport("user32")] public static extern IntPtr GetFocus();
     [DllImport("user32")] public static extern bool IsWindowVisible(IntPtr hwnd);
