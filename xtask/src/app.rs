@@ -48,6 +48,12 @@ fn append_notices(stage: &Path, section: &str) -> Result<()> {
     Ok(())
 }
 
+/// Has the credits crate read `notices`, which lists the crates this app links,
+/// in the builds that follow, so its Licences view matches the package.
+fn show_in_app(notices: &Path) {
+    std::env::set_var("ORIGAMI_NOTICES", notices);
+}
+
 /// The notices section for the crates `roots` link beyond the command-line tool's.
 fn app_notices(title: &str, roots: &[&str], triple: &str, manifest: &Path) -> Result<String> {
     let cli = notices::crates(&root().join("Cargo.toml"), &["origami"], triple)?;
@@ -89,6 +95,17 @@ fn pack_app(product: &Product, stage: &Path) -> Result<()> {
 
 fn linux(product: &Product) -> Result<()> {
     require("crates/origami-gtk", "the GTK app")?;
+    let triple = notices::triple(product.platform, None);
+    let manifest = root().join("Cargo.toml");
+    append_notices(
+        product.stage,
+        &app_notices("Rust crates (app)", &["origami-gtk"], triple, &manifest)?,
+    )?;
+    show_in_app(
+        &product
+            .stage
+            .join("share/origami/licenses/THIRD_PARTY_NOTICES"),
+    );
     let mut build = cargo(&[
         "build",
         "--release",
@@ -127,12 +144,6 @@ fn linux(product: &Product) -> Result<()> {
         &root().join("resources/linux/icons/hicolor"),
         &product.stage.join("share/icons/hicolor"),
     )?;
-    let triple = notices::triple(product.platform, None);
-    let manifest = root().join("Cargo.toml");
-    append_notices(
-        product.stage,
-        &app_notices("Rust crates (app)", &["origami-gtk"], triple, &manifest)?,
-    )?;
     pack_app(product, product.stage)
 }
 
@@ -144,6 +155,11 @@ fn macos(product: &Product) -> Result<()> {
         product.stage,
         &app_notices("Rust crates (app)", &["origami-ffi"], triple, &manifest)?,
     )?;
+    show_in_app(
+        &product
+            .stage
+            .join("share/origami/licenses/THIRD_PARTY_NOTICES"),
+    );
     // The runner hosts iris machines, which the command-line package's does not.
     run(cargo(&[
         "build",
@@ -315,6 +331,27 @@ fn dotnet_notices(project: &Path, publish: &Path, to: &Path) -> Result<String> {
 /// Builds the Windows app's Rust parts into `out`: tools, DLLs, C# bindings,
 /// `xtask.exe` and `THIRD_PARTY_NOTICES`.
 fn windows_prebuild(out: &Path, target: Option<&str>) -> Result<()> {
+    let triple_name = notices::triple("windows-x86_64", target);
+    let native = root().join("apps/windows/native");
+    let base = fs::read_to_string(root().join("THIRD_PARTY_NOTICES"))?;
+    let mut text = notices::cli(&base, triple_name)?;
+    text.push_str(&app_notices(
+        "Rust crates (app)",
+        &["origami-ffi"],
+        triple_name,
+        &root().join("Cargo.toml"),
+    )?);
+    text.push_str(&app_notices(
+        "Rust crates (presenter)",
+        &["origami_present"],
+        triple_name,
+        &native.join("Cargo.toml"),
+    )?);
+    // The Licences view reads this file at build time, so it exists before the builds.
+    let notices_file = target_dir().join("dist/windows-notices.txt");
+    fs::create_dir_all(notices_file.parent().unwrap())?;
+    fs::write(&notices_file, &text)?;
+    show_in_app(&notices_file);
     let triple: Vec<&str> = target.into_iter().flat_map(|t| ["--target", t]).collect();
     let release = match target {
         Some(t) => target_dir().join(t).join("release"),
@@ -335,7 +372,6 @@ fn windows_prebuild(out: &Path, target: Option<&str>) -> Result<()> {
     build.extend(&triple);
     build.extend(["-p", "xtask"]);
     run(cargo(&build))?;
-    let native = root().join("apps/windows/native");
     let mut presenter = Command::new(std::env::var_os("CARGO").unwrap_or("cargo".into()));
     presenter
         .args(["build", "--release", "--locked"])
@@ -380,23 +416,6 @@ fn windows_prebuild(out: &Path, target: Option<&str>) -> Result<()> {
         .arg(out.join("Generated"))
         .current_dir(root().join("crates/origami-ffi"));
     run(bindgen)?;
-    let triple = notices::triple("windows-x86_64", target);
-    let base = fs::read_to_string(root().join("THIRD_PARTY_NOTICES"))?;
-    let mut text = notices::cli(&base, triple)?;
-    let manifest = root().join("Cargo.toml");
-    text.push_str(&app_notices(
-        "Rust crates (app)",
-        &["origami-ffi"],
-        triple,
-        &manifest,
-    )?);
-    let presenter = native.join("Cargo.toml");
-    text.push_str(&app_notices(
-        "Rust crates (presenter)",
-        &["origami_present"],
-        triple,
-        &presenter,
-    )?);
-    fs::write(out.join("THIRD_PARTY_NOTICES"), text)?;
+    fs::copy(&notices_file, out.join("THIRD_PARTY_NOTICES"))?;
     Ok(())
 }

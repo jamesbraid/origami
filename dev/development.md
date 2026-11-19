@@ -259,6 +259,15 @@ from `runtime.lock`) under `share/origami/licenses/`. The notices file is
 maintained by hand: update it when a Rust crate or Go module is added or
 changes license.
 
+The apps' Acknowledgements and Licences sheets come from one document,
+`origami_credits_json`, built by `crates/origami-credits` from
+`resources/credits/credits.toml` (the people and projects), `scenes.json`,
+`runtime.lock` and the notices. An app build reads the notices that
+`cargo xtask dist --app` generates for that package (`ORIGAMI_NOTICES`), so the
+Licences sheet lists the crates the package links; a plain `cargo build` reads
+the repository's file. A new bundled component needs a group in
+`THIRD_PARTY_NOTICES`, or an entry in `credits.toml` if it has no group there.
+
 QEMU statically links a patched libslirp. Its pinned source and patch are in
 the QEMU repository's `subprojects/` at the release tag named in
 `runtime.lock`.
