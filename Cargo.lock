@@ -4831,6 +4831,7 @@ version = "0.0.0"
 dependencies = [
  "libc",
  "origami-core",
+ "origami-credits",
  "origami-display",
  "origami-engine",
  "origami-iris",
@@ -4840,6 +4841,7 @@ dependencies = [
  "origami-render",
  "origami-terminal",
  "png",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.21",
  "uniffi",

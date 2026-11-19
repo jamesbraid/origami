@@ -610,6 +610,12 @@ pub fn origami_frame_plane_version() -> u32 {
     crate::frame::ABI_VERSION
 }
 
+/// The About credits as one JSON document (see `origami-credits`).
+#[uniffi::export]
+pub fn origami_credits_json() -> String {
+    origami_credits::credits_json()
+}
+
 /// The core. Make one per process.
 #[derive(uniffi::Object)]
 pub struct OrigamiCore {
