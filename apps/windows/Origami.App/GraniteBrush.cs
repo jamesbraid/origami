@@ -11,18 +11,20 @@ namespace Origami.App;
 /// <summary>The granite tile, recoloured to two tones and repeated, each tile pixel doubled at 2x and never smoothed.</summary>
 public static class GraniteBrush
 {
-    static (byte[] Bgra, int W, int H)? s_tile;
+    static Task<(byte[] Bgra, int W, int H)?>? s_tile;
 
-    static async Task<(byte[] Bgra, int W, int H)?> Tile()
+    // Off the UI thread: StorageFile makes a COM call that pumps messages, and XAML re-entered mid-layout fails fast (0xC000027B).
+    static Task<(byte[] Bgra, int W, int H)?> Tile() => s_tile ??= Task.Run(LoadTile);
+
+    static async Task<(byte[] Bgra, int W, int H)?> LoadTile()
     {
-        if (s_tile != null) return s_tile;
         var path = Path.Combine(AppContext.BaseDirectory, "identity", "granite-tile.png");
         if (!File.Exists(path)) return null;
         var file = await StorageFile.GetFileFromPathAsync(path);
         using var stream = await file.OpenReadAsync();
         var dec = await BitmapDecoder.CreateAsync(stream);
         var px = await dec.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore, new BitmapTransform(), ExifOrientationMode.IgnoreExifOrientation, ColorManagementMode.DoNotColorManage);
-        return s_tile = (px.DetachPixelData(), (int)dec.PixelWidth, (int)dec.PixelHeight);
+        return (px.DetachPixelData(), (int)dec.PixelWidth, (int)dec.PixelHeight);
     }
 
     /// <summary>A brush covering at least <paramref name="w"/> by <paramref name="h"/> device pixels, drawn one device pixel per
