@@ -1019,7 +1019,8 @@ func runSelfTest(library: String, out: String) {
     do {
         var done: Error?? = .none
         model.pause { e in done = .some(e) }
-        check("pause", waitFor(30) { done != nil } && model.state == .paused && app.isEnabled(.resume) && !app.isEnabled(.pause),
+        // `done` fires before the background refresh applies the new state, so wait on the state too.
+        check("pause", waitFor(30) { done != nil && model.state == .paused } && app.isEnabled(.resume) && !app.isEnabled(.pause),
               ["state": model.state.pill])
         // Save Screenshot writes a PNG named for the machine and time into the folder, with no panel,
         // and says where.
@@ -1033,7 +1034,7 @@ func runSelfTest(library: String, out: String) {
         } else { check("screenshot-is-a-png-of-the-head", false, ["notice": app.notice?.text ?? "none"]) }
         done = .none
         model.resume { e in done = .some(e) }
-        check("resume", waitFor(30) { done != nil } && model.state == .running, ["state": model.state.pill])
+        check("resume", waitFor(30) { done != nil && model.state == .running }, ["state": model.state.pill])
     }
 
     // 8. Power: Reset, Power Off (Saving), Start again, and the left-running path.
