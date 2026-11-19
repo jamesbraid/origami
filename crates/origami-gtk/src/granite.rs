@@ -24,14 +24,6 @@ pub fn neutral() -> Tones {
     GRANITE_NEUTRAL.map(tone)
 }
 
-/// The chassis hue at low chroma over neutral grey: the start screen.
-pub fn tinted(chassis: u32) -> Tones {
-    let c = tone(chassis);
-    let grey = [0.13, 0.14, 0.16];
-    let at = |k: f32| std::array::from_fn(|i| (0.22 * c[i] + 0.78 * grey[i]) * k);
-    [at(1.0), at(0.8)]
-}
-
 /// The tile's mask: true where the bitmap has its first colour.
 fn mask() -> Option<(Vec<bool>, i32, i32)> {
     let t = gdk::Texture::from_bytes(&glib::Bytes::from_static(TILE)).ok()?;

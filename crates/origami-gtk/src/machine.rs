@@ -225,7 +225,7 @@ impl MachineUi {
             .vexpand(true)
             .css_classes(["plate"])
             .build();
-        let surround = crate::granite::Granite::new(crate::granite::tinted(entry.colour()));
+        let surround = gtk::Box::builder().css_classes(["start-surround"]).build();
         surround.append(&starting);
         let spinner: gtk::Widget = gtk::Spinner::builder()
             .spinning(true)
@@ -455,7 +455,7 @@ impl MachineUi {
         match (starting, cube.is_some()) {
             (true, false) => {
                 let style = crate::cube::starting_style(self.entry.borrow().colour());
-                if let Some(c) = crate::cube::Cube::new(108, style) {
+                if let Some(c) = crate::cube::Cube::new(108, 108, style) {
                     self.spinner.set_visible(false);
                     self.starting.prepend(&c.widget);
                     *cube = Some(c);

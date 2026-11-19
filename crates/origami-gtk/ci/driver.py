@@ -989,6 +989,22 @@ def about():
         after = shot("about-1")
         r = sh("compare", "-metric", "AE", before, after, os.path.join(out, "about-diff.png"))
         check("the right arrow changes the cube's scene", int(float((r.stderr or "0").split()[0])) > 1000, r.stderr)
+
+        def differs(one, two, name):
+            return int(float((sh("compare", "-metric", "AE", one, two, os.path.join(out, name)).stderr or "0").split()[0]))
+
+        # A drag turns the cube; released, it coasts and comes back to the pose it had.
+        sh("xdotool", "mousemove", "700", "232", "mousedown", "1")
+        for x in range(710, 800, 15):
+            sh("xdotool", "mousemove", str(x), "240")
+            time.sleep(0.05)
+        dragged = shot("about-drag")
+        sh("xdotool", "mouseup", "1")
+        time.sleep(5)
+        settled = shot("about-settled")
+        moved, back = differs(after, dragged, "about-drag-diff.png"), differs(after, settled, "about-settled-diff.png")
+        check("dragging the cube turns it", moved > 500, f"{moved} pixels differ")
+        check("and it comes back to rest at the pose", back < 100, f"{back} pixels differ")
     finally:
         a.stop()
 
@@ -1078,7 +1094,7 @@ def cube():
         check("and again after its device was dropped and made anew", spread(shot("cube-empty-2"), empty) > 0.03)
         a.req("invoke app.about")
         time.sleep(3)
-        check("About's cube draws on the recreated device", spread(shot("cube-about"), "160x160+720+324") > 0.03)
+        check("About's cube draws on the recreated device", spread(shot("cube-about"), "160x160+640+152") > 0.03)
     finally:
         a.stop()
 

@@ -124,7 +124,7 @@ fn default_size() -> (i32, i32) {
 fn empty_view() -> gtk::Widget {
     const TITLE: &str = "No machine open";
     const BODY: &str = "Choose a machine from the library, or create one.";
-    let Some(cube) = crate::cube::Cube::new(220, crate::cube::starting_style(0x7b7b84)) else {
+    let Some(cube) = crate::cube::Cube::new(220, 220, crate::cube::starting_style(0x7b7b84)) else {
         return adw::StatusPage::builder()
             .icon_name("computer-symbolic")
             .title(TITLE)
@@ -1401,7 +1401,7 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
     m.hero.append(&flow);
 }
 
-/// The About window: the cube on granite (an icon where there is no GPU for
+/// The About window: the cube on a band (an icon where there is no GPU for
 /// it), the version, who made it and two buttons for the credits.
 fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     let version = option_env!("ORIGAMI_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
@@ -1410,7 +1410,7 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     let about = origami_credits::credits().ok();
     let copyright = about.as_ref().map_or("", |c| c.copyright.as_str());
     let url = about.as_ref().map_or("", |c| c.project_url.as_str());
-    let cube = crate::cube::Cube::new(160, crate::cube::about_style(dark, scene)).map(Rc::new);
+    let cube = crate::cube::Cube::new(420, 230, crate::cube::about_style(dark, scene)).map(Rc::new);
     let label = |text: &str, css: &[&str]| {
         gtk::Label::builder()
             .label(text)
@@ -1422,12 +1422,13 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     let page = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(10)
+        .margin_top(14)
         .margin_bottom(18)
         .margin_start(18)
         .margin_end(18)
         .build();
     match &cube {
-        Some(cube) => page.append(&cube.widget),
+        Some(cube) => cube.enable_pointer(),
         None => page.append(
             &gtk::Image::builder()
                 .icon_name("computer-symbolic")
@@ -1529,7 +1530,13 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     }
     let toolbar = adw::ToolbarView::new();
     toolbar.add_top_bar(&adw::HeaderBar::new());
-    toolbar.set_content(Some(&page));
+    // The band runs edge to edge; the text sits under it.
+    let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    if let Some(cube) = &cube {
+        root.append(&cube.widget);
+    }
+    root.append(&page);
+    toolbar.set_content(Some(&root));
     let dialog = adw::Dialog::builder()
         .title("About Origami")
         .content_width(420)

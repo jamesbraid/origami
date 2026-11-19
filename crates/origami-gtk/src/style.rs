@@ -22,6 +22,7 @@ tabbar tab button.image-button { min-width: 20px; min-height: 20px; }
 tabbar tab:hover { background: alpha(@window_fg_color, 0.07); }
 .hero { padding: 24px; }
 tabbar.flat .box { box-shadow: none; }
+.start-surround { background-image: linear-gradient(to bottom, #282a30, #1f2126); }
 .plate { padding: 14px 22px; border-radius: 14px; background: alpha(black, 0.55); }
 .cpu-panel { background: #1c1c20; padding: 8px 14px; }
 .on-dark { color: #f2f3f5; }
