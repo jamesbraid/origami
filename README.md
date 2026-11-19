@@ -65,6 +65,8 @@ Preview builds target Linux, Windows and macOS on x86-64 and arm64.
 PROMs and default IRIX installation media are pulled on-demand, or you can use local copies.
 Start with `origami machines` and the [user guide](docs/usage.md).
 
+On macOS, install with [Homebrew](https://brew.sh): `brew install --cask jamesbraid/origami/origami` for the app, or `brew install jamesbraid/origami/origami-cli` for the command-line tool ([the tap](https://github.com/jamesbraid/homebrew-origami)).
+
 ## Developing
 
 Have fun vibing away...

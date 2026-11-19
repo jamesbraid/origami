@@ -65,3 +65,46 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           gh release create "$TAG" assets/* --verify-tag --title "$TAG" --notes-file notes.md
+
+  # The tap's cask and formula follow the release just published. Only v*
+  # tags reach the release environment, which holds the tap token. A tag with
+  # a suffix (v0.7.0-rc1) is a prerelease and leaves the tap alone.
+  tap:
+    needs: publish
+    if: github.server_url == 'https://github.com' && !contains(github.ref_name, '-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - name: The tap token is set
+        env:
+          TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          test -n "$TOKEN" || { echo "HOMEBREW_TAP_TOKEN is not set in the release environment" >&2; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: jamesbraid/homebrew-origami
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Update the cask and formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir .
+          .github/scripts/update-tap.sh "$TAG" SHA256SUMS tap
+          cd tap
+          git add Casks/origami.rb Formula/origami-cli.rb
+          if git diff --cached --quiet; then
+            echo "tap already at $TAG"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "origami: update to ${TAG#v}" -m "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          git push origin HEAD:main
