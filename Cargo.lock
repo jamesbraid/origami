@@ -4782,6 +4782,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "origami-credits"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "origami-display"
 version = "0.0.0"
 dependencies = [

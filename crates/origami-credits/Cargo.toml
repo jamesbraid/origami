@@ -1,0 +1,13 @@
+[package]
+name = "origami-credits"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+description = "What the apps' About window credits: people, projects, photographs and licence texts, built once from the repository's own files"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"

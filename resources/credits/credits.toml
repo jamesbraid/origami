@@ -1,0 +1,83 @@
+# The people and projects About credits. crates/origami-credits adds the rest.
+
+project_url = "https://github.com/jamesbraid/origami"
+trademark = "SGI, IRIX and all product names are trademarks of their respective owners."
+
+[[built_on]]
+name = "QEMU"
+by = "the QEMU project and the sgi-origami branch"
+url = "https://github.com/jamesbraid/qemu-sgi-origami"
+licence = "GPL-2.0"
+note = "Machines run on this build of QEMU."
+
+[[built_on]]
+name = "iris"
+by = "Dominik Behr and contributors"
+url = "https://github.com/techomancer/iris"
+licence = "BSD-3-Clause"
+note = "The second engine, for the Indy, Indigo2 and Octane2."
+
+[[built_on]]
+name = "libghostty-vt"
+by = "the Ghostty project"
+url = "https://ghostty.org"
+licence = "MIT"
+note = "The console's terminal."
+
+[[built_on]]
+name = "Instigator"
+by = "James Braid"
+url = "https://github.com/jamesbraid/instigator"
+licence = "BSD-3-Clause"
+note = "Installs IRIX from the install media."
+
+[[thanks]]
+name = "jrra.zone"
+for = "the archive of SGI software"
+url = "https://jrra.zone/sgi/"
+
+[[thanks]]
+name = "suigintoulain"
+for = "the RAD4 software"
+url = "https://mirror.rqsall.com/misc/sgi/psitech/"
+
+[[thanks]]
+name = "Miod Vallat"
+for = "porting OpenBSD to SGI systems"
+url = "http://miod.online.fr/software/openbsd/stories/sgiall.html"
+
+[[thanks]]
+name = "The Linux-MIPS project"
+for = "Linux on SGI machines"
+url = "https://www.linux-mips.org"
+
+[[artwork]]
+name = "SGI cube model"
+from = "martin-steen.de"
+url = "https://www.martin-steen.de/sgi/cube.html"
+
+[[artwork]]
+name = "Granite tile"
+from = "Silicon Graphics"
+
+# Texts the generator adds to the licence list whatever the notices file says.
+# `file` is relative to resources/credits; the first is the repository's LICENSE.
+[[licence_text]]
+licence = "BSD 3-Clause"
+components = ["Origami"]
+file = "../../LICENSE"
+
+[[licence_text]]
+licence = "BSD 3-Clause"
+components = ["Instigator"]
+file = "instigator.LICENSE"
+
+[[licence_text]]
+licence = "BSD 3-Clause"
+components = ["iris"]
+file = "iris.LICENSE"
+
+[[licence_text]]
+licence = "GNU General Public License"
+components = ["QEMU"]
+file = "GPL-2.0.txt"
