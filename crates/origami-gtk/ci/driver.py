@@ -8,7 +8,7 @@ usage: driver.py OUTDIR x11|wayland SCENARIO [app args]
 Environment: APP, WORK, ORIGAMI_BIN, plus DISPLAY or WAYLAND_DISPLAY.
 Writes OUTDIR/results.json and exits non-zero if any check failed.
 """
-import json, os, socket, subprocess, sys, time
+import difflib, json, os, re, socket, subprocess, sys, time
 
 out, mode, scenario = sys.argv[1], sys.argv[2], sys.argv[3]
 extra = sys.argv[4:]
@@ -161,6 +161,40 @@ def ppm_to_png(ppm, name):
 def ocr(png):
     r = sh("tesseract", png, "-", "--psm", "6")
     return r.stdout
+
+
+# What the PROM's hinv prints for the Octane2: the words that name the machine,
+# and the words any hinv has.
+HINV_IDENTITY = ("IP30", "R12000")
+HINV_OTHER = ("MHZ", "PROCESSOR", "MEMORY", "CACHE", "ETHERNET")
+
+
+def _like(word, want, ratio):
+    return (abs(len(word) - len(want)) <= 1 and len(want) >= 3
+            and difflib.SequenceMatcher(None, word, want).ratio() >= ratio)
+
+
+def _identity(word, want):
+    """The same length, each position equal but one, which may be an OCR mark: IP3@
+    is IP30; IP32 and R10000 are not."""
+    marks = sum(w != c for w, c in zip(word, want))
+    return len(word) == len(want) and marks <= 1 and all(w == c or not w.isalnum() for w, c in zip(word, want))
+
+
+def hinv_evidence(text):
+    """Whether OCR text shows hinv: IP30 or R12000, read tolerantly (under CPU
+    limits tesseract gives IP3@ and R1200@), and one other hinv word."""
+    words = re.findall(r"[A-Za-z0-9@]+", text.upper())
+    ids = {want for want in HINV_IDENTITY for w in words if len(w) >= 4 and _identity(w, want)}
+    other = {want for want in HINV_OTHER for w in words if _like(w, want, 0.8)}
+    return ids, other
+
+
+def ocr_hinv(png):
+    """OCR of the picture as it is and enlarged in grey, whose text is joined."""
+    big = png[:-4] + "-big.png"
+    sh("convert", png, "-colorspace", "Gray", "-resize", "200%", "-normalize", big)
+    return ocr(png) + "\n" + ocr(big)
 
 
 def create_machine(name, preset="octane2-vpro"):
@@ -525,9 +559,10 @@ def first_light(quick=False):
                 c = a.req("compare hinv octane2")
                 check("hinv screen equals QMP screendump", c.get("differing_pixels") == 0, c)
                 png = ppm_to_png(c["ppm"], "hinv-qmp")
-                text = ocr(png)
+                text = ocr_hinv(png)
                 open(os.path.join(out, "hinv.ocr.txt"), "w").write(text)
-                check("hinv output on screen (OCR sees the CPU line)", "CPU" in text.upper() or "MHZ" in text.upper(), text[-400:])
+                ids, other = hinv_evidence(text)
+                check("hinv output on screen (OCR reads IP30 or R12000 and another hinv word)", ids and other, {"ids": sorted(ids), "other": sorted(other), "text": text[-400:]})
         shot("05-after-keys")
         # follow mouse
         if mode != "x11":
