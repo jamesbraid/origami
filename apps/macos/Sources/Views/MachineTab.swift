@@ -80,12 +80,14 @@ struct ScreenView: View {
             ZStack {
                 GraniteBackground()
                 let guest = CGSize(width: model.picture?.width ?? 1280, height: model.picture?.height ?? 1024)
+                // Zero until the machine reports its picture, so the one fit is not spent on the fallback size.
+                let realGuest = model.picture.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
                 let inset = 30.0   // granite margin and the bezel
                 let avail = CGSize(width: max(80, geo.size.width - inset * 2), height: max(80, geo.size.height - inset * 2))
                 let size = Scaling.viewSize(guest: guest, available: avail, backing: scale, mode: app.scaleMode)
                 let label = Scaling.label(mode: app.scaleMode, size: size, guest: guest, backing: scale)
                 Color.clear.frame(width: 0, height: 0).onChange(of: label, initial: true) { _, l in model.scaleLabel = l }
-                WindowFitter(key: "\(model.id)-\(model.startedAt?.timeIntervalSince1970 ?? 0)", guest: guest, available: geo.size)
+                WindowFitter(key: "\(model.id)-\(model.startedAt?.timeIntervalSince1970 ?? 0)", guest: realGuest, available: geo.size)
                     .frame(width: 0, height: 0)
                 MachineDisplay(model: model)
                     .frame(width: size.width, height: size.height)

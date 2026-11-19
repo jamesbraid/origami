@@ -1055,6 +1055,50 @@ func runSelfTest(library: String, out: String) {
         app.openWindow = nil; app.openConsole = nil   // MainView set them to this window's environment
     }
 
+    // 7a. A toolbar action never moves or resizes the window. The fit to the picture happens when the view
+    // arrives, so no later click carries it out.
+    do {
+        // The view is in a laid-out window before the picture size is known, as a machine's screen is on start.
+        final class Arrival: ObservableObject { @Published var guest = CGSize.zero }
+        struct Probe: View {
+            @EnvironmentObject var app: AppModel
+            @ObservedObject var arrival: Arrival
+            var body: some View {
+                VStack(spacing: 0) {
+                    GeometryReader { geo in
+                        WindowFitter(key: "probe", guest: arrival.guest, available: geo.size).frame(width: 0, height: 0)
+                    }
+                    if app.showsCpu { Color.gray.frame(height: 80) }
+                }
+            }
+        }
+        let arrival = Arrival()
+        FitView.visibleFrame = { _ in CGRect(x: 0, y: 0, width: 1600, height: 1200) }   // a runner has no screen
+        let w = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 900, height: 700), styleMask: [.titled, .resizable],
+                         backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        w.contentView = NSHostingView(rootView: Probe(arrival: arrival).environmentObject(app))
+        w.orderFront(nil)
+        spin(1)
+        let waiting = w.frame
+        check("window-waits-for-the-picture", waiting.size == CGSize(width: 900, height: waiting.height), ["frame": "\(waiting)"])
+        arrival.guest = CGSize(width: 1280, height: 1024)
+        spin(1)
+        let settled = w.frame
+        check("window-fits-when-the-picture-arrives", settled.width > 900 || settled.height > 700, ["frame": "\(settled)"])
+        let actions: [(String, () -> Void)] = [
+            ("cpu-on", { app.showsCpu = true }), ("cpu-off", { app.showsCpu = false }),
+            ("console", { app.invoke(.console) }), ("diagnostics", { app.invoke(.diagnostics) }),
+            ("settings", { app.invoke(.settings); app.wantSettings = false }),
+            ("pointer", { app.invoke(.followMouse); app.invoke(.followMouse) }),
+        ]
+        for (name, act) in actions {
+            act(); spin(0.5)
+            check("toolbar-\(name)-keeps-the-window-frame", w.frame == settled, ["before": "\(settled)", "after": "\(w.frame)"])
+        }
+        w.close()
+    }
+
     // 7b. Pause and Resume.
     do {
         var done: Error?? = .none
