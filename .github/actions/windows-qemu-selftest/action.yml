@@ -22,6 +22,7 @@ runs:
       shell: powershell
       working-directory: apps/windows
       env:
+        ORIGAMI_CAPTURES: "1"
         RUNTIME_DIR: ${{ inputs.runtime-dir }}
         FAIL_ON_SELFTEST: ${{ inputs.fail-on-selftest }}
       run: |

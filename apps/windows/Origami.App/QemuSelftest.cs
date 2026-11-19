@@ -45,6 +45,8 @@ public static class Selftest
 
     static async Task Grab(string dir, string name, IntPtr hwnd)
     {
+        // Only the capture workflow answers these requests; a release self-test has no one to ask.
+        if (Environment.GetEnvironmentVariable("ORIGAMI_CAPTURES") != "1") return;
         File.WriteAllText(Path.Combine(dir, $"want-{name}.txt"), hwnd.ToInt64().ToString());
         Add("capture " + name, await Until(() => File.Exists(Path.Combine(dir, $"got-{name}.txt")), 20_000));
     }
