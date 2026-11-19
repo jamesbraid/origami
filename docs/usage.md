@@ -8,20 +8,20 @@ Examples use version 0.4.1. Substitute the version you downloaded.
 
 ## Install the archive
 
-Download the archive for your host from the
-[release page](https://github.com/jamesbraid/origami/releases) and extract
-it:
+Download the command-line archive for your host from the
+[release page](https://github.com/jamesbraid/origami/releases): the one named
+`origami-cli-<version>-<platform>`, with `<platform>` one of `linux-x86_64`,
+`linux-arm64`, `macos-universal` (Apple silicon and Intel) or `windows-x86_64`.
+The `origami-<version>-<platform>` archives hold the desktop app, which
+includes this command, so pick one or the other. Extract it:
 
 ```sh
-tar -xzf origami-0.4.1-linux-x86_64.tar.gz      # Linux
-tar -xzf origami-0.4.1-macos-arm64.tar.gz       # macOS, Apple Silicon
+tar -xzf origami-cli-0.6.1-linux-x86_64.tar.gz      # Linux
+tar -xzf origami-cli-0.6.1-macos-universal.tar.gz   # macOS
 ```
 
-The other hosts have `linux-arm64` and `macos-x86_64` (Intel Macs) archives
-under the same naming.
-
 ```powershell
-Expand-Archive .\origami-0.4.1-windows-x86_64.zip -DestinationPath .\origami
+Expand-Archive .\origami-cli-0.6.1-windows-x86_64.zip -DestinationPath .\origami
 ```
 
 Keep the extracted directory whole. The CLI needs the QEMU, Instigator and

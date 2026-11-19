@@ -278,3 +278,86 @@ jobs:
           path: dist/origami-*
           if-no-files-found: error
           retention-days: 3
+
+  # One macOS download: each Mach-O in the arm64 and x86_64 packages joined with lipo,
+  # signed once after the join. The thin packages stay artifacts for other workflows.
+  macos-universal:
+    if: github.server_url == 'https://github.com'
+    needs: [build, app-macos]
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: origami-*macos-*
+          path: thin
+      - name: Join the packages
+        run: |
+          set -eu
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          mkdir dist
+          for kind in macos app-macos; do
+            case $kind in
+              macos) a=thin/origami-macos-arm64/origami-cli-*-macos-arm64.tar.gz; b=thin/origami-macos-x86_64/origami-cli-*-macos-x86_64.tar.gz ;;
+              app-macos) a=thin/origami-app-macos-arm64/origami-*-macos-arm64.zip; b=thin/origami-app-macos-x86_64/origami-*-macos-x86_64.zip ;;
+            esac
+            cargo xtask universal --arm64 $a --x86_64 $b --out dist
+          done
+          ls -l dist
+      - name: Every Mach-O holds both architectures
+        run: |
+          set -eu
+          mkdir check
+          tar -xzf dist/origami-cli-*-macos-universal.tar.gz -C check
+          ditto -x -k dist/origami-*-macos-universal.zip check
+          count=0
+          while IFS= read -r f; do
+            if file "$f" | grep -q 'Mach-O'; then
+              info=$(lipo -info "$f")
+              echo "$info"
+              case $info in *x86_64*arm64*|*arm64*x86_64*) count=$((count + 1)) ;; *) echo "not universal: $f" >&2; exit 1 ;; esac
+            fi
+          done < <(find check -type f)
+          test "$count" -ge 10
+      - uses: actions/upload-artifact@v4
+        with:
+          name: origami-macos-universal
+          path: dist/origami-*
+          if-no-files-found: error
+          retention-days: 3
+
+  # The universal packages start on both kinds of Mac, as the thin ones start on theirs.
+  macos-universal-start:
+    if: github.server_url == 'https://github.com'
+    needs: macos-universal
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: origami-macos-universal
+          path: dist
+      - name: Start the extracted packages and check the signature
+        run: |
+          set -eu
+          uname -m
+          root="$RUNNER_TEMP/origami extract"
+          mkdir -p "$root"
+          ditto -x -k dist/origami-*-macos-universal.zip "$root"
+          app="$root/Origami.app"
+          codesign --verify --deep --strict "$app"
+          out=$("$app/Contents/MacOS/origami" version)
+          echo "$out"
+          case $out in *unavailable*) exit 1 ;; esac
+          tar -xzf dist/origami-cli-*-macos-universal.tar.gz -C "$root"
+          out=$("$root"/origami-cli-*/bin/origami version)
+          echo "$out"
+          case $out in *unavailable*) exit 1 ;; esac

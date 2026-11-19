@@ -1,9 +1,7 @@
 name: Release
 
-# A v* tag builds the five command-line archives and the five native app
-# packages and publishes them as a GitHub release, with SHA256SUMS and the
-# CHANGELOG.md section for the version. The tag is made on the canonical
-# repository and mirrored here.
+# A v* tag builds the CLI and app packages and publishes them with SHA256SUMS
+# and the CHANGELOG.md section. The tag is made on the canonical repository.
 on:
   push:
     tags: ['v*']
@@ -38,9 +36,11 @@ jobs:
         run: |
           set -eu
           version=${TAG#v}
+          # The thin macOS packages feed the universal ones; they are not releases.
+          rm -f assets/*-macos-arm64.* assets/*-macos-x86_64.*
           ls assets
-          test "$(ls assets/origami-cli-*.tar.gz assets/origami-cli-*.zip | wc -l)" = 5
-          test "$(ls assets/origami-*.tar.gz assets/origami-*.zip | grep -vc '/origami-cli-')" = 5
+          test "$(ls assets/origami-cli-*.tar.gz assets/origami-cli-*.zip | wc -l)" = 4
+          test "$(ls assets/origami-*.tar.gz assets/origami-*.zip | grep -vc '/origami-cli-')" = 4
           # A dirty or untagged build would be named for the commit instead.
           for f in assets/origami-*; do
             case $f in

@@ -21,7 +21,8 @@ run the tests, then package those binaries. Rebuild after adding or changing
 a tag so the embedded version matches the archive version.
 Cargo's `0.0.0` is a package placeholder. The Git tag owns the release version.
 `cargo xtask dist` reads the description when it runs and names the archive
-`origami-<version>-<platform>` and its top-level directory `origami-<version>`,
+`origami-cli-<version>-<platform>` and its top-level directory
+`origami-cli-<version>`,
 where `<version>` is the description without the `v` (`0.4.1`, or
 `0.4.0-5-gabc1234` between releases, with `-dirty` after tracked edits).
 
@@ -44,7 +45,7 @@ cargo xtask bump instigator v0.5.1
 ```
 
 Plain `cargo test` needs no download. `origami-gui` is not a default member (it builds Slint and wgpu); select it with `-p origami-gui`. `cargo xtask dist` writes
-`origami-<version>-<platform>.tar.gz` (`.zip` on Windows) and its `.sha256`
+`origami-cli-<version>-<platform>.tar.gz` (`.zip` on Windows)
 for the platform it runs on: `linux-x86_64`, `linux-arm64`, `macos-arm64`,
 `macos-x86_64` or `windows-x86_64`. The archive holds `origami-<version>/` with:
 
@@ -81,8 +82,7 @@ QEMU pin for that run.
 ### App packages
 
 `cargo xtask dist --app` adds the native app to the same tree and writes
-`origami-<version>-<platform>-app.tar.gz` (`.zip` on Windows and macOS) with
-its `.sha256`. It needs the app in the checkout: `crates/origami-gtk` on Linux
+`origami-<version>-<platform>.tar.gz` (`.zip` on Windows and macOS). It needs the app in the checkout: `crates/origami-gtk` on Linux
 (GTK 4.14 and libadwaita 1.6 come from the host), `apps/macos` on macOS (the
 archive holds `Origami.app` with the tools beside its executable, ad hoc
 signed) and `apps/windows` on Windows. The Windows app is `Origami.exe`,
@@ -275,14 +275,20 @@ the QEMU repository's `subprojects/` at the release tag named in
 ## Release archive workflow
 
 `.github/workflows/build.yml` is a reusable workflow. On each of
-ubuntu-24.04, macos-15 and windows-latest it checks out the product, runs
+ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel and windows-latest it checks out the product, runs
 `cargo xtask test` and `cargo xtask dist`, and uploads
-`origami-<platform>` containing the archive and its `.sha256`. It also runs
+`origami-<platform>` containing the archive. It also runs
 `cargo xtask dist --app` and uploads `origami-app-<platform>`: the GTK tarball
 on Linux, the ad hoc signed `.app` zip on macOS, and the WinUI app zip on
 Windows, whose Rust parts are cross-built with MinGW on Linux first.
+A last job joins the arm64 and x86_64 macOS packages with
+`cargo xtask universal` (every Mach-O through `lipo`, then one ad hoc
+signature) into `origami-macos-universal`, which is what a release publishes
+for macOS; the thin ones stay artifacts. A release has `SHA256SUMS` only, no
+per-file checksums. The signing step is `universal::sign`, between the join
+and the zip.
 `.github/workflows/release.yml` calls it for `v*` tags and publishes a GitHub
-release with the six archives, `SHA256SUMS` and the `CHANGELOG.md`
+release with the eight archives, `SHA256SUMS` and the `CHANGELOG.md`
 section for that version. Pull requests and `main` pushes on GitHub do not
 build archives. Forgejo's required check is `cli.yml`: formatting, Clippy and
 `cargo test` on Linux.
