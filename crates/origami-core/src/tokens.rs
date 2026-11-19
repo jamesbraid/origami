@@ -4,7 +4,6 @@ pub mod chassis {
     pub const TAB_SELECTED_STROKE: f64 = 0.5;
 }
 pub mod colour {
-    pub const GRANITE_LIGHT: [u32; 2] = [0xe2e4e8, 0xd6d8dd];
     pub const GRANITE_NEUTRAL: [u32; 2] = [0x282a30, 0x1f2126];
 }
 pub mod pane {

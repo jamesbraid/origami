@@ -8,7 +8,6 @@ enum Tokens {
         static let tabSelectedStroke: CGFloat = 0.5
     }
     enum Colour {
-        static let graniteLight: [UInt32] = [0xe2e4e8, 0xd6d8dd]
         static let graniteNeutral: [UInt32] = [0x282a30, 0x1f2126]
     }
     enum Pane {

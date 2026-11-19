@@ -96,8 +96,10 @@ impl Cube {
             light_look: u32::from(granite == LIGHT),
             spin: u32::from(spin),
             reduce_motion: u32::from(reduce),
-            backdrop: ORIGAMI_CUBE_BACKDROP_GRANITE,
+            backdrop: ORIGAMI_CUBE_BACKDROP_BAND,
             surround_rgb: ORIGAMI_CUBE_NO_COLOUR,
+            settle: 0,
+            fill_percent: 0,
         };
         // SAFETY: valid cube and style.
         unsafe { ok(origami_cube_set_style(self.0, &s), "set_style") };
@@ -278,6 +280,8 @@ fn every_environment_is_drawn_and_the_pointer_acts() {
         reduce_motion: 1,
         backdrop: ORIGAMI_CUBE_BACKDROP_NONE,
         surround_rgb: 0x303030,
+        settle: 0,
+        fill_percent: 0,
     };
     // SAFETY: valid cube and style.
     unsafe { ok(origami_cube_set_style(cube.0, &rounded), "set_style") };
@@ -552,7 +556,7 @@ fn offscreen_cpu_while_turning() {
 }
 
 /// A caller built before `backdrop` existed passes the 36-byte struct: only
-/// that much is read, and it gets granite as before.
+/// that much is read, and it gets the band.
 #[test]
 fn a_style_from_before_the_backdrop_field_is_read_by_its_size() {
     let mut cube = ptr::null_mut();
@@ -584,10 +588,14 @@ fn a_style_from_before_the_backdrop_field_is_read_by_its_size() {
         )
     };
     cube.present();
-    // Granite fills the corner: opaque, unlike the new default.
+    // The band fills the corner, opaque unlike the new default: the studio's
+    // top tone, give or take the dither.
     let (w, _, rgb) = cube.shot();
     assert_eq!(w, 64);
-    assert!(rgb[..3] == [0xe2, 0xe4, 0xe8] || rgb[..3] == [0xd6, 0xd8, 0xdd]);
+    assert!([0xe2u8, 0xe4, 0xe8]
+        .iter()
+        .zip(&rgb[..3])
+        .all(|(a, b)| a.abs_diff(*b) <= 1));
 }
 
 /// The About easter egg through the C functions: the scene for a time, a step with

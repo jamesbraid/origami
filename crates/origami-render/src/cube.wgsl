@@ -7,11 +7,16 @@ struct U {
     look: vec4<f32>,
     // Horizon band colour, and how much of it (0 for none).
     tint: vec4<f32>,
-    // x: 0 studio, 1 equirect photo, 2 guest screen, 3 chrome horizon; y: 1 when the target
-    // is sRGB and needs no encoding; z: granite texel size in pixels.
+    // x: 0 studio, 1 equirect photo, 2 guest screen, 3 chrome horizon; y: 1 when
+    // the target is sRGB and needs no encoding.
     mode: vec4<f32>,
-    dark: vec4<f32>,
-    light: vec4<f32>,
+    // The view's width and height in pixels, and the floor shadow's centre row.
+    view: vec4<f32>,
+    // The backdrop gradient's top and bottom colours (linear).
+    top: vec4<f32>,
+    bottom: vec4<f32>,
+    // The floor shadow's half width and half height in pixels, and its strength.
+    shadow: vec4<f32>,
     fill: vec4<f32>,
     // The scene fading out: its mean colour, and in w how far the fade to
     // the current one has come (1 when there is none).
@@ -28,7 +33,6 @@ struct Grad {
 @group(0) @binding(1) var photo: texture_2d<f32>;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var screen: texture_2d<f32>;
-@group(0) @binding(4) var tile: texture_2d<f32>;
 @group(0) @binding(5) var mean: texture_2d<f32>;
 @group(0) @binding(6) var photo_prev: texture_2d<f32>;
 
@@ -82,9 +86,11 @@ fn finish(c: vec3<f32>, pos: vec2<f32>) -> vec3<f32> {
 
 @fragment
 fn bg_fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
-    let t = vec2<i32>(floor(pos.xy / u.mode.z));
-    let m = textureLoad(tile, vec2<i32>(t.x & 255, t.y & 255), 0).r;
-    return vec4<f32>(mix(u.dark.rgb, u.light.rgb, m), 1.0);
+    var c = mix(u.top.rgb, u.bottom.rgb, pos.y / u.view.y);
+    // The cube floats over a soft shadow on the floor under it.
+    let d = (pos.xy - vec2<f32>(0.5 * u.view.x, u.view.z)) / u.shadow.xy;
+    c *= 1.0 - u.shadow.z * exp(-dot(d, d) * 2.0);
+    return vec4<f32>(finish(c, pos.xy), 1.0);
 }
 
 fn band(x: f32, a: f32, b: f32, w: f32) -> f32 {

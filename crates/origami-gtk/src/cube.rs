@@ -45,7 +45,7 @@ pub fn starting_style(chassis: u32) -> Style {
     Style {
         env: Env::Studio,
         horizon: Some(tone(chassis)),
-        granite: granite::tinted(chassis),
+        tones: granite::tinted(chassis),
         backdrop: Backdrop::None,
         spin: true,
         ..Style::default()
@@ -59,18 +59,11 @@ pub fn about_scene() -> usize {
     scenes::for_time(h, m)
 }
 
-/// About's cube: `scene`, at rest, on its own granite tile (the dialog has
-/// none); the tones follow `dark`.
+/// About's cube: `scene`, at rest, over a band the scene colours.
 pub fn about_style(dark: bool, scene: usize) -> Style {
-    let (light, dark_tone) = if dark {
-        (tone(0x282a30), tone(0x1f2126))
-    } else {
-        (tone(0xe2e4e8), tone(0xd6d8dd))
-    };
     Style {
         env: Env::Scene(scene),
-        granite: [light, dark_tone],
-        backdrop: Backdrop::Granite,
+        backdrop: Backdrop::Band,
         light_look: !dark,
         ..Style::default()
     }

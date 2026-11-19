@@ -61,7 +61,7 @@
 // `origami_cube_style.backdrop` values.
 #define ORIGAMI_CUBE_BACKDROP_NONE 0
 
-#define ORIGAMI_CUBE_BACKDROP_GRANITE 1
+#define ORIGAMI_CUBE_BACKDROP_BAND 1
 
 // A colour field with this value means none.
 #define ORIGAMI_CUBE_NO_COLOUR 4294967295
@@ -293,15 +293,18 @@ typedef struct origami_surface {
 //   `origami_cube_scene_count`; `origami_cube_scene_for_time` gives About's.
 // - `horizon_rgb`: the studio's horizon band colour (a machine's chassis
 //   colour on the start screen), or `ORIGAMI_CUBE_NO_COLOUR`.
-// - `granite_light_rgb`, `granite_dark_rgb`: the backdrop tile's two tones.
+// - `granite_light_rgb`, `granite_dark_rgb`: the band's top and bottom tones
+//   where there is no scene to take them from (the studio, a machine's
+//   screen); a scene colours its own.
 // - `light_look`: the lighter chrome studio, for a light window.
 // - `spin`: turn at 10 rpm; without it the cube is at rest until dragged.
 // - `reduce_motion`: draw the still pose and never spin; a drag still turns
-//   it and it stops dead on release.
-// - `backdrop`: `_NONE` leaves the view transparent around the cube, over the
-//   host's own (non-opaque) surface; `_GRANITE` draws the tile. `surround_rgb`
-//   fills the view where the window system gives no alpha. A smaller `size`
-//   (a host built before these fields) means granite.
+//   it, with no coasting and no easing: it is back at the pose on release.
+// - `backdrop`: `_NONE` leaves the view transparent; `_BAND` fills it with a
+//   scene gradient and floor shadow. `surround_rgb` fills where no alpha.
+// - `settle`: after a drag the cube coasts, then eases back to the still pose.
+// - `fill_percent`: the cube's width as a percentage of the view's shorter
+//   side; 0 for the default, 90.
 typedef struct origami_cube_style {
   uint32_t size;
   uint32_t env;
@@ -314,6 +317,8 @@ typedef struct origami_cube_style {
   uint32_t reduce_motion;
   uint32_t backdrop;
   uint32_t surround_rgb;
+  uint32_t settle;
+  uint32_t fill_percent;
 } origami_cube_style;
 
 // What a view has spent, in wall nanoseconds, since it was attached.
@@ -464,7 +469,7 @@ extern "C" {
 
 // Draw a cube into the window `surface` names, `width` by `height` physical
 // pixels at `scale` (2.0 on a Retina display). The cube fills 90% of the
-// shorter side, on granite over the whole view, so size the view for it. The
+// shorter side unless the style says otherwise, so size the view for it. The
 // window must outlive the cube: call `origami_cube_detach` first when it
 // closes. Needs a GPU; returns `NoGpu` without one. The cube starts in the
 // studio with no spin; call `origami_cube_set_style`. Call a cube's functions

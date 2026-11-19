@@ -5012,7 +5012,6 @@ dependencies = [
  "origami-display",
  "origami-display-producer",
  "origami-engine",
- "png",
  "pollster",
  "raw-window-handle",
  "serde_json",

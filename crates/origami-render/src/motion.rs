@@ -1,6 +1,5 @@
-//! How the cube turns: one screen-space orientation and an angular velocity.
-//! Dragging tumbles it, a release hands over the pointer's speed, and friction
-//! brings it back to the calm spin (or to rest where there is none).
+//! How the cube turns: an orientation and an angular velocity. A drag tumbles it,
+//! a release flings it, and friction returns it to the calm spin, rest or, settling, the pose.
 
 use std::f32::consts::{PI, TAU};
 
@@ -18,6 +17,8 @@ const HOME_SECS: f32 = 0.75;
 const STALE_MS: u64 = 100;
 /// Below this speed (rad/s) a cube without calm spin counts as stopped.
 const STOPPED: f32 = 0.05;
+/// A settling cube starts easing home once it has slowed to this (rad/s).
+const SETTLE_BELOW: f32 = 1.5;
 
 type V3 = [f32; 3];
 /// x, y, z, w.
@@ -31,6 +32,8 @@ pub struct Motion {
     target: V3,
     calm: bool,
     reduce: bool,
+    /// After a drag, coast and then ease back to the still pose.
+    settle: bool,
     drag: Option<(f32, f32, u64)>,
     /// Easing to the mark pose: where it started and how far along (0 to 1).
     home: Option<(Quat, f32)>,
@@ -61,7 +64,7 @@ fn norm(v: V3) -> f32 {
 
 impl Motion {
     /// At mark.svg's pose, at rest.
-    pub fn new(calm: bool, reduce: bool) -> Motion {
+    pub fn new(calm: bool, reduce: bool, settle: bool) -> Motion {
         Motion {
             q: [0.0, 0.0, 0.0, 1.0],
             w: [0.0; 3],
@@ -69,6 +72,7 @@ impl Motion {
             target: [0.0; 3],
             calm,
             reduce,
+            settle,
             drag: None,
             home: None,
         }
@@ -76,13 +80,23 @@ impl Motion {
 
     /// Reduced motion shows the mark.svg pose and never spins; a drag still
     /// turns the cube and it stops dead on release.
-    pub fn configure(&mut self, calm: bool, reduce: bool) {
+    pub fn configure(&mut self, calm: bool, reduce: bool, settle: bool) {
         if reduce && !self.reduce {
-            *self = Motion::new(calm, true);
+            *self = Motion::new(calm, true, settle);
             return;
         }
         self.calm = calm;
         self.reduce = reduce;
+        self.settle = settle;
+    }
+
+    fn at_home(&self) -> bool {
+        self.q[3].abs() > 1.0 - 1e-6
+    }
+
+    /// A settling cube that is off the still pose has somewhere to go.
+    fn settling(&self) -> bool {
+        self.settle && !self.calm && !self.at_home()
     }
 
     pub fn press(&mut self, x: f32, y: f32, ms: u64) {
@@ -126,6 +140,10 @@ impl Motion {
         } else if speed > top {
             self.w = self.w.map(|c| c * top / speed);
         }
+        if self.reduce && self.settle && !self.calm {
+            // Reduced motion eases nothing: the still pose is back at once.
+            self.q = [0.0, 0.0, 0.0, 1.0];
+        }
     }
 
     /// Advance by `dt` seconds of wall time.
@@ -144,6 +162,10 @@ impl Motion {
             self.q = q.map(|c| c / n);
             self.home = (t < 1.0).then_some((from, t));
             return;
+        }
+        if self.settling() && norm(self.w) < SETTLE_BELOW {
+            self.go_home();
+            return self.step(dt);
         }
         let spin = self.calm && !self.reduce;
         self.ease = if spin {
@@ -173,6 +195,7 @@ impl Motion {
             || self.home.is_some()
             || (self.calm && !self.reduce)
             || norm(self.w) > 0.0
+            || self.settling()
     }
 
     /// Only the calm spin is turning it, so a slow frame rate shows the same
@@ -217,7 +240,7 @@ mod tests {
 
     #[test]
     fn a_calm_cube_makes_10_turns_a_minute_once_eased_in() {
-        let mut m = Motion::new(true, false);
+        let mut m = Motion::new(true, false, false);
         for _ in 0..600 {
             m.step(0.01);
         }
@@ -236,7 +259,7 @@ mod tests {
 
     #[test]
     fn a_drag_turns_half_a_turn_a_width_and_a_fast_release_flings() {
-        let mut m = Motion::new(false, false);
+        let mut m = Motion::new(false, false, false);
         m.press(0.0, 0.0, 0);
         m.drag_to(50.0, 0.0, 10, 100.0);
         // Half a width: a quarter turn about the vertical axis, so the front
@@ -252,7 +275,7 @@ mod tests {
 
     #[test]
     fn a_cube_without_calm_spin_coasts_to_a_stop_and_stops_dead_under_reduce() {
-        let mut m = Motion::new(false, false);
+        let mut m = Motion::new(false, false, false);
         m.press(0.0, 0.0, 0);
         m.drag_to(30.0, 0.0, 16, 100.0);
         m.release(17);
@@ -261,7 +284,7 @@ mod tests {
         }
         assert!(!m.moving());
 
-        let mut r = Motion::new(true, true);
+        let mut r = Motion::new(true, true, false);
         r.press(0.0, 0.0, 0);
         r.drag_to(30.0, 0.0, 16, 100.0);
         r.release(17);
@@ -270,7 +293,7 @@ mod tests {
 
     #[test]
     fn a_double_click_eases_back_to_the_mark_pose() {
-        let mut m = Motion::new(false, false);
+        let mut m = Motion::new(false, false, false);
         m.press(0.0, 0.0, 0);
         m.drag_to(40.0, 25.0, 10, 100.0);
         m.release(500);
@@ -290,10 +313,57 @@ mod tests {
 
     #[test]
     fn a_pointer_that_waited_before_release_throws_nothing() {
-        let mut m = Motion::new(false, false);
+        let mut m = Motion::new(false, false, false);
         m.press(0.0, 0.0, 0);
         m.drag_to(30.0, 0.0, 16, 100.0);
         m.release(500);
         assert!(!m.moving());
+    }
+
+    fn at_mark_pose(m: &Motion) -> bool {
+        let r = m.matrix();
+        (0..3).all(|i| (0..3).all(|j| (r[i][j] - if i == j { 1.0 } else { 0.0 }).abs() < 1e-3))
+    }
+
+    #[test]
+    fn a_settling_cube_coasts_after_a_fling_then_eases_back_and_rests() {
+        let mut m = Motion::new(false, false, true);
+        m.press(0.0, 0.0, 0);
+        m.drag_to(40.0, 10.0, 16, 100.0);
+        m.drag_to(80.0, 20.0, 32, 100.0);
+        m.release(34);
+        let flung = front(&m);
+        m.step(0.1);
+        assert_ne!(front(&m), flung, "it coasts on after the release");
+        let mut frames = 0;
+        while m.moving() && frames < 2000 {
+            m.step(0.016);
+            frames += 1;
+        }
+        assert!(frames < 1000, "it comes to rest: {frames} frames");
+        assert!(at_mark_pose(&m), "and rests at the mark pose");
+        // A slow drag, released without a throw, goes straight home.
+        m.press(0.0, 0.0, 0);
+        m.drag_to(30.0, 0.0, 16, 100.0);
+        m.release(500);
+        assert!(m.moving() && !at_mark_pose(&m));
+        for _ in 0..100 {
+            m.step(0.016);
+        }
+        assert!(!m.moving() && at_mark_pose(&m));
+    }
+
+    #[test]
+    fn reduced_motion_still_drags_but_neither_coasts_nor_eases() {
+        let mut m = Motion::new(false, true, true);
+        m.press(0.0, 0.0, 0);
+        m.drag_to(50.0, 0.0, 16, 100.0);
+        assert!(!at_mark_pose(&m), "the drag turns it");
+        m.release(17);
+        assert!(
+            !m.moving(),
+            "and it is back at the pose with nothing animated"
+        );
+        assert!(at_mark_pose(&m));
     }
 }

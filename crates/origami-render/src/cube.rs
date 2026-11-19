@@ -1,5 +1,5 @@
 //! The SGI tube cube, drawn live: a chrome mirror reflecting an environment,
-//! over a granite backdrop, into a host surface. A second view kind beside
+//! over an optional backdrop, into a host surface. A second view kind beside
 //! the guest screen, on the same device and the same surface attach.
 //!
 //! Like [`View`], a [`CubeView`] spawns no thread and draws only when the
@@ -14,7 +14,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const GLB: &[u8] = include_bytes!("../../../resources/identity/cube.glb");
-const GRANITE: &[u8] = include_bytes!("../../../resources/identity/granite-tile.png");
 
 /// Half the view width in model units (mark.svg's framing).
 const HALF: f32 = 10.25;
@@ -96,8 +95,9 @@ pub enum Backdrop {
     /// Nothing: the cube composites over the host's surface where the window
     /// system allows it, so there is no visible view edge.
     None,
-    /// The granite tile, in the style's two tones, over the whole view.
-    Granite,
+    /// A gradient from the scene on show (the style's tones for the studio)
+    /// and a floor shadow under the cube, over the whole view.
+    Band,
 }
 
 /// What the chrome reflects.
@@ -120,18 +120,22 @@ pub struct Style {
     pub env: Env,
     /// The studio's horizon band colour (0 to 1 per channel), or none.
     pub horizon: Option<[f32; 3]>,
-    /// The granite's two tones: the tile's light pixels, then its dark ones.
-    pub granite: [[f32; 3]; 2],
+    /// The band's top and bottom tones where there is no scene to take them from.
+    pub tones: [[f32; 3]; 2],
     /// The lighter chrome studio, for a light window.
     pub light_look: bool,
     /// Turn at 10 rpm; without it the cube is at rest until dragged.
     pub spin: bool,
     /// Draw the still pose and never spin; a drag still turns it.
     pub reduce_motion: bool,
+    /// After a drag the cube coasts, then eases back to the still pose.
+    pub settle: bool,
     pub backdrop: Backdrop,
     /// What fills the view where the window system gives no transparency and
-    /// there is no granite: the host's own background.
+    /// there is no backdrop: the host's own background.
     pub surround: [f32; 3],
+    /// The cube's width as a share of the view's shorter side.
+    pub fill: f32,
 }
 
 impl Default for Style {
@@ -140,12 +144,14 @@ impl Default for Style {
         Style {
             env: Env::Studio,
             horizon: None,
-            granite: [tone(0x282a30), tone(0x1f2126)],
+            tones: [tone(0x282a30), tone(0x1f2126)],
             light_look: false,
             spin: false,
             reduce_motion: false,
+            settle: false,
             backdrop: Backdrop::None,
             surround: [0.0; 3],
+            fill: FILL,
         }
     }
 }
@@ -308,9 +314,11 @@ struct Uniforms {
     look: [f32; 4],
     tint: [f32; 4],
     mode: [f32; 4],
-    dark: [f32; 4],
-    light: [f32; 4],
-    /// The photograph's mean colour, for the fill.
+    view: [f32; 4],
+    top: [f32; 4],
+    bottom: [f32; 4],
+    shadow: [f32; 4],
+    /// The photograph's mean colour (linear), for the fill.
     fill: [f32; 4],
     /// The photograph fading out: its mean, and the fade's progress.
     fill_prev: [f32; 4],
@@ -320,6 +328,38 @@ struct Targets {
     size: (u32, u32),
     color: wgpu::TextureView,
     depth: wgpu::TextureView,
+}
+
+/// Where the floor shadow's centre sits below the view's, and its half
+/// width and height, as shares of the cube's width.
+const SHADOW_DROP: f32 = 0.66;
+const SHADOW_HALF: (f32, f32) = (0.46, 0.075);
+
+/// A loaded photograph: its mean colour (linear) and the sky and horizon
+/// bands' means (sRGB) that colour the band.
+struct Photo {
+    view: wgpu::TextureView,
+    mean: [f32; 3],
+    bands: [[f32; 3]; 2],
+}
+
+/// The band's top and bottom colours (linear): the sky and the horizon of the
+/// photograph, each mixed with the window's surface colour.
+fn band_tones(bands: [[f32; 3]; 2], light: bool) -> ([f32; 3], [f32; 3]) {
+    let surface = if light {
+        [244.0, 245.0, 247.0]
+    } else {
+        [27.0, 28.0, 32.0]
+    }
+    .map(|c| c / 255.0);
+    let keep = [0.5, if light { 0.2 } else { 0.25 }];
+    let tone = |i: usize| {
+        std::array::from_fn(|k| {
+            let c = surface[k] + (bands[i][k] - surface[k]) * keep[i];
+            srgb_to_linear((c * 255.0).round() as u8)
+        })
+    };
+    (tone(0), tone(1))
 }
 
 /// The pipelines, mesh and textures of the cube for one target format.
@@ -336,10 +376,9 @@ pub struct CubeRenderer {
     index_count: u32,
     reach: f32,
     uniforms: wgpu::Buffer,
-    tile: wgpu::TextureView,
     blank: wgpu::TextureView,
     /// Each loaded photograph and its average colour (linear).
-    photos: Vec<Option<(wgpu::TextureView, [f32; 3])>>,
+    photos: Vec<Option<Photo>>,
     /// The photo the bind group shows.
     scene: Option<usize>,
     /// The photograph fading out and how far the fade to `scene` has come.
@@ -351,34 +390,6 @@ pub struct CubeRenderer {
     /// The target composites over what is behind it, so the cleared
     /// background is transparent.
     pub(crate) transparent: bool,
-}
-
-fn decode_granite() -> Result<Vec<u8>, String> {
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(GRANITE));
-    decoder.set_transformations(png::Transformations::EXPAND);
-    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let mut buf = vec![0; reader.output_buffer_size().ok_or("granite tile too big")?];
-    let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
-    if (info.width, info.height) != (256, 256) {
-        return Err("granite-tile.png is not 256 by 256".into());
-    }
-    let channels = info.color_type.samples();
-    // Two colours (a grey and a teal): the brighter by luma are the light pixels.
-    Ok(buf[..info.buffer_size()]
-        .chunks_exact(channels)
-        .map(|p| {
-            let luma = if channels >= 3 {
-                0.299 * f32::from(p[0]) + 0.587 * f32::from(p[1]) + 0.114 * f32::from(p[2])
-            } else {
-                f32::from(p[0])
-            };
-            if luma >= 100.0 {
-                255
-            } else {
-                0
-            }
-        })
-        .collect())
 }
 
 fn texture_2d(
@@ -497,7 +508,7 @@ fn sample_count(gpu: &Gpu, format: wgpu::TextureFormat) -> u32 {
         .unwrap_or(1)
 }
 
-fn photo_view(gpu: &Gpu, scene: usize) -> Result<(wgpu::TextureView, [f32; 3]), String> {
+fn photo_view(gpu: &Gpu, scene: usize) -> Result<Photo, String> {
     let mut decoder =
         image_webp::WebPDecoder::new(std::io::Cursor::new(scenes::SCENES[scene].image))
             .map_err(|e| e.to_string())?;
@@ -516,7 +527,21 @@ fn photo_view(gpu: &Gpu, scene: usize) -> Result<(wgpu::TextureView, [f32; 3]), 
     Ok(photo_from_rgba(gpu, rgba, w, h))
 }
 
-fn photo_from_rgba(gpu: &Gpu, rgba: Vec<u8>, w: u32, h: u32) -> (wgpu::TextureView, [f32; 3]) {
+fn photo_from_rgba(gpu: &Gpu, rgba: Vec<u8>, w: u32, h: u32) -> Photo {
+    // Means of the top 5 to 30 percent (sky) and the 42 to 58 percent (horizon).
+    let band = |from: f32, to: f32| {
+        let (y0, y1) = ((h as f32 * from) as usize, (h as f32 * to) as usize);
+        let rows = &rgba[y0 * w as usize * 4..y1 * w as usize * 4];
+        let mut sum = [0.0f64; 3];
+        for p in rows.as_chunks::<4>().0 {
+            for k in 0..3 {
+                sum[k] += f64::from(p[k]);
+            }
+        }
+        let n = (y1 - y0).max(1) as f64 * f64::from(w) * 255.0;
+        sum.map(|c| (c / n) as f32)
+    };
+    let bands = [band(0.05, 0.30), band(0.42, 0.58)];
     let chain = mip_chain(rgba, w, h);
     let mut sum = [0.0f64; 3];
     for p in chain[0].1.as_chunks::<4>().0 {
@@ -535,7 +560,11 @@ fn photo_from_rgba(gpu: &Gpu, rgba: Vec<u8>, w: u32, h: u32) -> (wgpu::TextureVi
     for (level, (size, data)) in chain.iter().enumerate() {
         upload(gpu, &t, level as u32, *size, 4, data);
     }
-    (t.create_view(&Default::default()), mean)
+    Photo {
+        view: t.create_view(&Default::default()),
+        mean,
+        bands,
+    }
 }
 
 impl CubeRenderer {
@@ -578,7 +607,6 @@ impl CubeRenderer {
                     count: None,
                 },
                 tex_entry(3),
-                tex_entry(4),
                 tex_entry(5),
                 tex_entry(6),
             ],
@@ -637,7 +665,7 @@ impl CubeRenderer {
             })
         };
         let attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
-        let backdrop = pipeline("granite", "bg_vs", "bg_fs", &[], false);
+        let backdrop = pipeline("backdrop", "bg_vs", "bg_fs", &[], false);
         let cube = pipeline(
             "cube",
             "vs",
@@ -673,8 +701,6 @@ impl CubeRenderer {
             anisotropy_clamp: 8,
             ..Default::default()
         });
-        let tile = texture_2d(gpu, "granite", (256, 256), wgpu::TextureFormat::R8Unorm, 1);
-        upload(gpu, &tile, 0, (256, 256), 1, &decode_granite()?);
         let blank = texture_2d(gpu, "blank", (1, 1), wgpu::TextureFormat::Rgba8Unorm, 1);
         upload(gpu, &blank, 0, (1, 1), 4, &[0, 0, 0, 255]);
         Ok(CubeRenderer {
@@ -689,9 +715,8 @@ impl CubeRenderer {
             index_count: mesh.idx.len() as u32,
             reach: mesh.reach,
             uniforms,
-            tile: tile.create_view(&Default::default()),
             blank: blank.create_view(&Default::default()),
-            photos: vec![None; scenes::count()],
+            photos: (0..scenes::count()).map(|_| None).collect(),
             scene: None,
             prev: None,
             fade: 1.0,
@@ -757,7 +782,7 @@ impl CubeRenderer {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(
                                 self.scene
-                                    .and_then(|s| self.photos[s].as_ref().map(|p| &p.0))
+                                    .and_then(|s| self.photos[s].as_ref().map(|p| &p.view))
                                     .unwrap_or(&self.blank),
                             ),
                         },
@@ -772,14 +797,10 @@ impl CubeRenderer {
                             ),
                         },
                         wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: wgpu::BindingResource::TextureView(&self.tile),
-                        },
-                        wgpu::BindGroupEntry {
                             binding: 6,
                             resource: wgpu::BindingResource::TextureView(
                                 self.prev
-                                    .and_then(|s| self.photos[s].as_ref().map(|p| &p.0))
+                                    .and_then(|s| self.photos[s].as_ref().map(|p| &p.view))
                                     .unwrap_or(&self.blank),
                             ),
                         },
@@ -825,9 +846,9 @@ impl CubeRenderer {
         self.targets.as_ref().unwrap()
     }
 
-    fn uniforms(&self, size: (u32, u32), scale: f64, style: &Style, motion: &Motion) -> Uniforms {
+    fn uniforms(&self, size: (u32, u32), style: &Style, motion: &Motion) -> Uniforms {
         let (w, h) = (size.0 as f32, size.1 as f32);
-        let side = w.min(h) * FILL;
+        let side = w.min(h) * style.fill;
         let over = (self.reach * 1.02 / HALF).max(1.0);
         let half = HALF * over;
         // Model to screen: the framing's view basis, then the cube's turn.
@@ -856,31 +877,43 @@ impl CubeRenderer {
             ([0.55, 0.06], [0.62, 1.0])
         };
         let rgba = |c: [f32; 3], a| [c[0], c[1], c[2], a];
+        let photo = |s: Option<usize>| s.and_then(|s| self.photos[s].as_ref());
+        let mean_of = |s: Option<usize>| photo(s).map(|p| p.mean);
+        let tones = |p: Option<&Photo>| match p {
+            Some(p) => band_tones(p.bands, style.light_look),
+            None => (
+                style.tones[0].map(|c| srgb_to_linear((c * 255.0).round() as u8)),
+                style.tones[1].map(|c| srgb_to_linear((c * 255.0).round() as u8)),
+            ),
+        };
+        let (top, bottom) = tones(photo(self.scene));
+        let (top, bottom) = match photo(self.prev) {
+            Some(prev) if self.fade < 1.0 => {
+                let (pt, pb) = tones(Some(prev));
+                let mix = |a: [f32; 3], b: [f32; 3]| {
+                    std::array::from_fn::<f32, 3, _>(|i| a[i] + (b[i] - a[i]) * self.fade)
+                };
+                (mix(pt, top), mix(pb, bottom))
+            }
+            _ => (top, bottom),
+        };
         Uniforms {
             mvp,
             nrm,
             look: [ground[0], ground[1], sky[0], sky[1]],
             tint: style.horizon.map_or([0.0; 4], |c| rgba(c, 1.0)),
-            mode: [
-                mode,
-                f32::from(u8::from(self.format.is_srgb())),
-                (2.0 * scale).round().max(1.0) as f32,
+            mode: [mode, f32::from(u8::from(self.format.is_srgb())), 0.0, 0.0],
+            view: [w, h, 0.5 * h + SHADOW_DROP * side, 0.0],
+            top: rgba(top, 1.0),
+            bottom: rgba(bottom, 1.0),
+            shadow: [
+                SHADOW_HALF.0 * side,
+                SHADOW_HALF.1 * side,
+                if style.light_look { 0.30 } else { 0.55 },
                 0.0,
             ],
-            light: rgba(style.granite[0], 1.0),
-            fill: rgba(
-                self.scene
-                    .and_then(|s| self.photos[s].as_ref())
-                    .map_or([0.0; 3], |p| p.1),
-                1.0,
-            ),
-            dark: rgba(style.granite[1], 1.0),
-            fill_prev: rgba(
-                self.prev
-                    .and_then(|s| self.photos[s].as_ref())
-                    .map_or([0.0; 3], |p| p.1),
-                self.fade,
-            ),
+            fill: rgba(mean_of(self.scene).unwrap_or([0.0; 3]), 1.0),
+            fill_prev: rgba(mean_of(self.prev).unwrap_or([0.0; 3]), self.fade),
         }
     }
 
@@ -893,12 +926,11 @@ impl CubeRenderer {
         enc: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
         size: (u32, u32),
-        scale: f64,
         style: &Style,
         motion: &Motion,
         timestamps: Option<wgpu::RenderPassTimestampWrites<'_>>,
     ) {
-        let u = self.uniforms(size, scale, style, motion);
+        let u = self.uniforms(size, style, motion);
         gpu.queue
             .write_buffer(&self.uniforms, 0, bytemuck::bytes_of(&u));
         let bind = self.bind_group(gpu);
@@ -935,7 +967,7 @@ impl CubeRenderer {
             multiview_mask: None,
         });
         pass.set_bind_group(0, &bind, &[]);
-        if style.backdrop == Backdrop::Granite {
+        if style.backdrop == Backdrop::Band {
             pass.set_pipeline(&self.backdrop);
             pass.draw(0..3, 0..1);
         }
@@ -993,7 +1025,6 @@ impl Offscreen {
         &self,
         gpu: &Gpu,
         renderer: &mut CubeRenderer,
-        scale: f64,
         style: &Style,
         motion: &Motion,
         out: &mut Vec<u8>,
@@ -1005,7 +1036,6 @@ impl Offscreen {
             &mut enc,
             &self.texture.create_view(&Default::default()),
             self.size,
-            scale,
             style,
             motion,
             None,
@@ -1072,7 +1102,6 @@ pub fn render_image(
     gpu: &Gpu,
     renderer: &mut CubeRenderer,
     size: (u32, u32),
-    scale: f64,
     style: &Style,
     motion: &Motion,
 ) -> Result<Vec<u8>, String> {
@@ -1080,8 +1109,7 @@ pub fn render_image(
         return Err("the view has no size".into());
     }
     let mut out = Vec::new();
-    Offscreen::new(gpu, renderer.format, size)
-        .render(gpu, renderer, scale, style, motion, &mut out)?;
+    Offscreen::new(gpu, renderer.format, size).render(gpu, renderer, style, motion, &mut out)?;
     Ok(out)
 }
 
@@ -1182,7 +1210,7 @@ impl CubeView {
             out,
             renderer,
             style,
-            motion: Motion::new(style.spin, style.reduce_motion),
+            motion: Motion::new(style.spin, style.reduce_motion, style.settle),
             dirty: true,
             last_draw: None,
             last_tick: None,
@@ -1220,7 +1248,8 @@ impl CubeView {
         self.dirty = true;
     }
     pub fn set_style(&mut self, gpu: &Gpu, style: Style) {
-        self.motion.configure(style.spin, style.reduce_motion);
+        self.motion
+            .configure(style.spin, style.reduce_motion, style.settle);
         self.show(gpu, style.env);
         self.style = Style {
             env: self.style.env,
@@ -1282,7 +1311,7 @@ impl CubeView {
     /// clock.
     pub fn pointer(&mut self, phase: Pointer, x: f32, y: f32, ms: u64) {
         let (w, h) = self.out.size();
-        let side = w.min(h) as f32 * FILL / self.out.scale() as f32;
+        let side = w.min(h) as f32 * self.style.fill / self.out.scale() as f32;
         match phase {
             Pointer::Press => self.motion.press(x, y, ms),
             Pointer::Move => self.motion.drag_to(x, y, ms, side),
@@ -1341,16 +1370,13 @@ impl CubeView {
             .map_or(0.0, |t| (now - t).as_secs_f32().min(MAX_STEP));
         self.last_tick = Some(now);
         self.motion.step(dt);
-        let scale = self.out.scale();
         let (renderer, style, motion) = (&mut self.renderer, &self.style, &self.motion);
         let drawn = match &mut self.out {
             Output::Surface(view) => view.draw_pass(
                 gpu,
                 false,
                 |_| {},
-                |_, enc, target, size| {
-                    renderer.encode(gpu, enc, target, size, scale, style, motion, None)
-                },
+                |_, enc, target, size| renderer.encode(gpu, enc, target, size, style, motion, None),
             )?,
             Output::Offscreen {
                 target,
@@ -1359,7 +1385,7 @@ impl CubeView {
                 draw_ns,
                 ..
             } => {
-                target.render(gpu, renderer, scale, style, motion, pixels)?;
+                target.render(gpu, renderer, style, motion, pixels)?;
                 *presents += 1;
                 *draw_ns += now.elapsed().as_nanos() as u64;
                 Drawn::Presented
@@ -1385,14 +1411,9 @@ impl CubeView {
     pub fn readback(&mut self, gpu: &Gpu) -> Result<(u32, u32, Vec<u8>), String> {
         let size = self.out.size();
         let pixels = match &self.out {
-            Output::Surface(v) => render_image(
-                gpu,
-                &mut self.renderer,
-                size,
-                v.scale(),
-                &self.style,
-                &self.motion,
-            )?,
+            Output::Surface(_) => {
+                render_image(gpu, &mut self.renderer, size, &self.style, &self.motion)?
+            }
             Output::Offscreen { pixels, .. } => pixels.clone(),
         };
         Ok((size.0, size.1, pixels))
@@ -1507,9 +1528,8 @@ mod tests {
             gpu,
             &mut r,
             (side, side),
-            1.0,
             style,
-            &Motion::new(false, false),
+            &Motion::new(false, false, false),
         )
         .unwrap();
         let (off, back) = ((side - n) / 2, [0x1fu32, 0x21, 0x26]);
@@ -1576,7 +1596,8 @@ mod tests {
         };
         let side = 192usize;
         let size = (side as u32, side as u32);
-        let img = render_image(gpu, &mut r, size, 1.0, &style, &Motion::new(false, false)).unwrap();
+        let img =
+            render_image(gpu, &mut r, size, &style, &Motion::new(false, false, false)).unwrap();
         let (mut sx, mut n) = (0.0, 0.0);
         for (i, p) in img.as_chunks::<4>().0.iter().enumerate() {
             // Bgra: red well above blue and green.
@@ -1639,7 +1660,8 @@ mod tests {
         };
         let side = 192usize;
         let size = (side as u32, side as u32);
-        let img = render_image(gpu, &mut r, size, 1.0, &style, &Motion::new(false, false)).unwrap();
+        let img =
+            render_image(gpu, &mut r, size, &style, &Motion::new(false, false, false)).unwrap();
         let (mut sx, mut n) = (0.0, 0.0);
         for (i, p) in img.as_chunks::<4>().0.iter().enumerate() {
             if p[2] > 120 && p[2] > p[0].saturating_mul(2) && p[2] > p[1].saturating_mul(2) {
@@ -1670,7 +1692,7 @@ mod tests {
         let Some(gpu) = gpu() else { return };
         let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
         let draw = |r: &mut CubeRenderer, s: Style| {
-            render_image(&gpu, r, (128, 128), 1.0, &s, &Motion::new(false, false)).unwrap()
+            render_image(&gpu, r, (128, 128), &s, &Motion::new(false, false, false)).unwrap()
         };
         // Bgra: blue minus red over the cube's opaque pixels.
         let blueness = |img: &[u8]| {
@@ -1700,35 +1722,93 @@ mod tests {
     }
 
     #[test]
-    fn the_cube_covers_the_middle_over_granite_and_turns() {
+    fn the_cube_covers_the_middle_of_a_smooth_band_and_turns() {
         let Some(gpu) = gpu() else { return };
         let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
-        let (w, h) = (128, 96);
+        let (w, h) = (160, 120);
         let style = Style {
-            backdrop: Backdrop::Granite,
+            backdrop: Backdrop::Band,
+            fill: 0.6,
             ..Style::default()
         };
-        let mut motion = Motion::new(true, false);
-        let a = render_image(&gpu, &mut r, (w, h), 1.0, &style, &motion).unwrap();
-        // The corner is granite: one of its two tones.
-        let tone = |c: [f32; 3]| c.map(|v| (v * 255.0).round() as u8);
-        let granite = [tone(style.granite[0]), tone(style.granite[1])];
-        assert!(granite.contains(&pixel(&a, w, 0, 0)));
+        let mut motion = Motion::new(true, false, false);
+        let a = render_image(&gpu, &mut r, (w, h), &style, &motion).unwrap();
+        // A gradient, not a pattern: a row is flat to the dither, and the top
+        // differs from the bottom.
+        let row = |y| (0..40).map(|x| pixel(&a, w, x, y)).collect::<Vec<_>>();
+        for y in [2, 60, 117] {
+            let r0 = row(y);
+            assert!(r0
+                .iter()
+                .all(|p| (0..3).all(|c| p[c].abs_diff(r0[0][c]) <= 1)));
+        }
+        assert_ne!(pixel(&a, w, 0, 2), pixel(&a, w, 0, 117));
+        let band: Vec<[u8; 3]> = (0..w).map(|x| pixel(&a, w, x, 2)).collect();
         let cover = (0..h)
             .flat_map(|y| (0..w).map(move |x| (x, y)))
-            .filter(|&(x, y)| !granite.contains(&pixel(&a, w, x, y)))
+            .filter(|&(x, y)| {
+                let p = pixel(&a, w, x, y);
+                !(0..3).all(|c| p[c].abs_diff(band[0][c]) < 40)
+            })
             .count();
         assert!(
-            cover > (w * h) as usize / 5,
+            cover > (w * h) as usize / 12,
             "the cube covers {cover} pixels"
         );
         for _ in 0..30 {
             motion.step(0.05);
         }
-        let b = render_image(&gpu, &mut r, (w, h), 1.0, &style, &motion).unwrap();
+        let b = render_image(&gpu, &mut r, (w, h), &style, &motion).unwrap();
         assert_ne!(a, b);
         gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
         assert_eq!(gpu.errors.count(), 0);
+    }
+
+    #[test]
+    fn the_band_takes_its_colour_from_the_scene_and_the_window() {
+        let Some(gpu) = gpu() else { return };
+        let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
+        let corner = |r: &mut CubeRenderer, id: &str, light: bool| {
+            let s = scenes::find(id).unwrap();
+            r.set_scene(&gpu, Some(s)).unwrap();
+            let style = Style {
+                env: Env::Scene(s),
+                backdrop: Backdrop::Band,
+                light_look: light,
+                ..Style::default()
+            };
+            let img =
+                render_image(&gpu, r, (64, 64), &style, &Motion::new(false, false, false)).unwrap();
+            pixel(&img, 64, 1, 1)
+        };
+        let lum = |p: [u8; 3]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+        let (day, night) = (
+            corner(&mut r, "howe-sound", false),
+            corner(&mut r, "lions-gate-night", false),
+        );
+        assert_ne!(day, night, "each scene has its own colours");
+        assert!(lum(day) > lum(night), "a day scene is lighter than night");
+        assert!(
+            lum(corner(&mut r, "howe-sound", true)) > lum(day) + 150,
+            "a light window gets a light band"
+        );
+    }
+
+    #[test]
+    fn the_cube_is_smoother_at_its_edges_than_without_multisampling() {
+        let Some(gpu) = gpu() else { return };
+        let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
+        let (levels, err) = aliasing(&gpu, &mut r, &Style::default(), 160);
+        eprintln!(
+            "MEASURE silhouette levels {levels}, error {err:.3}, samples {}",
+            r.samples
+        );
+        // Hard-edged rendering has no partial coverage at all.
+        assert!(
+            r.samples == 1 || levels >= (r.samples - 1) as usize,
+            "{levels} levels"
+        );
+        assert!(err < 4.5, "mean error against 4x supersampling {err:.3}");
     }
 
     #[test]
@@ -1736,8 +1816,8 @@ mod tests {
         let Some(gpu) = gpu() else { return };
         let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
         let (w, h) = (96, 96);
-        let motion = Motion::new(false, false);
-        let img = render_image(&gpu, &mut r, (w, h), 1.0, &Style::default(), &motion).unwrap();
+        let motion = Motion::new(false, false, false);
+        let img = render_image(&gpu, &mut r, (w, h), &Style::default(), &motion).unwrap();
         // Bgra, premultiplied: the corner has no colour and no alpha, the
         // cube is opaque somewhere.
         assert_eq!(&img[..4], &[0, 0, 0, 0]);
@@ -1748,7 +1828,7 @@ mod tests {
             surround: [1.0, 0.0, 0.0],
             ..Style::default()
         };
-        let img = render_image(&gpu, &mut r, (w, h), 1.0, &style, &motion).unwrap();
+        let img = render_image(&gpu, &mut r, (w, h), &style, &motion).unwrap();
         assert_eq!(pixel(&img, w, 0, 0), [255, 0, 0]);
     }
 
@@ -1758,7 +1838,7 @@ mod tests {
         let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
         r.set_scene(&gpu, scenes::find("garibaldi-lake")).unwrap();
         let (w, h) = (96, 96);
-        let motion = Motion::new(false, false);
+        let motion = Motion::new(false, false, false);
         let plain = Style::default();
         let tinted = Style {
             horizon: Some([0.0, 0.8, 0.0]),
@@ -1768,9 +1848,8 @@ mod tests {
             env: Env::Scene(scenes::find("garibaldi-lake").unwrap()),
             ..plain
         };
-        let draw = |r: &mut CubeRenderer, s: &Style| {
-            render_image(&gpu, r, (w, h), 1.0, s, &motion).unwrap()
-        };
+        let draw =
+            |r: &mut CubeRenderer, s: &Style| render_image(&gpu, r, (w, h), s, &motion).unwrap();
         let studio = draw(&mut r, &plain);
         let green = |img: &[u8]| {
             img.as_chunks::<4>()
@@ -1826,8 +1905,8 @@ mod tests {
         let resolve = buffer(wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC);
         let read = buffer(wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ);
         let period = f64::from(gpu.queue.get_timestamp_period());
-        let mut motion = Motion::new(true, false);
-        for (name, side, scale, env) in [
+        let mut motion = Motion::new(true, false, false);
+        for (name, side, _scale, env) in [
             ("96 pt at 2x, studio", 192, 2.0, Env::Studio),
             (
                 "160 pt at 2x, scene",
@@ -1869,7 +1948,6 @@ mod tests {
                     &mut enc,
                     &target.create_view(&Default::default()),
                     (side, side),
-                    scale,
                     &style,
                     &motion,
                     Some(wgpu::RenderPassTimestampWrites {
@@ -1896,29 +1974,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_cube_is_smoother_at_its_edges_than_without_multisampling() {
-        let Some(gpu) = gpu() else { return };
-        let mut r = CubeRenderer::new(&gpu, wgpu::TextureFormat::Bgra8Unorm).unwrap();
-        let (levels, err) = aliasing(&gpu, &mut r, &Style::default(), 160);
-        eprintln!(
-            "MEASURE silhouette levels {levels}, error {err:.3}, samples {}",
-            r.samples
-        );
-        // Hard-edged rendering has no partial coverage at all.
-        assert!(
-            r.samples == 1 || levels >= (r.samples - 1) as usize,
-            "{levels} levels"
-        );
-        assert!(err < 4.5, "mean error against 4x supersampling {err:.3}");
-    }
-
     /// Distinct partial-coverage levels along the silhouette, and the mean error
     /// of a 1x render against the same cube drawn at 4x and box-filtered down.
     fn aliasing(gpu: &Gpu, r: &mut CubeRenderer, style: &Style, side: u32) -> (usize, f64) {
-        let m = Motion::new(false, false);
-        let one = render_image(gpu, r, (side, side), 1.0, style, &m).unwrap();
-        let big = render_image(gpu, r, (side * 4, side * 4), 4.0, style, &m).unwrap();
+        let m = Motion::new(false, false, false);
+        let one = render_image(gpu, r, (side, side), style, &m).unwrap();
+        let big = render_image(gpu, r, (side * 4, side * 4), style, &m).unwrap();
         let levels: std::collections::BTreeSet<u8> = one
             .as_chunks::<4>()
             .0

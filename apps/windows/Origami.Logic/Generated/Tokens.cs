@@ -10,7 +10,6 @@ public static class Tokens
     }
     public static class Colour
     {
-        public static readonly uint[] GraniteLight = { 0xe2e4e8, 0xd6d8dd };
         public static readonly uint[] GraniteNeutral = { 0x282a30, 0x1f2126 };
     }
     public static class Pane

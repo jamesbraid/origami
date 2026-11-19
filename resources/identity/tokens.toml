@@ -14,9 +14,8 @@ art_gallery = { w = 120, h = 90 }
 art_hero = { w = 240, h = 180 }
 
 [colour]
-# Used now: macOS granite_neutral and granite_light, GTK granite_neutral.
+# Used now: macOS and GTK granite_neutral (the machine pane's granite, the start card's gradient).
 granite_neutral = ["#282a30", "#1f2126"]
-granite_light = ["#e2e4e8", "#d6d8dd"]
 
 # Alpha applied to the machine's measured colour. Not yet used.
 [chassis]
