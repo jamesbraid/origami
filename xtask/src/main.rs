@@ -152,11 +152,11 @@ fn runtime(platform: &str, qemu_archive: Option<&Path>) -> Result<PathBuf> {
     let qemu_file = match qemu_archive {
         Some(path) => path.to_path_buf(),
         None => {
-            let asset = lock.qemu.platform("qemu", platform)?;
+            let asset = &lock.qemu.platforms[platform];
             archive::fetch(&asset.url, &asset.sha256, &cache)?
         }
     };
-    let instigator = lock.instigator.platform("instigator", platform)?;
+    let instigator = &lock.instigator.platforms[platform];
     let instigator_file = match &instigator.commit {
         Some(_) => None,
         None => Some(archive::fetch(&instigator.url, &instigator.sha256, &cache)?),
@@ -480,7 +480,7 @@ fn refresh_configs(pin: &Pin) -> Result<()> {
         .filter(|p| has_archive(p))
         .or_else(|| PLATFORMS.iter().copied().find(|p| has_archive(p)))
         .ok_or("no platform has an Instigator archive")?;
-    let asset = pin.platform("instigator", platform)?;
+    let asset = &pin.platforms[platform];
     let file = archive::fetch(
         &asset.url,
         &asset.sha256,

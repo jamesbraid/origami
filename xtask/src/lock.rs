@@ -40,18 +40,6 @@ pub struct Asset {
     pub commit: Option<String>,
 }
 
-impl Pin {
-    pub fn platform(&self, name: &str, platform: &str) -> Result<&Asset, String> {
-        self.platforms.get(platform).ok_or_else(|| {
-            format!(
-                "runtime.lock pins no {name} {platform} {}; `cargo xtask bump {name} TAG` adds it \
-                 from a release that has one",
-                self.tag
-            )
-        })
-    }
-}
-
 impl Asset {
     pub fn release(url: String, sha256: String) -> Asset {
         Asset {
@@ -80,13 +68,11 @@ impl Lock {
                 lock.format
             ));
         }
-        // A platform may lack an entry until `bump` finds a release with its
-        // archive; asking for that platform fails then, in `Pin::platform`.
         for (name, pin) in [("qemu", &lock.qemu), ("instigator", &lock.instigator)] {
-            for (platform, asset) in &pin.platforms {
-                if !PLATFORMS.contains(&platform.as_str()) {
-                    return Err(format!("{name} pin names unknown platform {platform}"));
-                }
+            for platform in PLATFORMS {
+                let Some(asset) = pin.platforms.get(platform) else {
+                    return Err(format!("{name} pin has no {platform} entry"));
+                };
                 let archive = !asset.url.is_empty() && !asset.sha256.is_empty();
                 if !archive && asset.commit.is_none() {
                     return Err(format!(
@@ -286,15 +272,6 @@ mod tests {
         let back = Lock::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();
         assert_eq!(back, lock);
-    }
-
-    #[test]
-    fn a_missing_platform_fails_only_when_asked_for() {
-        let mut qemu = pin("sgi-origami-11.1.50-1", &"cd".repeat(32));
-        qemu.platforms.remove("windows-arm64");
-        assert!(qemu.platform("qemu", "linux-x86_64").is_ok());
-        let error = qemu.platform("qemu", "windows-arm64").unwrap_err();
-        assert!(error.contains("cargo xtask bump qemu"), "{error}");
     }
 
     #[test]
