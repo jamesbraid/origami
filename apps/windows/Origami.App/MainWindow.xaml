@@ -131,11 +131,11 @@
         </Grid>
 
         <!-- Emulated CPU load: below the machine's pane, because the screen is a native child window that XAML cannot draw over. -->
-        <Border x:Name="CpuPanelBox" Grid.Row="2" Visibility="Collapsed" Padding="12,8" Background="{ThemeResource LayerFillColorDefaultBrush}"
+        <Border x:Name="CpuPanelBox" Grid.Row="2" Visibility="Collapsed" Padding="8" Background="#BFBFBF"
                 AutomationProperties.AutomationId="cpu.panel">
             <StackPanel Spacing="6">
-                <TextBlock x:Name="CpuTitle" FontSize="12" FontWeight="SemiBold"/>
-                <StackPanel x:Name="CpuBars" Spacing="4"/>
+                <StackPanel x:Name="CpuBars" Spacing="6"/>
+                <TextBlock x:Name="CpuTitle" FontSize="11" Foreground="#333333"/>
             </StackPanel>
         </Border>
 

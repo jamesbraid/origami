@@ -395,18 +395,15 @@ Test("ppm: P6 to BGRX, and a short file is refused", () =>
 });
 
 
-Test("cpu panel: labels, totals, segment widths and the empty text", () =>
+Test("cpu panel: a bar in words and the empty text", () =>
 {
-    Eq("cpu 0", CpuPanel.Label(0));
-    Eq("40%", CpuPanel.Total(new CpuBarInfo(0, 30, 10)));
-    Eq("65%", CpuPanel.Total(new CpuBarInfo(1, 60, 5)));
-    Eq("100%", CpuPanel.Total(new CpuBarInfo(1, 90, 40)), "clamped");
-    var (u, s) = CpuPanel.Segments(new CpuBarInfo(0, 30, 10), 200);
-    Eq(60.0, u); Eq(20.0, s);
-    var (u2, s2) = CpuPanel.Segments(new CpuBarInfo(0, 90, 40), 100);
-    Eq(true, Math.Abs(u2 + s2 - 100) < 1e-9, "never wider than the bar");
-    Eq("measuring…", CpuPanel.Empty(new CpuLoadInfo(Array.Empty<CpuBarInfo>(), null)));
-    Eq("not running", CpuPanel.Empty(new CpuLoadInfo(Array.Empty<CpuBarInfo>(), "not running")));
+    var keys = new[] { new OsviewKey("user", 0x0000FF), new OsviewKey("sys", 0xFF0000), new OsviewKey("spare", 0x00FF00) };
+    var bar = new OsviewBar("CPU 1 host time", keys, new[] { new OsviewSegment(0.60, 0x0000FF), new OsviewSegment(0.05, 0xFF0000), new OsviewSegment(0.35, 0x00FF00) });
+    Eq("CPU 1 host time: 60% user, 5% sys, 35% spare", CpuPanel.Summary(bar));
+    var none = new OsviewScene(Array.Empty<OsviewBar>(), 10, 0, 0, "c", null);
+    Eq("measuring…", CpuPanel.Empty(none));
+    Eq("not running", CpuPanel.Empty(none with { Note = "not running" }));
+    Eq("Select a machine.", CpuPanel.Empty(CpuPanel.Message("Select a machine.")));
 });
 
 const string CreditsJson = """

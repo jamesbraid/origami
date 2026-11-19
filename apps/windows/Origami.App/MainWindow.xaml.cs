@@ -667,16 +667,17 @@ public sealed partial class MainWindow : Window
 
     DispatcherQueueTimer? _cpuTimer;
     int _cpuBusy;
+    OsviewScene? _scene;
     public bool CpuPanelShown => CpuPanelBox.Visibility == Visibility.Visible;
     public long CpuPolls { get; private set; }
-    public string CpuText => string.Join(" | ", CpuBars.Children.OfType<Grid>().Select(g => string.Join(" ", g.Children.OfType<TextBlock>().Select(t => t.Text)))) is { Length: > 0 } t ? t : string.Join(" ", CpuBars.Children.OfType<TextBlock>().Select(t => t.Text));
+    /// <summary>Each bar in words, one per line, or the note when there are none.</summary>
+    public string CpuText => string.Join("\n", CpuBars.Children.Select(c => Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(c)));
     public string CpuTitleText => CpuTitle.Text;
 
     public void SetCpuPanel(bool on)
     {
         CpuButton.IsChecked = on;
         CpuPanelBox.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-        CpuTitle.Text = CpuPanel.Title;
         if (!on) { _cpuTimer?.Stop(); return; } // hidden means no polling
         _cpuTimer ??= _ui.CreateTimer();
         _cpuTimer.Interval = CpuPanel.Interval;
@@ -691,35 +692,61 @@ public sealed partial class MainWindow : Window
         try
         {
             var key = SelectedKey;
-            CpuLoadInfo r = key is null ? new CpuLoadInfo(Array.Empty<CpuBarInfo>(), "Select a machine.") : await _core.CpuLoadAsync(key);
+            ShowCpu(key is null ? CpuPanel.Message("Select a machine.", _scene?.Caption ?? "") : await _core.OsviewAsync(key));
             CpuPolls++;
-            ShowCpu(r);
         }
-        catch (Exception ex) { ShowCpu(new CpuLoadInfo(Array.Empty<CpuBarInfo>(), ex.Message)); }
+        catch (Exception ex) { ShowCpu(CpuPanel.Message(ex.Message, _scene?.Caption ?? "")); }
         finally { _cpuBusy = 0; }
     }
 
-    void ShowCpu(CpuLoadInfo r)
+    static SolidColorBrush Brush(uint rgb) => new(Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
+
+    // gr_osview style: a bold italic title and coloured legend over a black-framed bar of segments, with a heavy ruler marked in tenths.
+    void ShowCpu(OsviewScene v)
     {
+        _scene = v;
+        CpuPanelBox.Background = Brush(v.Background);
+        CpuTitle.Text = v.Caption;
         CpuBars.Children.Clear();
-        if (r.Cpus.Count == 0) { CpuBars.Children.Add(new TextBlock { Text = CpuPanel.Empty(r), FontSize = 12, Opacity = 0.7 }); return; }
-        foreach (var c in r.Cpus)
+        if (v.Bars.Count == 0)
         {
-            var (user, sys) = CpuPanel.Segments(c, 240);
-            var bar = new Grid { Width = 240, Height = 12, Background = new SolidColorBrush(Color.FromArgb(255, 0x1F, 0x21, 0x26)) };
-            var segs = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left };
-            segs.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Width = user, Height = 12, Fill = new SolidColorBrush(Color.FromArgb(255, 0x3B, 0x82, 0xF6)) });
-            segs.Children.Add(new Microsoft.UI.Xaml.Shapes.Rectangle { Width = sys, Height = 12, Fill = new SolidColorBrush(Color.FromArgb(255, 0xDC, 0x26, 0x26)) });
-            bar.Children.Add(segs);
-            var row = new Grid { ColumnSpacing = 8 };
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
-            var label = new TextBlock { Text = CpuPanel.Label(c.Cpu), FontSize = 12 };
-            var total = new TextBlock { Text = CpuPanel.Total(c), FontSize = 12, TextAlignment = TextAlignment.Right };
-            Grid.SetColumn(bar, 1); Grid.SetColumn(total, 2);
-            row.Children.Add(label); row.Children.Add(bar); row.Children.Add(total);
-            CpuBars.Children.Add(row);
+            var note = new TextBlock { Text = CpuPanel.Empty(v), FontSize = 12, Foreground = Brush(0x000000) };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(note, note.Text);
+            CpuBars.Children.Add(note);
+            return;
+        }
+        foreach (var b in v.Bars)
+        {
+            var head = new TextBlock { FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.Bold, FontStyle = Windows.UI.Text.FontStyle.Italic };
+            head.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = b.Title + ":", Foreground = Brush(0x000000) });
+            foreach (var k in b.Legend)
+                head.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " " + k.Label, Foreground = Brush(k.Rgb) });
+            var segs = new Grid { Height = 20 };
+            var ticks = new Grid { Height = 20 };
+            for (var i = 0; i < b.Segments.Count; i++)
+            {
+                segs.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(b.Segments[i].Fraction, 0), GridUnitType.Star) });
+                var r = new Microsoft.UI.Xaml.Shapes.Rectangle { Fill = Brush(b.Segments[i].Rgb) };
+                Grid.SetColumn(r, i);
+                segs.Children.Add(r);
+            }
+            for (var t = 0; t < v.Ticks; t++)
+            {
+                ticks.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                if (t == v.Ticks - 1) break;
+                var mark = new Microsoft.UI.Xaml.Shapes.Rectangle { Width = 1, Height = 10, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Fill = Brush(0x000000) };
+                Grid.SetColumn(mark, t);
+                ticks.Children.Add(mark);
+            }
+            var face = new Grid();
+            face.Children.Add(segs);
+            face.Children.Add(ticks);
+            var frame = new Border { Background = Brush(v.BarBackground), BorderBrush = Brush(v.BarBackground), BorderThickness = new Thickness(2, 2, 2, 5), Child = face };
+            var item = new StackPanel { Spacing = 2 };
+            item.Children.Add(head);
+            item.Children.Add(frame);
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(item, CpuPanel.Summary(b));
+            CpuBars.Children.Add(item);
         }
     }
 

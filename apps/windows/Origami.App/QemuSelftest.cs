@@ -195,7 +195,7 @@ public static class Selftest
         if (main != null) main.IsAlwaysOnTop = wasTop;
         // The pictures docs/app.md shows: the workflow's window capture, asked for by file (PrintWindow sees the machine's own picture).
         w.SetCpuPanel(true);
-        await Until(() => w.CpuText.Contains("cpu 0"), 10_000);
+        await Until(() => w.CpuText.Contains("CPU 0 host time"), 10_000);
         await Task.Delay(1500);
         await Grab(dir, "windows-cpu-panel", w.Hwnd);
         w.SetCpuPanel(false);

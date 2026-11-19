@@ -338,10 +338,14 @@ public sealed class UniffiCoreClient : ICoreClient
             v.Console.Connected, v.Console.DownReason, v.Console.Total);
     }
 
-    public Task<CpuLoadInfo> CpuLoadAsync(string key) => Task.Run(() =>
+    public Task<OsviewScene> OsviewAsync(string key) => Task.Run(() =>
     {
-        var r = M(key).CpuLoad();
-        return new CpuLoadInfo(r.Cpus.Select(c => new CpuBarInfo((int)c.Cpu, c.UserPct, c.SysPct)).ToList(), r.Unavailable);
+        var r = M(key).Osview();
+        return new OsviewScene(
+            r.Bars.Select(b => new OsviewBar(b.Title,
+                b.Legend.Select(k => new OsviewKey(k.Label, k.Rgb)).ToList(),
+                b.Segments.Select(s => new OsviewSegment(s.Fraction, s.Rgb)).ToList())).ToList(),
+            r.Ticks, r.Background, r.BarBackground, r.Caption, r.Note);
     });
 
     public IFrames OpenFrames(string key)

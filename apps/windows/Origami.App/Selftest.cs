@@ -483,8 +483,8 @@ public static class Selftest
         await Task.Delay(1200);
         Check("cpu: hidden, the panel does no polling", !w.CpuPanelShown && w.CpuPolls == polls0, $"shown {w.CpuPanelShown}, polls {polls0} -> {w.CpuPolls}");
         w.SetCpuPanel(true);
-        Check("cpu: the bars show both CPUs with user plus system", await Until(() => w.CpuText.Contains("cpu 0") && w.CpuText.Contains("40%") && w.CpuText.Contains("cpu 1") && w.CpuText.Contains("65%"), 4000), w.CpuText);
-        Check("cpu: the title says the load is measured on the host", w.CpuTitleText == "Emulated CPU load (measured on the host)", w.CpuTitleText);
+        Check("cpu: one bar per CPU, cut into user, sys and spare", await Until(() => w.CpuText.Contains("CPU 0 host time: 30% user, 10% sys, 60% spare") && w.CpuText.Contains("CPU 1 host time: 60% user, 5% sys, 35% spare"), 4000), w.CpuText);
+        Check("cpu: the title says the load is measured on the host", w.CpuTitleText == "Emulated CPU load, measured on the host, not the guest", w.CpuTitleText);
         var p1 = w.CpuPolls;
         await Task.Delay(2200);
         Check("cpu: shown, it polls at about 2 Hz", w.CpuPolls - p1 >= 3 && w.CpuPolls - p1 <= 7, $"{w.CpuPolls - p1} polls in 2.2 s");
