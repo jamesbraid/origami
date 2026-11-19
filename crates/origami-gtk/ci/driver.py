@@ -198,8 +198,12 @@ def ocr_hinv(png):
 
 
 def create_machine(name, preset="octane2-vpro"):
-    os.makedirs(lib, exist_ok=True)
-    d = os.path.join(lib, name)
+    create_machine_in(lib, name, preset)
+
+
+def create_machine_in(root, name, preset="octane2-vpro"):
+    os.makedirs(root, exist_ok=True)
+    d = os.path.join(root, name)
     if not os.path.exists(d):
         r = sh(origami, "create", d, "--preset", preset)
         if r.returncode != 0:
@@ -732,6 +736,24 @@ def settings():
         a.stop()
 
 
+def library_folder():
+    """Choosing another library folder re-lists at once, with no restart."""
+    create_machine("octane2")
+    other = os.path.join(work, "other-library")
+    create_machine_in(other, "indy")
+    a = App()
+    try:
+        a.wait("library", lambda: "octane2" in a.state()["library"], 30)
+        a.req("library " + other)
+        r = a.wait("switched", lambda: "indy" in a.state()["library"] and "octane2" not in a.state()["library"], 10, 0.1)
+        check("the library shows the new folder's machines", r is not None, a.state()["library"])
+        a.req("library " + lib)
+        r = a.wait("back", lambda: "octane2" in a.state()["library"] and "indy" not in a.state()["library"], 10, 0.1)
+        check("and the old folder's again", r is not None, a.state()["library"])
+    finally:
+        a.stop()
+
+
 def popout():
     """A tab moved to its own window, and that window closed: the machine
     goes back to the library with nothing orphaned, and opens again."""
@@ -1203,7 +1225,7 @@ def docs():
         a.stop()
 
 
-SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "library-folder": library_folder, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

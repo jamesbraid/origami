@@ -53,7 +53,11 @@ pub struct App {
     pub app: adw::Application,
 }
 
-pub fn run(cfg: Config) -> glib::ExitCode {
+pub fn run(mut cfg: Config) -> glib::ExitCode {
+    let prefs = Prefs::load(&cfg.config_dir);
+    if let (false, Some(saved)) = (cfg.library_given, &prefs.library) {
+        cfg.library = saved.clone();
+    }
     let dev = if cfg.no_import {
         None
     } else {
@@ -124,7 +128,6 @@ pub fn run(cfg: Config) -> glib::ExitCode {
         .application_id("fans.irix.Origami")
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
-    let prefs = Prefs::load(&cfg.config_dir);
     let app = Rc::new(App {
         commands: commands::table(&core),
         core,
@@ -214,12 +217,22 @@ pub fn run(cfg: Config) -> glib::ExitCode {
                 }
                 None => eprintln!(
                     "origami-gtk: --start {name}: no such machine in {}",
-                    app.cfg.library.display()
+                    app.core.root().display()
                 ),
             }
         }
     });
     gapp.run_with_args::<&str>(&[])
+}
+
+/// Switch the library to `dir` and remember it. The core raises a library
+/// event, which rescans; running machines keep running from their own folders.
+pub fn set_library(app: &Rc<App>, dir: std::path::PathBuf) {
+    let _ = std::fs::create_dir_all(&dir);
+    app.core.set_root(&dir);
+    let mut prefs = app.prefs.borrow_mut();
+    prefs.library = Some(dir);
+    prefs.save();
 }
 
 pub fn rescan(app: &Rc<App>) {

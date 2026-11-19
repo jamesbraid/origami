@@ -591,13 +591,31 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         .title("General")
         .icon_name("preferences-system-symbolic")
         .build();
-    general.add(&group(
-        "Library",
-        vec![value_row(
-            "Machines are kept in",
-            &app.cfg.library.display().to_string(),
-        )],
-    ));
+    let folder = value_row(
+        "Machines are kept in",
+        &app.core.root().display().to_string(),
+    );
+    let choose = gtk::Button::builder()
+        .label("Choose…")
+        .valign(gtk::Align::Center)
+        .build();
+    folder.add_suffix(&choose);
+    {
+        let (app, parent, folder) = (app.clone(), parent.clone(), folder.clone());
+        choose.connect_clicked(move |_| {
+            let (app, folder) = (app.clone(), folder.clone());
+            gtk::FileDialog::builder()
+                .title("Choose the library folder")
+                .build()
+                .select_folder(Some(&parent), gtk::gio::Cancellable::NONE, move |r| {
+                    if let Some(path) = r.ok().and_then(|f| f.path()) {
+                        folder.set_subtitle(&path.display().to_string());
+                        crate::app::set_library(&app, path);
+                    }
+                });
+        });
+    }
+    general.add(&group("Library", vec![folder]));
     dialog.add(&general);
 
     let input_page = adw::PreferencesPage::builder()
@@ -630,6 +648,8 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
                 PointerMode::Capture
             };
             p.save();
+            drop(p);
+            crate::window::default_pointer_changed(&app);
         });
     }
     g.add(&combo);

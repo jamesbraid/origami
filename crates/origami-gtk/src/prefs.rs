@@ -40,6 +40,9 @@ pub struct Prefs {
     /// Machines the user asked to keep running when the window was closed.
     #[serde(default)]
     pub remember_close_choice: Option<String>,
+    /// Where the library lives, when the user chose a folder.
+    #[serde(default)]
+    pub library: Option<PathBuf>,
     #[serde(skip)]
     path: PathBuf,
 }
@@ -122,6 +125,18 @@ mod tests {
         let p = Prefs::load(&dir);
         assert_eq!(p.view_for(Path::new("/lib/a/o2")), ViewScale::X2);
         assert_eq!(p.view_for(Path::new("/lib/b/o2")), ViewScale::Fit);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_library_folder_is_kept() {
+        let dir =
+            std::env::temp_dir().join(format!("origami-gtk-prefs-lib-{}", std::process::id()));
+        let mut p = Prefs::load(&dir);
+        assert_eq!(p.library, None);
+        p.library = Some("/lib/other".into());
+        p.save();
+        assert_eq!(Prefs::load(&dir).library, Some(PathBuf::from("/lib/other")));
         let _ = std::fs::remove_dir_all(dir);
     }
 

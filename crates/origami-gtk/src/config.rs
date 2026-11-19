@@ -7,6 +7,8 @@ use std::path::PathBuf;
 pub struct Config {
     /// Where the library's machine directories live.
     pub library: PathBuf,
+    /// `--library` was given, so it beats the folder saved in the settings.
+    pub library_given: bool,
     /// Where the app keeps its own settings.
     pub config_dir: PathBuf,
     pub vk_device: Option<String>,
@@ -31,6 +33,7 @@ impl Config {
         let data = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
         let mut c = Config {
             library: data.join("origami").join("machines"),
+            library_given: false,
             config_dir: dirs::config_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join("origami"),
@@ -46,7 +49,10 @@ impl Config {
             let mut value =
                 |what: &str| a.next().ok_or_else(|| format!("{k} needs {what}\n{USAGE}"));
             match k.as_str() {
-                "--library" => c.library = value("a directory")?.into(),
+                "--library" => {
+                    c.library = value("a directory")?.into();
+                    c.library_given = true;
+                }
                 "--config-dir" => c.config_dir = value("a directory")?.into(),
                 "--vk-device" => c.vk_device = Some(value("a name")?),
                 "--automation" => c.automation = Some(value("a socket path")?.into()),

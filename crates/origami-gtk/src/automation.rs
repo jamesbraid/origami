@@ -437,6 +437,14 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 Err(e) => json!({"error": e.to_string()}),
             }
         }
+        "library" => match a1 {
+            // The call the Preferences folder chooser makes.
+            Some(dir) => {
+                app::set_library(app, dir.into());
+                json!({"ok": true})
+            }
+            None => json!({"error": "library DIR"}),
+        },
         "release-keys" => {
             let Some(m) = machine(app, a1) else {
                 return json!({"error": "no machine"});

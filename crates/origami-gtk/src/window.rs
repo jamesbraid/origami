@@ -953,6 +953,20 @@ fn screenshot(w: &Rc<Win>, m: &MachineUi) {
     }
 }
 
+/// The default pointer mode changed: machines with no setting of their own follow it now.
+pub fn default_pointer_changed(app: &Rc<App>) {
+    let open: Vec<_> = app.machines.borrow().clone();
+    for m in open {
+        let mode = app.prefs.borrow().pointer_for(&m.dir);
+        if m.pointer.get() != mode {
+            input::release_all(app, &m);
+            m.pointer.set(mode);
+            rebuild_hero(&m);
+        }
+    }
+    refresh(app);
+}
+
 fn set_pointer(app: &Rc<App>, m: &Rc<MachineUi>, mode: PointerMode) {
     input::release_all(app, m);
     m.pointer.set(mode);
@@ -1572,7 +1586,7 @@ fn show_inventory(app: &Rc<App>, stack: &gtk::Stack, inventory: &gtk::Label) {
                 .list_machines()
                 .ok()
                 .map(|l| l.into_iter().map(|m| (m.name, m.product)).collect());
-            let host = origami_core::hinv::gather(core.root(), machines, gpu);
+            let host = origami_core::hinv::gather(&core.root(), machines, gpu);
             origami_core::hinv::format(&host)
         })
         .await
