@@ -407,7 +407,7 @@ fn read_some(mut console: Box<dyn ConsoleIo>) -> (Box<dyn ConsoleIo>, Vec<u8>) {
         let _ = sender.send((console, buffer[..count].to_vec()));
     });
     receiver
-        .recv_timeout(Duration::from_secs(30))
+        .recv_timeout(Duration::from_secs(120))
         .expect("the console gave no output")
 }
 

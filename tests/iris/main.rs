@@ -116,7 +116,6 @@ fn the_core_creates_starts_and_stops_an_iris_machine() {
     use origami_core::facade::{
         Config, Core, CreateRequest, MachineState, OperationState, StopKind,
     };
-    use std::time::Duration;
 
     let root = tempfile::tempdir().unwrap();
     let engine = IrisEngine::new(env!("CARGO_BIN_EXE_origami"));

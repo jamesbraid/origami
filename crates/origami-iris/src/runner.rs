@@ -205,9 +205,11 @@ impl LocalSession {
             _ => None,
         };
         machine.start();
-        // Start paused after the fact: iris starts the CPU with the machine.
+        // iris starts the CPU with the machine only in a release build.
         if hold {
             cpu.stop();
+        } else if !machine.cpu_is_running() {
+            machine.cpu_start();
         }
         Ok(Self {
             machine: Mutex::new(Some(machine)),
@@ -263,10 +265,20 @@ impl Session for LocalSession {
         }
         match c {
             Control::Reset => {
+                // iris's reset needs more stack than a connection thread has in a debug build.
                 let fault = self.machine(|m| {
-                    m.reset();
-                    m.fatal_fault().map(|f| f.to_string())
+                    std::thread::scope(|scope| {
+                        std::thread::Builder::new()
+                            .name("iris-reset".into())
+                            .stack_size(256 << 20)
+                            .spawn_scoped(scope, || {
+                                m.reset();
+                                m.fatal_fault().map(|f| f.to_string())
+                            })
+                            .map(|thread| thread.join())
+                    })
                 })?;
+                let fault = fault?.map_err(|_| "iris panicked while resetting the machine")?;
                 if let Some(fault) = fault {
                     return Err(format!("iris cannot reset the machine: {fault}").into());
                 }
