@@ -809,17 +809,35 @@ func runSelfTest(library: String, out: String) {
     if fake {
         let load = CpuLoadModel()
         load.start(model)
-        let got = waitFor(20) { (load.report?.cpus.count ?? 0) == 2 }
-        let c = load.report?.cpus ?? []
+        let got = waitFor(20) { (load.scene?.bars.count ?? 0) == 2 }
+        let bars = load.scene?.bars ?? []
+        func pct(_ i: Int, _ j: Int) -> Float { j < bars.count ? bars[j].segments[i].fraction * 100 : -100 }
         func near(_ a: Float, _ b: Float) -> Bool { abs(a - b) < 6 }
-        check("cpu-panel-shows-the-fake-engines-two-cpus", got && near(c[0].userPct, 30) && near(c[0].sysPct, 10) && near(c[1].userPct, 60) && near(c[1].sysPct, 5),
-              ["cpus": c.map { "cpu\($0.cpu) \($0.userPct)/\($0.sysPct)" }, "unavailable": load.report?.unavailable ?? "none"])
+        check("cpu-panel-shows-the-fake-engines-two-cpus", got && near(pct(0, 0), 30) && near(pct(1, 0), 10) && near(pct(0, 1), 60) && near(pct(1, 1), 5),
+              ["bars": bars.map { "\($0.title) " + $0.segments.map { "\($0.fraction)" }.joined(separator: "/") }, "note": load.scene?.note ?? "none"])
+        check("cpu-panel-legend-is-user-sys-spare", bars.first?.legend.map { $0.label } == ["user", "sys", "spare"]
+              && bars.allSatisfy { abs($0.segments.map { $0.fraction }.reduce(0, +) - 1) < 0.001 }, [:])
+        // Paint the panel into a picture and read it back: the user segment is blue, the spare rest green.
+        if let scene = load.scene {
+            let path = "\(out)/macos-osview-selftest.png"
+            let shot = snapshot(CpuPanel(model: load), size: CGSize(width: 420, height: CpuPanel.height(bars: scene.bars.count)), to: path)
+            let rep = (try? Data(contentsOf: URL(fileURLWithPath: path))).flatMap { NSBitmapImageRep(data: $0) }
+            let y = Int(CpuPanel.pad + CpuPanel.header + 4)
+            func rgb(_ x: Int) -> [Int] {
+                let c = rep?.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+                return [c?.redComponent, c?.greenComponent, c?.blueComponent].map { Int((($0 ?? 0) * 255).rounded()) }
+            }
+            let left = rgb(20), right = rgb(400)
+            check("cpu-panel-paints-blue-user-and-green-spare", shot.ok && left[2] > 200 && left[0] < 60 && right[1] > 200 && right[0] < 60, ["left": left, "right": right])
+        }
         load.stop()
         let after = load.samples
         spin(1.5)
-        check("cpu-panel-hidden-polls-nothing", load.samples == after && load.report == nil, ["samples_after_stop": load.samples - after])
-        check("cpu-placeholder-says-measuring-or-why", cpuLoadPlaceholder(nil) == "measuring…"
-              && cpuLoadPlaceholder(OrigamiCpuLoadReport(source: .host, cpus: [], unavailable: "no threads")) == "no threads", [:])
+        check("cpu-panel-hidden-polls-nothing", load.samples == after && load.scene == nil, ["samples_after_stop": load.samples - after])
+        check("cpu-placeholder-says-measuring-or-why", cpuLoadPlaceholder(nil) == "measuring…", [:])
+        let emptyPath = "\(out)/macos-osview-empty.png"
+        let empty = snapshot(CpuPanel(model: CpuLoadModel()), size: CGSize(width: 420, height: CpuPanel.height(bars: 0)), to: emptyPath)
+        check("cpu-panel-before-the-first-sample-is-painted", empty.ok && empty.colours >= 2, ["colours": empty.colours])
     }
 
     // The display view in a window that is never shown.

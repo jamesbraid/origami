@@ -1,10 +1,10 @@
-// The CPU panel's data: the core's per-CPU host load for a running machine, polled at 2 Hz while the panel is shown.
+// The CPU panel's data: the core's activity view (per-CPU host load as bars) for a running machine, polled at 2 Hz while the panel is shown.
 
 import Foundation
 
 @MainActor
 final class CpuLoadModel: ObservableObject {
-    @Published private(set) var report: OrigamiCpuLoadReport?
+    @Published private(set) var scene: OrigamiOsview?
     private var timer: Timer?
     private var busy = false
     /// Samples taken, so a test can see that a hidden panel asks for none.
@@ -23,7 +23,7 @@ final class CpuLoadModel: ObservableObject {
 
     func stop() {
         timer?.invalidate(); timer = nil
-        report = nil
+        scene = nil
     }
 
     /// One sample, read off the main actor; a sample still being read is not asked for twice.
@@ -32,13 +32,13 @@ final class CpuLoadModel: ObservableObject {
         busy = true
         let m = session.machine
         DispatchQueue.global(qos: .utility).async {
-            let r = m.cpuLoad()
-            DispatchQueue.main.async { MainActor.assumeIsolated { self.report = r; self.busy = false; self.samples += 1 } }
+            let r = m.osview()
+            DispatchQueue.main.async { MainActor.assumeIsolated { self.scene = r; self.busy = false; self.samples += 1 } }
         }
     }
 }
 
-/// The text under the bars when there are none: the core's reason, or that the first sample is pending.
-func cpuLoadPlaceholder(_ r: OrigamiCpuLoadReport?) -> String {
-    r?.unavailable ?? "measuring…"
+/// The text shown when there are no bars: the core's reason, or that the first sample is pending.
+func cpuLoadPlaceholder(_ v: OrigamiOsview?) -> String {
+    v?.note ?? "measuring…"
 }
