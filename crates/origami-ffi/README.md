@@ -163,8 +163,7 @@ and in the window system's present) let tests hold the budgets.
 picks how the picture fills the window. Integer draws whole-number scales,
 and fits only when 1x is too big. Fit draws the biggest aspect-preserving
 picture: whole device pixels with the nearest filter while that is at least
-one logical pixel per guest pixel (the `scale` given to attach and
-`_set_scale` is the device scale), else a fractional fill with a smooth
+one device pixel per guest pixel, else a fractional fill with a smooth
 filter. `origami_view_get_layout` returns the picture's rectangle and scale in
 window pixels, to map the pointer.
 `origami_view_readback` copies what the view last drew (cursor included, also

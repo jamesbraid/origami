@@ -822,7 +822,7 @@ def hidpi():
         view_w, view_h = m["screen_bounds"][2], m["screen_bounds"][3]
         guest = m["size"]
         fit = min(view_w * factor / guest[0], view_h * factor / guest[1])
-        want = int(fit) if int(fit) >= factor else fit
+        want = int(fit) if int(fit) >= 1 else fit
         check("fit takes the largest whole step (%s)" % want, abs(pic["step"] - want) < 1e-6 and pic["nearest"] == (want == int(want)), [pic, fit])
         check("the picture is guest size x step / factor logical px", pic["rect"][2] == round(guest[0] * want / factor), pic)
         shot("hidpi-fit")

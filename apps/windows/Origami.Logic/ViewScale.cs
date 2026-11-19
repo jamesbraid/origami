@@ -1,6 +1,6 @@
 namespace Origami.Logic;
 
-/// <summary>Fit to Window (the default) takes whole device pixels per guest pixel while that is at least 1 DIP, else fills fractionally.
+/// <summary>Fit to Window (the default) takes whole device pixels per guest pixel while that is at least 1, else fills fractionally.
 /// Scale 1x and 2x are 1 and 2 DIPs per guest pixel and fall back to Fit; Actual Size is 1 device pixel.</summary>
 public enum ViewMode { FitToWindow, Scale1x, Scale2x, ActualSize }
 
@@ -19,7 +19,7 @@ public static class ViewScale
         if (headW <= 0 || headH <= 0 || availW <= 0 || availH <= 0) return 1;
         var f = Math.Min(availW / headW, availH / headH);
         var w = Math.Floor(f + 1e-9);
-        var fitted = w >= displayScale ? w : f;
+        var fitted = w >= 1 ? w : f;
         return mode switch
         {
             ViewMode.ActualSize => Math.Min(1.0, f),

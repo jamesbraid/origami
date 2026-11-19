@@ -309,7 +309,7 @@ public static class Selftest
         var ff = disp.LastFactor;
         Check("view: Actual Size is one device pixel per guest pixel", Math.Abs(fa - 1) < 0.01, $"actual={fa:F2}");
         Check("view: Scale 1x and 2x are one and two DIPs per guest pixel, or Fit when that does not fit", (Math.Abs(f1 - dip) < 0.01 || Math.Abs(f1 - ff) < 0.01) && (Math.Abs(f2 - 2 * dip) < 0.01 || Math.Abs(f2 - ff) < 0.01), $"1x={f1:F2} 2x={f2:F2} fit={ff:F2} (device px per DIP {dip:F2})");
-        Check("view: Fit to Window uses whole device pixels while at least 1 DIP fits", ff >= dip - 0.001 ? Math.Abs(ff - Math.Round(ff)) < 0.01 : ff > 0, $"fit={ff:F3}");
+        Check("view: Fit to Window uses whole device pixels while at least 1 fits", ff >= 1 - 0.001 ? Math.Abs(ff - Math.Round(ff)) < 0.01 : ff > 0, $"fit={ff:F3}");
         Check("view: the default is Fit to Window", w.CurrentViewMode == ViewMode.FitToWindow, w.CurrentViewMode.ToString());
 
         // --- toolbar: the console opens from its button's command ---

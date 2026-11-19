@@ -94,7 +94,7 @@ public sealed partial class DisplayView : UserControl
         { Transform: Microsoft.UI.Xaml.Media.ScaleTransform t, ImageSource: Microsoft.UI.Xaml.Media.Imaging.WriteableBitmap bmp }
         && Math.Abs(t.ScaleX * r.RasterizationScale - 1) < 1e-9 && bmp.PixelWidth >= Math.Ceiling(Surround.ActualWidth * r.RasterizationScale);
 
-    void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs e) => _ = PaintGranite();
+    void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs e) { _ = PaintGranite(); Place(); }
 
     /// <summary>The surround is granite, neutral dark. The bitmap is device pixels: it grows with the pane and is redone when the display scale changes.</summary>
     async Task PaintGranite()

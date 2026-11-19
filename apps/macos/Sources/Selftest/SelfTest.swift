@@ -114,9 +114,17 @@ func runSelfTest(library: String, out: String) {
             let c = MachineView.guestPoint(CGPoint(x: v.width - 0.01, y: v.height - 0.01), view: v, head: g)
             return a == (640, 512) && b == (0, 0) && c == (1279, 1023)
         }
+        // The picture's origin lands on a whole device pixel at 1x and 2x, with fractional or odd sizes.
+        check("origin-on-a-device-pixel", [(CGFloat(1), CGSize(width: 1001, height: 700)), (2, CGSize(width: 1000.5, height: 733))].allSatisfy { b, c in
+            let v = size(c.width - 60, c.height - 60, b, .fit)
+            let d = Scaling.snap(container: c, size: v, backing: b)
+            let x = ((c.width - v.width) / 2 + d.width) * b, y = ((c.height - v.height) / 2 + d.height) * b
+            return abs(x - x.rounded()) < 1e-6 && abs(y - y.rounded()) < 1e-6
+        }, [:])
         check("pointer-mapping-follows-the-scale", mapped(.points, 1500, 1100) && mapped(.double, 2600, 2100) && mapped(.fit, 1000, 700) && mapped(.points, 500, 400), [:])
         check("scaling-modes", size(1500, 1100, 2, .points) == CGSize(width: 1280, height: 1024)
-              && abs(size(1000, 700, 2, .fit).height - 700) < 0.5 && size(1000, 700, 2, .fit).width < 1000
+              && size(1000, 700, 2, .fit) == CGSize(width: 640, height: 512)   // 1.37 device px steps down to 1, never blurry
+              && abs(size(500, 400, 2, .fit).height - 400) < 0.5   // below 1 device pixel it fills
               && size(2600, 2100, 2, .double) == CGSize(width: 2560, height: 2048)
               && size(2600, 2100, 2, .actual) == CGSize(width: 640, height: 512)
               && size(2600, 2100, 1, .fit) == CGSize(width: 2560, height: 2048)

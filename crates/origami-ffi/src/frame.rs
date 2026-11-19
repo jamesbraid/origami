@@ -1087,7 +1087,7 @@ pub unsafe extern "C" fn origami_view_set_scale(
 /// Whole-number scales only, nearest filtering; a window too small for 1x fits.
 pub const ORIGAMI_SCALE_INTEGER: u32 = 0;
 /// Biggest picture that fits: whole device pixels, nearest, while that is at
-/// least one logical pixel per guest pixel; below that a smooth fractional fill.
+/// least one device pixel per guest pixel; below that a smooth fractional fill.
 pub const ORIGAMI_SCALE_FIT: u32 = 1;
 
 /// How the picture is scaled into the window. The default is

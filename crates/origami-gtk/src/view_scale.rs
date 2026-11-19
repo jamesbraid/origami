@@ -1,12 +1,12 @@
 //! Where the guest picture sits in its view and how a view point maps back to a
-//! guest pixel. A guest pixel is one logical pixel at 1x (two device pixels on 2x).
+//! guest pixel. Fit takes whole device pixels per guest pixel while at least one fits.
 
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ViewScale {
-    /// Whole device steps while a guest pixel stays at least one logical
+    /// Whole device steps while a guest pixel stays at least one device
     /// pixel, else a smooth fill.
     #[default]
     Fit,
@@ -75,11 +75,7 @@ pub fn layout(mode: ViewScale, view: (i32, i32), guest: (u32, u32), factor: f64)
         (f64::from(view.1) * factor).round(),
     );
     let fit = (vw / gw).min(vh / gh);
-    let stepped = if fit.floor() >= factor {
-        fit.floor()
-    } else {
-        fit
-    };
+    let stepped = if fit.floor() >= 1.0 { fit.floor() } else { fit };
     let want = match mode {
         ViewScale::Fit => stepped,
         ViewScale::Actual => 1.0,
@@ -167,16 +163,17 @@ mod tests {
     }
 
     #[test]
-    fn a_small_window_on_a_2x_display_never_halves_the_picture() {
-        // 1000x700 logical is 2000x1400 device: 1.37 device px per guest px.
+    fn a_small_window_on_a_2x_display_steps_down_to_whole_device_pixels() {
+        // 1000x700 logical is 2000x1400 device: 1.37 device px per guest px,
+        // so the picture takes 1 rather than a blurry fraction.
         let l = layout(ViewScale::Fit, (1000, 700), G, 2.0).unwrap();
-        assert!(!l.nearest && (l.step - 1.367).abs() < 0.001, "{l:?}");
-        assert_eq!((l.dev.2, l.dev.3), (1750, 1400));
-        assert_eq!((l.alloc().2, l.alloc().3), (876, 700));
+        assert!(l.nearest && l.step == 1.0, "{l:?}");
+        assert_eq!((l.dev.2, l.dev.3), (1280, 1024));
+        assert_eq!((l.alloc().2, l.alloc().3), (640, 512));
     }
 
     #[test]
-    fn a_view_too_small_for_1x_shrinks_the_picture_smoothly() {
+    fn a_view_too_small_for_one_device_pixel_shrinks_the_picture_smoothly() {
         let l = layout(ViewScale::Fit, (640, 640), G, 1.0).unwrap();
         assert_eq!((rect(l), l.nearest), ((0, 64, 640, 512), false));
     }

@@ -88,6 +88,7 @@ struct ScreenView: View {
                 MachineDisplay(model: model)
                     .frame(width: size.width, height: size.height)
                     .bezel()
+                    .offset(Scaling.snap(container: geo.size, size: size, backing: scale))
                     .accessibilityLabel("\(model.name) screen")
                     .accessibilityHint("The machine's display. Keyboard and mouse go to the machine.")
                 if showHint {

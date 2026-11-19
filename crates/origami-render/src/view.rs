@@ -246,7 +246,6 @@ impl View {
     /// real one arrives.
     pub fn resize(&mut self, gpu: &Gpu, width: u32, height: u32, scale: f64) {
         self.scale = scale;
-        self.blit.set_device_scale(scale as f32);
         if width == 0 || height == 0 {
             self.config.width = 0;
             self.config.height = 0;
@@ -283,7 +282,7 @@ impl View {
 
     /// Where a picture of `head` pixels is drawn in this view under `mode`.
     pub fn layout(&self, head: (u32, u32), mode: ScaleMode) -> crate::Layout {
-        crate::layout(self.size(), head, mode, self.scale as f32)
+        crate::layout(self.size(), head, mode)
     }
 
     /// [`render_image`] at the view's size. Waits for the GPU: for self-tests,
@@ -670,7 +669,7 @@ mod tests {
     }
 
     /// The shader must put the picture where `layout` says: whole device
-    /// pixels at 2x when they give one logical pixel per guest pixel.
+    /// pixels while at least one fits per guest pixel.
     #[test]
     fn fit_device_draws_where_the_layout_says() {
         let Some(gpu) = gpu() else { return };
@@ -703,7 +702,6 @@ mod tests {
             view_formats: &[],
         });
         let blit = Blit::with_format(&gpu, F::Bgra8Unorm);
-        blit.set_device_scale(2.0);
         blit.draw(
             &gpu,
             &target.create_view(&Default::default()),
@@ -714,7 +712,7 @@ mod tests {
         );
         let out = read_back(&gpu, &target);
         let at = |x: usize, y: usize| out[(y * 64 + x) * 4..][..4].to_vec();
-        let l = crate::layout((64, 32), (w, h), ScaleMode::FitDevice, 2.0);
+        let l = crate::layout((64, 32), (w, h), ScaleMode::FitDevice);
         assert_eq!((l.x, l.y, l.width, l.height), (2.0, 4.0, 60.0, 24.0));
         let bg = vec![16, 16, 16, 255];
         assert_eq!(

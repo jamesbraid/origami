@@ -123,7 +123,7 @@
 #define ORIGAMI_SCALE_INTEGER 0
 
 // Biggest picture that fits: whole device pixels, nearest, while that is at
-// least one logical pixel per guest pixel; below that a smooth fractional fill.
+// least one device pixel per guest pixel; below that a smooth fractional fill.
 #define ORIGAMI_SCALE_FIT 1
 
 // A key position on a US keyboard, numbered from 0 in this order.
