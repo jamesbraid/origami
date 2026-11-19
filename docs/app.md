@@ -12,7 +12,7 @@ create a machine in one and run it from the other.
 |---|---|---|
 | ![Linux](images/app/linux-running.png) | ![macOS](images/app/macos-library.png) | ![Windows](images/app/windows-running.png) |
 
-The walkthrough below uses the Linux app; macOS and Windows have the same
+The walkthrough below shows the Linux app; macOS and Windows have the same
 windows with their own look and shortcuts.
 
 This guide follows one session: create a machine, pick an engine, start it,
@@ -22,8 +22,8 @@ panel and About.
 ## Get the app
 
 Each release has an app archive per platform next to the command-line one:
-`origami-0.6.0-linux-x86_64-app.tar.gz`, `origami-0.6.0-macos-arm64-app.zip`
-and `origami-0.6.0-windows-x86_64-app.zip`. Extract it, keep the extracted
+`origami-VERSION-linux-x86_64-app.tar.gz`, `origami-VERSION-macos-arm64-app.zip`
+and `origami-VERSION-windows-x86_64-app.zip`. Extract it, keep the extracted
 files together, and start `bin/origami-gtk` (Linux), `Origami.app` (macOS) or
 the executable in the `app` folder (Windows). The first time a machine needs
 firmware, the app downloads and checks it, as `origami create` does.
@@ -75,7 +75,7 @@ lists the presets.
 
 ## Start it
 
-Select the machine (the window picture above) and press Start (Ctrl+Shift+R; Cmd+R on macOS). The
+Select the machine and press Start (Ctrl+Shift+R; Cmd+R on macOS). The
 machine's page shows a starting screen while the emulator launches. Until it
 is up, the button reads Force Quit rather than Power Off.
 
@@ -112,12 +112,13 @@ Linux, select with the mouse and copy with Ctrl+Shift+C, paste with
 Ctrl+Shift+V or Shift+Insert, and scroll back with the mouse wheel or
 Shift+Page Up.
 
-This one shows the PROM's power-on messages on a machine whose console was set
-to the serial line with `origami nvram MACHINE set console=d`. A machine
-whose console is graphics prints little here. The NVRAM checksum warning and
-the failed disk diagnostics are normal on a new machine's first boot: the PROM
-sets up its NVRAM and finds no disks yet. See
+A machine whose console is set to a serial line prints its PROM and system
+messages here; one whose console is graphics prints little. Set the line with
+`origami nvram MACHINE set console=d`; see
 [Which serial line is the console](usage.md#which-serial-line-is-the-console).
+On a new machine's first boot the PROM warns about the NVRAM checksum and
+reports failed disk diagnostics. Both are normal until an operating system is
+installed.
 
 ## Pause and resume
 
@@ -156,8 +157,7 @@ When a machine stops unexpectedly, the report's Reason and Last error say why.
 The CPU button shows a bar for each emulated CPU under the picture, user time
 in blue and system time in red, with the total at the right. The numbers are
 measured on your computer, not inside the guest, so they show how hard the
-emulation works, not what IRIX reports. The PROM's menu keeps its CPU busy,
-which is why this one reads 100%. The panel updates twice a second while it is
+emulation works, not what IRIX reports. The panel updates twice a second while it is
 shown and does no work when hidden.
 
 ## Settings
@@ -173,10 +173,7 @@ machine refuses edits; stop it first.
 
 ![The About window](images/app/linux-about.png)
 
-About shows the version, credits for the backdrop photographs and the
-licence. This is the plain dialog you get without a GPU; with one the window
-also shows a chrome cube. The version here, 0.0.0, is a development build's; a
-release shows its own.
+About shows the version, the credits and the licence.
 
 ## The same from the command line
 
