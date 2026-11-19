@@ -47,6 +47,10 @@ public static class Selftest
     {
         // Only the capture workflow answers these requests; a release self-test has no one to ask.
         if (Environment.GetEnvironmentVariable("ORIGAMI_CAPTURES") != "1") return;
+        // An inactive window draws its title bar greyed: bring the target to the front first and record whether the OS allowed it.
+        Win.Foreground(hwnd);
+        var front = await Until(() => Win.IsForeground(hwnd), 3000);
+        Add("foreground for " + name, true, front ? "foreground" : $"not foreground (fg=0x{Win.ForegroundHandle().ToInt64():x}, target=0x{hwnd.ToInt64():x})");
         File.WriteAllText(Path.Combine(dir, $"want-{name}.txt"), hwnd.ToInt64().ToString());
         Add("capture " + name, await Until(() => File.Exists(Path.Combine(dir, $"got-{name}.txt")), 20_000));
     }
@@ -166,6 +170,10 @@ public static class Selftest
         if (disp.Verify(out _) is { } rb) Add("fallback readback taken", true, $"{rb.Length} bytes");
         try { await Shot.Xaml((Microsoft.UI.Xaml.UIElement)w.Content, Path.Combine(dir, "xaml.png")); } catch { }
 
+        // The workflow's window capture of the running app follows: an inactive window draws its title bar greyed.
+        Win.Foreground(w.Hwnd);
+        var front = await Until(() => Win.IsForeground(w.Hwnd), 3000);
+        Add("foreground for window", true, front ? "foreground" : $"not foreground (fg=0x{Win.ForegroundHandle().ToInt64():x})");
         File.WriteAllText(Path.Combine(dir, "ready.txt"), "ready");
         await Until(() => File.Exists(Path.Combine(dir, "done.txt")), 15_000);
 

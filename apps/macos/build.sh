@@ -76,7 +76,7 @@ cat > $app/Contents/Info.plist <<PLIST
 <key>CFBundleIconFile</key><string>Origami</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>0</string>
-<key>CFBundleShortVersionString</key><string>0.6.0-dev</string>
+<key>CFBundleShortVersionString</key><string>${ORIGAMI_VERSION:-0.6.0-dev}</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSPrincipalClass</key><string>NSApplication</string>

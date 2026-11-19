@@ -29,16 +29,27 @@ func runDocsShots(library: String, out: String) {
     }
     /// The window as the screen shows it, from the window server, with no shadow.
     func capture(_ win: NSWindow, _ name: String, settle: Double = 3, hide: Bool = true, after: (() -> Void)? = nil) {
-        win.makeKeyAndOrderFront(nil)
+        func activate() {
+            NSApp.activate(ignoringOtherApps: true)
+            win.makeKeyAndOrderFront(nil)
+            win.makeKey()
+        }
+        activate()
         spin(2)
         after?()
         spin(settle)
+        // An inactive window draws grey traffic lights and the grey selection: wait for key before capturing.
+        activate()
+        if !waitFor(10, { win.isKeyWindow && NSApp.isActive }) {
+            FileHandle.standardError.write(Data("docs-shots: \(name): window is not key (app active \(NSApp.isActive))\n".utf8))
+        }
+        spin(0.5)
         let file = "\(out)/\(name).png"
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        p.arguments = ["-x", "-o", "-l", "\(win.windowNumber)", file]
-        try? p.run(); p.waitUntilExit()
-        guard p.terminationStatus == 0, FileManager.default.fileExists(atPath: file) else { fail("screencapture of \(name) failed (status \(p.terminationStatus))") }
+        // The app is started through LaunchServices to be frontmost, and a window server capture needs the launcher's
+        // permission, not ours: the script that started us takes it when asked by file (want-NAME.txt, then got-NAME.txt).
+        try? "\(win.windowNumber)".write(toFile: "\(out)/want-\(name).txt", atomically: true, encoding: .utf8)
+        guard waitFor(60, { FileManager.default.fileExists(atPath: "\(out)/got-\(name).txt") }),
+              FileManager.default.fileExists(atPath: file) else { fail("the capture of \(name) was not made") }
         if hide { win.orderOut(nil) }
     }
 
@@ -66,6 +77,12 @@ func runDocsShots(library: String, out: String) {
         guard let tiff = result.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { fail("cannot encode \(name)") }
         try? png.write(to: URL(fileURLWithPath: file))
         try? FileManager.default.removeItem(at: guest)
+    }
+
+    /// The library list draws its selection in the accent colour only while it is the first responder.
+    func focusLibrary(_ win: NSWindow) {
+        func table(_ v: NSView) -> NSTableView? { (v as? NSTableView) ?? v.subviews.lazy.compactMap(table).first }
+        if let content = win.contentView, let t = table(content) { win.makeFirstResponder(t) }
     }
 
     #if FAKE
@@ -102,7 +119,7 @@ func runDocsShots(library: String, out: String) {
     guard let model = app.models.first else { fail("no machine in \(library)") }
     app.select(model.id)
     let main = window("Origami", MainView(), 1100, 720)
-    capture(main, "macos-library", hide: false)
+    capture(main, "macos-library", hide: false, after: { focusLibrary(main) })
 
     var started = false
     model.start { _ in started = true }
@@ -113,10 +130,10 @@ func runDocsShots(library: String, out: String) {
     guard waitFor(120, { model.state == .running }) else { fail("the machine did not reach Running (\(model.state.pill))") }
     // The PROM takes a while to draw its menu.
     spin(90)
-    capture(main, "macos-running", settle: 3, hide: false)
+    capture(main, "macos-running", settle: 3, hide: false, after: { focusLibrary(main) })
     laidOverPicture(main, model, "macos-running")
     app.showsCpu = true
-    capture(main, "macos-cpu-panel", settle: 4, hide: false)
+    capture(main, "macos-cpu-panel", settle: 4, hide: false, after: { focusLibrary(main) })
     laidOverPicture(main, model, "macos-cpu-panel")
     app.showsCpu = false
     capture(window("Diagnostics", DiagnosticsView(), 640, 400), "macos-diagnostics")

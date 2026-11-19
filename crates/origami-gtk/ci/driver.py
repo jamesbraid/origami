@@ -1037,6 +1037,11 @@ def doc_shot(name, title="Origami"):
     if not ids:
         check("a window titled %s to photograph for %s" % (title, name), False, sh("wmctrl", "-l").stdout)
         return
+    # A window without focus draws in its backdrop state (dimmed header): raise it and check it has focus.
+    sh("xdotool", "windowactivate", "--sync", ids[-1])
+    time.sleep(0.5)
+    focused = sh("xdotool", "getwindowfocus").stdout.strip()
+    check("%s has focus when photographed" % name, focused == ids[-1], [focused, ids[-1]])
     g = dict(l.split("=") for l in sh("xdotool", "getwindowgeometry", "--shell", ids[-1]).stdout.split())
     root = shot("_root")
     p = os.path.join(out, name + ".png")

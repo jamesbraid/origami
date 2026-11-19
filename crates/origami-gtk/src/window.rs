@@ -1366,7 +1366,7 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
 /// The About window: the cube on granite, the version and the photographs'
 /// credits. Without a GPU for the cube it is the stock dialog.
 fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
-    let version = env!("CARGO_PKG_VERSION");
+    let version = option_env!("ORIGAMI_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
     let dark = adw::StyleManager::default().is_dark();
     let scene = crate::cube::about_scene();
     let Some(cube) = crate::cube::Cube::new(160, crate::cube::about_style(dark, scene)) else {

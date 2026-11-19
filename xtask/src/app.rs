@@ -89,7 +89,7 @@ fn pack_app(product: &Product, stage: &Path) -> Result<()> {
 
 fn linux(product: &Product) -> Result<()> {
     require("crates/origami-gtk", "the GTK app")?;
-    run(cargo(&[
+    let mut build = cargo(&[
         "build",
         "--release",
         "--locked",
@@ -103,7 +103,10 @@ fn linux(product: &Product) -> Result<()> {
         "origami",
         "--features",
         "origami-gtk/iris,origami/iris",
-    ]))?;
+    ]);
+    // The About window shows this; Cargo's own version is a placeholder.
+    build.env("ORIGAMI_VERSION", product.version);
+    run(build)?;
     archive::copy_file(
         &target_dir().join("release/origami-gtk"),
         &product.stage.join("bin/origami-gtk"),
@@ -215,7 +218,13 @@ fn windows(product: &Product, options: &crate::Options) -> Result<()> {
     dotnet
         .args(["publish"])
         .arg(app_project.join("Origami.App.csproj"))
-        .args(["-c", "Release", "-p:Platform=x64", "-p:Qemu=true", "-o"])
+        .args(["-c", "Release", "-p:Platform=x64", "-p:Qemu=true"])
+        // The assembly version is numeric: the tag part of the description.
+        .arg(format!(
+            "-p:Version={}",
+            product.version.split('-').next().unwrap_or("0.0.0")
+        ))
+        .arg("-o")
         .arg(&publish);
     run(dotnet)?;
     archive::copy_tree(&publish, &product.stage.join("app"))?;
