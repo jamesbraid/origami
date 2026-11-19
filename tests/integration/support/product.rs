@@ -177,7 +177,7 @@ impl Product {
     /// True when `origami status` says the machine is not running.
     pub fn stopped(&self, machine: &Path) -> bool {
         self.origami([OsStr::new("status"), machine.as_os_str()])
-            .map(|o| o.stdout.trim() == "stopped")
+            .map(|o| o.stdout.starts_with("stopped"))
             .unwrap_or(false)
     }
 }

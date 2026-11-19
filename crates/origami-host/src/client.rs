@@ -94,6 +94,8 @@ pub fn runner_gone(dir: &Path, record: &Record) -> Result<bool> {
 /// runner to ask, quit QEMU over QMP as before.
 pub fn stop(dir: &Path) -> Result<()> {
     let record = read(dir)?;
+    // The runner reads this at the exit, so `status` can say the stop was asked for.
+    origami_machine::control::note_stop(dir, "stop");
     if let Some(mut client) = connect(&record) {
         let request = Request::Stop {
             clean: true,
@@ -103,7 +105,8 @@ pub fn stop(dir: &Path) -> Result<()> {
             return qemu::wait_for_exit(dir);
         }
     }
-    qemu::stop(dir)
+    // A stop that fails leaves the machine running; a later exit is not ours.
+    qemu::stop(dir).inspect_err(|_| origami_machine::control::clear_exit(dir))
 }
 
 /// Connect this terminal to the machine's console. A lease notice from the

@@ -122,6 +122,30 @@ pub enum ExitReason {
     RunnerError,
 }
 
+/// Why a program that exited did, and what it said or how it ended.
+pub(crate) fn classify_exit(
+    code: Option<i32>,
+    signal: Option<i32>,
+    last_error: Option<String>,
+    requested: Option<StopKind>,
+) -> (ExitReason, Option<String>) {
+    let how = match (code, signal) {
+        (Some(0), _) => None,
+        (Some(code), _) => Some(format!("exit status {code}")),
+        (None, Some(signal)) => Some(format!("signal {signal}")),
+        (None, None) => None,
+    };
+    let reason = match (code, signal) {
+        // A forced stop kills QEMU, so a signal after one is ours.
+        (None, Some(_)) if requested == Some(StopKind::Force) => ExitReason::HostStopped,
+        (Some(0), _) if requested.is_some() => ExitReason::HostStopped,
+        (Some(0), _) => ExitReason::GuestPoweredOff,
+        (None, None) => ExitReason::RunnerError,
+        _ => ExitReason::Crashed,
+    };
+    (reason, last_error.or(how))
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Idle,
@@ -705,23 +729,7 @@ impl MachineInner {
                 signal,
                 last_error,
             }) => {
-                let how = match (code, signal) {
-                    (Some(0), _) => None,
-                    (Some(code), _) => Some(format!("exit status {code}")),
-                    (None, Some(signal)) => Some(format!("signal {signal}")),
-                    (None, None) => None,
-                };
-                let detail = last_error.clone().or(how);
-                let reason = match (code, signal) {
-                    // A forced stop kills QEMU, so a signal after one is ours.
-                    (None, Some(_)) if requested == Some(StopKind::Force) => {
-                        ExitReason::HostStopped
-                    }
-                    (Some(0), _) if requested.is_some() => ExitReason::HostStopped,
-                    (Some(0), _) => ExitReason::GuestPoweredOff,
-                    (None, None) => ExitReason::RunnerError,
-                    _ => ExitReason::Crashed,
-                };
+                let (reason, detail) = classify_exit(*code, *signal, last_error.clone(), requested);
                 (Some(reason), detail)
             }
             _ => (None, None),

@@ -25,6 +25,7 @@ pub use cpu::{CpuLoadReport, CpuLoadSource};
 pub use error::{CoreError, CoreResult, ErrorKind};
 pub use event::{Event, EventKind, Observer};
 pub use lease::{connect as connect_install_console, Cancel, InstallStart, Starter};
+pub(crate) use machine::classify_exit;
 pub use machine::{
     ConsoleChunk, ConsoleView, ExitReason, FrameHook, HeadView, HookId, Machine, MachineState,
     MachineView, StopKind,

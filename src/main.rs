@@ -357,7 +357,7 @@ fn command(action: Action) -> Result<()> {
             } else if control::is_locked(&dir)? {
                 emit(&Status::Starting.report());
             } else {
-                emit(&Status::Stopped.report());
+                emit(&Status::Stopped(control::read_exit(&dir)).report());
             }
         }
         Action::Console(args) => {

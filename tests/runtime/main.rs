@@ -98,7 +98,7 @@ fn start_and_stop(root: &Path, machine: &Path) -> Result<(), String> {
     run(root, "stop", machine, &[])?;
     let stopped = |machine: &Path| {
         run(root, "status", machine, &[])
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "stopped")
+            .map(|output| String::from_utf8_lossy(&output.stdout).starts_with("stopped"))
     };
     for _ in 0..200 {
         if stopped(machine)? {

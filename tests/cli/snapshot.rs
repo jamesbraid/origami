@@ -144,6 +144,7 @@ fn console_session(root: &Path, rec: &mut Recorder) {
     body.push_str(&String::from_utf8_lossy(&output.stderr));
     rec.section("origami console (scripted guest)", &body);
     rec.command(&["stop", path]);
+    rec.command(&["status", path]);
 }
 
 #[test]

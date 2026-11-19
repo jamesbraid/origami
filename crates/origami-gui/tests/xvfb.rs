@@ -1478,7 +1478,7 @@ fn irix_serial_login_command_scrollback_copy_paste_logs_and_restart() {
         "{status}"
     );
     wait_for("the runner to exit", Duration::from_secs(20), || {
-        run_ok(Command::new(&rig.origami).arg("status").arg(&machine)).trim() == "stopped"
+        run_ok(Command::new(&rig.origami).arg("status").arg(&machine)).starts_with("stopped")
     });
     shot("controls-1-stopped.png");
 
@@ -1566,7 +1566,7 @@ fn the_status_says_why_there_is_no_picture_and_the_controls_recover_it() {
     // The runner drops its run record, which the viewer goes by, a moment
     // before it lets go of the machine lock.
     wait_for("the runner to exit", Duration::from_secs(20), || {
-        run_ok(Command::new(&rig.origami).arg("status").arg(&machine)).trim() == "stopped"
+        run_ok(Command::new(&rig.origami).arg("status").arg(&machine)).starts_with("stopped")
     });
     shot("status-3-force-stopped.png");
 

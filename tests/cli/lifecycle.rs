@@ -20,7 +20,7 @@ fn a_machine_runs_in_the_background_and_stops() {
     let root = root.path();
     let machine = create(root, "machine", "origin200-1", &[]);
     let path = machine.to_str().unwrap();
-    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert!(ok(root, &["status", path]).starts_with("stopped"));
 
     let _guard = Running::new(root, &machine);
     let started = start(root, &machine);
@@ -47,7 +47,10 @@ fn a_machine_runs_in_the_background_and_stops() {
     );
 
     assert_eq!(ok(root, &["stop", path]).trim(), "stopped");
-    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert_eq!(
+        ok(root, &["status", path]).trim(),
+        "stopped (stop requested)"
+    );
     assert!(fake_log(&machine).contains(&"exit".to_string()));
     assert!(!machine.join("state/run.json").exists());
 }
@@ -77,7 +80,7 @@ fn stop_force_kills_qemu_without_a_clean_exit() {
     let _guard = Running::new(root, &machine);
     start(root, &machine);
     assert_eq!(ok(root, &["stop", "--force", path]).trim(), "stopped");
-    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert!(ok(root, &["status", path]).starts_with("stopped"));
     assert!(!fake_log(&machine).contains(&"exit".to_string()));
     assert!(!machine.join("state/run.json").exists());
     // It can be started again.
@@ -138,7 +141,7 @@ fn stop_waits_for_qemu_to_finish_folding() {
         String::from_utf8_lossy(&output.stderr)
     );
     // It is stopped now, not stopping.
-    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert!(ok(root, &["status", path]).starts_with("stopped"));
     assert!(fake_log(&machine).contains(&"exit".to_string()));
 }
 
@@ -164,7 +167,7 @@ fn qemu_that_exits_before_it_is_ready_is_reported_with_its_message() {
         error.contains("full log:") && error.contains("runner.log"),
         "{error}"
     );
-    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert!(ok(root, &["status", path]).starts_with("stopped"));
     // The failure left nothing behind that blocks the next start.
     start(root, &machine);
     let _guard = Running::new(root, &machine);
@@ -190,7 +193,7 @@ fn qemu_that_never_opens_qmp_is_killed_and_reported() {
     );
     assert!(!machine.join("state/run.json").exists());
     // The supervisor let go of the machine.
-    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert!(ok(root, &["status", path]).starts_with("stopped"));
 }
 
 #[test]
@@ -212,7 +215,7 @@ fn qemu_that_accepts_qmp_but_never_answers_is_not_a_started_machine() {
         error.contains("did not open its QMP control endpoint"),
         "{error}"
     );
-    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert!(ok(root, &["status", path]).starts_with("stopped"));
 }
 
 #[test]
@@ -235,9 +238,14 @@ fn a_machine_whose_qemu_crashes_is_stopped_and_can_start_again() {
     wait_until(
         "the crashed machine to read as stopped",
         Duration::from_secs(20),
-        || ok(root, &["status", path]).trim() == "stopped",
+        || ok(root, &["status", path]).starts_with("stopped"),
     );
     assert!(!machine.join("state/run.json").exists());
+    let status = ok(root, &["status", path]);
+    assert!(
+        status.starts_with("stopped unexpectedly (crashed"),
+        "{status}"
+    );
     let _guard = Running::new(root, &machine);
     start(root, &machine);
 }
@@ -310,7 +318,7 @@ fn a_run_record_left_by_a_dead_machine_is_not_a_running_machine() {
         ),
     )
     .unwrap();
-    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
+    assert!(ok(root, &["status", path]).starts_with("stopped"));
     let error = fail(root, &["stop", path]);
     assert!(!error.is_empty());
     // The stale record does not stop a start from replacing it.

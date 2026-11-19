@@ -115,7 +115,7 @@ impl Product {
 
     pub fn is_stopped(&self, machine: &Path) -> bool {
         self.origami([OsStr::new("status"), machine.as_os_str()])
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "stopped")
+            .map(|o| String::from_utf8_lossy(&o.stdout).starts_with("stopped"))
             .unwrap_or(false)
     }
 }

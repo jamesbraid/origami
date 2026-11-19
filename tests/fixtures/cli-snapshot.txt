@@ -1460,3 +1460,8 @@ exit 0
 --- stdout
 stopped
 --- stderr
+=== origami status <ROOT>/console
+exit 0
+--- stdout
+stopped (stop requested)
+--- stderr
