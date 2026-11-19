@@ -167,6 +167,7 @@ def ocr(png):
 # and the words any hinv has.
 HINV_IDENTITY = ("IP30", "R12000")
 HINV_OTHER = ("MHZ", "PROCESSOR", "MEMORY", "CACHE", "ETHERNET")
+PAUSE_TIP = "Pause or resume the machine (Ctrl+P)"
 
 
 def _like(word, want, ratio):
@@ -505,10 +506,12 @@ def first_light(quick=False):
             return
         shot("04-prom")
         check("picture equals QMP screendump (0 pixels differ)", c["differing_pixels"] == 0, c)
-        check("the toolbar offers Pause", a.state()["pause_tip"] == "Pause", a.state()["pause_tip"])
+        tips = a.state()["toolbar_tips"]
+        check("every toolbar button has a tooltip", bool(tips) and all(tips), tips)
+        check("the toolbar offers Pause", a.state()["pause_tip"] == PAUSE_TIP, a.state()["pause_tip"])
         a.req("invoke machine.pause octane2")
         check("Pause pauses the machine", a.wait("Paused", lambda: a.machine("octane2")["state"] == "Paused", 15, 0.2) is not None, a.machine("octane2")["state"])
-        check("and the button becomes Resume", a.state()["pause_tip"] == "Resume", a.state()["pause_tip"])
+        check("and its tooltip names both actions", a.state()["pause_tip"] == PAUSE_TIP, a.state()["pause_tip"])
         a.req("invoke machine.resume octane2")
         check("Resume runs it again", a.wait("Running", lambda: a.machine("octane2")["state"] == "Running", 15, 0.2) is not None, a.machine("octane2")["state"])
         if mode == "x11":

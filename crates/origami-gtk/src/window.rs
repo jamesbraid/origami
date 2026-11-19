@@ -33,8 +33,9 @@ pub struct Win {
     pub pill: gtk::Label,
     pub power_btn: gtk::Button,
     pub pause_btn: gtk::Button,
+    /// Every header button, for the automation's tooltip check.
+    pub toolbar: Vec<gtk::Widget>,
     pub cpu_btn: gtk::ToggleButton,
-    pub pointer_btn: gtk::MenuButton,
     pub scale_btn: gtk::MenuButton,
     pub stack: gtk::Stack,
     pub list: gtk::ListBox,
@@ -200,21 +201,22 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
 
     let power_btn = gtk::Button::builder()
         .label("Start")
+        .tooltip_text("Start the machine (Ctrl+Shift+R)")
         .action_name("win.machine.start")
         .css_classes(["suggested-action"])
         .build();
     let pause_btn = gtk::Button::builder()
         .icon_name("media-playback-pause-symbolic")
-        .tooltip_text("Pause")
+        .tooltip_text("Pause or resume the machine (Ctrl+P)")
         .action_name("win.machine.pause")
         .build();
     let cpu_btn = gtk::ToggleButton::builder()
         .label("CPU")
-        .tooltip_text("Show the emulated CPUs' load")
+        .tooltip_text("Show or hide the emulated CPU load")
         .build();
     let pointer_btn = gtk::MenuButton::builder()
         .icon_name("input-mouse-symbolic")
-        .tooltip_text("Pointer mode")
+        .tooltip_text("Pointer mode: follow my mouse or capture on click")
         .build();
     let pm = gio::Menu::new();
     pm.append(Some("Follow My Mouse"), Some("win.machine.pointer-follow"));
@@ -225,19 +227,19 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     pointer_btn.set_menu_model(Some(&pm));
     let console_btn = gtk::Button::builder()
         .icon_name("utilities-terminal-symbolic")
-        .tooltip_text("Console")
+        .tooltip_text("Open the machine's serial console (Ctrl+Shift+O)")
         .action_name("win.window.console")
         .build();
     let settings_btn = gtk::Button::builder()
         .icon_name("emblem-system-symbolic")
-        .tooltip_text("Settings")
+        .tooltip_text("Open the machine's settings (Ctrl+Shift+I)")
         .action_name("win.machine.settings")
         .build();
     let menu_btn = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
         .menu_model(&menu_model(&app.commands))
         .primary(true)
-        .tooltip_text("Main menu")
+        .tooltip_text("Open the main menu")
         .build();
     let header = adw::HeaderBar::new();
     let sidebar_toggle = gtk::ToggleButton::builder()
@@ -324,6 +326,18 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     row_menu.set_parent(&list_host);
     row_menu.set_has_arrow(false);
     row_menu.set_halign(gtk::Align::Start);
+    let toolbar: Vec<gtk::Widget> = [
+        power_btn.upcast_ref::<gtk::Widget>(),
+        pause_btn.upcast_ref(),
+        cpu_btn.upcast_ref(),
+        pointer_btn.upcast_ref(),
+        console_btn.upcast_ref(),
+        settings_btn.upcast_ref(),
+        menu_btn.upcast_ref(),
+    ]
+    .into_iter()
+    .cloned()
+    .collect();
     let w = Rc::new(Win {
         win: win.clone(),
         tv: tv.clone(),
@@ -334,8 +348,8 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         pill,
         power_btn,
         pause_btn,
+        toolbar,
         cpu_btn,
-        pointer_btn,
         scale_btn,
         stack,
         list: list.clone(),
@@ -1094,15 +1108,26 @@ pub fn refresh(app: &Rc<App>) {
                 w.scale_btn.set_label(&text);
                 w.scale_btn
                     .set_visible(!text.is_empty() && m.state.get().is_up());
-                w.pointer_btn
-                    .set_tooltip_text(Some(&format!("Pointer: {}", m.pointer.get().label())));
                 let up = m.state.get().is_up();
-                let (label, action) = match m.state.get() {
-                    State::Starting | State::Stopping => ("Force Quit", "win.machine.force-quit"),
-                    _ if up => ("Power Off", "win.machine.stop"),
-                    _ => ("Start", "win.machine.start"),
+                let (label, tip, action) = match m.state.get() {
+                    State::Starting | State::Stopping => (
+                        "Force Quit",
+                        "Force quit the emulator",
+                        "win.machine.force-quit",
+                    ),
+                    _ if up => (
+                        "Power Off",
+                        "Power off the machine (Ctrl+Shift+P)",
+                        "win.machine.stop",
+                    ),
+                    _ => (
+                        "Start",
+                        "Start the machine (Ctrl+Shift+R)",
+                        "win.machine.start",
+                    ),
                 };
                 w.power_btn.set_label(label);
+                w.power_btn.set_tooltip_text(Some(tip));
                 w.power_btn.set_action_name(Some(action));
                 if up {
                     w.power_btn.remove_css_class("suggested-action");
@@ -1115,8 +1140,6 @@ pub fn refresh(app: &Rc<App>) {
                 } else {
                     "media-playback-pause-symbolic"
                 });
-                w.pause_btn
-                    .set_tooltip_text(Some(if paused { "Resume" } else { "Pause" }));
                 w.pause_btn.set_action_name(Some(if paused {
                     "win.machine.resume"
                 } else {
@@ -1130,6 +1153,8 @@ pub fn refresh(app: &Rc<App>) {
                 w.pill.set_visible(false);
                 w.scale_btn.set_visible(false);
                 w.power_btn.set_label("Start");
+                w.power_btn
+                    .set_tooltip_text(Some("Start the machine (Ctrl+Shift+R)"));
                 w.power_btn.set_action_name(Some("win.machine.start"));
                 w.win.set_title(Some("Origami"));
             }

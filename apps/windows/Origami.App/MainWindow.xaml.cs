@@ -120,6 +120,19 @@ public sealed partial class MainWindow : Window
     public DisplayView DisplayViewForTest => Display;
     public bool DisplayVisibleForTest => Display.Visibility == Visibility.Visible;
 
+    /// <summary>The names of toolbar buttons with no tooltip.</summary>
+    public string[] ToolbarWithoutTipForTest => Toolbar.PrimaryCommands.OfType<FrameworkElement>()
+        .Where(e => (e is AppBarButton || e is AppBarToggleButton) && string.IsNullOrEmpty(ToolTipService.GetToolTip(e) as string))
+        .Select(e => e.Name).ToArray();
+
+    /// <summary>Presses a toolbar button the way a click does, through its automation pattern.</summary>
+    public void PressToolbarForTest(string name)
+    {
+        var peer = Microsoft.UI.Xaml.Automation.Peers.FrameworkElementAutomationPeer.CreatePeerForElement((FrameworkElement)((FrameworkElement)Content).FindName(name));
+        if (peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Toggle) is Microsoft.UI.Xaml.Automation.Provider.IToggleProvider t) t.Toggle();
+        else (peer.GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke) as Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)?.Invoke();
+    }
+
     /// <summary>A key pressed over the screen that matches a command's shortcut; true when a command took it.</summary>
     bool OnDisplayShortcut(int vk, bool ctrl, bool shift, bool alt)
     {

@@ -1032,6 +1032,28 @@ func runSelfTest(library: String, out: String) {
     check("diagnostics-report", report.contains(model.name) && report.contains("Engine: fake"), ["lines": report.split(separator: "\n").count])
     let running = snapshot(ScreenView(model: model).environmentObject(app), size: CGSize(width: 900, height: 700), to: "\(out)/ui-screen-view.png")
     check("ui-screen-view-renders", running.ok && running.colours > 5, ["distinct_colours_sampled": running.colours])
+    let tips = ToolbarTip.all
+    check("toolbar-buttons-have-tooltips", tips.count == 7 && tips.allSatisfy { !$0.isEmpty && !$0.contains("·") } && Set(tips).count == tips.count,
+          ["tips": tips])
+
+    // 7a2. The real toolbar of the main window: its items and tooltips, and a picture of it.
+    do {
+        let main = NSWindow(contentViewController: NSHostingController(rootView: MainView().environmentObject(app)))
+        main.styleMask = [.titled, .closable, .resizable]
+        main.setContentSize(NSSize(width: 1100, height: 720))
+        main.orderFront(nil)
+        spin(2)
+        let items = main.toolbar?.items ?? []
+        let named = items.filter { ToolbarTip.byLabel[$0.label] != nil }
+        check("toolbar-items-have-tooltips", named.count == 6 && named.allSatisfy { $0.toolTip == ToolbarTip.byLabel[$0.label] },
+              ["items": items.map { "\($0.label)|\($0.toolTip ?? "")|\($0.view?.toolTip ?? "")" }])
+        if let frame = main.contentView?.superview, let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
+            frame.cacheDisplay(in: frame.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(out)/ui-main-window.png"))
+        }
+        main.close()
+        app.openWindow = nil; app.openConsole = nil   // MainView set them to this window's environment
+    }
 
     // 7b. Pause and Resume.
     do {

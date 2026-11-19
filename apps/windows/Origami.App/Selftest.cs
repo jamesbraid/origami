@@ -317,6 +317,18 @@ public static class Selftest
         Check("console: the toolbar command opens the machine's console window", await Until(() => w.ConsolesOpen == 1, 3000), $"open: {w.ConsolesOpen}");
         w.CloseConsoles(); // the window would sit over the screen and take the clicks below
 
+        // --- toolbar: every button has a tooltip, and pressing one never moves or resizes the window ---
+        Check("toolbar: every button has a tooltip", w.ToolbarWithoutTipForTest.Length == 0, string.Join(",", w.ToolbarWithoutTipForTest));
+        string Frame() => $"{w.AppWindow.Position.X},{w.AppWindow.Position.Y} {w.AppWindow.Size.Width}x{w.AppWindow.Size.Height}";
+        var frame0 = Frame();
+        foreach (var name in new[] { "CpuButton", "CpuButton", "PointerButton", "PointerButton", "ConsoleButton" })
+        {
+            w.PressToolbarForTest(name);
+            await Task.Delay(400);
+            Check($"toolbar: pressing {name} keeps the window frame", Frame() == frame0, $"{frame0} -> {Frame()}");
+        }
+        w.CloseConsoles();
+
         // --- keyboard, real scancodes through the OS ---
         Win.Foreground(w.Hwnd);
         disp.FocusDisplay();

@@ -38,24 +38,24 @@
                     <CommandBar x:Name="Toolbar" Grid.Column="1" DefaultLabelPosition="Collapsed" IsOpen="False"
                                 Background="Transparent" TitleBar.IsDragRegion="False">
                         <AppBarButton x:Name="StartButton" Icon="Play" Label="Start"
-                                      AutomationProperties.AutomationId="cmd.start" ToolTipService.ToolTip="Start"/>
+                                      AutomationProperties.AutomationId="cmd.start" ToolTipService.ToolTip="Start the machine (Ctrl+Shift+R)"/>
                         <AppBarButton x:Name="PowerOffButton" Icon="Stop" Label="Power Off"
-                                      AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power Off"/>
+                                      AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power off the machine (Ctrl+Shift+P)"/>
                         <AppBarSeparator/>
                         <AppBarButton x:Name="PauseButton" Icon="Pause" Label="Pause"
-                                      AutomationProperties.AutomationId="cmd.pause" ToolTipService.ToolTip="Pause or resume the machine"/>
+                                      AutomationProperties.AutomationId="cmd.pause" ToolTipService.ToolTip="Pause or resume the machine (Ctrl+P)"/>
                         <AppBarButton x:Name="ConsoleButton" Icon="Message" Label="Console"
-                                      AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Open the machine's serial console"/>
+                                      AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Open the machine's serial console (Ctrl+Shift+O)"/>
                         <AppBarSeparator/>
                         <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" Label="Follow"
                                             AutomationProperties.AutomationId="cmd.pointermode"
-                                            ToolTipService.ToolTip="Pointer mode: Follow my mouse or Capture on click"/>
+                                            ToolTipService.ToolTip="Pointer mode: follow my mouse or capture on click (Ctrl+Shift+M)"/>
                         <AppBarToggleButton x:Name="CpuButton" Icon="Calculator" Label="CPU"
                                             AutomationProperties.AutomationId="cmd.cpu" ToolTipService.ToolTip="Show or hide the emulated CPU load"/>
                         <AppBarButton x:Name="SettingsButton" Icon="Setting" Label="Settings"
-                                      AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Settings"/>
+                                      AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Open the machine's settings (Ctrl+Shift+I)"/>
                         <AppBarButton x:Name="MoreButton" Icon="More" Label="Menu"
-                                      AutomationProperties.AutomationId="menu.more" ToolTipService.ToolTip="Menu">
+                                      AutomationProperties.AutomationId="menu.more" ToolTipService.ToolTip="Open the main menu">
                             <AppBarButton.Flyout>
                                 <MenuFlyout x:Name="Menus"/>
                             </AppBarButton.Flyout>

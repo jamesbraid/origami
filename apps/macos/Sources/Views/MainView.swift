@@ -42,6 +42,7 @@ struct MainView: View {
             .toolbar { MachineToolbar() }
         }
         .frame(minWidth: 820, minHeight: 560)
+        .background(ToolbarTooltips().frame(width: 0, height: 0))
         .onAppear {
             app.openWindow = { openWindow(id: $0) }
             app.openConsole = { openWindow(id: "console", value: $0) }
@@ -187,24 +188,67 @@ struct TabItem: View {
 
 // MARK: toolbar and status bar
 
+/// Tooltip wording for the toolbar buttons; the Windows and GTK apps use the same text.
+enum ToolbarTip {
+    static let start = "Start the machine (⌘R)"
+    static let power = "Power off, pause, reset or force quit the machine"
+    static let pointer = "Pointer mode: follow my mouse or capture on click"
+    static let console = "Open the machine's serial console (⌥⌘C)"
+    static let cpu = "Show or hide the emulated CPU load"
+    static let diagnostics = "Open the diagnostics report (⌥⌘L)"
+    static let settings = "Open the machine's settings (⌘I)"
+    static var all: [String] { [start, power, pointer, console, cpu, diagnostics, settings] }
+    /// By the toolbar item's label.
+    static let byLabel = ["Start": start, "Power": power, "Pointer": pointer, "Console": console,
+                          "CPU": cpu, "Diagnostics": diagnostics, "Settings": settings]
+}
+
+/// SwiftUI's `.help` does not reach the NSToolbarItem, so the items get their tooltips here.
+struct ToolbarTooltips: NSViewRepresentable {
+    final class TipView: NSView {
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); apply() }
+        func apply() {
+            // The items may not exist yet at the first call, so look again shortly after.
+            for delay in [0.0, 0.5, 1.5] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    for item in self?.window?.toolbar?.items ?? [] {
+                        if let tip = ToolbarTip.byLabel[item.label] { item.toolTip = tip }
+                    }
+                }
+            }
+        }
+    }
+    func makeNSView(context: Context) -> TipView { TipView() }
+    // The toolbar rebuilds its items when the machine or its state changes.
+    func updateNSView(_ view: TipView, context: Context) { view.apply() }
+}
+
 struct MachineToolbar: ToolbarContent {
     @EnvironmentObject var app: AppModel
 
+    // One item each: a tooltip on a button inside a shared group is not reliably shown.
     var body: some ToolbarContent {
-        ToolbarItem(placement: .principal) { if let m = app.current { PillItem(model: m) } }
-        ToolbarItemGroup(placement: .primaryAction) {
-            if let m = app.current {
-                PowerControl(model: m)
-                PointerControl(model: m)
-            }
+        // Items that need a machine are left out with it, so no empty capsule shows.
+        if let m = app.current {
+            ToolbarItem(placement: .principal) { PillItem(model: m) }
+            ToolbarItem(placement: .primaryAction) { PowerControl(model: m) }
+            ToolbarItem(placement: .primaryAction) { PointerControl(model: m) }
+        }
+        ToolbarItem(placement: .primaryAction) {
             Button { app.invoke(.console) } label: { Label("Console", systemImage: "terminal") }
-                .disabled(!app.isEnabled(.console)).help("Console (⌥⌘C)")
+                .disabled(!app.isEnabled(.console)).help(ToolbarTip.console)
+        }
+        ToolbarItem(placement: .primaryAction) {
             Toggle(isOn: $app.showsCpu) { Label("CPU", systemImage: "cpu") }
-                .toggleStyle(.button).help("Show the emulated CPUs' load")
+                .toggleStyle(.button).help(ToolbarTip.cpu)
+        }
+        ToolbarItem(placement: .primaryAction) {
             Button { app.invoke(.diagnostics) } label: { Label("Diagnostics", systemImage: "waveform.path.ecg") }
-                .disabled(!app.isEnabled(.diagnostics)).help("Diagnostics")
+                .disabled(!app.isEnabled(.diagnostics)).help(ToolbarTip.diagnostics)
+        }
+        ToolbarItem(placement: .primaryAction) {
             Button { app.invoke(.settings) } label: { Label("Settings", systemImage: "gearshape") }
-                .disabled(!app.isEnabled(.settings)).help("Settings")
+                .disabled(!app.isEnabled(.settings)).help(ToolbarTip.settings)
         }
     }
 }
@@ -231,7 +275,7 @@ struct PowerControl: View {
     var body: some View {
         if model.canStart {
             Button { app.invoke(.start) } label: { Label("Start", systemImage: "play.fill") }
-                .help("Start (⌘R)")
+                .help(ToolbarTip.start)
         } else {
             Menu {
                 Button("Power Off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
@@ -242,7 +286,7 @@ struct PowerControl: View {
                 Divider()
                 Button("Force Quit Emulator…") { app.invoke(.forceQuit) }.disabled(!app.isEnabled(.forceQuit))
             } label: { Label("Power", systemImage: "power") }
-            .help("Power")
+            .help(ToolbarTip.power)
         }
     }
 }
@@ -255,7 +299,7 @@ struct PointerControl: View {
             Label("Capture on click", systemImage: "cursorarrow.click.2").tag(PointerMode.capture)
         }
         .pickerStyle(.segmented)
-        .help(model.pointerMode == .follow ? "The guest's pointer follows your mouse" : "Click the screen to capture the mouse; ⌃⌥ releases")
+        .help(ToolbarTip.pointer)
         .accessibilityLabel("Pointer mode")
     }
 }
