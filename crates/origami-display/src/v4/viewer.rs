@@ -2,6 +2,7 @@
 //! wake-ups and input. One thread runs [`Viewer::run`]; any thread may take
 //! frames and send input. A GPU frame carries its lease as `ImportedUpdate::hold`.
 
+use super::follow::{Cursor, Item, Link};
 use super::regions::{Mapping, StateView};
 use super::session::{
     Event, FrameLease, HelloParams, Previous, Session, SessionError, SessionHandle,
@@ -88,6 +89,7 @@ pub struct Viewer {
     hello: HelloParams,
     /// How the last connection ended, for the next `HELLO` on Windows.
     prev: Mutex<Option<Previous>>,
+    follow: Mutex<Option<Arc<Link>>>,
 }
 
 impl Default for Viewer {
@@ -118,6 +120,7 @@ impl Viewer {
             state_view: Mutex::new(None),
             hello,
             prev: Mutex::new(None),
+            follow: Mutex::new(None),
         }
     }
 
@@ -269,6 +272,7 @@ impl Viewer {
                 }
             }
         }
+        let follow = self.start_follow(&session, &handle);
         let result = loop {
             match session.recv(None) {
                 Ok(Some(event)) => {
@@ -280,6 +284,11 @@ impl Viewer {
                 Err(e) => break Err(e),
             }
         };
+        *lock(&self.follow) = None;
+        if let Some((link, thread)) = follow {
+            link.stop();
+            let _ = thread.join();
+        }
         *lock(&self.prev) = Some(Previous {
             viewer_id: session.welcome.viewer_id,
             session_id: session.welcome.session_id,
@@ -306,6 +315,38 @@ impl Viewer {
         drop(dead);
         wake();
         result
+    }
+
+    /// Follow the pointer here when the producer publishes the guest's cursor
+    /// for steering. Only on one head: with more, QEMU knows which head the
+    /// cursor is on and steers itself.
+    fn start_follow(
+        &self,
+        session: &Session,
+        handle: &SessionHandle,
+    ) -> Option<(Arc<Link>, std::thread::JoinHandle<()>)> {
+        let accept = session
+            .welcome
+            .accepts
+            .iter()
+            .find(|a| a.name == STEERING)?;
+        let block = u32::from_le_bytes(accept.payload.get(..4)?.try_into().ok()?) as usize;
+        let view = session.state.clone();
+        let sink = handle.clone();
+        let link = Arc::new(Link::new(
+            Box::new(move || {
+                let (seq, kind, x, y) = view.steer(block)?;
+                (kind != 0).then_some(Cursor { seq, x, y })
+            }),
+            Box::new(move |m| sink.send(m)),
+        ));
+        let serving = link.clone();
+        let thread = std::thread::Builder::new()
+            .name("origami-follow".into())
+            .spawn(move || serving.serve())
+            .ok()?;
+        *lock(&self.follow) = Some(link.clone());
+        Some((link, thread))
     }
 
     /// Record a head's description. Returns a frame of the old mode, to be
@@ -625,21 +666,38 @@ impl Viewer {
 
     /// Send typed input as one report.
     pub fn send_input(&self, events: &[InputEvent]) -> Result<()> {
-        let mut out = Vec::with_capacity(events.len() * 24 + 16);
         let head = self.first_head();
+        let handle = lock(&self.session).clone();
+        // Follow only while there is one head and its size is known.
+        let size = handle
+            .as_ref()
+            .filter(|h| h.head_count() == 1)
+            .and_then(|_| self.head_size(0));
+        let mut items = Vec::with_capacity(events.len());
         for e in coalesce(events) {
             match e {
                 InputEvent::Key { key, down } => {
-                    out.extend(wire::key(head, evdev(key), u32::from(down)));
+                    items.push(Item::Press(
+                        wire::key(head, evdev(key), u32::from(down)),
+                        false,
+                    ));
                 }
-                InputEvent::PointerMove { dx, dy } => out.extend(wire::rel(head, dx, dy)),
+                InputEvent::PointerMove { dx, dy } => {
+                    items.push(Item::Stop(wire::rel(head, dx, dy)))
+                }
                 InputEvent::PointerAt { head, x, y } => {
                     // A relative pointer without steering has no place to go to.
-                    if matches!(
+                    let abs = if matches!(
                         self.pointer_mode(head),
                         Some(wire::POINTER_ABSOLUTE | wire::POINTER_STEERED)
                     ) {
-                        out.extend(wire::abs(head, x, y));
+                        wire::abs(head, x, y)
+                    } else {
+                        vec![]
+                    };
+                    match size {
+                        Some((w, h)) if head == 0 => items.push(Item::At { x, y, w, h, abs }),
+                        _ => items.push(Item::Stop(abs)),
                     }
                 }
                 InputEvent::Button { button, down } => {
@@ -648,27 +706,49 @@ impl Viewer {
                         PointerButton::Middle => 1,
                         PointerButton::Right => 2,
                     };
-                    out.extend(wire::button(head, n, u32::from(down)));
+                    items.push(Item::Press(wire::button(head, n, u32::from(down)), true));
                 }
                 InputEvent::Wheel { notches } => {
                     let n = if notches > 0 { 3 } else { 4 };
                     // The producer takes at most 64 notches in 10 ms.
                     for _ in 0..notches.unsigned_abs().min(64) {
-                        out.extend(wire::button(head, n, 1));
-                        out.extend(wire::button(head, n, 0));
+                        items.push(Item::Press(wire::button(head, n, 1), true));
+                        items.push(Item::Press(wire::button(head, n, 0), true));
                     }
                 }
             }
         }
+        if let Some(link) = lock(&self.follow).clone() {
+            return Ok(link.send(head, items)?);
+        }
+        let mut out: Vec<u8> = items
+            .into_iter()
+            .flat_map(|i| match i {
+                Item::Press(m, _) | Item::Stop(m) => m,
+                Item::At { abs, .. } => abs,
+            })
+            .collect();
         if out.is_empty() {
             return Ok(());
         }
         out.extend(wire::sync(0, 0));
-        let handle = lock(&self.session)
-            .clone()
-            .ok_or("the machine's display is not connected")?;
-        handle.send(&out)?;
+        handle
+            .ok_or("the machine's display is not connected")?
+            .send(&out)?;
         Ok(())
+    }
+
+    /// Where the guest last drew its cursor, as (seq, x, y), when the
+    /// pointer follows the host's here.
+    pub fn followed_cursor(&self) -> Option<(u32, i32, i32)> {
+        let c = lock(&self.follow).as_ref()?.cursor()?;
+        Some((c.seq, c.x, c.y))
+    }
+
+    fn head_size(&self, head: usize) -> Option<(i32, i32)> {
+        let st = lock(&self.state);
+        let i = st.heads.get(head)?.info.as_ref()?;
+        (i.width > 0 && i.height > 0).then_some((i.width as i32, i.height as i32))
     }
 }
 

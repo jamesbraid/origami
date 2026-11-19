@@ -413,6 +413,23 @@ impl StateView {
         }
     }
 
+    /// The `qemu.pointer-steering` block at `offset`: where the guest drew
+    /// its cursor, as (seq, kind, x, y). Kind 0 means it has drawn none.
+    pub fn steer(&self, offset: usize) -> Option<(u32, u32, i32, i32)> {
+        if !offset.is_multiple_of(4) || offset.checked_add(16)? > self.map.len() {
+            return None;
+        }
+        let m = &self.map;
+        self.seqlock(offset, || {
+            (
+                m.load32(offset, Ordering::Relaxed),
+                m.load32(offset + 4, Ordering::Relaxed),
+                m.load32(offset + 8, Ordering::Relaxed) as i32,
+                m.load32(offset + 12, Ordering::Relaxed) as i32,
+            )
+        })
+    }
+
     pub fn frame(&self, head: u32) -> Option<FrameRecord> {
         use super::wire::state as s;
         let b = self.base(head)?;
