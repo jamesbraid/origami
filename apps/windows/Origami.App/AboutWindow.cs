@@ -7,9 +7,8 @@ using Origami.Logic;
 
 namespace Origami.App;
 
-/// <summary>About: the cube at rest on a British Columbia photograph, the version, credits and licence.
-/// A window of its own because a dialog cannot host the cube's surface. Typing "hinv" slides the host's inventory over the credits;
-/// Esc or a click puts them back.</summary>
+/// <summary>About: the cube on a photograph, the version, who made it and the Acknowledgements and Licences buttons.
+/// A window because a dialog cannot host the cube. Typing "hinv" slides the host inventory over it; Esc puts it back.</summary>
 public sealed class AboutWindow : Window
 {
     /// <summary>Reflecting a running machine's screen in the cube is off for now; the code stays.</summary>
@@ -25,7 +24,29 @@ public sealed class AboutWindow : Window
     readonly Border _hinv = new() { Visibility = Visibility.Collapsed };
     readonly TextBlock _hinvText = new() { FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 12, Padding = new Thickness(24, 16, 24, 24) };
     readonly TranslateTransform _slide = new();
+    readonly Button _acknowledgements, _licences;
+    readonly CreditsDocument? _credits;
     bool _hinvBusy, _closed;
+
+    /// <summary>The Acknowledgements or Licences sheet, while one is open.</summary>
+    public CreditsWindow? Sheet { get; private set; }
+    /// <summary>Presses the button, so a test goes the way a click does.</summary>
+    public void ClickAcknowledgements() => Press(_acknowledgements);
+    public void ClickLicences() => Press(_licences);
+
+    static void Press(Button b) =>
+        ((Microsoft.UI.Xaml.Automation.Provider.IInvokeProvider)new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(b)
+            .GetPattern(Microsoft.UI.Xaml.Automation.Peers.PatternInterface.Invoke)).Invoke();
+
+    void Show(CreditsWindow.Page page)
+    {
+        if (_credits is null) return;
+        if (Sheet?.Which == page) { Sheet.Activate(); return; }
+        Sheet?.Close();
+        var sheet = Sheet = new CreditsWindow(page, _credits);
+        sheet.Closed += (_, _) => { if (Sheet == sheet) Sheet = null; };
+        sheet.Activate();
+    }
 
     public bool HinvShown => _hinv.Visibility == Visibility.Visible;
     public string HinvText => _hinvText.Text;
@@ -41,19 +62,24 @@ public sealed class AboutWindow : Window
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(Cube, "about.cube");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Cube, "The SGI cube");
 
-        var credits = new StackPanel { Spacing = 8, Padding = new Thickness(24, 16, 24, 24) };
-        credits.Children.Add(new TextBlock { Text = "Origami", Style = (Style)Application.Current.Resources["TitleTextBlockStyle"] });
-        credits.Children.Add(new TextBlock { Text = "Version " + (typeof(AboutWindow).Assembly.GetName().Version?.ToString(3) ?? "0"), Opacity = 0.7 });
-        credits.Children.Add(new TextBlock { Text = "All trademarks are the property of their respective owners.", TextWrapping = TextWrapping.Wrap });
-        credits.Children.Add(new TextBlock { Text = "Reflections", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
-        for (uint i = 0; i < Frame.origami_cube_scene_count(); i++)
-            credits.Children.Add(new TextBlock
-            {
-                Text = $"{Frame.SceneText(i, 1)}: {Frame.SceneText(i, 2)}",
-                TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.8, IsTextSelectionEnabled = true,
-            });
-        credits.Children.Add(new TextBlock { Text = "Licence", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) });
-        credits.Children.Add(new TextBlock { Text = ReadLicence(), TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.8, IsTextSelectionEnabled = true });
+        var credits = new StackPanel { Spacing = 4, Padding = new Thickness(24, 16, 24, 24), HorizontalAlignment = HorizontalAlignment.Center };
+        credits.Children.Add(new TextBlock { Text = "Origami", Style = (Style)Application.Current.Resources["TitleTextBlockStyle"], HorizontalAlignment = HorizontalAlignment.Center });
+        credits.Children.Add(new TextBlock { Text = "Version " + (typeof(AboutWindow).Assembly.GetName().Version?.ToString(3) ?? "0"), Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center });
+        try { _credits = CreditsDocument.Parse(uniffi.origami_ffi.OrigamiFfiMethods.OrigamiCreditsJson()); }
+        catch (Exception e) { App.Log("about: no credits: " + e.Message); }
+        if (_credits is { } c)
+        {
+            credits.Children.Add(new TextBlock { Text = c.Copyright, Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center });
+            credits.Children.Add(new TextBlock { Text = c.LicenceName, Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center });
+            credits.Children.Add(new HyperlinkButton { Content = c.ProjectUrl.Replace("https://", ""), NavigateUri = new Uri(c.ProjectUrl), HorizontalAlignment = HorizontalAlignment.Center });
+        }
+        _acknowledgements = new Button { Content = "Acknowledgements", IsEnabled = _credits != null };
+        _licences = new Button { Content = "Licences", IsEnabled = _credits != null };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_acknowledgements, "about.acknowledgements");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_licences, "about.licences");
+        _acknowledgements.Click += (_, _) => Show(CreditsWindow.Page.Acknowledgements);
+        _licences.Click += (_, _) => Show(CreditsWindow.Page.Licences);
+        credits.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0), Children = { _acknowledgements, _licences } });
 
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(240) });
@@ -74,10 +100,10 @@ public sealed class AboutWindow : Window
         grid.Children.Add(Cube); grid.Children.Add(below);
         Content = grid;
         grid.KeyDown += OnKeyDown;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(520, 760));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(520, 660));
 
         Cube.ShiftClicked += () => Cube.NextScene();
-        Closed += (_, _) => { _closed = true; Cube.Close(); _frames?.Dispose(); };
+        Closed += (_, _) => { _closed = true; Sheet?.Close(); Cube.Close(); _frames?.Dispose(); };
         grid.Loaded += (_, _) => { Style(runningKey); FocusForKeys(); };
     }
 
@@ -130,11 +156,5 @@ public sealed class AboutWindow : Window
         // The scene is the one for the local time, read once when About opens.
         var now = DateTime.Now;
         Cube.SetStyle(Frame.CubeEnvScene, Frame.origami_cube_scene_for_time((uint)now.Hour, (uint)now.Minute), null, _dark, false, reduce);
-    }
-
-    static string ReadLicence()
-    {
-        var path = Path.Combine(AppContext.BaseDirectory, "LICENSE");
-        try { return File.ReadAllText(path); } catch (IOException) { return "BSD 3-Clause License. See the LICENSE file."; }
     }
 }

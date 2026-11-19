@@ -105,6 +105,7 @@ jobs:
           mkdir set
           cp apps/windows/selftest-out/window.png set/windows-running.png
           cp apps/windows/selftest-out/windows-cpu-panel.png apps/windows/selftest-out/windows-diagnostics.png set/
+          cp apps/windows/selftest-out/windows-acknowledgements.png apps/windows/selftest-out/windows-licences.png set/
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots-windows

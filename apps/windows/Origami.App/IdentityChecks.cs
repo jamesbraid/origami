@@ -33,6 +33,51 @@ static class IdentityChecks
 
     public static string? OutDir;
 
+    /// <summary>Opens About, presses Acknowledgements and Licences and checks what each shows against the core's credits.
+    /// <paramref name="shoot"/>, when given, photographs a sheet under a name.</summary>
+    public static async Task<List<(string, bool, string)>> Credits(MainWindow w, Func<Func<bool>, int, Task<bool>> until, Func<string, Microsoft.UI.Xaml.Window, Task>? shoot = null)
+    {
+        var steps = new List<(string, bool, string)>();
+        w.Invoke("app.about");
+        var about = w.AboutForTest;
+        if (about is null) { steps.Add(("credits: About opens", false, "no About window")); return steps; }
+        var doc = CreditsDocument.Parse(uniffi.origami_ffi.OrigamiFfiMethods.OrigamiCreditsJson());
+
+        about.ClickAcknowledgements();
+        var opened = await until(() => about.Sheet is { Which: CreditsWindow.Page.Acknowledgements }, 5000);
+        steps.Add(("credits: the Acknowledgements button opens its sheet", opened, ""));
+        if (opened && about.Sheet is { } ack)
+        {
+            await Task.Delay(500);
+            var missing = doc.Photographs.Where(p => !ack.Text.Contains(p.Author) || !ack.Text.Contains(p.Licence) || !ack.Text.Contains(p.Source)).Select(p => p.Title).ToList();
+            steps.Add(("credits: Acknowledgements credits every photograph with its author, licence and source", missing.Count == 0, string.Join(", ", missing)));
+            steps.Add(("credits: Acknowledgements names QEMU's source tag, iris, the thanks and the artwork",
+                ack.Text.Contains(doc.Qemu.Tag) && ack.Text.Contains("iris") && doc.Thanks.All(t => ack.Text.Contains(t.Name)) && doc.Artwork.All(a => ack.Text.Contains(a.Name)), doc.Qemu.Tag));
+            if (shoot != null) await shoot("windows-acknowledgements", ack);
+            ack.Close();
+            steps.Add(("credits: closing Acknowledgements leaves no sheet behind", await until(() => about.Sheet is null, 3000), ""));
+        }
+
+        about.ClickLicences();
+        opened = await until(() => about.Sheet is { Which: CreditsWindow.Page.Licences }, 5000);
+        steps.Add(("credits: the Licences button opens its sheet", opened, ""));
+        if (opened && about.Sheet is { } lic)
+        {
+            await Task.Delay(500);
+            steps.Add(("credits: Licences lists every licence group, QEMU's GPL first", lic.ShownGroups.Count == doc.Licences.Count && lic.ShownGroups[0] == "GNU General Public License", string.Join(", ", lic.ShownGroups)));
+            steps.Add(("credits: Licences carries the written note that QEMU's source is at the tag", lic.Text.Contains(doc.Qemu.Note), doc.Qemu.Note));
+            lic.ExpandGroup(0);
+            await Task.Delay(500);
+            if (shoot != null) await shoot("windows-licences", lic);
+            lic.Search("ghostty");
+            steps.Add(("credits: searching Licences narrows the groups to the match", await until(() => lic.ShownGroups.Count == doc.Filter("ghostty").Count && lic.ShownGroups.Count is > 0 and < 3, 3000), string.Join(", ", lic.ShownGroups)));
+            lic.Close();
+        }
+        about.Close();
+        steps.Add(("credits: closing About leaves no window behind", await until(() => w.AboutForTest is null, 3000), ""));
+        return steps;
+    }
+
     /// <summary>Opens About, checks the cube drew, and closes it. Returns (name, ok, detail) steps.</summary>
     public static async Task<List<(string, bool, string)>> About(MainWindow w, Func<Func<bool>, int, Task<bool>> until)
     {

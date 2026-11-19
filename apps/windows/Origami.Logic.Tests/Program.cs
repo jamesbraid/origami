@@ -402,5 +402,34 @@ Test("cpu panel: labels, totals, segment widths and the empty text", () =>
     Eq("not running", CpuPanel.Empty(new CpuLoadInfo(Array.Empty<CpuBarInfo>(), "not running")));
 });
 
+const string CreditsJson = """
+{"copyright":"© 2026 James Braid","licence_name":"BSD 3-Clause licence","project_url":"https://github.com/jamesbraid/origami","trademark":"SGI, IRIX and all product names are trademarks of their respective owners.",
+ "built_on":[{"name":"QEMU","by":"the QEMU project","url":"https://example.org/q","licence":"GPL-2.0","note":"n"}],
+ "thanks":[{"name":"jrra.zone","for":"the archive","url":"https://jrra.zone/sgi/"}],
+ "photographs":[{"title":"Howe Sound","author":"Roy Luck","year":"2011","licence":"CC BY 2.0","licence_url":"https://creativecommons.org/licenses/by/2.0/","source":"https://commons.wikimedia.org/wiki/File:x.jpg","changes":"Cropped"}],
+ "artwork":[{"name":"Granite","from":"IRIX","url":""}],
+ "qemu":{"tag":"sgi-origami-1","url":"https://example.org/tree","archive_url":"https://example.org/tgz","note":"Source at the tag."},
+ "licences":[{"name":"GNU General Public License","entries":[{"components":["QEMU"],"text":"GPL text"}]},
+             {"name":"MIT","entries":[{"components":["a 1","b 2"],"text":"MIT text"},{"components":["libghostty-vt"],"text":"MIT text 2"}]}]}
+""";
+
+Test("credits: the licence search matches components and licence names, ignoring case", () =>
+{
+    var d = CreditsDocument.Parse(CreditsJson);
+    Eq(2, d.Filter("").Count, "empty shows all");
+    var g = d.Filter("GHOSTTY");
+    Eq(1, g.Count); Eq("MIT", g[0].Name); Eq(1, g[0].Entries.Count);
+    Eq(1, d.Filter("general public").Count, "by licence name");
+    Eq(0, d.Filter("nothing like this").Count);
+});
+
+Test("credits: a long component list is cut to a row with the count that is left", () =>
+{
+    var many = new CreditsDocument.LicenceEntry { Components = Enumerable.Range(1, 40).Select(i => $"crate-number-{i}").ToList() };
+    Eq(true, many.Title.StartsWith("crate-number-1, crate-number-2") && many.Title.EndsWith(" more"), many.Title);
+    Eq(1, new CreditsDocument.Licence { Entries = { new CreditsDocument.LicenceEntry { Components = { "a" } } } }.ComponentCount);
+    Eq("1 component", new CreditsDocument.Licence { Entries = { new CreditsDocument.LicenceEntry { Components = { "a" } } } }.Count);
+});
+
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;

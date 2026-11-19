@@ -181,6 +181,18 @@ public static class Selftest
         Add("library: the chassis colour is the measured one (octane2 #2e354e)", w.ChassisHex(key) == "#2e354e", w.ChassisHex(key));
         IdentityChecks.OutDir = dir;
         foreach (var (name, ok, detail) in await IdentityChecks.About(w, Until)) Add(name, ok, detail);
+        // Each sheet must be in front of the main window, which is always on top for input, to be photographed.
+        var main = w.AppWindow.Presenter as Microsoft.UI.Windowing.OverlappedPresenter;
+        var wasTop = main?.IsAlwaysOnTop ?? false;
+        foreach (var (name, ok, detail) in await IdentityChecks.Credits(w, Until, async (shot, sheet) =>
+        {
+            if (main != null) main.IsAlwaysOnTop = false;
+            sheet.Activate();
+            if (sheet.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter sp) sp.IsAlwaysOnTop = true;
+            await Task.Delay(2000);
+            await Grab(dir, shot, WinRT.Interop.WindowNative.GetWindowHandle(sheet));
+        })) Add(name, ok, detail);
+        if (main != null) main.IsAlwaysOnTop = wasTop;
         // The pictures docs/app.md shows: the workflow's window capture, asked for by file (PrintWindow sees the machine's own picture).
         w.SetCpuPanel(true);
         await Until(() => w.CpuText.Contains("cpu 0"), 10_000);

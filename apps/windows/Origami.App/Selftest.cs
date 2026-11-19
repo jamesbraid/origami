@@ -513,6 +513,7 @@ public static class Selftest
         // --- About, and the starting screen's live cube ---
         IdentityChecks.OutDir = dir;
         foreach (var (name, ok, detail) in await IdentityChecks.About(w, Until)) Check(name, ok, detail);
+        foreach (var (name, ok, detail) in await IdentityChecks.Credits(w, Until)) Check(name, ok, detail);
         w.PreviewStarting();
         var cubeStart = w.StartCubeForTest;
         Check("starting: the cube attached", await Until(() => cubeStart.Attached, 10_000), cubeStart.LastError ?? $"status {cubeStart.Status}");
