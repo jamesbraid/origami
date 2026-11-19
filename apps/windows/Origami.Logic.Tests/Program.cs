@@ -311,6 +311,13 @@ Test("view scale: fit in whole device pixels while that is at least 1, fractiona
     Eq(true, Math.Abs(ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 800, 700, 1.0) - 0.625) < 1e-9, "100% fractional below 1 device pixel");
 });
 
+Test("view scale: the status label names the mode only for Fit", () =>
+{
+    Eq("Fit 100%", ViewScale.Label(ViewMode.FitToWindow, 1.0), "fit");
+    Eq("200%", ViewScale.Label(ViewMode.Scale1x, 2.0), "1x on 200%");
+    Eq("Fit 78%", ViewScale.Label(ViewMode.FitToWindow, 0.78125), "fractional");
+});
+
 Test("view scale: 1x and 2x are DIPs per guest pixel and fall back to fit; actual size is a device pixel", () =>
 {
     Eq(2.0, ViewScale.Factor(ViewMode.Scale1x, 1280, 1024, 3000, 2200, 2.0), "1x at 200% is 2 device px");

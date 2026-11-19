@@ -46,6 +46,15 @@ public sealed partial class MainWindow : Window
         }
         Display.WindowHandle = () => WinRT.Interop.WindowNative.GetWindowHandle(this);
         Display.PointerModeChanged = RefreshPointerUi;
+        Display.ScaleLabelChanged = () => { ScaleButton.Content = Display.ScaleLabel; ScaleButton.Visibility = Display.ScaleLabel.Length > 0 ? Visibility.Visible : Visibility.Collapsed; };
+        var scaleMenu = new MenuFlyout();
+        foreach (var (title, cmd) in new[] { ("Fit to Window", "view.fit"), ("Scale 1x", "view.scale1x"), ("Scale 2x", "view.scale2x"), ("Actual Size", "view.actual-size") })
+        {
+            var item = new MenuFlyoutItem { Text = title };
+            item.Click += (_, _) => Invoke(cmd);
+            scaleMenu.Items.Add(item);
+        }
+        ScaleButton.Flyout = scaleMenu;
         Display.Shortcut = OnDisplayShortcut;
 
         BuildMenus();

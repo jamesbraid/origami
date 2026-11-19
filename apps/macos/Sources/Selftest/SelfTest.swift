@@ -121,6 +121,9 @@ func runSelfTest(library: String, out: String) {
             let x = ((c.width - v.width) / 2 + d.width) * b, y = ((c.height - v.height) / 2 + d.height) * b
             return abs(x - x.rounded()) < 1e-6 && abs(y - y.rounded()) < 1e-6
         }, [:])
+        check("scale-label", Scaling.label(mode: .fit, size: size(1000, 700, 2, .fit), guest: g, backing: 2) == "Fit 100%"
+              && Scaling.label(mode: .points, size: size(1500, 1100, 2, .points), guest: g, backing: 2) == "200%"
+              && Scaling.label(mode: .actual, size: size(2600, 2100, 2, .actual), guest: g, backing: 2) == "100%", [:])
         check("pointer-mapping-follows-the-scale", mapped(.points, 1500, 1100) && mapped(.double, 2600, 2100) && mapped(.fit, 1000, 700) && mapped(.points, 500, 400), [:])
         check("scaling-modes", size(1500, 1100, 2, .points) == CGSize(width: 1280, height: 1024)
               && size(1000, 700, 2, .fit) == CGSize(width: 640, height: 512)   // 1.37 device px steps down to 1, never blurry

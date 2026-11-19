@@ -38,4 +38,10 @@ enum Scaling {
         func one(_ c: CGFloat, _ s: CGFloat) -> CGFloat { let o = (c - s) / 2; return ((o * b).rounded() / b) - o }
         return CGSize(width: one(container.width, size.width), height: one(container.height, size.height))
     }
+
+    /// The status bar's text: device pixels per guest pixel as a percentage, led by Fit when that is the mode.
+    static func label(mode: ScaleMode, size: CGSize, guest: CGSize, backing: CGFloat) -> String {
+        let percent = Int((size.width * max(1, backing.rounded()) / max(1, guest.width) * 100).rounded())
+        return mode == .fit ? "Fit \(percent)%" : "\(percent)%"
+    }
 }

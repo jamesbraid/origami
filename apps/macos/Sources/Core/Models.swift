@@ -56,6 +56,8 @@ final class MachineModel: ObservableObject, Identifiable {
     @Published private(set) var busy: String?
     @Published private(set) var picture: (width: Int, height: Int)?
     @Published var pointerMode: PointerMode
+    /// The scale the picture is drawn at, set by the screen view for the status bar.
+    @Published var scaleLabel = ""
     @Published private(set) var captured = false
     /// The capture hint shows until this moment.
     @Published private(set) var hudUntil: Date?

@@ -52,6 +52,10 @@ public sealed partial class DisplayView : UserControl
     /// <summary>Gets (VK, ctrl, shift, alt) for a key pressed while not captured; true if the app took it.</summary>
     public Func<int, bool, bool, bool, bool>? Shortcut { get; set; }
     public Action? PointerModeChanged { get; set; }
+    /// <summary>The picture's scale as status text, empty while nothing is drawn.</summary>
+    public string ScaleLabel { get; private set; } = "";
+    public Action? ScaleLabelChanged { get; set; }
+    void SetScaleLabel(string text) { if (text == ScaleLabel) return; ScaleLabel = text; ScaleLabelChanged?.Invoke(); }
 
     public bool Attached => _hwnd != IntPtr.Zero && (_view != IntPtr.Zero || _op != IntPtr.Zero);
     public bool Captured => _ptr.Captured;
@@ -187,7 +191,7 @@ public sealed partial class DisplayView : UserControl
             Views.Remove(_hwnd);
             Hide();
         }
-        Renderer = "none";
+        Renderer = "none"; SetScaleLabel("");
     }
 
     public void DestroyWindow()
@@ -237,7 +241,7 @@ public sealed partial class DisplayView : UserControl
     /// <summary>The child window is over XAML, so anything that takes the pane (preferences) hides it.</summary>
     public void Hide()
     {
-        _hidden = true; _forcePlace = true;
+        _hidden = true; _forcePlace = true; SetScaleLabel("");
         if (_view != IntPtr.Zero) Frame.origami_view_set_visible(_view, 0); // a hidden view draws nothing
         if (_hwnd != IntPtr.Zero) Win32.ShowWindow(_hwnd, 0);
     }
@@ -257,6 +261,7 @@ public sealed partial class DisplayView : UserControl
         if (aw < 16 || ah < 16) return;
         // Device pixels per guest pixel: whole steps where they fit (the core's view then maps pixels one to one).
         var k = ViewScale.Factor(ViewMode, _headW, _headH, aw * s, ah * s, s);
+        SetScaleLabel(ViewScale.Label(ViewMode, k));
         double pw = Math.Floor(_headW * k) / s, ph = Math.Floor(_headH * k) / s; // DIPs
         var origin = Surround.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
         double x = origin.X + (Surround.ActualWidth - pw) / 2, y = origin.Y + (Surround.ActualHeight - ph) / 2;

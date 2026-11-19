@@ -50,6 +50,13 @@ impl ViewScale {
     }
 }
 
+/// The status text for a picture drawn at `step` device pixels per guest pixel,
+/// led by Fit when that is the mode.
+pub fn label(mode: ViewScale, step: f64) -> String {
+    let lead = if mode == ViewScale::Fit { "Fit " } else { "" };
+    format!("{lead}{}%", (step * 100.0).round())
+}
+
 /// The picture's place in the view. The device rectangle is exact; `alloc` is
 /// the whole-logical-pixel box that contains it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -203,6 +210,14 @@ mod tests {
         assert_eq!((l.dev.2, l.dev.3), (2560, 2048));
         assert_eq!(l.alloc(), (106, 85, 1708, 1366));
         assert_eq!(l.guest_at(G, 0.0, 0.0), (0, 0));
+    }
+
+    #[test]
+    fn the_label_gives_device_pixels_per_guest_pixel_and_names_fit() {
+        let l = layout(ViewScale::Fit, (1000, 700), G, 2.0).unwrap();
+        assert_eq!(label(ViewScale::Fit, l.step), "Fit 100%");
+        let l = layout(ViewScale::X1, (3000, 2400), G, 2.0).unwrap();
+        assert_eq!(label(ViewScale::X1, l.step), "200%");
     }
 
     #[test]
