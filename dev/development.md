@@ -86,7 +86,8 @@ QEMU pin for that run.
 `origami-<version>-<platform>.tar.gz` (`.zip` on Windows and macOS). It needs the app in the checkout: `crates/origami-gtk` on Linux
 (GTK 4.14 and libadwaita 1.6 come from the host), `apps/macos` on macOS (the
 archive holds `Origami.app` with the tools beside its executable, ad hoc
-signed) and `apps/windows` on Windows. The Windows app is `Origami.exe`,
+signed unless [signing](#code-signing) is on) and `apps/windows` on Windows.
+The Windows app is `Origami.exe`,
 which cannot share a directory with `origami.exe`, so it lives in `app/` and
 finds the tools in the sibling `bin`. Release packages carry no Slint.
 `cargo test -p xtask -- --ignored` checks the notices; it fetches every
@@ -287,7 +288,7 @@ ubuntu-24.04, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-latest and win
 `cargo xtask test` and `cargo xtask dist`, and uploads
 `origami-<platform>` containing the archive. It also runs
 `cargo xtask dist --app` and uploads `origami-app-<platform>`: the GTK tarball
-on Linux, the ad hoc signed `.app` zip on macOS, and the WinUI app zip on
+on Linux, the `.app` zip on macOS (ad hoc signed, or Developer ID signed and notarized), and the WinUI app zip on
 Windows, whose Rust parts are cross-built with MinGW on Linux first.
 A last job joins the arm64 and x86_64 macOS packages with
 `cargo xtask universal` (every Mach-O through `lipo`, then one ad hoc
@@ -305,6 +306,32 @@ Each job also extracts its archive to a path with spaces and checks that
 `origami version` reaches QEMU and Instigator. Boot checks are the functional
 tests below. Run artifacts contain archives and SHA-256 files. Firmware and
 guest media are not included.
+
+### Code signing
+
+`v*` tag builds sign and notarize the macOS archives when signing is
+configured. The `macos-universal` job runs in the `release` environment, which
+holds the signing secrets and allows only `v*` tags. Other runs (manual runs on
+a branch, forks, the nightly checks) never enter it, build unsigned and say so
+in a notice. A tag build fails if signing is only partly configured or any
+signing step fails, and so does a tag build with nothing configured, which
+would publish unsigned macOS archives.
+The scripts are in `build/sign/`. They unpack an archive, sign it and pack it
+again before `SHA256SUMS` is computed at publish. macOS is signed once, in the
+`macos-universal` job after `cargo xtask universal` joins the two builds, so the
+thin per-architecture packages stay ad hoc signed.
+
+Environment secrets: `MACOS_CERT_P12_BASE64` (Developer ID Application
+certificate and key), `MACOS_CERT_PASSWORD`, `APPLE_TEAM_ID`, `ASC_KEY_ID`,
+`ASC_ISSUER_ID` and `ASC_KEY_P8_BASE64` (App Store Connect key for
+`notarytool`). Every Mach-O is signed inside out with the hardened runtime
+and a timestamp; only `qemu-system-*` gets the `com.apple.security.cs.allow-jit`
+entitlement, which QEMU's TCG needs for its `MAP_JIT` code buffer (split-wx is
+off by default in a release build, so the `MAP_JIT` path is the one taken; a
+`debug_tcg` build or `-accel tcg,split-wx=on` would also need
+`allow-unsigned-executable-memory`). The app is notarized and stapled; the
+command-line archive is notarized but cannot be stapled. After signing, the job
+starts the signed `qemu-system-mips64` once (`build/sign/macos-smoke.sh`).
 
 ## App screenshots
 
