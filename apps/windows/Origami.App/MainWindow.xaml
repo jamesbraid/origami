@@ -3,48 +3,69 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:Origami.App"
         Title="Origami">
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="Base"/>
+    </Window.SystemBackdrop>
     <Grid x:Name="Root">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <MenuBar x:Name="Menus" Grid.Row="0"/>
+        <!-- One header: icon and title, the machine's name and state, then the actions and the main menu, beside the caption buttons. -->
+        <TitleBar x:Name="AppTitleBar" Grid.Row="0" Title="Origami">
+            <TitleBar.IconSource>
+                <ImageIconSource x:Name="TitleIcon"/>
+            </TitleBar.IconSource>
+            <TitleBar.Resources>
+                <HorizontalAlignment x:Key="TitleBarContentHorizontalAlignment">Stretch</HorizontalAlignment>
+            </TitleBar.Resources>
+            <TitleBar.Content>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <TextBlock x:Name="TitleText" Text="Origami" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <Border x:Name="PillBorder" CornerRadius="9" Padding="8,1" Background="Gray" VerticalAlignment="Center">
+                            <TextBlock x:Name="PillText" Text="" Foreground="White" FontSize="12"
+                                       AutomationProperties.AutomationId="status.pill"/>
+                        </Border>
+                    </StackPanel>
+                    <CommandBar x:Name="Toolbar" Grid.Column="1" DefaultLabelPosition="Collapsed" IsOpen="False"
+                                Background="Transparent" TitleBar.IsDragRegion="False">
+                        <AppBarButton x:Name="StartButton" Icon="Play" Label="Start"
+                                      AutomationProperties.AutomationId="cmd.start" ToolTipService.ToolTip="Start"/>
+                        <AppBarButton x:Name="PowerOffButton" Icon="Stop" Label="Power Off"
+                                      AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power Off"/>
+                        <AppBarSeparator/>
+                        <AppBarButton x:Name="PauseButton" Icon="Pause" Label="Pause"
+                                      AutomationProperties.AutomationId="cmd.pause" ToolTipService.ToolTip="Pause or resume the machine"/>
+                        <AppBarButton x:Name="ConsoleButton" Icon="Message" Label="Console"
+                                      AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Open the machine's serial console"/>
+                        <AppBarSeparator/>
+                        <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" Label="Follow"
+                                            AutomationProperties.AutomationId="cmd.pointermode"
+                                            ToolTipService.ToolTip="Pointer mode: Follow my mouse or Capture on click"/>
+                        <AppBarToggleButton x:Name="CpuButton" Icon="Calculator" Label="CPU"
+                                            AutomationProperties.AutomationId="cmd.cpu" ToolTipService.ToolTip="Show or hide the emulated CPU load"/>
+                        <AppBarButton x:Name="SettingsButton" Icon="Setting" Label="Settings"
+                                      AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Settings"/>
+                        <AppBarButton x:Name="MoreButton" Icon="More" Label="Menu"
+                                      AutomationProperties.AutomationId="menu.more" ToolTipService.ToolTip="Menu">
+                            <AppBarButton.Flyout>
+                                <MenuFlyout x:Name="Menus"/>
+                            </AppBarButton.Flyout>
+                        </AppBarButton>
+                    </CommandBar>
+                </Grid>
+            </TitleBar.Content>
+        </TitleBar>
 
-        <CommandBar x:Name="Toolbar" Grid.Row="1" DefaultLabelPosition="Right" IsOpen="False"
-                    HorizontalAlignment="Stretch" Background="Transparent">
-            <CommandBar.Content>
-                <StackPanel Orientation="Horizontal" Spacing="10" Margin="12,0,0,0" VerticalAlignment="Center">
-                    <TextBlock x:Name="TitleText" Text="Origami" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <Border x:Name="PillBorder" CornerRadius="9" Padding="8,1" Background="Gray" VerticalAlignment="Center">
-                        <TextBlock x:Name="PillText" Text="" Foreground="White" FontSize="12"
-                                   AutomationProperties.AutomationId="status.pill"/>
-                    </Border>
-                </StackPanel>
-            </CommandBar.Content>
-            <AppBarButton x:Name="StartButton" Icon="Play" Label="Start"
-                          AutomationProperties.AutomationId="cmd.start" ToolTipService.ToolTip="Start"/>
-            <AppBarButton x:Name="PowerOffButton" Icon="Stop" Label="Power Off"
-                          AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power Off"/>
-            <AppBarSeparator/>
-            <AppBarButton x:Name="PauseButton" Icon="Pause" Label="Pause"
-                          AutomationProperties.AutomationId="cmd.pause" ToolTipService.ToolTip="Pause or resume the machine"/>
-            <AppBarButton x:Name="ConsoleButton" Icon="Message" Label="Console"
-                          AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Open the machine's serial console"/>
-            <AppBarSeparator/>
-            <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" Label="Follow"
-                                AutomationProperties.AutomationId="cmd.pointermode"
-                                ToolTipService.ToolTip="Pointer mode: Follow my mouse or Capture on click"/>
-            <AppBarToggleButton x:Name="CpuButton" Icon="Calculator" Label="CPU"
-                                AutomationProperties.AutomationId="cmd.cpu" ToolTipService.ToolTip="Show or hide the emulated CPU load"/>
-            <AppBarButton x:Name="SettingsButton" Icon="Setting" Label="Settings"
-                          AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Settings"/>
-        </CommandBar>
-
-        <Grid Grid.Row="2">
+        <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LibraryColumn" Width="260"/>
                 <ColumnDefinition Width="*"/>
@@ -110,7 +131,7 @@
         </Grid>
 
         <!-- Emulated CPU load: below the machine's pane, because the screen is a native child window that XAML cannot draw over. -->
-        <Border x:Name="CpuPanelBox" Grid.Row="3" Visibility="Collapsed" Padding="12,8" Background="{ThemeResource LayerFillColorDefaultBrush}"
+        <Border x:Name="CpuPanelBox" Grid.Row="2" Visibility="Collapsed" Padding="12,8" Background="{ThemeResource LayerFillColorDefaultBrush}"
                 AutomationProperties.AutomationId="cpu.panel">
             <StackPanel Spacing="6">
                 <TextBlock x:Name="CpuTitle" FontSize="12" FontWeight="SemiBold"/>
@@ -118,7 +139,7 @@
             </StackPanel>
         </Border>
 
-        <Grid Grid.Row="4" Padding="12,4" Background="{ThemeResource LayerFillColorDefaultBrush}">
+        <Grid Grid.Row="3" Padding="12,4" Background="{ThemeResource LayerFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock x:Name="StatusText" FontSize="12" Opacity="0.8" VerticalAlignment="Center" AutomationProperties.AutomationId="status.text"/>
                 <HyperlinkButton x:Name="ShowShot" Content="Show in Explorer" FontSize="12" Padding="4,0" Visibility="Collapsed"

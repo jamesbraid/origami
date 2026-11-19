@@ -31,7 +31,19 @@ public sealed partial class MainWindow : Window
         Title = "Origami";
         Display.ViewMode = _viewStore.Load();
         var icon = Path.Combine(AppContext.BaseDirectory, "Origami.ico");
-        if (File.Exists(icon)) AppWindow.SetIcon(icon);
+        if (File.Exists(icon))
+        {
+            AppWindow.SetIcon(icon);
+            try { TitleIcon.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(icon)); } catch { }
+        }
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+        // Without Mica (Windows 10, some remote sessions) the window paints a plain theme background.
+        if (!Microsoft.UI.Composition.SystemBackdrops.MicaController.IsSupported())
+        {
+            SystemBackdrop = null;
+            Root.Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
+        }
         Display.WindowHandle = () => WinRT.Interop.WindowNative.GetWindowHandle(this);
         Display.PointerModeChanged = RefreshPointerUi;
         Display.Shortcut = OnDisplayShortcut;
@@ -426,7 +438,7 @@ public sealed partial class MainWindow : Window
         var taken = new HashSet<(bool, bool, bool, string)>();
         foreach (var group in _commands.GroupBy(c => c.Menu))
         {
-            var bar = new MenuBarItem { Title = group.Key };
+            var bar = new MenuFlyoutSubItem { Text = group.Key };
             foreach (var c in group)
             {
                 var item = new MenuFlyoutItem { Text = c.Title };
