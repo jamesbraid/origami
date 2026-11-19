@@ -253,8 +253,9 @@ BSD-3-Clause. QEMU as a whole uses GPLv2. Upstream and adapted code retain
 their existing licenses. The QEMU release's `qemu.LICENSE.origami.paths` lists original files
 covered by the BSD grant, and `qemu.LICENSE.origami` contains its terms.
 Archives install the QEMU release's `licenses/` (which include each C
-library's `copyright` file), Instigator's licence and `THIRD_PARTY_NOTICES`
-under `share/origami/licenses/`. The notices file is
+library's `copyright` file), Instigator's licence, `THIRD_PARTY_NOTICES` and
+`QEMU_SOURCE.txt` (the exact source tag of the bundled QEMU and its link,
+from `runtime.lock`) under `share/origami/licenses/`. The notices file is
 maintained by hand: update it when a Rust crate or Go module is added or
 changes license.
 

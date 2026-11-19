@@ -316,6 +316,10 @@ fn dist(options: &Options) -> Result<()> {
     archive::copy_file(&built, &stage.join("bin").join(&name))?;
     let licenses = stage.join("share/origami/licenses");
     archive::copy_file(&root().join("LICENSE"), &licenses.join("origami.LICENSE"))?;
+    fs::write(
+        licenses.join("QEMU_SOURCE.txt"),
+        origami_credits::qemu_source_file()?,
+    )?;
     // A cross-built package has no cargo where it is assembled; its notices
     // were generated with the Rust parts.
     let notices = match prebuilt {

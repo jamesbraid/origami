@@ -10,12 +10,13 @@ Files referred to below sit beside this one in share/origami/licenses:
   qemu.COPYING      GNU General Public License, version 2
   qemu.COPYING.LIB  GNU Lesser General Public License, version 2.1
   qemu.LICENSE      QEMU's license summary
+  QEMU_SOURCE.txt   the tag and link of QEMU's source
   PORT.copyright    license of each C library built into QEMU
 
 QEMU as a whole is distributed under the GNU GPL version 2. Its source code,
 including the patched libslirp and other bundled subprojects, is available
 from the QEMU source repository (jamesbraid/qemu-sgi-origami) at the release tag
-named in this product's runtime.lock.
+named in this product's runtime.lock and in QEMU_SOURCE.txt.
 
 QEMU statically links GLib, pixman, SDL 2 and the libraries they need, built
 from the vcpkg ports pinned by that QEMU release. Their license terms are in the

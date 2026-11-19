@@ -56,6 +56,9 @@ jobs:
             echo "CHANGELOG.md has no ## $version section" >&2
             exit 1
           fi
+          # GPL: the corresponding source of the bundled QEMU, next to the binaries.
+          qemu=$(sed -n 's/^tag = "\(sgi-origami-[^"]*\)"/\1/p' runtime.lock)
+          printf '\nQEMU source: https://github.com/jamesbraid/qemu-sgi-origami/tree/%s\n' "$qemu" >> notes.md
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
