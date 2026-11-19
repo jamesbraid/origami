@@ -307,7 +307,7 @@ fn dist(options: &Options) -> Result<()> {
         }
     };
     let version = describe();
-    let top = format!("origami-{version}");
+    let top = format!("origami-cli-{version}");
     let stage = target_dir().join("dist").join(platform).join("tree");
     if stage.exists() {
         fs::remove_dir_all(&stage)?;
@@ -353,12 +353,6 @@ fn dist(options: &Options) -> Result<()> {
         lock::archive_extension(platform)
     ));
     archive::pack(&stage, &top, &file)?;
-    let hash = archive::sha256_file(&file)?;
-    let file_name = file.file_name().unwrap().to_string_lossy().into_owned();
-    fs::write(
-        format!("{}.sha256", file.display()),
-        format!("{hash}  {file_name}\n"),
-    )?;
     println!("{}", file.display());
     Ok(())
 }

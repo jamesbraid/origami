@@ -28,17 +28,6 @@ fn require(path: &str, what: &str) -> Result<()> {
     }
 }
 
-fn write_sha256(file: &Path) -> Result<()> {
-    let hash = archive::sha256_file(file)?;
-    let name = file.file_name().unwrap().to_string_lossy().into_owned();
-    fs::write(
-        format!("{}.sha256", file.display()),
-        format!("{hash}  {name}\n"),
-    )?;
-    println!("{}", file.display());
-    Ok(())
-}
-
 /// Appends the app's Rust crates to the stage's `THIRD_PARTY_NOTICES`.
 fn append_notices(stage: &Path, section: &str) -> Result<()> {
     let path = stage.join("share/origami/licenses/THIRD_PARTY_NOTICES");
@@ -84,13 +73,14 @@ pub fn dist(product: &Product, options: &crate::Options) -> Result<()> {
 fn pack_app(product: &Product, stage: &Path) -> Result<()> {
     fs::create_dir_all(product.out)?;
     let file = product.out.join(format!(
-        "origami-{}-{}-app.{}",
+        "origami-{}-{}.{}",
         product.version,
         product.platform,
         crate::lock::archive_extension(product.platform)
     ));
     archive::pack(stage, &format!("origami-{}", product.version), &file)?;
-    write_sha256(&file)
+    println!("{}", file.display());
+    Ok(())
 }
 
 fn linux(product: &Product) -> Result<()> {
@@ -200,14 +190,15 @@ fn macos(product: &Product) -> Result<()> {
     run(sign)?;
     fs::create_dir_all(product.out)?;
     let file = product.out.join(format!(
-        "origami-{}-{}-app.zip",
+        "origami-{}-{}.zip",
         product.version, product.platform
     ));
     let _ = fs::remove_file(&file);
     let mut zip = Command::new("ditto");
     zip.args(["-c", "-k", "--keepParent"]).arg(&app).arg(&file);
     run(zip)?;
-    write_sha256(&file)
+    println!("{}", file.display());
+    Ok(())
 }
 
 fn windows(product: &Product, options: &crate::Options) -> Result<()> {

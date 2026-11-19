@@ -89,13 +89,13 @@ jobs:
           ls -la dist
       - name: The packaged runner has iris linked
         run: |
-          mkdir check && /c/Windows/System32/tar.exe -xf dist/origami-*-app.zip -C check
+          mkdir check && /c/Windows/System32/tar.exe -xf dist/origami-*-windows-x86_64.zip -C check
           grep -c "iris runner panicked" check/*/bin/origami.exe
       - name: Start the extracted package
         # From a path with spaces, as a user's home may be.
         shell: powershell
         run: |
-          $zip = (Get-ChildItem dist\origami-*-app.zip).FullName
+          $zip = (Get-ChildItem dist\origami-*-windows-x86_64.zip).FullName
           $root = Join-Path $env:RUNNER_TEMP "origami extract"
           New-Item -ItemType Directory -Force $root | Out-Null
           tar -xf $zip -C $root

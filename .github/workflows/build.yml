@@ -54,8 +54,7 @@ jobs:
         run: |
           python - <<'PY'
           import glob, os, shutil, subprocess, sys, tempfile
-          archive = glob.glob("dist/origami-*-${{ matrix.platform }}.*")
-          archive = [a for a in archive if not a.endswith(".sha256")]
+          archive = glob.glob("dist/origami-cli-*-${{ matrix.platform }}.*")
           assert len(archive) == 1, archive
           root = tempfile.mkdtemp(prefix="origami extract ")
           shutil.unpack_archive(archive[0], root)
@@ -116,7 +115,7 @@ jobs:
           set -eu
           root="$RUNNER_TEMP/origami extract"
           mkdir -p "$root"
-          tar -xzf dist/origami-*-${{ matrix.platform }}-app.tar.gz -C "$root"
+          tar -xzf dist/origami-*-${{ matrix.platform }}.tar.gz -C "$root"
           for top in "$root"/*/; do
             out=$("${top}bin/origami" version)
             echo "$out"
@@ -159,7 +158,7 @@ jobs:
           set -eu
           root="$RUNNER_TEMP/origami extract"
           mkdir -p "$root"
-          ditto -x -k dist/origami-*-${{ matrix.platform }}-app.zip "$root"
+          ditto -x -k dist/origami-*-${{ matrix.platform }}.zip "$root"
           app="$root/Origami.app"
           codesign --verify --deep --strict "$app"
           out=$("$app/Contents/MacOS/origami" version)
@@ -251,13 +250,13 @@ jobs:
           ls -la dist
       - name: The packaged runner has iris linked
         run: |
-          mkdir check && /c/Windows/System32/tar.exe -xf dist/origami-*-app.zip -C check
+          mkdir check && /c/Windows/System32/tar.exe -xf dist/origami-*-windows-x86_64.zip -C check
           grep -c "iris runner panicked" check/*/bin/origami.exe
       - name: Start the extracted package
         # From a path with spaces, as a user's home may be.
         shell: powershell
         run: |
-          $zip = (Get-ChildItem dist\origami-*-app.zip).FullName
+          $zip = (Get-ChildItem dist\origami-*-windows-x86_64.zip).FullName
           $root = Join-Path $env:RUNNER_TEMP "origami extract"
           New-Item -ItemType Directory -Force $root | Out-Null
           tar -xf $zip -C $root

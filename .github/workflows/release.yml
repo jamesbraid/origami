@@ -39,12 +39,12 @@ jobs:
           set -eu
           version=${TAG#v}
           ls assets
-          test "$(ls assets/*.tar.gz assets/*.zip | wc -l)" = 10
-          test "$(ls assets/*-app.tar.gz assets/*-app.zip | wc -l)" = 5
+          test "$(ls assets/origami-cli-*.tar.gz assets/origami-cli-*.zip | wc -l)" = 5
+          test "$(ls assets/origami-*.tar.gz assets/origami-*.zip | grep -vc '/origami-cli-')" = 5
           # A dirty or untagged build would be named for the commit instead.
           for f in assets/origami-*; do
             case $f in
-              assets/origami-"$version"-*) ;;
+              assets/origami-cli-"$version"-* | assets/origami-"$version"-*) ;;
               *) echo "$f is not named for $version" >&2; exit 1 ;;
             esac
           done
