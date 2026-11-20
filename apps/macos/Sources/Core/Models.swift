@@ -68,6 +68,8 @@ final class MachineModel: ObservableObject, Identifiable {
     @Published private(set) var emulatorUp = false
 
     weak var view: MachineView?
+    /// Sizes the window for this machine's picture; the View menu's scales go through it.
+    weak var fitter: FitView?
     /// The serial console model, made when its window first opens.
     private(set) var consoleModel: ConsoleModel?
     func console() -> ConsoleModel {
@@ -381,7 +383,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var tabs: [String] = []
     @Published var active: String?
     @Published var sidebarVisible = true
-    @Published var scaleMode: ScaleMode = .fit
     /// Window-opening requests the scene turns into windows.
     @Published var wantSettings = false
     @Published var wantNewMachine = false
@@ -645,10 +646,10 @@ final class AppModel: ObservableObject {
         case .previousTab: step(-1)
         case .showLibrary: sidebarVisible.toggle()
         case .library: sidebarVisible = true
-        case .fit: scaleMode = .fit
-        case .pointScale: scaleMode = .points
-        case .doubleScale: scaleMode = .double
-        case .actualSize: scaleMode = .actual
+        case .fit: break   // the picture always fills the window
+        case .pointScale: m?.fitter?.show(pointsPerPixel: 1)
+        case .doubleScale: m?.fitter?.show(pointsPerPixel: 2)
+        case .actualSize: if let f = m?.fitter { f.show(pointsPerPixel: 1 / max(1, f.backing.rounded())) }
         case .chooseLibrary: if let url = openFolderPanel() { chooseLibrary(url) }
         case .console: if let m { if m.headless { select(m.id) } else { openConsole?(m.id) } }
         case .newMachine: wantNewMachine = true

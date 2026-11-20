@@ -82,10 +82,11 @@ struct ScreenView: View {
                 let guest = CGSize(width: model.picture?.width ?? 1280, height: model.picture?.height ?? 1024)
                 // Zero until the machine reports its picture, so the one fit is not spent on the fallback size.
                 let realGuest = model.picture.map { CGSize(width: $0.width, height: $0.height) } ?? .zero
-                let inset = 30.0   // granite margin and the bezel
+                let inset = Scaling.inset   // granite margin and the bezel
                 let avail = CGSize(width: max(80, geo.size.width - inset * 2), height: max(80, geo.size.height - inset * 2))
-                let size = Scaling.viewSize(guest: guest, available: avail, backing: scale, mode: app.scaleMode)
-                WindowFitter(key: "\(model.id)-\(model.startedAt?.timeIntervalSince1970 ?? 0)", guest: realGuest, available: geo.size)
+                let size = Scaling.viewSize(guest: guest, available: avail)
+                WindowFitter(key: "\(model.id)-\(model.startedAt?.timeIntervalSince1970 ?? 0)", model: model, guest: realGuest,
+                             available: geo.size, backing: scale)
                     .frame(width: 0, height: 0)
                 MachineDisplay(model: model)
                     .frame(width: size.width, height: size.height)

@@ -99,16 +99,13 @@ func runSelfTest(library: String, out: String) {
         app.rescanNow()
     }
     #endif
-    // Picture sizing: 1 guest pixel per point where it fits, else the largest whole-number scale.
+    // Picture sizing: the picture fills its area at any scale; the first window is a whole number of device pixels.
     do {
         let g = CGSize(width: 1280, height: 1024)
-        func size(_ w: CGFloat, _ h: CGFloat, _ b: CGFloat, _ m: ScaleMode) -> CGSize {
-            Scaling.viewSize(guest: g, available: CGSize(width: w, height: h), backing: b, mode: m)
-        }
-        let aspect = size(500, 400, 2, .points)
-        // Pointer mapping follows the picture's rectangle at 1x points, 2x points and the whole-scale fit.
-        func mapped(_ m: ScaleMode, _ w: CGFloat, _ h: CGFloat) -> Bool {
-            let v = Scaling.viewSize(guest: g, available: CGSize(width: w, height: h), backing: 2, mode: m)
+        func size(_ w: CGFloat, _ h: CGFloat) -> CGSize { Scaling.viewSize(guest: g, available: CGSize(width: w, height: h)) }
+        // Pointer mapping follows the picture's rectangle at any scale.
+        func mapped(_ w: CGFloat, _ h: CGFloat) -> Bool {
+            let v = size(w, h)
             let a = MachineView.guestPoint(CGPoint(x: v.width / 2, y: v.height / 2), view: v, head: g)
             let b = MachineView.guestPoint(CGPoint(x: 0, y: 0), view: v, head: g)
             let c = MachineView.guestPoint(CGPoint(x: v.width - 0.01, y: v.height - 0.01), view: v, head: g)
@@ -116,20 +113,19 @@ func runSelfTest(library: String, out: String) {
         }
         // The picture's origin lands on a whole device pixel at 1x and 2x, with fractional or odd sizes.
         check("origin-on-a-device-pixel", [(CGFloat(1), CGSize(width: 1001, height: 700)), (2, CGSize(width: 1000.5, height: 733))].allSatisfy { b, c in
-            let v = size(c.width - 60, c.height - 60, b, .fit)
+            let v = size(c.width - 60, c.height - 60)
             let d = Scaling.snap(container: c, size: v, backing: b)
             let x = ((c.width - v.width) / 2 + d.width) * b, y = ((c.height - v.height) / 2 + d.height) * b
             return abs(x - x.rounded()) < 1e-6 && abs(y - y.rounded()) < 1e-6
         }, [:])
-        check("pointer-mapping-follows-the-scale", mapped(.points, 1500, 1100) && mapped(.double, 2600, 2100) && mapped(.fit, 1000, 700) && mapped(.points, 500, 400), [:])
-        check("scaling-modes", size(1500, 1100, 2, .points) == CGSize(width: 1280, height: 1024)
-              && size(1000, 700, 2, .fit) == CGSize(width: 640, height: 512)   // 1.37 device px steps down to 1, never blurry
-              && abs(size(500, 400, 2, .fit).height - 400) < 0.5   // below 1 device pixel it fills
-              && size(2600, 2100, 2, .double) == CGSize(width: 2560, height: 2048)
-              && size(2600, 2100, 2, .actual) == CGSize(width: 640, height: 512)
-              && size(2600, 2100, 1, .fit) == CGSize(width: 2560, height: 2048)
-              && abs(aspect.width / aspect.height - 1.25) < 0.001 && aspect.height <= 400,
-              ["aspect_fit_when_too_small": "\(aspect.width)x\(aspect.height)"])
+        check("pointer-mapping-follows-the-scale", mapped(1500, 1100) && mapped(2600, 2100) && mapped(1000, 700) && mapped(500, 400), [:])
+        let first = { (w: CGFloat, h: CGFloat) in Scaling.firstScale(guest: g, room: CGSize(width: w, height: h)) }
+        check("picture-fills-and-first-scale-is-one-point-or-the-largest-fit", size(1000, 700) == CGSize(width: 875, height: 700)
+              && size(2600, 1100) == CGSize(width: 1375, height: 1100)
+              && first(1452, 852) == 852.0 / 1024   // a 14-inch laptop: the largest fit
+              && first(2500, 1348) == 1             // a 5K display: one point
+              && first(2940, 2300) == 1,            // never more than one point
+              ["laptop": first(1452, 852), "5k": first(2500, 1348)])
     }
 
     // A second machine of the same product, to check selection keys rows by path.
@@ -642,13 +638,12 @@ func runSelfTest(library: String, out: String) {
             tabHost.layoutSubtreeIfNeeded()
             guard let v = displayViews(tabHost).first else { return false }
             let avail = CGSize(width: max(80, tabHost.bounds.width - 60), height: max(80, tabHost.bounds.height - 60))
-            let want = Scaling.viewSize(guest: CGSize(width: picture.width, height: picture.height), available: avail,
-                                        backing: tabWindow.backingScaleFactor, mode: app.scaleMode)
+            let want = Scaling.viewSize(guest: CGSize(width: picture.width, height: picture.height), available: avail)
             return abs(v.frame.width - want.width) < 1.5 && abs(v.frame.height - want.height) < 1.5
         }
         let got = displayViews(tabHost).first?.frame.size ?? .zero
         check(name, ok, ["view": "\(Int(got.width))x\(Int(got.height))", "host": "\(Int(tabHost.bounds.width))x\(Int(tabHost.bounds.height))",
-                        "picture": "\(picture.width)x\(picture.height)", "mode": "\(app.scaleMode)"])
+                        "picture": "\(picture.width)x\(picture.height)"])
     }
 
     // 4. Start it the way the Start command does. Events drive every state change.
@@ -971,17 +966,17 @@ func runSelfTest(library: String, out: String) {
         session.setFrameHandler(owner: view) { [weak view] in view?.redraw() }
     }
 
-    // The drawable is the guest's size and the layer fills the view, so the compositor scales it:
-    // nearest for a whole-number upscale, linear otherwise.
+    // The drawable is the view's own pixels, so the core does all the scaling.
     do {
-        let guest = CGSize(width: model.picture?.width ?? 0, height: model.picture?.height ?? 0)
-        let fills = view.metalLayer.frame.size == view.bounds.size
-        let whole = view.metalLayer.magnificationFilter == .nearest   // 640 pt x 2 over 64 px: 20x
+        func own() -> Bool {
+            let k = view.metalLayer.contentsScale
+            return view.metalLayer.frame.size == view.bounds.size
+                && view.metalLayer.drawableSize == CGSize(width: (view.bounds.width * k).rounded(), height: (view.bounds.height * k).rounded())
+        }
+        let before = own()
         view.setFrameSize(NSSize(width: 500, height: 400))
-        let smooth = view.metalLayer.magnificationFilter == .linear && view.metalLayer.frame.size == view.bounds.size
-        check("layer-fills-the-view-at-guest-resolution", view.metalLayer.drawableSize == guest && fills && whole && smooth,
-              ["drawable": "\(view.metalLayer.drawableSize)", "guest": "\(guest)", "layer": "\(view.metalLayer.frame.size)", "view": "\(view.bounds.size)",
-               "whole_filter_nearest": whole, "fractional_filter_linear": smooth])
+        check("drawable-is-the-views-own-pixels", before && own(),
+              ["drawable": "\(view.metalLayer.drawableSize)", "layer": "\(view.metalLayer.frame.size)", "view": "\(view.bounds.size)"])
         view.setFrameSize(NSSize(width: 640, height: 512))
     }
     // Idle: nothing changed, so nothing is drawn.
@@ -1125,6 +1120,7 @@ func runSelfTest(library: String, out: String) {
             frame.cacheDisplay(in: frame.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(out)/ui-main-window.png"))
         }
+        main.contentViewController = nil   // a closed window's views would go on showing the current machine
         main.close()
         app.openWindow = nil; app.openConsole = nil   // MainView set them to this window's environment
     }
@@ -1137,10 +1133,12 @@ func runSelfTest(library: String, out: String) {
         struct Probe: View {
             @EnvironmentObject var app: AppModel
             @ObservedObject var arrival: Arrival
+            let model: MachineModel
+            var key = "probe"
             var body: some View {
                 VStack(spacing: 0) {
                     GeometryReader { geo in
-                        WindowFitter(key: "probe", guest: arrival.guest, available: geo.size).frame(width: 0, height: 0)
+                        WindowFitter(key: key, model: model, guest: arrival.guest, available: geo.size, backing: 1).frame(width: 0, height: 0)
                     }
                     if app.showsCpu { Color.gray.frame(height: 80) }
                 }
@@ -1151,7 +1149,7 @@ func runSelfTest(library: String, out: String) {
         let w = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 900, height: 700), styleMask: [.titled, .resizable],
                          backing: .buffered, defer: false)
         w.isReleasedWhenClosed = false
-        w.contentView = NSHostingView(rootView: Probe(arrival: arrival).environmentObject(app))
+        w.contentView = NSHostingView(rootView: Probe(arrival: arrival, model: model).environmentObject(app))
         w.orderFront(nil)
         spin(1)
         let waiting = w.frame
@@ -1171,6 +1169,142 @@ func runSelfTest(library: String, out: String) {
             check("toolbar-\(name)-keeps-the-window-frame", w.frame == settled, ["before": "\(settled)", "after": "\(w.frame)"])
         }
         w.close()
+        // The first fit only grows: a window already bigger than a 640x480 picture needs keeps its size.
+        let small = Arrival()
+        let bw = NSWindow(contentRect: NSRect(x: 40, y: 40, width: 1400, height: 1000), styleMask: [.titled, .resizable],
+                          backing: .buffered, defer: false)
+        bw.isReleasedWhenClosed = false
+        bw.contentView = NSHostingView(rootView: Probe(arrival: small, model: model, key: "probe-big").environmentObject(app))
+        bw.orderFront(nil)
+        spin(1)
+        let roomy = bw.frame
+        small.guest = CGSize(width: 640, height: 480)
+        spin(1)
+        check("first-fit-never-shrinks-the-window", bw.frame == roomy, ["before": "\(roomy)", "after": "\(bw.frame)"])
+        bw.close()
+    }
+
+    // 7a1. A 1280x1024 picture on a 2x display, in the real tab: the first window is one point per guest pixel
+    // or the largest fit, the picture fills every size the window takes, the View menu's scales size the
+    // window once, and the core draws fractional scales sharp bilinear.
+    do {
+        do {
+            let op = try host.core.createMachine(request: OrigamiCreateRequest(
+                name: "wide", offering: "fakebig.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil))
+            check("create-wide-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
+            app.rescanNow()
+        } catch { check("create-wide-machine", false, ["error": "\(error)"]) }
+        if let wide = app.model(named: "wide") {
+            app.select(wide.id)
+            func run(_ name: String) {
+                wide.start()
+                check(name, waitFor(60) {
+                    try? host.core.fakeAdvanceFrame(key: wide.record.key)
+                    return wide.state == .running && wide.picture?.width == 1280 && wide.picture?.height == 1024
+                }, ["state": wide.state.pill, "picture": "\(String(describing: wide.picture))"])
+            }
+            func stop() {
+                var off: Error?? = .none
+                wide.stop { e in off = .some(e) }
+                _ = waitFor(60) { off != nil && wide.state == .stopped }
+            }
+            // A 14-inch laptop has no room for one point per guest pixel: the first window is the largest fit.
+            run("wide-machine-shows-1280x1024")
+            FitView.visibleFrame = { _ in CGRect(x: 0, y: 0, width: 1512, height: 944) }
+            do {
+                let lw = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.titled, .resizable],
+                                  backing: .buffered, defer: false)
+                lw.isReleasedWhenClosed = false
+                let lt = NSHostingView(rootView: MachineTab(model: wide).environmentObject(app).environment(\.displayScale, 2))
+                lw.contentView = lt
+                var got = CGSize.zero
+                let ok = waitFor(5) {
+                    lt.layoutSubtreeIfNeeded()
+                    got = displayViews(lt).first?.frame.size ?? .zero
+                    let a = CGSize(width: lt.bounds.width - 60, height: lt.bounds.height - 60)
+                    return abs(lw.frame.height - 944) < 0.5 && abs(got.height - a.height) < 0.5 && abs(got.width / max(1, got.height) - 1.25) < 0.01 && got.height < 1024
+                }
+                check("first-window-on-a-laptop-is-the-largest-fit", ok, ["view": "\(got)", "window": "\(lw.frame.size)"])
+                lw.contentView = nil
+                lw.close()
+            }
+            stop()
+            run("wide-machine-runs-again")
+            FitView.visibleFrame = { _ in CGRect(x: 0, y: 0, width: 2560, height: 1440) }   // a 5K display's room
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700), styleMask: [.titled, .resizable],
+                             backing: .buffered, defer: false)
+            w.isReleasedWhenClosed = false
+            let tab = NSHostingView(rootView: MachineTab(model: wide).environmentObject(app).environment(\.displayScale, 2))
+            w.contentView = tab
+            typealias Shown = (view: CGSize, layer: CGSize, drawable: CGSize, avail: CGSize)
+            func shown() -> Shown {
+                tab.layoutSubtreeIfNeeded()
+                let v = displayViews(tab).first
+                let a = CGSize(width: tab.bounds.width - 60, height: tab.bounds.height - 60)
+                return (v?.frame.size ?? .zero, v?.metalLayer.frame.size ?? .zero, v?.metalLayer.drawableSize ?? .zero, a)
+            }
+            func fills(_ s: Shown) -> Bool {
+                abs(min(s.avail.width - s.view.width, s.avail.height - s.view.height)) < 1 && abs(s.view.width / max(1, s.view.height) - 1.25) < 0.01
+            }
+            // The core draws into the view's own pixels.
+            func drawn(_ s: Shown) -> Bool {
+                let k = displayViews(tab).first?.metalLayer.contentsScale ?? 0
+                return s.layer == s.view && s.drawable == CGSize(width: (s.view.width * k).rounded(), height: (s.view.height * k).rounded())
+            }
+            func info(_ s: Shown) -> [String: Any] {
+                ["view": "\(s.view)", "layer": "\(s.layer)", "drawable": "\(s.drawable)", "avail": "\(s.avail)", "window": "\(w.frame.size)"]
+            }
+            var s = shown()
+            check("first-window-on-a-5k-display-is-one-point", waitFor(5) { s = shown(); return s.view == CGSize(width: 1280, height: 1024) && fills(s) && drawn(s) }, info(s))
+            // Each scale sizes the window once, to exactly that picture; Fit leaves the window alone.
+            FitView.visibleFrame = { _ in CGRect(x: 0, y: 0, width: 4000, height: 3000) }
+            for (c, want) in [(CommandID.actualSize, CGSize(width: 640, height: 512)), (.doubleScale, CGSize(width: 2560, height: 2048)),
+                              (.pointScale, CGSize(width: 1280, height: 1024))] {
+                app.invoke(c)
+                check("view-menu-\(c.rawValue)-sets-the-exact-size", waitFor(5) { s = shown(); return s.view == want && fills(s) && drawn(s) }, info(s))
+            }
+            let before = w.frame
+            app.invoke(.fit); spin(0.5)
+            check("view-menu-fit-keeps-the-window", w.frame == before && fills(shown()), info(shown()))
+            // A resize, as dragging an edge or the zoom button does: the frame stays what it was set to and the picture follows.
+            var last = shown().view
+            for size in [NSSize(width: 1100, height: 760), NSSize(width: 1512, height: 944), NSSize(width: 2100, height: 1700)] {
+                w.setContentSize(size)
+                let kept = w.frame
+                let ok = waitFor(5) { s = shown(); return fills(s) && drawn(s) && s.view != last }
+                spin(0.5)
+                check("picture-follows-a-resize-to-\(Int(size.width))x\(Int(size.height))", ok && w.frame == kept,
+                      info(s).merging(["before": "\(last)", "frame_kept": w.frame == kept]) { a, _ in a })
+                last = s.view
+            }
+            // At 1.59 output pixels per guest pixel, the fake picture's red channel drops from 255 to 0 every 256
+            // guest pixels. Sharp bilinear blends each drop over at most one output pixel; plain bilinear over two.
+            if let v = displayViews(tab).first {
+                try? host.core.fakeAdvanceFrame(key: wide.record.key)
+                _ = waitFor(5) { v.presented > 0 }
+                if let rb = v.readback() {
+                    let k = Double(rb.width) / 1280
+                    func red(_ x: Int, _ y: Int) -> Int { Int(rb.bgra[(y * rb.width + x) * 4 + 2]) }
+                    func green(_ x: Int, _ y: Int) -> Int { Int(rb.bgra[(y * rb.width + x) * 4 + 1]) }
+                    var blends: [Int] = []
+                    for g in [256, 512, 768, 1024] {
+                        let at = Int(Double(g) * k), y = Int(100.5 * k)
+                        blends.append((at - 3...at + 3).filter { (24...231).contains(red($0, y)) }.count)
+                    }
+                    for g in [256, 512, 768] {
+                        let at = Int(Double(g) * k), x = Int(100.5 * k)
+                        blends.append((at - 3...at + 3).filter { (24...231).contains(green(x, $0)) }.count)
+                    }
+                    check("fractional-scale-is-sharp-bilinear", k > 1.5 && k < 1.7 && blends.allSatisfy { $0 <= 1 },
+                          ["readback": "\(rb.width)x\(rb.height)", "scale": k, "blended_pixels_per_edge": blends])
+                } else { check("fractional-scale-is-sharp-bilinear", false, ["error": v.lastError]) }
+            }
+            w.contentView = nil
+            w.close()
+            stop()
+            app.closeTab(wide.id)
+        } else { check("wide-machine-shows-1280x1024", false, ["error": "no model for the wide machine"]) }
+        app.select(model.id)
     }
 
     // 7b. Pause and Resume.

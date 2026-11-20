@@ -72,27 +72,24 @@ final class MachineView: NSView {
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// The drawable is the guest's own size (the view's pixels until a picture exists); the layer is
-    /// sized to the view, so the compositor does the scaling and nothing is copied or resampled here.
+    /// The drawable is the view's own device pixels: the core scales the picture into it sharp bilinear,
+    /// which the compositor's nearest or linear filters cannot do.
     private var pixelSize: (w: UInt32, h: UInt32) {
-        if let h = session.cachedHead, h.width > 0 { return (UInt32(h.width), UInt32(h.height)) }
         let scale = metalLayer.contentsScale
-        return (UInt32(max(1, bounds.width * scale)), UInt32(max(1, bounds.height * scale)))
+        return (UInt32(max(1, (bounds.width * scale).rounded())), UInt32(max(1, (bounds.height * scale).rounded())))
     }
 
     private func resizeDrawable() {
         let scale = window?.backingScaleFactor ?? metalLayer.contentsScale
-        if metalLayer.contentsScale != scale { metalLayer.contentsScale = scale }
+        if metalLayer.contentsScale != scale {
+            metalLayer.contentsScale = scale
+            if let v = coreView { origami_view_set_scale(v, Double(scale)) }
+        }
         let size = pixelSize
         if metalLayer.drawableSize != CGSize(width: Double(size.w), height: Double(size.h)) {
             metalLayer.drawableSize = CGSize(width: Double(size.w), height: Double(size.h))
             if let v = coreView { origami_view_resize(v, size.w, size.h) }
         }
-        // Whole-number upscales stay sharp; anything else is smooth.
-        let ratio = bounds.width * metalLayer.contentsScale / CGFloat(size.w)
-        metalLayer.contentsGravity = .resize
-        metalLayer.magnificationFilter = (ratio >= 1 && abs(ratio - ratio.rounded()) < 0.001) ? .nearest : .linear
-        metalLayer.minificationFilter = .linear
         redraw()
     }
     override func setFrameSize(_ s: NSSize) { super.setFrameSize(s); resizeDrawable() }
@@ -129,9 +126,6 @@ final class MachineView: NSView {
         if let w = window, w.isVisible, !w.occlusionState.contains(.visible) { return }
         guard coreVisible, !detached else { return }
         let t0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
-        // The guest may have changed resolution since the drawable was sized.
-        let want = pixelSize
-        if CGSize(width: Double(want.w), height: Double(want.h)) != metalLayer.drawableSize, session.cachedHead != nil { resizeDrawable(); return }
         if coreView == nil && !attach() { return }
         guard let v = coreView else { return }
         // A rebuilt swapchain asks for another call; a few are plenty.
@@ -181,10 +175,10 @@ final class MachineView: NSView {
         surface.kind = UInt32(ORIGAMI_SURFACE_CA_METAL_LAYER)
         surface.window = Unmanaged.passUnretained(metalLayer).toOpaque()
         var out: OpaquePointer?
-        // The drawable is the guest's size, so the core draws it 1:1 and the layer scales it.
-        let status = origami_view_attach(session.handle, 0, &surface, size.w, size.h, 1.0, &out)
+        let status = origami_view_attach(session.handle, 0, &surface, size.w, size.h, Double(metalLayer.contentsScale), &out)
         guard status == ORIGAMI_OK, let out else { lastError = "attach: \(Self.coreError(status))"; return false }
         coreView = out
+        origami_view_set_scale_mode(out, UInt32(ORIGAMI_SCALE_FIT))
         origami_view_set_visible(out, coreVisible ? 1 : 0)
         return true
     }

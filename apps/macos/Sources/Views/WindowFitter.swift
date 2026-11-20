@@ -1,51 +1,71 @@
-// Sizes the window once per run so the guest shows at 1 point per pixel when the screen allows.
+// Sizes the window to the picture: once per run when its picture first appears, growing only, and when the
+// View menu asks for a scale. Nothing else resizes the window; the picture fills whatever size it has.
 
 import AppKit
 import SwiftUI
 
 struct WindowFitter: NSViewRepresentable {
     let key: String
+    let model: MachineModel
     let guest: CGSize
     let available: CGSize
+    let backing: CGFloat
 
     func makeNSView(context: Context) -> FitView { FitView() }
 
     func updateNSView(_ view: FitView, context: Context) {
+        model.fitter = view
+        view.key = key
         view.guest = guest
         view.available = available
+        view.backing = backing
         view.schedule()
     }
 }
 
 final class FitView: NSView {
+    var key = ""
     var guest = CGSize.zero
     var available = CGSize.zero
-    private static var done = Set<ObjectIdentifier>()
+    var backing: CGFloat = 1
+    private static var done = Set<String>()
     /// The room the window may grow into; the self-test replaces it on a runner with no screen.
     static var visibleFrame: (NSWindow) -> CGRect? = { ($0.screen ?? NSScreen.main)?.visibleFrame }
 
-    // Fit as soon as there is both a window and a real picture size. Waiting for some later SwiftUI update fitted
-    // the window on whatever the user did next, such as a toolbar click that resized the view.
+    // Fit as soon as there is both a window and a real picture size, not on whatever the user does next.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         schedule()
     }
 
     func schedule() {
-        guard window != nil, guest.width > 1 else { return }
-        DispatchQueue.main.async { [weak self] in self?.fit() }
+        guard window != nil, guest.width > 1, !Self.done.contains(key) else { return }
+        DispatchQueue.main.async { [weak self] in self?.fitOnce() }
     }
 
-    private func fit() {
-        // At most once per window: a reset or a new picture size never grows it again.
-        guard guest.width > 1, let window, !Self.done.contains(ObjectIdentifier(window)) else { return }
-        Self.done.insert(ObjectIdentifier(window))
-        let need = CGSize(width: guest.width + 60, height: guest.height + 60)
-        let grow = CGSize(width: max(0, need.width - available.width), height: max(0, need.height - available.height))
-        guard grow.width > 0 || grow.height > 0, let room = Self.visibleFrame(window) else { return }
+    private func fitOnce() {
+        guard guest.width > 1, let window, !Self.done.contains(key), let room = Self.visibleFrame(window) else { return }
+        Self.done.insert(key)
+        let chrome = CGSize(width: window.frame.width - picture.width, height: window.frame.height - picture.height)
+        let fits = CGSize(width: room.width - chrome.width, height: room.height - chrome.height)
+        show(pointsPerPixel: Scaling.firstScale(guest: guest, room: fits), growOnly: true)
+    }
+
+    /// The room the picture has now: the screen view less its margin.
+    private var picture: CGSize { CGSize(width: available.width - 2 * Scaling.inset, height: available.height - 2 * Scaling.inset) }
+
+    /// Resize the window so the picture is `p` points per guest pixel, as far as the screen allows.
+    /// `growOnly` keeps a window the user made bigger: no axis shrinks, and one big enough on both is left alone.
+    func show(pointsPerPixel p: CGFloat, growOnly: Bool = false) {
+        guard guest.width > 1, let window, !window.styleMask.contains(.fullScreen), let room = Self.visibleFrame(window) else { return }
         var f = window.frame
-        f.size.width = min(room.width, f.width + grow.width)
-        f.size.height = min(room.height, f.height + grow.height)
+        var w = f.width + guest.width * p - picture.width, h = f.height + guest.height * p - picture.height
+        if growOnly {
+            if w <= f.width && h <= f.height { return }
+            (w, h) = (max(w, f.width), max(h, f.height))
+        }
+        f.size.width = min(room.width, w)
+        f.size.height = min(room.height, h)
         f.origin.y = window.frame.maxY - f.height   // keep the top edge where it was
         f.origin.x = min(max(room.minX, f.origin.x), room.maxX - f.width)
         if f.origin.y < room.minY { f.origin.y = room.minY }
