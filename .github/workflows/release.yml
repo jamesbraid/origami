@@ -64,7 +64,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" assets/* --verify-tag --title "$TAG" --notes-file notes.md
+          gh release create "$TAG" assets/* --verify-tag --title "Origami $TAG" --notes-file notes.md
 
   # The tap's cask and formula follow the release just published. Only v*
   # tags reach the release environment, which holds the tap token. A tag with
