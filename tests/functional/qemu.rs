@@ -193,7 +193,7 @@ fn attempt(
     results.record(
         "halt",
         halted,
-        "halt -p until QEMU exited",
+        "halt -p until QEMU exited and status said the guest powered off",
         halt_started.elapsed().as_secs_f64(),
     );
     drop(guard);
@@ -212,7 +212,7 @@ fn connect(machine: &Path, log: &Path) -> Result<Console, String> {
     }
 }
 
-/// Shut IRIX down; true if QEMU exited on its own.
+/// Shut IRIX down; true if QEMU exited on its own and the product says so.
 fn halt(con: &mut Console, product: &Product, machine: &Path) -> bool {
     if con.line("halt -p").is_err() {
         return false;
@@ -220,7 +220,9 @@ fn halt(con: &mut Console, product: &Product, machine: &Path) -> bool {
     let end = Instant::now() + Duration::from_secs(240);
     while Instant::now() < end {
         if product.is_stopped(machine) {
-            return true;
+            return product
+                .ok([OsStr::new("status"), machine.as_os_str()])
+                .is_ok_and(|said| said.trim() == "stopped (the guest powered off)");
         }
         std::thread::sleep(Duration::from_secs(5));
     }
