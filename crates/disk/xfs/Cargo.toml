@@ -1,0 +1,11 @@
+[package]
+name = "disk-xfs"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+description = "Read-only big-endian XFS as written by IRIX (superblock versions 1 to 4)"
+
+[dependencies]
+disk-rofs = { path = "../rofs" }

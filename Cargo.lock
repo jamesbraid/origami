@@ -1540,6 +1540,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "disk-xfs"
+version = "0.0.0"
+dependencies = [
+ "disk-rofs",
+]
+
+[[package]]
 name = "dispatch"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
