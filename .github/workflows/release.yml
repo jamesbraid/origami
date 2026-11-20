@@ -13,6 +13,8 @@ jobs:
   build:
     if: github.server_url == 'https://github.com'
     uses: ./.github/workflows/build.yml
+    # The signing jobs read the release environment's secrets, which a called workflow only sees when inherited.
+    secrets: inherit
 
   publish:
     needs: build
