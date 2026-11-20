@@ -30,6 +30,8 @@ cd "$ROOT"
 cargo build --locked --release -p origami-gtk -p origami --features origami-gtk/iris,origami/iris
 cargo build --locked --release -p origami-gtk --features test-tools --bin vptr
 [ -n "${SHOTS_ONLY:-}" ] || cargo test --locked -p origami-gtk -p origami-terminal
+# The renderer's GPU tests, on lavapipe; elsewhere they skip without an adapter.
+[ -n "${SHOTS_ONLY:-}" ] || VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.json ORIGAMI_REQUIRE_GPU=1 cargo test --locked -p origami-render
 cargo xtask runtime --platform linux-x86_64
 rm -rf "$S/rt" && mkdir -p "$S/rt"
 cp -rL "$S/target/runtime/linux-x86_64/tree/libexec" "$S/target/runtime/linux-x86_64/tree/share" "$S/rt/"

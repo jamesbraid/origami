@@ -122,8 +122,8 @@
 // Whole-number scales only, nearest filtering; a window too small for 1x fits.
 #define ORIGAMI_SCALE_INTEGER 0
 
-// Biggest picture that fits: whole device pixels, nearest, while that is at
-// least one device pixel per guest pixel; below that a smooth fractional fill.
+// Fill the window keeping the aspect ratio, at any scale, sharp bilinear:
+// guest pixels stay flat and blend over one window pixel at their edges.
 #define ORIGAMI_SCALE_FIT 1
 
 // A key position on a US keyboard, numbered from 0 in this order.

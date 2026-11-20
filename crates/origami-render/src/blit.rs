@@ -16,11 +16,9 @@ pub enum ScaleMode {
     /// too small for 1x fits the picture instead.
     #[default]
     Integer,
-    /// Fill the view keeping the aspect ratio, linear filtering.
+    /// Fill the view keeping the aspect ratio, sharp bilinear: guest pixels
+    /// stay flat and blend over one output pixel at their edges.
     Fit,
-    /// Whole device pixels, nearest, while that is at least one device pixel
-    /// per guest pixel; below that, fill with linear.
-    FitDevice,
 }
 
 /// Where the picture lands in the view, in the view's physical pixels.
@@ -34,18 +32,18 @@ pub struct Layout {
     pub scale: f32,
 }
 
-/// What `blit.wgsl` computes for a picture of `src` pixels in `area`, so a
-/// host can map the pointer. Keep the two in step.
+/// Where `blit.wgsl` draws a picture of `src` pixels in `area`: the shader
+/// takes its origin from here, so a host maps the pointer through the same numbers.
 pub fn layout(area: (u32, u32), src: (u32, u32), mode: ScaleMode) -> Layout {
     let (area, src) = ((area.0 as f32, area.1 as f32), (src.0 as f32, src.1 as f32));
     let fit = (area.0 / src.0).min(area.1 / src.1);
     let whole = match mode {
         ScaleMode::Fit => false,
         ScaleMode::Integer => fit >= 1.0,
-        ScaleMode::FitDevice => fit.floor() >= 1.0,
     };
     let scale = if whole { fit.floor() } else { fit };
-    let (width, height) = (src.0 * scale, src.1 * scale);
+    // A fill can come out a hair over the area, which would floor the origin to -1.
+    let (width, height) = ((src.0 * scale).min(area.0), (src.1 * scale).min(area.1));
     Layout {
         x: ((area.0 - width) * 0.5).floor(),
         y: ((area.1 - height) * 0.5).floor(),
@@ -219,6 +217,7 @@ impl Blit {
         mode: ScaleMode,
         cursor: Option<&CursorDraw>,
     ) {
+        let l = layout(area, (head.width, head.height), mode);
         let params: [f32; 12] = [
             area.0 as f32,
             area.1 as f32,
@@ -227,11 +226,10 @@ impl Blit {
             f32::from_bits(match mode {
                 ScaleMode::Fit => 0,
                 ScaleMode::Integer => 1,
-                ScaleMode::FitDevice => 2,
             }),
             f32::from_bits(u32::from(cursor.is_some())),
-            0.0,
-            0.0,
+            l.x,
+            l.y,
             cursor.map_or(0.0, |c| c.x as f32),
             cursor.map_or(0.0, |c| c.y as f32),
             cursor.map_or(0.0, |c| c.width as f32),
@@ -425,39 +423,15 @@ mod layout_tests {
     use super::*;
 
     #[test]
-    fn fit_device_steps_in_whole_device_pixels_down_to_one_device_pixel() {
-        // 1280x1024 guest on a 2x display: 2.5 fits, so 2 whole device
-        // pixels, which is exactly one logical pixel per guest pixel.
-        let l = layout((3200, 2560), (1280, 1024), ScaleMode::FitDevice);
-        assert_eq!((l.scale, l.width, l.x), (2.0, 2560.0, 320.0));
-        // 3.5 fits on 1x: whole steps of 3, nearest.
-        let l = layout((1400, 1000), (400, 300), ScaleMode::FitDevice);
-        assert_eq!((l.scale, l.x, l.y), (3.0, 100.0, 50.0));
-    }
-
-    #[test]
-    fn fit_device_fills_fractionally_only_below_one_device_pixel() {
-        // 1.5 device pixels per guest pixel on a 2x display steps down to 1.
-        let l = layout((1920, 1536), (1280, 1024), ScaleMode::FitDevice);
+    fn fit_fills_at_any_scale_and_centres_the_rest() {
+        // 1.5 device pixels per guest pixel stays 1.5: no stepping down.
+        let l = layout((1920, 1636), (1280, 1024), ScaleMode::Fit);
         assert_eq!(
-            (l.scale, l.width, l.height, l.x),
-            (1.0, 1280.0, 1024.0, 320.0)
+            (l.scale, l.width, l.height, l.y),
+            (1.5, 1920.0, 1536.0, 50.0)
         );
-        let l = layout((1000, 800), (1280, 1024), ScaleMode::FitDevice);
-        assert!((l.scale - 0.78125).abs() < 1e-6 && l.width == 1000.0);
-        // Taller than wide keeps the aspect ratio and centres the other way.
-        let l = layout((1000, 3000), (1000, 1000), ScaleMode::FitDevice);
+        let l = layout((1000, 3000), (1000, 1000), ScaleMode::Fit);
         assert_eq!((l.scale, l.y), (1.0, 1000.0));
-    }
-
-    #[test]
-    fn fit_device_steps_whole_at_fractional_display_scales() {
-        for ds in [1.25, 1.5] {
-            let whole = layout((800, 600), (400, 300), ScaleMode::FitDevice);
-            assert_eq!((whole.scale, whole.width), (2.0, 800.0), "{ds}");
-            let step = layout((600, 450), (400, 300), ScaleMode::FitDevice);
-            assert_eq!((step.scale, step.width), (1.0, 400.0), "{ds}");
-        }
     }
 
     #[test]

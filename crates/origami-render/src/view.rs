@@ -537,6 +537,10 @@ mod tests {
     fn gpu() -> Option<Gpu> {
         match Gpu::new() {
             Ok(g) => Some(g),
+            // CI sets ORIGAMI_REQUIRE_GPU where it provides an adapter, so a lost one fails.
+            Err(e) if std::env::var_os("ORIGAMI_REQUIRE_GPU").is_some() => {
+                panic!("no GPU adapter: {e}")
+            }
             Err(e) => {
                 eprintln!("skipping: no GPU adapter in this environment ({e})");
                 None
@@ -668,10 +672,10 @@ mod tests {
         assert_eq!(gpu.errors.count(), 0);
     }
 
-    /// The shader must put the picture where `layout` says: whole device
-    /// pixels while at least one fits per guest pixel.
+    /// Fit fills at 12.8x: the picture lands where `layout` says, and the
+    /// edge between two guest pixels blends over one output pixel, not 12.8.
     #[test]
-    fn fit_device_draws_where_the_layout_says() {
+    fn fit_draws_sharp_bilinear_where_the_layout_says() {
         let Some(gpu) = gpu() else { return };
         use wgpu::TextureFormat as F;
         let (w, h) = (5, 2);
@@ -707,20 +711,21 @@ mod tests {
             &target.create_view(&Default::default()),
             (64, 32),
             &head,
-            ScaleMode::FitDevice,
+            ScaleMode::Fit,
             None,
         );
         let out = read_back(&gpu, &target);
         let at = |x: usize, y: usize| out[(y * 64 + x) * 4..][..4].to_vec();
-        let l = crate::layout((64, 32), (w, h), ScaleMode::FitDevice);
-        assert_eq!((l.x, l.y, l.width, l.height), (2.0, 4.0, 60.0, 24.0));
+        let l = crate::layout((64, 32), (w, h), ScaleMode::Fit);
+        assert_eq!((l.x, l.y, l.width, l.height), (0.0, 3.0, 64.0, 25.6));
         let bg = vec![16, 16, 16, 255];
-        assert_eq!(
-            (at(1, 10), at(62, 10), at(10, 3), at(10, 28)),
-            (bg.clone(), bg.clone(), bg.clone(), bg)
-        );
-        assert_eq!((at(2, 4), at(25, 27)), (left.to_vec(), left.to_vec()));
-        assert_eq!((at(26, 4), at(61, 27)), (right.to_vec(), right.to_vec()));
+        assert_eq!((at(10, 2), at(10, 29)), (bg.clone(), bg));
+        // The guest pixel edge falls at x = 2 * 12.8 = 25.6 from the layout's origin
+        // at 0: pixel 25 blends, 24 and 26 are flat.
+        assert_eq!((at(0, 10), at(24, 10)), (left.to_vec(), left.to_vec()));
+        assert_eq!((at(26, 10), at(63, 10)), (right.to_vec(), right.to_vec()));
+        let mid = at(25, 10)[0];
+        assert!(mid > left[0] && mid < right[0], "{:?}", at(25, 10));
         gpu.device.poll(wgpu::PollType::wait_indefinitely()).ok();
         assert_eq!(gpu.errors.count(), 0);
     }

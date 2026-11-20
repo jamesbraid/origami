@@ -4,13 +4,12 @@
 struct P {
     out_size: vec2<f32>,
     src_size: vec2<f32>,
-    // 0: fit, linear; 1: whole-number scale, nearest (fit below 1x); 2: whole
-    // device pixels while at least 1 device pixel per guest pixel, else fit.
+    // 0: fit; 1: whole-number scale, nearest (fit below 1x).
     mode: u32,
     // 1 when the guest's cursor is drawn.
     cursor_on: u32,
-    pad1: u32,
-    pad2: u32,
+    // The picture's top left in output pixels, from `layout`.
+    org: vec2<f32>,
     // The cursor image's top left in head pixels, and its size.
     cursor: vec4<f32>,
 };
@@ -37,13 +36,7 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         s = floor(fit);
         whole = true;
     }
-    if (p.mode == 2u && floor(fit) >= 1.0) {
-        s = floor(fit);
-        whole = true;
-    }
-    let rect = p.src_size * s;
-    let org = floor((p.out_size - rect) * 0.5);
-    let q = (pos.xy - org) / s;
+    let q = (pos.xy - p.org) / s;
     let bg = vec4<f32>(0.0627, 0.0627, 0.0627, 1.0);
     if (q.x < 0.0 || q.y < 0.0 || q.x >= p.src_size.x || q.y >= p.src_size.y) {
         return bg;
@@ -52,7 +45,13 @@ fn fs(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     if (whole) {
         c = textureLoad(src, vec2<i32>(floor(q)), 0).rgb;
     } else {
-        c = textureSampleLevel(src, samp, q / p.src_size, 0.0).rgb;
+        // Sharp bilinear: each guest pixel flat, blended with its neighbour
+        // over one output pixel at its edge. Below 1x this is plain bilinear.
+        let k = max(s, 1.0);
+        let r = 0.5 - 0.5 / k;
+        let d = fract(q) - 0.5;
+        let t = floor(q) + 0.5 + (d - clamp(d, vec2<f32>(-r), vec2<f32>(r))) * k;
+        c = textureSampleLevel(src, samp, t / p.src_size, 0.0).rgb;
     }
     if (p.cursor_on == 1u) {
         let cx = floor(q.x) - p.cursor.x;

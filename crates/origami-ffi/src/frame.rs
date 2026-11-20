@@ -1086,8 +1086,8 @@ pub unsafe extern "C" fn origami_view_set_scale(
 
 /// Whole-number scales only, nearest filtering; a window too small for 1x fits.
 pub const ORIGAMI_SCALE_INTEGER: u32 = 0;
-/// Biggest picture that fits: whole device pixels, nearest, while that is at
-/// least one device pixel per guest pixel; below that a smooth fractional fill.
+/// Fill the window keeping the aspect ratio, at any scale, sharp bilinear:
+/// guest pixels stay flat and blend over one window pixel at their edges.
 pub const ORIGAMI_SCALE_FIT: u32 = 1;
 
 /// How the picture is scaled into the window. The default is
@@ -1429,7 +1429,7 @@ pub(crate) mod present {
         pub(super) fn set_scale_mode(&mut self, mode: u32) -> Result<(), Fail> {
             self.mode = match mode {
                 ORIGAMI_SCALE_INTEGER => ScaleMode::Integer,
-                ORIGAMI_SCALE_FIT => ScaleMode::FitDevice,
+                ORIGAMI_SCALE_FIT => ScaleMode::Fit,
                 _ => return fail(Status::InvalidArgument, "unknown scale mode"),
             };
             Ok(())
