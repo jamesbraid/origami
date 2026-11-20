@@ -17,7 +17,7 @@ use origami_engine::{
     PointerButton, Result,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -90,6 +90,8 @@ pub struct Viewer {
     /// How the last connection ended, for the next `HELLO` on Windows.
     prev: Mutex<Option<Previous>>,
     follow: Mutex<Option<Arc<Link>>>,
+    /// The head being steered, read by the follow thread.
+    shown: Arc<AtomicU32>,
 }
 
 impl Default for Viewer {
@@ -121,6 +123,7 @@ impl Viewer {
             hello,
             prev: Mutex::new(None),
             follow: Mutex::new(None),
+            shown: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -318,8 +321,8 @@ impl Viewer {
     }
 
     /// Follow the pointer here when the producer publishes the guest's cursor
-    /// for steering. Only on one head: with more, QEMU knows which head the
-    /// cursor is on and steers itself.
+    /// for steering. Steers the shown head; one the producer marks
+    /// non-steerable publishes cursor kind 0, so it is not followed.
     fn start_follow(
         &self,
         session: &Session,
@@ -331,11 +334,18 @@ impl Viewer {
             .iter()
             .find(|a| a.name == wire::STEERING_EXT)?;
         let block = u32::from_le_bytes(accept.payload.get(..4)?.try_into().ok()?) as usize;
+        let stride = accept
+            .payload
+            .get(4..8)
+            .map_or(32, |b| u32::from_le_bytes(b.try_into().unwrap()) as usize);
         let view = session.state.clone();
+        let shown = self.shown.clone();
         let sink = handle.clone();
         let link = Arc::new(Link::new(
             Box::new(move || {
-                let (seq, kind, x, y) = view.steer(block)?;
+                let head = shown.load(Ordering::Relaxed) as usize;
+                let (seq, kind, x, y) = view.steer(block + head * stride)?;
+                // Kind 0: no cursor, or a head the producer does not steer.
                 (kind != 0).then_some(Cursor { seq, x, y })
             }),
             Box::new(move |m| sink.send(m)),
@@ -668,11 +678,10 @@ impl Viewer {
     pub fn send_input(&self, events: &[InputEvent]) -> Result<()> {
         let head = self.first_head();
         let handle = lock(&self.session).clone();
-        // Follow only while there is one head and its size is known.
-        let size = handle
-            .as_ref()
-            .filter(|h| h.head_count() == 1)
-            .and_then(|_| self.head_size(0));
+        // Follow the shown head while its size is known.
+        let shown = head;
+        self.shown.store(shown, Ordering::Relaxed);
+        let size = handle.as_ref().and_then(|_| self.head_size(head as usize));
         let mut items = Vec::with_capacity(events.len());
         for e in coalesce(events) {
             match e {
@@ -696,7 +705,7 @@ impl Viewer {
                         vec![]
                     };
                     match size {
-                        Some((w, h)) if head == 0 => items.push(Item::At { x, y, w, h, abs }),
+                        Some((w, h)) if head == shown => items.push(Item::At { x, y, w, h, abs }),
                         _ => items.push(Item::Stop(abs)),
                     }
                 }

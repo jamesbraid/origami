@@ -474,6 +474,8 @@ impl Engine {
         hd.present = false;
         hd.w = 0;
         hd.h = 0;
+        // A removed head's last cursor must not be followed.
+        self.steer(head, 0, 0, 0);
         for vi in 0..self.viewers.len() {
             if !self.viewers[vi].live {
                 continue;
