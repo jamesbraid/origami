@@ -1,0 +1,11 @@
+[package]
+name = "disk-rofs"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+description = "Read-only file-system trait and a resolver that follows symlinks across mounts"
+
+[dependencies]
+positioned-io = "0.3"
