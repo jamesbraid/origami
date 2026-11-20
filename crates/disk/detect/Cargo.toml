@@ -1,0 +1,19 @@
+[package]
+name = "disk-detect"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+description = "Works out which operating system and version is on a disk image"
+[dependencies]
+disk-rofs = { path = "../rofs" }
+disk-dvh = { path = "../dvh" }
+disk-efs = { path = "../efs" }
+disk-xfs = { path = "../xfs" }
+chd = "0.4"
+ext4-view = "1"
+
+[dev-dependencies]
+flate2 = "1"
+tempfile = "3"

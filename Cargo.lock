@@ -547,6 +547,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
 
 [[package]]
+name = "bitreader"
+version = "0.3.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "886559b1e163d56c765bc3a985febb4eee8009f625244511d8ee3c432e08c066"
+dependencies = [
+ "cfg-if 1.0.5",
+]
+
+[[package]]
 name = "blake3"
 version = "1.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -872,6 +881,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "chd"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a607e05d7a8756524296ba664e9c06f1c4c6759ac03e0250c40e07fdcb182593"
+dependencies = [
+ "arrayvec",
+ "bitreader",
+ "byteorder",
+ "claxon",
+ "crc",
+ "flate2",
+ "lzma-rust2",
+ "num-derive",
+ "num-traits",
+ "text_io",
+ "zerocopy",
+ "zrip",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -944,6 +973,12 @@ name = "clap_lex"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
+
+[[package]]
+name = "claxon"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4bfbf56724aa9eca8afa4fcfadeb479e722935bb2a0900c2d37e0cc477af0688"
 
 [[package]]
 name = "clipboard-win"
@@ -1522,6 +1557,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "disk-detect"
+version = "0.0.0"
+dependencies = [
+ "chd",
+ "disk-dvh",
+ "disk-efs",
+ "disk-rofs",
+ "disk-xfs",
+ "ext4-view",
+ "flate2",
+ "tempfile",
+]
+
+[[package]]
 name = "disk-dvh"
 version = "0.0.0"
 
@@ -1842,6 +1891,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ext4-view"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ecf6379b7cfeace5e109ccc51955afc05f5f7f2466ae0cf2697bda46afd01e6"
+dependencies = [
+ "bitflags 2.13.2",
+ "crc",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1861,6 +1920,12 @@ name = "fearless_simd"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
+
+[[package]]
+name = "fearless_simd"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "629c9d6b6f30b5604089e0980f4d924a013aacb1654a6cdf5d3d852224f68651"
 
 [[package]]
 name = "femtovg"
@@ -3516,7 +3581,7 @@ dependencies = [
  "crossbeam-utils",
  "des",
  "env_logger",
- "fearless_simd",
+ "fearless_simd 0.4.1",
  "flate2",
  "gdbstub",
  "gdbstub_arch",
@@ -3980,6 +4045,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzma-rust2"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7277c9742229dc25243236d578b6471a798c554512c6f6a04365ec2e87c2a3bb"
+
+[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4322,6 +4393,17 @@ name = "num-conv"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521739c6d2bac4aa25192232afe6841231376b2b26d4d9fae5ecf8ca5772e441"
+
+[[package]]
+name = "num-derive"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "num-traits"
@@ -6700,6 +6782,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f18aa187839b2bdb1ad2fa35ead8c4c2976b64e4363c386d45ac0f7ee85c9233"
 
 [[package]]
+name = "text_io"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d8d3ca3b06292094e03841d8995e910712d2a10b5869c8f9725385b29761115"
+
+[[package]]
 name = "textwrap"
 version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8652,6 +8740,43 @@ dependencies = [
  "crc32fast",
  "log",
  "simd-adler32",
+]
+
+[[package]]
+name = "zrip"
+version = "0.8.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d5fe5897e46e935640c98054fb1683ffb01b9f1f79160156d55a3fcac9e9f6b"
+dependencies = [
+ "zrip-core",
+ "zrip-decode",
+ "zrip-encode",
+]
+
+[[package]]
+name = "zrip-core"
+version = "0.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6f789c9240e5a64ff37eed92fa5c0e32082b20f99d10ea9cb5b29ab58be9184"
+
+[[package]]
+name = "zrip-decode"
+version = "0.8.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8df46ccb3081f507acd3a594f287a17ca64b1e0f39b5dcb34eb8620d1ed3c421"
+dependencies = [
+ "fearless_simd 1.2.0",
+ "zrip-core",
+]
+
+[[package]]
+name = "zrip-encode"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9760a87786b6c32271cc3a21e4fe247649ed2217d1f6f1666c9f3003729ada5f"
+dependencies = [
+ "fearless_simd 1.2.0",
+ "zrip-core",
 ]
 
 [[package]]
