@@ -89,8 +89,8 @@ impl FakeEngine {
     }
 }
 
-/// Three offerings: a one-node machine with one head, the same with two
-/// nodes, and one with two heads.
+/// One head on one or two nodes, two heads, none, and one 1280x1024 head
+/// so a front end can lay out a workstation-sized picture.
 fn catalogue() -> Catalogue {
     let offering = |id: &str, topology: &str, nodes: u32, heads: u32| {
         json!({
@@ -113,6 +113,8 @@ fn catalogue() -> Catalogue {
             "engine": {ID: {"heads": heads, "display": heads > 0}},
         })
     };
+    let mut big = offering("fakebig.1", "fakebig", 1, 1);
+    big["engine"][ID]["size"] = json!([1280, 1024]);
     serde_json::from_value(json!({
         "version": 1,
         "offerings": [
@@ -120,6 +122,7 @@ fn catalogue() -> Catalogue {
             offering("fake.2", "fake", 2, 1),
             offering("fakeview.1", "fakeview", 1, 2),
             offering("fakeblind.1", "fakeblind", 1, 0),
+            big,
         ],
     }))
     .expect("the fake catalogue is well formed")
@@ -127,6 +130,13 @@ fn catalogue() -> Catalogue {
 
 fn heads_of(offering: &Offering) -> u32 {
     offering.engine[ID]["heads"].as_u64().unwrap_or(1) as u32
+}
+
+fn size_of(offering: &Offering) -> serde_json::Value {
+    offering.engine[ID]
+        .get("size")
+        .cloned()
+        .unwrap_or(json!([WIDTH, HEIGHT]))
 }
 
 impl Engine for FakeEngine {
@@ -297,6 +307,7 @@ impl Engine for FakeEngine {
             dir.path().to_path_buf(),
             json!({
                 "heads": heads_of(offering),
+                "size": size_of(offering),
                 "memory_mib": m.memory.per_node_mib,
                 "name": w.name,
                 "paused": w.paused,
@@ -312,6 +323,8 @@ impl Engine for FakeEngine {
         }
         let payload = plan.payload();
         let heads = payload["heads"].as_u64().unwrap_or(1) as usize;
+        let dim = |i: usize, or: u32| payload["size"][i].as_u64().map_or(or, |v| v as u32);
+        let size = (dim(0, WIDTH), dim(1, HEIGHT));
         let removable = payload["removable"]
             .as_array()
             .into_iter()
@@ -331,7 +344,7 @@ impl Engine for FakeEngine {
             dir: plan.dir().to_path_buf(),
             wake,
             has_display: payload["display"].as_bool() == Some(true),
-            frames: Arc::new(Frames::new(heads)),
+            frames: Arc::new(Frames::new(heads, size)),
             console,
             console_taken: AtomicBool::new(false),
             removable,
@@ -576,9 +589,10 @@ impl Session for FakeSession {
     }
 }
 
-/// The synthetic pictures: every head is `WIDTH` by `HEIGHT`, and pixel
-/// (x, y) at picture number `seq` is the bytes `[seq, y, x, 0]`.
+/// The synthetic pictures: every head is `size`, and pixel (x, y) at
+/// picture number `seq` is the bytes `[seq, y, x, 0]`.
 struct Frames {
+    size: (u32, u32),
     heads: Mutex<Vec<HeadState>>,
     cursor: Mutex<Option<(i32, i32)>>,
     visible: AtomicBool,
@@ -591,8 +605,9 @@ struct HeadState {
 }
 
 impl Frames {
-    fn new(heads: usize) -> Self {
+    fn new(heads: usize, size: (u32, u32)) -> Self {
         Self {
+            size,
             cursor: Mutex::new(None),
             visible: AtomicBool::new(true),
             heads: Mutex::new(
@@ -613,10 +628,10 @@ impl Frames {
         }
     }
 
-    fn fill(seq: u64, pixels: &mut Vec<u8>) {
+    fn fill(&self, seq: u64, pixels: &mut Vec<u8>) {
         pixels.clear();
-        for y in 0..HEIGHT {
-            for x in 0..WIDTH {
+        for y in 0..self.size.1 {
+            for x in 0..self.size.0 {
                 pixels.extend_from_slice(&[seq as u8, y as u8, x as u8, 0]);
             }
         }
@@ -625,8 +640,8 @@ impl Frames {
     fn ppm(&self, head: usize) -> Option<Vec<u8>> {
         let seq = self.heads.lock().unwrap().get(head)?.seq;
         let mut pixels = Vec::new();
-        Self::fill(seq, &mut pixels);
-        let mut ppm = format!("P6\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
+        self.fill(seq, &mut pixels);
+        let mut ppm = format!("P6\n{} {}\n255\n", self.size.0, self.size.1).into_bytes();
         for bgrx in pixels.as_chunks::<4>().0 {
             ppm.extend_from_slice(&[bgrx[2], bgrx[1], bgrx[0]]);
         }
@@ -641,8 +656,8 @@ impl FrameSource for Frames {
             .unwrap()
             .iter()
             .map(|head| HeadInfo {
-                width: WIDTH,
-                height: HEIGHT,
+                width: self.size.0,
+                height: self.size.1,
                 seq: head.seq,
                 active: true,
             })
@@ -685,12 +700,12 @@ impl FrameSource for Frames {
         let resized = !state.sent;
         state.sent = true;
         state.taken = state.seq;
-        Self::fill(state.seq, pixels);
+        self.fill(state.seq, pixels);
         Some(Frame::Rows(FrameUpdate {
             seq: state.seq,
-            width: WIDTH,
-            height: HEIGHT,
-            runs: vec![(0, HEIGHT)],
+            width: self.size.0,
+            height: self.size.1,
+            runs: vec![(0, self.size.1)],
             resized,
         }))
     }

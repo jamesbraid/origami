@@ -105,7 +105,7 @@ fn the_library_lists_created_machines_and_the_catalogue_lists_offerings() {
     let offerings = f.core.catalogue().unwrap();
     assert_eq!(
         offerings.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
-        ["fake.1", "fake.2", "fakeview.1", "fakeblind.1"]
+        ["fake.1", "fake.2", "fakeview.1", "fakeblind.1", "fakebig.1"]
     );
     assert_eq!(offerings[0].engine, "fake");
     assert_eq!(offerings[0].memory_accepted_mib, [64, 128, 256]);
