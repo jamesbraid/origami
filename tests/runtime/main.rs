@@ -175,7 +175,11 @@ fn builds_machine_type(offering: &origami_machine::Offering) -> bool {
 /// it paused; what went wrong, if anything.
 fn check_preset(root: &Path, name: &str, offering: &origami_machine::Offering) -> Vec<String> {
     let mut failures = Vec::new();
-    let machine = match create(root, &format!("{name}, with comma"), name, offering, &[]) {
+    // QEMU maps all guest RAM up front, so the 16 GiB presets fail to start on
+    // a 16 GB runner; the smallest memory the offering accepts starts the same.
+    let memory = offering.memory.accepted.iter().min().unwrap().to_string();
+    let extra = ["--memory-per-node", memory.as_str()];
+    let machine = match create(root, &format!("{name}, with comma"), name, offering, &extra) {
         Ok(machine) => machine,
         Err(error) => {
             failures.push(format!("{name}: {error}"));
