@@ -75,8 +75,6 @@ struct Shown {
     gone: AtomicBool,
     /// How the machine ended, kept once the runner's note has been read.
     ended: std::sync::OnceLock<machine_control::Exit>,
-    /// When `gone` was first seen, to give the runner's note time to land.
-    gone_seen: Mutex<Option<std::time::Instant>>,
     paused: AtomicBool,
     input: Mutex<Option<Sender<InputEvent>>>,
     /// Ends the display thread's blocked read when the session drops.
@@ -431,7 +429,6 @@ impl Engine for RunnerEngine {
             stop: AtomicBool::new(false),
             gone: AtomicBool::new(false),
             ended: std::sync::OnceLock::new(),
-            gone_seen: Mutex::new(None),
             paused: AtomicBool::new(false),
             input: Mutex::new(Some(tx)),
             interrupt: Mutex::new(None),
@@ -657,12 +654,17 @@ impl Session for RunnerSession {
     }
 
     fn status(&self) -> Facts {
-        let state = if self.shown.gone.load(Ordering::Acquire) {
-            let ended = self.shown.ended();
+        let ended = self
+            .shown
+            .gone
+            .load(Ordering::Acquire)
+            .then(|| self.shown.ended())
+            .flatten();
+        let state = if let Some(ended) = ended {
             RunState::Exited {
                 code: ended.code,
                 signal: ended.signal,
-                last_error: ended.last_error.clone(),
+                last_error: ended.last_error,
             }
         } else if self.shown.paused.load(Ordering::Acquire) {
             RunState::Paused
@@ -679,21 +681,19 @@ impl Session for RunnerSession {
 }
 
 impl Shown {
-    /// How the machine ended. The runner writes its note before the machine
-    /// is gone, so it is read once it is there; one that never comes is given
-    /// two seconds, then taken as none, so a status call stays cheap.
-    fn ended(&self) -> machine_control::Exit {
+    /// How the machine ended, or None while its runner still holds the
+    /// machine lock: QEMU can stop answering minutes before it exits.
+    fn ended(&self) -> Option<machine_control::Exit> {
         if let Some(ended) = self.ended.get() {
-            return ended.clone();
+            return Some(ended.clone());
         }
-        let first = *lock(&self.gone_seen).get_or_insert_with(std::time::Instant::now);
-        match machine_control::read_exit(&self.dir) {
-            Some(note) => self.ended.get_or_init(|| note).clone(),
-            None if first.elapsed() > Duration::from_secs(2) => {
-                self.ended.get_or_init(Default::default).clone()
-            }
-            None => Default::default(),
-        }
+        let note = match machine_control::read_exit(&self.dir) {
+            Some(note) => note,
+            None if machine_control::is_locked(&self.dir).unwrap_or(true) => return None,
+            // The runner writes its note before it lets go of the lock.
+            None => machine_control::read_exit(&self.dir).unwrap_or_default(),
+        };
+        Some(self.ended.get_or_init(|| note).clone())
     }
 }
 
@@ -1100,16 +1100,30 @@ fn producer_quitting(error: &SessionError) -> bool {
     matches!(error, SessionError::Producer(e) if e.code == origami_display::v4::wire::err::SHUTDOWN)
 }
 
+const NOTE_POLL: Duration = Duration::from_millis(50);
+
 /// Mark the machine gone when its runner dies, however the display thread is
-/// placed: a thread that returned early or sits in a read sees nothing.
+/// placed, and wake the UI then: only now has the runner left its exit note.
 fn watch_runner(m: &Arc<Shown>, tick: Duration) {
     let mut missed = 0;
-    while !m.stop.load(Ordering::Acquire) && !m.gone.load(Ordering::Acquire) {
-        for _ in 0..10 {
-            if m.stop.load(Ordering::Acquire) {
+    while !m.stop.load(Ordering::Acquire) {
+        // Once the display has seen QEMU go, poll for the note to wake the UI at once.
+        if m.gone.load(Ordering::Acquire) {
+            if m.ended().is_some() {
+                (m.wake)(m.id);
                 return;
             }
+            std::thread::sleep(NOTE_POLL);
+            continue;
+        }
+        for _ in 0..10 {
+            if m.stop.load(Ordering::Acquire) || m.gone.load(Ordering::Acquire) {
+                break;
+            }
             std::thread::sleep(tick / 10);
+        }
+        if m.stop.load(Ordering::Acquire) || m.gone.load(Ordering::Acquire) {
+            continue;
         }
         missed = if runner_alive(&m.dir) { 0 } else { missed + 1 };
         // Two misses in a row: a runner is never in between for a second.
@@ -1150,7 +1164,6 @@ mod tests {
             stop: AtomicBool::new(false),
             gone: AtomicBool::new(false),
             ended: std::sync::OnceLock::new(),
-            gone_seen: Mutex::new(None),
             paused: AtomicBool::new(false),
             input: Mutex::new(None),
             interrupt: Mutex::new(None),
@@ -1158,20 +1171,42 @@ mod tests {
     }
 
     #[test]
-    fn an_exit_note_that_lands_late_is_still_read() {
+    fn a_machine_has_not_ended_until_its_runner_says_how() {
+        let attach = |dir: &Path| RunnerSession {
+            shown: shown(dir),
+            cpus: Default::default(),
+            threads: Mutex::new(vec![]),
+            qmp_timeout: Duration::from_millis(300),
+        };
+        let exited = |code| RunState::Exited {
+            code,
+            signal: None,
+            last_error: None,
+        };
+        // QEMU has stopped answering, as while it folds a CHD disk after a
+        // guest's power-off, but the runner holds the lock and has no note yet.
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("state")).unwrap();
-        let m = shown(dir.path());
-        assert_eq!(m.ended(), machine_control::Exit::default());
+        let runner = machine_control::lock_for_edit(dir.path(), "run").unwrap();
+        let session = attach(dir.path());
+        session.shown.gone.store(true, Ordering::Release);
+        assert_eq!(session.status().state, RunState::Running);
         let note = machine_control::Exit {
-            signal: Some(9),
+            code: Some(0),
             ..Default::default()
         };
         machine_control::write_exit(dir.path(), &note).unwrap();
-        assert_eq!(m.ended(), note);
+        drop(runner);
+        assert_eq!(session.status().state, exited(Some(0)));
         // Once read it stays, whatever happens to the file.
         machine_control::clear_exit(dir.path());
-        assert_eq!(m.ended(), note);
+        assert_eq!(session.status().state, exited(Some(0)));
+
+        // A runner that let go of the machine without a note never wrote one.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        let session = attach(dir.path());
+        session.shown.gone.store(true, Ordering::Release);
+        assert_eq!(session.status().state, exited(None));
     }
 
     #[test]
