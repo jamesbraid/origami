@@ -193,6 +193,10 @@ Instigator), the thanks, and each photograph and the artwork with its licence.
 Its Licences button opens the full text of every licence bundled, grouped by
 licence with the components under each, and a search box.
 
+![The Acknowledgements window](images/app/linux-acknowledgements.png)
+
+![The Licences window](images/app/linux-licences.png)
+
 ## The same from the command line
 
 The same machines work from the CLI, on the same directories:
