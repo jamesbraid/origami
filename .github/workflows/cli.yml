@@ -50,7 +50,9 @@ jobs:
       - name: Test the CLI crates (replays the Instigator transcripts)
         run: cargo test --locked
       - name: Test build helpers
-        run: python3 -m unittest discover -s build/tests -p 'test_*.py' -v
+        run: |
+          apt-get install -y --no-install-recommends python3-pil
+          python3 -m unittest discover -s build/tests -p 'test_*.py' -v
 
   windows-check:
     if: github.server_url != 'https://github.com'

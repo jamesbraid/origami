@@ -29,18 +29,17 @@ def run(*cmd, **kw):
 
 
 def save(src: pathlib.Path, name: str):
-    """Re-encode one picture into docs/images/app/NAME.png: no metadata, an adaptive palette when that is not visibly lossy."""
+    """Re-encode one picture into docs/images/app/NAME.png: no metadata, lossless. A palette is used only when it reproduces every pixel."""
     OUT.mkdir(parents=True, exist_ok=True)
     im = Image.open(src).convert("RGB")
     buf = io.BytesIO()
     im.save(buf, "PNG", optimize=True)
     best = buf.getvalue()
-    if len(best) > 120_000:
-        # Dither-free palette: flat UI and terminal pictures lose nothing; photographs of a PROM keep banding-free gradients at 256 colours.
-        q = im.quantize(colors=256, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    if im.getcolors(256) is not None:
+        q = im.convert("P", palette=Image.Palette.ADAPTIVE, colors=256)
         buf = io.BytesIO()
         q.save(buf, "PNG", optimize=True)
-        if len(buf.getvalue()) < len(best):
+        if len(buf.getvalue()) < len(best) and q.convert("RGB").tobytes() == im.tobytes():
             best = buf.getvalue()
     (OUT / f"{name}.png").write_bytes(best)
     print(f"{name}.png  {im.width}x{im.height}  {len(best) // 1024} KiB")
