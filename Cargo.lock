@@ -1522,6 +1522,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "disk-dvh"
+version = "0.0.0"
+
+[[package]]
+name = "disk-efs"
+version = "0.0.0"
+dependencies = [
+ "disk-rofs",
+]
+
+[[package]]
 name = "disk-rofs"
 version = "0.0.0"
 dependencies = [

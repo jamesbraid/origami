@@ -1,0 +1,8 @@
+[package]
+name = "disk-dvh"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+description = "SGI disk volume header reader"

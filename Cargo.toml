@@ -16,10 +16,10 @@ test = false
 doctest = false
 
 [workspace]
-members = ["crates/disk/rofs", "crates/origami-ffi", "crates/origami-engine", "crates/origami-display", "crates/origami-display-producer", "crates/display-conformance", "crates/origami-core", "crates/origami-machine", "crates/origami-qemu", "crates/origami-nfs", "crates/origami-net", "crates/origami-protocol", "crates/origami-host", "crates/origami-render", "crates/origami-gui", "crates/origami-iris", "crates/origami-gtk", "crates/origami-terminal", "crates/ghostty-vt-sys", "crates/origami-credits", "xtask"]
+members = ["crates/disk/dvh", "crates/disk/efs", "crates/disk/rofs", "crates/origami-ffi", "crates/origami-engine", "crates/origami-display", "crates/origami-display-producer", "crates/display-conformance", "crates/origami-core", "crates/origami-machine", "crates/origami-qemu", "crates/origami-nfs", "crates/origami-net", "crates/origami-protocol", "crates/origami-host", "crates/origami-render", "crates/origami-gui", "crates/origami-iris", "crates/origami-gtk", "crates/origami-terminal", "crates/ghostty-vt-sys", "crates/origami-credits", "xtask"]
 # origami-gui pulls in Slint and wgpu, which the command-line tool's cargo
 # commands and checks should not build. `-p origami-gui` selects it.
-default-members = ["crates/disk/rofs", ".", "crates/origami-engine", "crates/origami-display", "crates/origami-display-producer", "crates/display-conformance", "crates/origami-core", "crates/origami-machine", "crates/origami-qemu", "crates/origami-nfs", "crates/origami-net", "crates/origami-protocol", "crates/origami-host", "xtask"]
+default-members = ["crates/disk/dvh", "crates/disk/efs", "crates/disk/rofs", ".", "crates/origami-engine", "crates/origami-display", "crates/origami-display-producer", "crates/display-conformance", "crates/origami-core", "crates/origami-machine", "crates/origami-qemu", "crates/origami-nfs", "crates/origami-net", "crates/origami-protocol", "crates/origami-host", "xtask"]
 
 [features]
 # Hosts iris machines in this executable's runner process. Off by default:
