@@ -4,6 +4,7 @@ public sealed record Forward(string Name, string Protocol, int HostPort, int Gue
 public sealed record Share(string Name, string HostDir);
 public sealed record Drive(string Name, string Kind, int Bus, int Target, string Image, bool ReadOnly);
 public sealed record Pipe(string Slot, string Product, string Family);
+public sealed record ConsoleLine(string Name, string Label, bool IsDefault);
 
 /// <summary>What a machine's file says, for the settings sheet.</summary>
 public sealed record MachineSettings(
@@ -11,7 +12,8 @@ public sealed record MachineSettings(
     int CpusPerNode, IReadOnlyList<int> CpusAllowed,
     int MemoryMiB, IReadOnlyList<int> MemoryAllowed,
     IReadOnlyList<Pipe> Pipes, IReadOnlyList<Drive> Drives,
-    string NetworkMode, IReadOnlyList<Forward> Forwards, IReadOnlyList<Share> Shares);
+    string NetworkMode, IReadOnlyList<Forward> Forwards, IReadOnlyList<Share> Shares,
+    string ConsolePort, IReadOnlyList<ConsoleLine> ConsoleLines);
 
 /// <summary>One edit to a stopped machine; the core refuses it with Busy while the machine runs.</summary>
 public abstract record MachineChange
@@ -25,12 +27,17 @@ public abstract record MachineChange
     public sealed record AddShare(Share Share) : MachineChange;
     public sealed record RemoveShare(string Name) : MachineChange;
     public sealed record DetachDrive(string Name) : MachineChange;
+    /// <summary>A null port returns to the machine's default line.</summary>
+    public sealed record SetConsole(string? Port) : MachineChange;
 }
 
 /// <summary>What the settings sheet decides itself, matching the Linux app.</summary>
 public static class MachineSettingsRules
 {
     public static readonly (string Mode, string Label)[] NetworkModes = { ("user", "Shared (NAT)"), ("private", "Private"), ("none", "Off") };
+
+    /// <summary>Choosing the default line clears the choice, as the CLI's console-set without --port does.</summary>
+    public static MachineChange SetConsoleTo(ConsoleLine l) => new MachineChange.SetConsole(l.IsDefault ? null : l.Name);
 
     /// <summary>Hardware settings are locked while the machine is up.</summary>
     public static bool Editable(MachineState s) => s is MachineState.Stopped or MachineState.Exited;

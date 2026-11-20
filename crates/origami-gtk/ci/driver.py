@@ -698,6 +698,23 @@ def settings():
         check("network mode changes", r.get("ok") and 'mode = "private"' in read(), r)
         r = a.req("change forward ssh 2222 22")
         check("a port forward is added", r.get("ok") and "2222" in read(), r)
+        # The console line goes through the Settings dialog's own combo.
+        a.req("invoke machine.settings octane2")
+        activate = lambda v: a.wait("the dialog", lambda: a.req("activate settings.console " + v).get("ok"), 30, 0.5)
+        activate("Serial port B (IOC3)")
+        chosen = a.wait("the file", lambda: 'console = "ioc3_b"' in read(), 30, 0.5)
+        check("the console line is chosen in Settings", chosen, read()[:400])
+        activate("Serial port A (IOC3) (default)")
+        cleared = a.wait("the file", lambda: "console =" not in read(), 30, 0.5)
+        check("the default line clears the console choice", cleared, read()[:400])
+        # The dialog is rebuilt after each edit: close until none is left.
+        closed = []
+        def none_left():
+            if a.req("activate settings.dialog").get("ok"):
+                closed.append(1)
+                return False
+            return bool(closed)
+        a.wait("the dialog to close", none_left, 30, 0.5)
         r = a.req("change memory 99999")
         check("a memory size the machine does not take is refused", "error" in r, r)
         a.req("invoke machine.new")

@@ -18,6 +18,24 @@ fn console_ports(offering: &Offering) -> impl Iterator<Item = (usize, &str, bool
         })
 }
 
+/// A serial line a console can use.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsolePort {
+    pub name: String,
+    /// Whether it is the machine's default console.
+    pub primary: bool,
+}
+
+/// The lines a console choice can name, in launch order.
+pub fn console_choices(offering: &Offering) -> Vec<ConsolePort> {
+    console_ports(offering)
+        .map(|(_, name, primary)| ConsolePort {
+            name: name.into(),
+            primary,
+        })
+        .collect()
+}
+
 /// The machine's default console: the machine list's line of kind console.
 pub fn default_console(offering: &Offering) -> Result<&str> {
     console_ports(offering)

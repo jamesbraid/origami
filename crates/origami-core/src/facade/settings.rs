@@ -1,7 +1,7 @@
 //! What a machine's file says, as plain data for a settings pane.
 
 use crate::Loaded;
-use origami_machine::{PortForward, Result};
+use origami_machine::{serial, PortForward, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PipeSetting {
@@ -27,6 +27,14 @@ pub struct ShareSetting {
     pub host_dir: String,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConsolePortSetting {
+    pub name: String,
+    /// What a picker shows, the same in every app, with the default marked.
+    pub label: String,
+    pub is_default: bool,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct MachineSettings {
     pub nodes: u32,
@@ -44,6 +52,19 @@ pub struct MachineSettings {
     pub network_mode: String,
     pub forwards: Vec<PortForward>,
     pub shares: Vec<ShareSetting>,
+    /// The serial line in use: the file's choice, else the machine's default.
+    pub console_port: String,
+    pub console_ports: Vec<ConsolePortSetting>,
+}
+
+fn port_label(name: &str) -> String {
+    match name {
+        "l1" => "L1 system controller",
+        "ioc3_a" => "Serial port A (IOC3)",
+        "ioc3_b" => "Serial port B (IOC3)",
+        other => other,
+    }
+    .into()
 }
 
 pub(crate) fn read(loaded: &Loaded) -> Result<MachineSettings> {
@@ -90,6 +111,21 @@ pub(crate) fn read(loaded: &Loaded) -> Result<MachineSettings> {
             .map(|s| ShareSetting {
                 name: s.name.clone(),
                 host_dir: s.path.to_string_lossy().into_owned(),
+            })
+            .collect(),
+        console_port: match &file.machine.console {
+            Some(port) => port.clone(),
+            None => serial::default_console(offer)?.into(),
+        },
+        console_ports: serial::console_choices(offer)
+            .into_iter()
+            .map(|p| ConsolePortSetting {
+                label: match p.primary {
+                    true => format!("{} (default)", port_label(&p.name)),
+                    false => port_label(&p.name),
+                },
+                name: p.name,
+                is_default: p.primary,
             })
             .collect(),
     })

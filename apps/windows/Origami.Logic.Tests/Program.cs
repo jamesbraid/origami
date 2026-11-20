@@ -106,6 +106,13 @@ Test("settings: round trip, per machine override, damaged file is a first run", 
     Directory.Delete(dir, true);
 });
 
+Test("console line: picking the default clears the choice", () =>
+{
+    var l1 = new ConsoleLine("l1", "L1 system controller (default)", true);
+    var a = new ConsoleLine("ioc3_a", "Serial port A (IOC3)", false);
+    Eq("ioc3_a", ((MachineChange.SetConsole)MachineSettingsRules.SetConsoleTo(a)).Port); Eq(null, ((MachineChange.SetConsole)MachineSettingsRules.SetConsoleTo(l1)).Port);
+});
+
 Test("pill: words and tones", () =>
 {
     Eq("Running", Pill.Text(MachineState.Running, false));

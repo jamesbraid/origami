@@ -39,6 +39,8 @@ struct Loaded {
     file: origami_machine::MachineFile,
     memory: Vec<u32>,
     cpus: Vec<u32>,
+    console_port: String,
+    console_ports: Vec<origami_core::facade::ConsolePortSetting>,
 }
 
 /// Through the machine's own engine, so an iris machine is read by iris.
@@ -48,6 +50,8 @@ fn load(machine: &origami_core::facade::Machine, dir: &std::path::Path) -> Resul
     Ok(Loaded {
         memory: settings.memory_allowed_mib,
         cpus: settings.cpus_per_node_allowed,
+        console_port: settings.console_port,
+        console_ports: settings.console_ports,
         file,
     })
 }
@@ -105,6 +109,7 @@ fn build_machine_dialog(
     let dialog = adw::PreferencesDialog::builder()
         .title(format!("{} Settings", m.name))
         .build();
+    dialog.set_widget_name("settings.dialog");
     let running = m.state.get().is_up();
 
     let general = adw::PreferencesPage::builder()
@@ -419,6 +424,48 @@ fn build_machine_dialog(
             sg.add(&add);
             net.add(&sg);
             dialog.add(&net);
+            let startup = adw::PreferencesPage::builder()
+                .title("Startup & Firmware")
+                .icon_name("system-shutdown-symbolic")
+                .build();
+            let g = adw::PreferencesGroup::builder()
+                .title("Startup and firmware")
+                .description("The Console window and a headless machine's tab use this line. On a machine with graphics, the PROM may print on the screen instead.")
+                .build();
+            let line = adw::ComboRow::builder()
+                .title("Console serial line")
+                .sensitive(!running)
+                .build();
+            line.set_widget_name("settings.console");
+            let labels: Vec<&str> = l.console_ports.iter().map(|p| p.label.as_str()).collect();
+            line.set_model(Some(&gtk::StringList::new(&labels)));
+            line.set_selected(
+                l.console_ports
+                    .iter()
+                    .position(|p| p.name == l.console_port)
+                    .unwrap_or(0) as u32,
+            );
+            let start = line.selected();
+            {
+                let (app, parent, m, d, ports) = (
+                    app.clone(),
+                    parent.clone(),
+                    m.clone(),
+                    dialog.clone(),
+                    l.console_ports.clone(),
+                );
+                line.connect_selected_notify(move |c| {
+                    if c.selected() != start {
+                        if let Some(p) = ports.get(c.selected() as usize) {
+                            let port = (!p.is_default).then(|| p.name.clone());
+                            apply(&app, &parent, &m, &d, Change::SetConsole(port));
+                        }
+                    }
+                });
+            }
+            g.add(&line);
+            startup.add(&g);
+            dialog.add(&startup);
         }
         Err(e) => {
             let page = adw::PreferencesPage::builder()

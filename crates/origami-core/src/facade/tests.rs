@@ -645,6 +645,28 @@ fn settings_read_what_the_machine_file_holds() {
 }
 
 #[test]
+fn the_console_line_is_chosen_from_the_machines_lines_and_put_back() {
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("c", "fake.1")).unwrap();
+    let s = machine.settings().unwrap();
+    assert_eq!(s.console_port, "ttyS0");
+    let lines: Vec<_> = s
+        .console_ports
+        .iter()
+        .map(|p| (p.name.as_str(), p.is_default))
+        .collect();
+    assert_eq!(lines, [("ttyS0", true), ("ttyS1", false)]);
+    assert_eq!(s.console_ports[0].label, "ttyS0 (default)");
+    assert_eq!(s.console_ports[1].label, "ttyS1");
+    machine
+        .apply_change(&Change::SetConsole(Some("ttyS1".into())))
+        .unwrap();
+    assert_eq!(machine.settings().unwrap().console_port, "ttyS1");
+    machine.apply_change(&Change::SetConsole(None)).unwrap();
+    assert_eq!(machine.settings().unwrap().console_port, "ttyS0");
+}
+
+#[test]
 fn an_edit_takes_hold_on_a_stopped_machine_and_is_refused_on_a_running_one() {
     let f = fixture();
     let key = f.create("e", "fake.1");

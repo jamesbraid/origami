@@ -83,6 +83,26 @@ fn every_change_kind_edits_the_stopped_machine() {
 }
 
 #[test]
+fn the_console_line_is_listed_chosen_and_put_back() {
+    let lab = Lab::new(None);
+    let machine = lab.core.open_machine(lab.key.clone()).unwrap();
+    let s = machine.settings().unwrap();
+    assert_eq!(s.console_port, "ttyS0");
+    assert_eq!(s.console_ports.len(), 2);
+    assert!(s.console_ports[0].is_default && !s.console_ports[1].is_default);
+    machine
+        .apply_change(OrigamiChange::SetConsole {
+            port: Some("ttyS1".into()),
+        })
+        .unwrap();
+    assert_eq!(machine.settings().unwrap().console_port, "ttyS1");
+    machine
+        .apply_change(OrigamiChange::SetConsole { port: None })
+        .unwrap();
+    assert_eq!(machine.settings().unwrap().console_port, "ttyS0");
+}
+
+#[test]
 fn a_running_machine_refuses_an_edit_with_busy() {
     let lab = Lab::new(None);
     let machine = lab.core.start_machine(lab.key.clone()).unwrap();

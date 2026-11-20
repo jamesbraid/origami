@@ -10,6 +10,9 @@
 //!   invoke COMMAND [MACHINE]      run a command as a menu item would
 //!   open MACHINE | select MACHINE
 //!   clipboard | clipboard-set JSON_STRING   read or set the clipboard text
+//!   activate WIDGET [VALUE]       use a control by its widget name, as a click, a
+//!                                 pick of the combo item labelled VALUE, or a
+//!                                 dialog's close would
 //!   change memory N | cpus N | network MODE | forward NAME HOST GUEST | share NAME DIR
 //!   compare NAME [MACHINE]        the picture shown, against QMP screendump
 //!   quit                          stop every machine and exit
@@ -435,6 +438,42 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             match r {
                 Ok(_) => json!({"ok": true}),
                 Err(e) => json!({"error": e.to_string()}),
+            }
+        }
+        "activate" => {
+            // Through the widget, so the dialog's own handler does the work.
+            let Some(name) = a1 else {
+                return json!({"error": "activate WIDGET [VALUE]"});
+            };
+            let mut found = Vec::new();
+            for top in gtk::Window::list_toplevels() {
+                descendants(top.upcast_ref(), &|c| c.widget_name() == name, &mut found);
+            }
+            let Some(widget) = found.first() else {
+                return json!({"error": format!("no widget {name}")});
+            };
+            let value = line.splitn(3, ' ').nth(2);
+            match (widget.downcast_ref::<adw::ComboRow>(), value) {
+                (Some(row), Some(value)) => {
+                    let list = row.model().and_downcast::<gtk::StringList>();
+                    let at = (0..list.as_ref().map_or(0, |l| l.n_items())).find(|&i| {
+                        list.as_ref().and_then(|l| l.string(i)).as_deref() == Some(value)
+                    });
+                    match at {
+                        Some(i) => {
+                            row.set_selected(i);
+                            json!({"ok": true})
+                        }
+                        None => json!({"error": format!("{name} has no item {value}")}),
+                    }
+                }
+                _ => match widget.downcast_ref::<adw::Dialog>() {
+                    Some(dialog) => {
+                        dialog.close();
+                        json!({"ok": true})
+                    }
+                    None => json!({"ok": widget.activate()}),
+                },
             }
         }
         "library" => match a1 {

@@ -33,7 +33,7 @@ pub use machine::{
 };
 pub use operation::{Operation, OperationState};
 pub use osview::{Osview, OsviewBar, OsviewKey, OsviewSegment, CAPTION as OSVIEW_CAPTION};
-pub use settings::{DriveSetting, MachineSettings, PipeSetting, ShareSetting};
+pub use settings::{ConsolePortSetting, DriveSetting, MachineSettings, PipeSetting, ShareSetting};
 
 pub use origami_engine::{
     Control, CpuLoad, CursorInfo, Frame, FrameStats, FrameUpdate, InputEvent, Key, PointerButton,

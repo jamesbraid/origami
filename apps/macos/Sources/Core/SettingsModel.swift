@@ -26,6 +26,12 @@ final class SettingsModel: ObservableObject {
         run { m in try m.applyChange(change: change); return try m.settings() }
     }
 
+    /// The default line is chosen by sending none, as the CLI's console-set without --port does.
+    func setConsole(_ name: String) {
+        let isDefault = settings?.consolePorts.first { $0.name == name }?.isDefault ?? false
+        apply(.setConsole(port: isDefault ? nil : name))
+    }
+
     private func run(_ work: @escaping @Sendable (OrigamiMachine) throws -> OrigamiMachineSettings) {
         let host = machine.coreHost
         let key = machine.record.key

@@ -52,6 +52,9 @@ print("machines:", machines.map { $0.name })
 expect(machines.count == 1 && machines[0].name == "alpha", "alpha in the list")
 
 let key = machines[0].key
+let stopped = try core.openMachine(key: key)
+try stopped.applyChange(change: .setConsole(port: "ttyS1"))
+expect(try stopped.settings().consolePort == "ttyS1", "the console line chosen")
 let machine = try core.startMachine(key: key)
 expect(machine.view().state == .running, "a running machine")
 expect(recorder.wait { $0.machine == key && $0.kinds.contains(.state) }, "a state event")

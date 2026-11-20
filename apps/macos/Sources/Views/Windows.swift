@@ -74,7 +74,7 @@ struct MachineSettings: View {
 
     enum Pane: String, CaseIterable, Identifiable {
         case general = "General", system = "System Information", processor = "Processor & Memory", graphics = "Graphics",
-             drives = "Drives", network = "Network", input = "Input"
+             drives = "Drives", network = "Network", startup = "Startup & Firmware", input = "Input"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -84,6 +84,7 @@ struct MachineSettings: View {
             case .graphics: return "display"
             case .drives: return "internaldrive"
             case .network: return "network"
+            case .startup: return "power"
             case .input: return "cursorarrow"
             }
         }
@@ -214,6 +215,16 @@ struct MachineSettings: View {
             } else { loadingRow }
         case .network:
             if let s = edit.settings { network(s) } else { loadingRow }
+        case .startup:
+            if let s = edit.settings {
+                Section("Startup and firmware") {
+                    Picker("Console serial line", selection: Binding(get: { s.consolePort }, set: { edit.setConsole($0) })) {
+                        ForEach(s.consolePorts, id: \.name) { Text($0.label).tag($0.name) }
+                    }.disabled(locked || edit.working)
+                    Text("The Console window and a headless machine's tab use this line. On a machine with graphics, the PROM may print on the screen instead.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } else { loadingRow }
         case .input:
             Picker("Pointer", selection: $model.pointerMode) {
                 Text("Follow my mouse").tag(PointerMode.follow)

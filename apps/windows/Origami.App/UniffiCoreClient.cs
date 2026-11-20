@@ -172,7 +172,8 @@ public sealed class UniffiCoreClient : ICoreClient
             s.Drives.Select(d => new Drive(d.Name, d.Kind, (int)d.Bus, (int)d.Target, d.Image, d.ReadOnly)).ToList(),
             s.NetworkMode,
             s.Forwards.Select(f => new Forward(f.Name, f.Protocol, f.HostPort, f.GuestPort)).ToList(),
-            s.Shares.Select(x => new Share(x.Name, x.HostDir)).ToList());
+            s.Shares.Select(x => new Share(x.Name, x.HostDir)).ToList(),
+            s.ConsolePort, s.ConsolePorts.Select(c => new ConsoleLine(c.Name, c.Label, c.IsDefault)).ToList());
     });
 
     public Task ApplyChangeAsync(string key, MachineChange change) => Task.Run(() => M(key).ApplyChange(change switch
@@ -191,6 +192,7 @@ public sealed class UniffiCoreClient : ICoreClient
         MachineChange.AddShare c => new OrigamiChange.AddShare(c.Share.Name, c.Share.HostDir),
         MachineChange.RemoveShare c => new OrigamiChange.RemoveShare(c.Name),
         MachineChange.DetachDrive c => new OrigamiChange.DetachDrive(c.Name),
+        MachineChange.SetConsole c => new OrigamiChange.SetConsole(c.Port),
         _ => throw new ArgumentException("unknown change"),
     }));
 

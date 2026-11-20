@@ -546,6 +546,7 @@ public sealed partial class MainWindow : Window
     }
 
     bool _dialogOpen; // one ContentDialog at a time
+    public Microsoft.UI.Xaml.XamlRoot XamlRootForTest => Root.XamlRoot;
 
     async Task MachineSettingsAsync(string key)
     {

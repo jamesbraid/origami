@@ -176,6 +176,17 @@ func runSelfTest(library: String, out: String) {
                 let back = waitFor(30) { sm.settings?.memoryPerNodeMib == s.memoryPerNodeMib && !sm.working }
                 check("settings-edit-can-be-put-back", back, ["now_mib": Int(sm.settings?.memoryPerNodeMib ?? 0), "error": sm.error ?? "none"])
             } else { check("settings-edit-while-stopped", false, ["error": "the machine offers one memory size"]) }
+            // The Startup pane's picker calls setConsole: a second line is stored, the default line clears the choice.
+            if let s = sm.settings, let other = s.consolePorts.first(where: { !$0.isDefault }), let line = s.consolePorts.first(where: { $0.isDefault }) {
+                check("console-line-listed-with-the-default-marked", s.consolePort == line.name && line.label.hasSuffix("(default)"),
+                      ["in_use": s.consolePort, "lines": s.consolePorts.map { $0.name }])
+                sm.setConsole(other.name)
+                let chose = waitFor(30) { sm.settings?.consolePort == other.name && !sm.working }
+                check("console-line-chosen", chose, ["wanted": other.name, "error": sm.error ?? "none"])
+                sm.setConsole(line.name)
+                let reset = waitFor(30) { sm.settings?.consolePort == line.name && !sm.working }
+                check("console-line-default-puts-it-back", reset, ["now": sm.settings?.consolePort ?? "", "error": sm.error ?? "none"])
+            } else { check("console-line-chosen", false, ["error": "the machine lists no second serial line"]) }
             // While the machine runs an edit is refused before it reaches the core.
             let wasLocked = sm.locked
             check("settings-locked-follows-the-machine", !wasLocked && victim.state == .stopped, ["locked_at_rest": wasLocked])

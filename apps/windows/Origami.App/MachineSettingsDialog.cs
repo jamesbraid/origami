@@ -38,6 +38,11 @@ public static class MachineSettingsDialog
             body.Children.Add(Combo("settings.memory", "Memory per node", s.MemoryAllowed.Select(m => m + " MiB").ToList(), s.MemoryAllowed.ToList().IndexOf(s.MemoryMiB), ok,
                 i => Apply(new MachineChange.SetMemory(s.MemoryAllowed[i]))));
 
+            body.Children.Add(Heading("Startup and firmware"));
+            body.Children.Add(Combo("settings.console", "Console serial line", s.ConsoleLines.Select(l => l.Label).ToList(),
+                s.ConsoleLines.ToList().FindIndex(l => l.Name == s.ConsolePort), ok, i => Apply(MachineSettingsRules.SetConsoleTo(s.ConsoleLines[i]))));
+            body.Children.Add(Text("The Console window and a headless machine's tab use this line. On a machine with graphics, the PROM may print on the screen instead."));
+
             body.Children.Add(Heading("Graphics"));
             if (s.Pipes.Count == 0) body.Children.Add(Text("None"));
             foreach (var p in s.Pipes) body.Children.Add(Text($"Pipe in slot {p.Slot}: {p.Product} ({p.Family})"));

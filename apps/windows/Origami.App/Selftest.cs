@@ -1,6 +1,9 @@
 #if ORIGAMI_FAKE
 using System.Text;
 using System.Text.Json;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Origami.Logic;
 
 namespace Origami.App;
@@ -39,6 +42,19 @@ public static class Selftest
         var json = JsonSerializer.Serialize(new { failed, steps = Steps }, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(_out, json);
         Environment.Exit(failed);
+    }
+
+    // A ContentDialog lives in a popup, so search the open popups; an id of null matches the first of the type.
+    static T? FindOpen<T>(MainWindow w, string? id) where T : FrameworkElement
+    {
+        T? In(DependencyObject o)
+        {
+            if (o is T t && (id == null || Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(t) == id)) return t;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(o); i++) if (In(VisualTreeHelper.GetChild(o, i)) is { } hit) return hit;
+            return null;
+        }
+        foreach (var p in VisualTreeHelper.GetOpenPopupsForXamlRoot(w.XamlRootForTest)) if (p.Child is { } c && In(c) is { } hit) return hit;
+        return null;
     }
 
     static async Task<bool> Until(Func<bool> cond, int ms)
@@ -133,6 +149,28 @@ public static class Selftest
         await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("none"));
         var st4 = await core.SettingsAsync(made);
         Check("settings: a share is removed and the network mode set", st4.Shares.Count == 0 && st4.NetworkMode == "none", st4.NetworkMode);
+
+        // --- console line: the Settings dialog's own combo, then the file the core wrote ---
+        var selected = w.SelectedKey;
+        w.SelectForTest(made);
+        w.Invoke("machine.settings");
+        ComboBox? line = null;
+        await Until(() => (line = FindOpen<ComboBox>(w, "settings.console")) != null, 3000);
+        Check("console line: Settings lists the machine's lines with the default marked", line != null && line.Items.Count == 2 && line.SelectedIndex == 0 && (string)line.Items[0] == "ttyS0 (default)", line == null ? "no combo" : string.Join(",", line.Items));
+        if (line != null)
+        {
+            line.SelectedIndex = 1;
+            var chosen = await Until(() => core.SettingsAsync(made).Result.ConsolePort == "ttyS1", 3000);
+            line = null;
+            await Until(() => (line = FindOpen<ComboBox>(w, "settings.console")) is { SelectedIndex: 1 }, 3000);
+            Check("console line: picking the second line is written and the dialog shows it", chosen && line is { SelectedIndex: 1 }, line?.SelectedIndex.ToString() ?? "no combo");
+            if (line != null) line.SelectedIndex = 0;
+            var back = await Until(() => core.SettingsAsync(made).Result.ConsolePort == "ttyS0", 3000);
+            Check("console line: picking the default line puts the choice back", back);
+        }
+        FindOpen<ContentDialog>(w, null)?.Hide();
+        await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
+        if (selected != null) w.SelectForTest(selected);
 
         // --- tabs ---
         var rows = core.Machines().Select(x => x.Key).ToList();

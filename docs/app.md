@@ -182,8 +182,10 @@ hidden.
 ![A machine's Settings window](images/app/linux-settings.png)
 
 Settings (Ctrl+Shift+I; Cmd+I on macOS) edits the selected machine's file:
-its name, memory and processor, graphics, drives, network and input. The
-Network page includes port forwards from the host to the guest. A running
+its name, memory and processor, graphics, drives, network, startup and input.
+The Network page includes port forwards from the host to the guest. Startup
+and firmware picks the console serial line, the same choice as
+[`origami console-set`](usage.md#which-serial-line-is-the-console). A running
 machine refuses edits; stop it first.
 
 ## About

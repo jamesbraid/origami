@@ -228,6 +228,13 @@ pub struct OrigamiShare {
     pub host_dir: String,
 }
 
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiConsolePort {
+    pub name: String,
+    pub label: String,
+    pub is_default: bool,
+}
+
 /// What a machine's file says, for a settings pane.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiMachineSettings {
@@ -247,6 +254,10 @@ pub struct OrigamiMachineSettings {
     pub network_mode: String,
     pub forwards: Vec<OrigamiForward>,
     pub shares: Vec<OrigamiShare>,
+    /// The serial line in use: the file's choice, else the default.
+    pub console_port: String,
+    /// The lines `OrigamiChange::SetConsole` accepts.
+    pub console_ports: Vec<OrigamiConsolePort>,
 }
 
 impl From<f::MachineSettings> for OrigamiMachineSettings {
@@ -299,6 +310,16 @@ impl From<f::MachineSettings> for OrigamiMachineSettings {
                     host_dir: s.host_dir,
                 })
                 .collect(),
+            console_port: s.console_port,
+            console_ports: s
+                .console_ports
+                .into_iter()
+                .map(|p| OrigamiConsolePort {
+                    name: p.name,
+                    label: p.label,
+                    is_default: p.is_default,
+                })
+                .collect(),
         }
     }
 }
@@ -322,6 +343,7 @@ pub enum OrigamiChange {
     AddShare { name: String, host_dir: String },
     RemoveShare { name: String },
     DetachDrive { name: String },
+    SetConsole { port: Option<String> },
 }
 
 impl From<OrigamiChange> for origami_core::Change {
@@ -360,6 +382,7 @@ impl From<OrigamiChange> for origami_core::Change {
             },
             OrigamiChange::RemoveShare { name } => Self::RemoveShare(name),
             OrigamiChange::DetachDrive { name } => Self::DetachDrive(name),
+            OrigamiChange::SetConsole { port } => Self::SetConsole(port),
         }
     }
 }

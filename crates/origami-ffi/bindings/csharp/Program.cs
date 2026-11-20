@@ -67,6 +67,9 @@ internal static class Program
         Expect(machines.Length == 1 && machines[0].Name == "alpha", "alpha in the list");
 
         var key = machines[0].Key;
+        var stopped = core.OpenMachine(key);
+        stopped.ApplyChange(new OrigamiChange.SetConsole("ttyS1"));
+        Expect(stopped.Settings().ConsolePort == "ttyS1", "the console line chosen");
         var machine = core.StartMachine(key);
         Expect(machine.View().State == OrigamiMachineState.Running, "a running machine");
         Expect(recorder.Wait(e => e.Machine == key && e.Kinds.Contains(OrigamiEventKind.State)), "a state event");
