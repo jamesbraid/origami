@@ -97,7 +97,11 @@ pub fn pump(app: &Rc<App>, m: &Rc<MachineUi>) {
 }
 
 fn shown(m: &MachineUi, w: u32, h: u32, seq: u64) {
-    if m.size.replace((w, h)) != (w, h) {
+    let before = m.size.replace((w, h));
+    if before == (0, 0) {
+        m.picture_appeared();
+    }
+    if before != (w, h) {
         m.screen.queue_allocate();
     }
     m.seq.set(seq);

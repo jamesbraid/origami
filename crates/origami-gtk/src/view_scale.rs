@@ -1,14 +1,10 @@
 //! Where the guest picture sits in its view and how a view point maps back to a
-//! guest pixel. Fit takes whole device pixels per guest pixel while at least one fits.
+//! guest pixel. The picture always fills the view, aspect kept; the View menu's
+//! scales only resize the window once.
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewScale {
-    /// Whole device steps while a guest pixel stays at least one device
-    /// pixel, else a smooth fill.
-    #[default]
+    /// Just fill: no resize.
     Fit,
     /// One device pixel per guest pixel.
     Actual,
@@ -19,16 +15,6 @@ pub enum ViewScale {
 }
 
 impl ViewScale {
-    pub fn parse(s: &str) -> Option<ViewScale> {
-        Some(match s {
-            "fit" => ViewScale::Fit,
-            "actual" => ViewScale::Actual,
-            "1x" => ViewScale::X1,
-            "2x" => ViewScale::X2,
-            _ => return None,
-        })
-    }
-
     pub fn command(self) -> &'static str {
         match self {
             ViewScale::Fit => "view.fit",
@@ -48,6 +34,16 @@ impl ViewScale {
         .into_iter()
         .find(|s| s.command() == id)
     }
+
+    /// Device pixels per guest pixel this scale asks for; Fit asks for none.
+    fn step(self, factor: f64) -> Option<f64> {
+        match self {
+            ViewScale::Fit => None,
+            ViewScale::Actual => Some(1.0),
+            ViewScale::X1 => Some(factor),
+            ViewScale::X2 => Some(2.0 * factor),
+        }
+    }
 }
 
 /// The picture's place in the view. The device rectangle is exact; `alloc` is
@@ -64,8 +60,8 @@ pub struct Layout {
 }
 
 /// Place a `guest` picture in a `view` of logical pixels on a display of
-/// `factor` device pixels per logical pixel. A fixed scale that does not fit falls back to Fit.
-pub fn layout(mode: ViewScale, view: (i32, i32), guest: (u32, u32), factor: f64) -> Option<Layout> {
+/// `factor` device pixels per logical pixel: the largest size that fits.
+pub fn layout(view: (i32, i32), guest: (u32, u32), factor: f64) -> Option<Layout> {
     if guest.0 == 0 || guest.1 == 0 || view.0 <= 0 || view.1 <= 0 || factor <= 0.0 {
         return None;
     }
@@ -74,19 +70,7 @@ pub fn layout(mode: ViewScale, view: (i32, i32), guest: (u32, u32), factor: f64)
         (f64::from(view.0) * factor).round(),
         (f64::from(view.1) * factor).round(),
     );
-    let fit = (vw / gw).min(vh / gh);
-    let stepped = if fit.floor() >= 1.0 { fit.floor() } else { fit };
-    let want = match mode {
-        ViewScale::Fit => stepped,
-        ViewScale::Actual => 1.0,
-        ViewScale::X1 => factor,
-        ViewScale::X2 => 2.0 * factor,
-    };
-    let step = if want <= fit * (1.0 + 1e-9) {
-        want
-    } else {
-        stepped
-    };
+    let step = (vw / gw).min(vh / gh);
     let size = |g: f64, v: f64| ((g * step).round()).clamp(1.0, v) as i32;
     let (dw, dh) = (size(gw, vw), size(gh, vh));
     Some(Layout {
@@ -95,6 +79,55 @@ pub fn layout(mode: ViewScale, view: (i32, i32), guest: (u32, u32), factor: f64)
         factor,
         dev: ((vw as i32 - dw) / 2, (vh as i32 - dh) / 2, dw, dh),
     })
+}
+
+/// Logical pixels kept free of the monitor's edges for panels and window
+/// decorations: Wayland reports no work area.
+const MARGIN: (i32, i32) = (32, 96);
+
+/// The window size for a picture's first appearance: 1 logical pixel per
+/// guest pixel if the monitor holds it, else the largest aspect-correct
+/// picture that fits. Never larger than 1x. Sizes are logical; `chrome` is
+/// window minus view.
+pub fn first_window(monitor: (i32, i32), chrome: (i32, i32), guest: (u32, u32)) -> (i32, i32) {
+    let room = room(monitor, chrome);
+    let k = (f64::from(room.0) / f64::from(guest.0))
+        .min(f64::from(room.1) / f64::from(guest.1))
+        .min(1.0);
+    let v = |g: u32, r: i32| ((f64::from(g) * k).ceil() as i32).min(r);
+    (chrome.0 + v(guest.0, room.0), chrome.1 + v(guest.1, room.1))
+}
+
+/// `want`, never smaller than the window's size `now` on either axis; `None`
+/// when `now` already holds it. The first fit keeps a window the user made bigger.
+pub fn grow_only(now: (i32, i32), want: (i32, i32)) -> Option<(i32, i32)> {
+    (want.0 > now.0 || want.1 > now.1).then(|| (want.0.max(now.0), want.1.max(now.1)))
+}
+
+/// The window size for a one-shot View scale, capped to the monitor; `None`
+/// for Fit, which never resizes. Whole logical sizes can leave a fractional
+/// display factor a device pixel over the exact step.
+pub fn scale_window(
+    scale: ViewScale,
+    monitor: (i32, i32),
+    chrome: (i32, i32),
+    guest: (u32, u32),
+    factor: f64,
+) -> Option<(i32, i32)> {
+    let view = view_for(guest, scale.step(factor)?, factor, room(monitor, chrome));
+    Some((chrome.0 + view.0, chrome.1 + view.1))
+}
+
+fn room(monitor: (i32, i32), chrome: (i32, i32)) -> (i32, i32) {
+    (
+        (monitor.0 - MARGIN.0 - chrome.0).max(1),
+        (monitor.1 - MARGIN.1 - chrome.1).max(1),
+    )
+}
+
+fn view_for(guest: (u32, u32), step: f64, factor: f64, room: (i32, i32)) -> (i32, i32) {
+    let fit = |g: u32, r: i32| ((f64::from(g) * step / factor).ceil() as i32).min(r);
+    (fit(guest.0, room.0), fit(guest.1, room.1))
 }
 
 impl Layout {
@@ -136,115 +169,113 @@ mod tests {
 
     const G: (u32, u32) = (1280, 1024);
 
-    fn rect(l: Layout) -> (i32, i32, i32, i32) {
-        l.alloc()
-    }
-
     #[test]
     fn a_1280_guest_is_1280_logical_pixels_at_1x_and_2x() {
-        let l = layout(ViewScale::Fit, (1280, 1024), G, 1.0).unwrap();
+        let l = layout((1280, 1024), G, 1.0).unwrap();
         assert_eq!(
-            (rect(l), l.step, l.nearest),
+            (l.alloc(), l.step, l.nearest),
             ((0, 0, 1280, 1024), 1.0, true)
         );
-        let l = layout(ViewScale::Fit, (1280, 1024), G, 2.0).unwrap();
+        let l = layout((1280, 1024), G, 2.0).unwrap();
         assert_eq!(
-            (rect(l), l.step, l.nearest),
+            (l.alloc(), l.step, l.nearest),
             ((0, 0, 1280, 1024), 2.0, true)
         );
     }
 
     #[test]
-    fn fit_takes_whole_steps_and_centres_the_rest() {
-        let l = layout(ViewScale::Fit, (3000, 2100), G, 1.0).unwrap();
-        assert_eq!((rect(l), l.step), ((220, 26, 2560, 2048), 2.0));
-        let l = layout(ViewScale::Fit, (1600, 1300), G, 1.0).unwrap();
-        assert_eq!((rect(l), l.step), ((160, 138, 1280, 1024), 1.0));
+    fn the_picture_fills_the_view_at_any_step() {
+        // 1000x700 logical is 2000x1400 device: 1.367 device px per guest px.
+        let l = layout((1000, 700), G, 2.0).unwrap();
+        assert!(!l.nearest && (l.step - 1.367).abs() < 0.001, "{l:?}");
+        assert_eq!((l.dev.2, l.dev.3), (1750, 1400));
+        assert_eq!((l.alloc().2, l.alloc().3), (876, 700));
+        // 3000x2100 is 2.34, not stepped down to 2.
+        let l = layout((3000, 2100), G, 1.0).unwrap();
+        assert!(
+            !l.nearest && (l.step - 2100.0 / 1024.0).abs() < 1e-9,
+            "{l:?}"
+        );
+        assert_eq!(l.dev.3, 2100);
     }
 
     #[test]
-    fn a_small_window_on_a_2x_display_steps_down_to_whole_device_pixels() {
-        // 1000x700 logical is 2000x1400 device: 1.37 device px per guest px,
-        // so the picture takes 1 rather than a blurry fraction.
-        let l = layout(ViewScale::Fit, (1000, 700), G, 2.0).unwrap();
-        assert!(l.nearest && l.step == 1.0, "{l:?}");
-        assert_eq!((l.dev.2, l.dev.3), (1280, 1024));
-        assert_eq!((l.alloc().2, l.alloc().3), (640, 512));
+    fn only_whole_steps_of_a_device_pixel_or_more_are_nearest() {
+        assert!(layout((2560, 2048), G, 1.0).unwrap().nearest);
+        assert!(!layout((2559, 2048), G, 1.0).unwrap().nearest);
+        let l = layout((640, 640), G, 1.0).unwrap();
+        assert_eq!((l.alloc(), l.nearest), ((0, 64, 640, 512), false));
+        assert!(!layout((640, 512), G, 1.0).unwrap().nearest);
     }
 
     #[test]
-    fn a_view_too_small_for_one_device_pixel_shrinks_the_picture_smoothly() {
-        let l = layout(ViewScale::Fit, (640, 640), G, 1.0).unwrap();
-        assert_eq!((rect(l), l.nearest), ((0, 64, 640, 512), false));
-    }
-
-    #[test]
-    fn fixed_scales_count_device_or_logical_pixels() {
-        let big = (3000, 2400);
-        let l = layout(ViewScale::Actual, big, G, 2.0).unwrap();
-        assert_eq!((rect(l), l.step), ((1180, 944, 640, 512), 1.0));
-        let l = layout(ViewScale::X1, big, G, 2.0).unwrap();
-        assert_eq!((l.alloc().2, l.step), (1280, 2.0));
-        let l = layout(ViewScale::X2, big, G, 2.0).unwrap();
-        assert_eq!((l.alloc().2, l.step), (2560, 4.0));
-    }
-
-    #[test]
-    fn a_fixed_scale_that_does_not_fit_falls_back_to_fit() {
-        let l = layout(ViewScale::X2, (1280, 1024), G, 1.0).unwrap();
-        assert_eq!((l.alloc().2, l.step), (1280, 1.0));
-    }
-
-    #[test]
-    fn a_fractional_display_factor_keeps_the_picture_in_the_view() {
-        let l = layout(ViewScale::Fit, (1920, 1536), G, 1.5).unwrap();
-        assert_eq!(l.step, 2.0);
-        // Rounded in device pixels: exactly two device pixels per guest pixel.
-        assert_eq!((l.dev.2, l.dev.3), (2560, 2048));
-        assert_eq!(l.alloc(), (106, 85, 1708, 1366));
+    fn a_fractional_display_factor_fills_in_device_pixels() {
+        let l = layout((1920, 1536), G, 1.5).unwrap();
+        assert_eq!(l.step, 2.25);
+        assert_eq!((l.dev.2, l.dev.3), (2880, 2304));
+        assert_eq!(l.alloc(), (0, 0, 1920, 1536));
         assert_eq!(l.guest_at(G, 0.0, 0.0), (0, 0));
     }
 
     #[test]
     fn there_is_no_layout_without_a_picture() {
-        assert_eq!(layout(ViewScale::Fit, (800, 600), (0, 0), 1.0), None);
-        assert_eq!(layout(ViewScale::Fit, (0, 0), G, 1.0), None);
+        assert_eq!(layout((800, 600), (0, 0), 1.0), None);
+        assert_eq!(layout((0, 0), G, 1.0), None);
     }
 
     #[test]
-    fn the_pointer_maps_through_the_scale_at_1x() {
-        let l = layout(ViewScale::Fit, (1600, 1300), G, 1.0).unwrap();
-        assert_eq!(l.guest_at(G, 160.0, 138.0), (0, 0));
+    fn the_pointer_maps_through_the_picture() {
+        let l = layout((1600, 1300), G, 1.0).unwrap();
+        // 1.25 device px per guest px, centred vertically.
+        assert_eq!((l.dev.2, l.dev.3), (1600, 1280));
+        assert_eq!(l.guest_at(G, 0.0, 10.0), (0, 0));
         assert_eq!(l.guest_at(G, 800.0, 650.0), (640, 512));
-        assert_eq!(l.guest_at(G, 1439.0, 1161.0), (1279, 1023));
-        // Outside the picture: pinned to its edge.
+        assert_eq!(l.guest_at(G, 1599.0, 1289.0), (1279, 1023));
         assert_eq!(l.guest_at(G, 0.0, 5000.0), (0, 1023));
     }
 
     #[test]
-    fn the_pointer_maps_through_the_scale_at_2x() {
-        // Fit on a 2x display: one guest pixel per logical pixel.
-        let l = layout(ViewScale::Fit, (1280, 1024), G, 2.0).unwrap();
-        assert_eq!(l.guest_at(G, 640.0, 512.0), (640, 512));
-        // Actual size on 2x: a guest pixel is half a logical pixel.
-        let l = layout(ViewScale::Actual, (1280, 1024), G, 2.0).unwrap();
-        assert_eq!(rect(l), (320, 256, 640, 512));
-        assert_eq!(l.guest_at(G, 320.0, 256.0), (0, 0));
-        assert_eq!(l.guest_at(G, 640.0, 512.0), (640, 512));
-        // Two logical pixels per guest pixel.
-        let l = layout(ViewScale::X2, (3000, 2400), G, 1.0).unwrap();
+    fn the_first_window_is_one_logical_pixel_per_guest_pixel_when_it_fits() {
+        let c = (40, 60);
+        assert_eq!(first_window((1920, 1300), c, G), (40 + 1280, 60 + 1024));
+        // A huge monitor never goes above 1x.
+        assert_eq!(first_window((7680, 4320), c, G), (40 + 1280, 60 + 1024));
+    }
+
+    #[test]
+    fn the_first_fit_only_grows_the_window() {
+        assert_eq!(grow_only((1500, 1000), (1320, 1084)), Some((1500, 1084)));
+        assert_eq!(grow_only((1500, 1100), (1320, 1084)), None);
+    }
+
+    #[test]
+    fn a_small_monitor_gets_the_largest_picture_of_the_right_shape() {
+        // 1920x1080: room is 1848x924, so 924/1024 = 0.902 and the height fills.
+        let (w, h) = first_window((1920, 1080), (40, 60), G);
+        assert_eq!(h, 60 + 924);
+        assert_eq!(w, 40 + 1155);
+        let l = layout((w - 40, h - 60), G, 1.0).unwrap();
+        assert!(!l.nearest && (l.step - 0.902).abs() < 0.001, "{l:?}");
+    }
+
+    #[test]
+    fn view_scales_resize_once_and_are_capped_to_the_monitor() {
+        let m = (3000, 2400);
+        let c = (40, 60);
+        let at = |s, f| scale_window(s, m, c, G, f);
+        assert_eq!(at(ViewScale::X1, 2.0), Some((40 + 1280, 60 + 1024)));
+        assert_eq!(at(ViewScale::X2, 2.0), Some((40 + 2560, 60 + 2048)));
+        assert_eq!(at(ViewScale::Actual, 2.0), Some((40 + 640, 60 + 512)));
+        assert_eq!(at(ViewScale::Fit, 2.0), None);
+        // 2x of a 1280x1024 guest at 1x does not fit 1000x700: capped.
         assert_eq!(
-            l.guest_at(
-                G,
-                f64::from(l.alloc().0) + 101.0,
-                f64::from(l.alloc().1) + 41.0
-            ),
-            (50, 20)
+            scale_window(ViewScale::X2, (1000, 700), c, G, 1.0),
+            Some((1000 - 32, 700 - 96))
         );
     }
 
     #[test]
-    fn view_scales_round_trip_through_their_commands_and_names() {
+    fn view_scales_round_trip_through_their_commands() {
         for s in [
             ViewScale::Fit,
             ViewScale::Actual,
@@ -253,7 +284,6 @@ mod tests {
         ] {
             assert_eq!(ViewScale::from_command(s.command()), Some(s));
         }
-        assert_eq!(ViewScale::parse("2x"), Some(ViewScale::X2));
-        assert_eq!(ViewScale::parse("3x"), None);
+        assert_eq!(ViewScale::from_command("view.scale-3x"), None);
     }
 }

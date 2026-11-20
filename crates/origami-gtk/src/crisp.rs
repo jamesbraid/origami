@@ -1,5 +1,7 @@
 //! A texture painted with a chosen scaling filter. `GtkPicture` always
 //! smooths, which blurs whole-number magnification of the guest's pixels.
+//! Fractional steps above 1 stay linear, not sharp bilinear as on macOS and
+//! Windows: that needs an in-frame path GTK does not have yet.
 
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;

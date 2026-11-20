@@ -122,7 +122,10 @@ pub struct MachineUi {
     pub screen: gtk::Overlay,
     pub picture: gtk::Picture,
     offload: gtk::GraphicsOffload,
-    pub view: Cell<ViewScale>,
+    /// A run's picture has appeared and the window has not been sized for it yet.
+    first_fit: Cell<bool>,
+    /// The window was sized for this run's picture; cleared when the run ends.
+    sized: Cell<bool>,
     /// The guest pixel last sent as the pointer's place, for tests.
     pub pointer_at: Cell<(i32, i32)>,
     place: Cell<Place>,
@@ -163,6 +166,9 @@ pub struct MachineUi {
     pub console: RefCell<Option<crate::console::Open>>,
     pub diagnostics: RefCell<Option<crate::diagnostics::Window>>,
 }
+
+/// A window size from the monitor, chrome (window minus picture view), guest and scale factor.
+type WindowFor = dyn Fn((i32, i32), (i32, i32), (u32, u32), f64) -> Option<(i32, i32)>;
 
 impl MachineUi {
     pub fn new(app: &Rc<App>, entry: Entry, machine: Machine) -> Rc<MachineUi> {
@@ -259,10 +265,6 @@ impl MachineUi {
         root.add_named(&with_panel, Some("screen"));
 
         let pointer = app.prefs.borrow().pointer_for(&entry.dir);
-        let view = app
-            .cfg
-            .view_scale
-            .unwrap_or_else(|| app.prefs.borrow().view_for(&entry.dir));
         let m = Rc::new(MachineUi {
             dir: entry.dir.clone(),
             name: entry.name.clone(),
@@ -288,7 +290,8 @@ impl MachineUi {
             screen,
             picture,
             offload,
-            view: Cell::new(view),
+            first_fit: Cell::new(false),
+            sized: Cell::new(false),
             pointer_at: Cell::new((-1, -1)),
             place: Cell::new(Place::default()),
             status,
@@ -326,7 +329,6 @@ impl MachineUi {
     /// The picture's rectangle in the screen widget, once there is a picture.
     pub fn layout(&self) -> Option<Layout> {
         view_scale::layout(
-            self.view.get(),
             (self.screen.width(), self.screen.height()),
             self.size.get(),
             self.scale_factor(),
@@ -347,9 +349,63 @@ impl MachineUi {
             .set_paintable(Some(&Crisp::new(tex, self.place.get())));
     }
 
-    pub fn set_view(&self, view: ViewScale) {
-        self.view.set(view);
+    /// A run's picture just appeared: size the window for it once it is laid out.
+    pub fn picture_appeared(&self) {
+        if !self.sized.replace(true) {
+            self.first_fit.set(true);
+        }
         self.screen.queue_allocate();
+    }
+
+    /// Resize the window once to a View scale; Fit never resizes.
+    pub fn resize_window(self: &Rc<Self>, scale: ViewScale) {
+        self.size_window(
+            Rc::new(move |mon, chrome, g, f| view_scale::scale_window(scale, mon, chrome, g, f)),
+            (0, 0),
+        );
+    }
+
+    /// Ask for the window `want` gives. `slack` is how far a default size has
+    /// overshot the window's real size (X11 frames); measured once, then corrected.
+    fn size_window(self: &Rc<Self>, want: Rc<WindowFor>, slack: (i32, i32)) {
+        let Some(win) = self.screen.root().and_downcast::<gtk::Window>() else {
+            return;
+        };
+        let monitor = win
+            .surface()
+            .and_then(|s| self.screen.display().monitor_at_surface(&s));
+        let (Some(mon), false, false) = (monitor, win.is_maximized(), win.is_fullscreen()) else {
+            return;
+        };
+        let g = mon.geometry();
+        let chrome = (
+            win.width() - self.screen.width(),
+            win.height() - self.screen.height(),
+        );
+        let Some((w, h)) = want(
+            (g.width(), g.height()),
+            chrome,
+            self.size.get(),
+            self.scale_factor(),
+        ) else {
+            return;
+        };
+        let ask = (w + slack.0, h + slack.1);
+        win.set_default_size(ask.0, ask.1);
+        if slack == (0, 0) {
+            let weak = Rc::downgrade(self);
+            glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
+                let Some(m) = weak.upgrade() else { return };
+                let Some(win) = m.screen.root().and_downcast::<gtk::Window>() else {
+                    return;
+                };
+                let slack = (ask.0 - win.width(), ask.1 - win.height());
+                // Correct a frame-sized shortfall (libadwaita on X11), not a tiling compositor.
+                if (1..=16).contains(&slack.0) && (1..=16).contains(&slack.1) {
+                    m.size_window(want, slack);
+                }
+            });
+        }
     }
 
     /// Put the picture where `layout` says, and lay it out again when the
@@ -369,6 +425,22 @@ impl MachineUi {
                 size: (f64::from(l.dev.2), f64::from(l.dev.3)),
             };
             m.place.set(place);
+            if m.first_fit.replace(false) {
+                let w = Rc::downgrade(&m);
+                glib::idle_add_local_once(move || {
+                    let Some(m) = w.upgrade() else { return };
+                    let Some(win) = m.screen.root().and_downcast::<gtk::Window>() else {
+                        return;
+                    };
+                    let now = (win.width(), win.height());
+                    m.size_window(
+                        Rc::new(move |mon, chrome, g, _| {
+                            view_scale::grow_only(now, view_scale::first_window(mon, chrome, g))
+                        }),
+                        (0, 0),
+                    );
+                });
+            }
             if let Some(c) = m
                 .picture
                 .paintable()
@@ -510,6 +582,7 @@ impl MachineUi {
         }
         if matches!(state, State::Stopped | State::Crashed) {
             self.size.set((0, 0));
+            self.sized.set(false);
             self.release_input();
         }
     }

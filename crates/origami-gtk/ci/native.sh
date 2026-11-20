@@ -12,7 +12,7 @@ set -eu
 S=$(mkdir -p "$1" && cd "$1" && pwd); shift
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../../.." && pwd)
-SCEN=${*:-first-light settings popout sidebar diagnostics console headless}
+SCEN=${*:-first-light settings popout sidebar diagnostics console headless hidpi}
 mkdir -p "$S/cache" "$S/work" "$S/out"
 
 export DEBIAN_FRONTEND=noninteractive
@@ -45,4 +45,5 @@ run() { # NAME MODE SCENARIO
     sh "$HERE/session.sh" "$S/out/$1" "$2" "$3"
 }
 for sc in $SCEN; do run "$sc" x11 "$sc"; done
+[ -n "${SHOTS_ONLY:-}" ] || [ -n "${*:-}" ] || GDK_SCALE=2 XVFB_SCREEN=3200x2600 run hidpi-2x x11 hidpi
 [ -n "${SHOTS_ONLY:-}" ] || run pointer-sway sway pointer

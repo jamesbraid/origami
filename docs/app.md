@@ -99,6 +99,10 @@ The picture goes from the emulator to your GPU without the CPU copying it
 where the platform allows. If it cannot, the app copies it instead, and
 [Diagnostics](#diagnostics) says why.
 
+The picture fills the window at any size, keeping its shape. macOS and Windows
+draw in-between sizes sharp: each guest pixel stays flat and blends only at its
+edge. Linux still smooths sizes between whole steps above 1x.
+
 Click the screen to type and use the mouse in the guest. The pointer button in
 the toolbar picks how the mouse works. *Follow My Mouse* makes the guest's
 pointer track yours while it is over the screen. *Capture on Click* takes the

@@ -832,6 +832,27 @@ def hidpi():
         if not c:
             return
         win = app_window()
+        time.sleep(1.5)
+        first = a.machine("octane2")["picture"]
+        fac = a.machine("octane2")["scale_factor"]
+        if first and win:
+            mon = [int(v) for v in (os.environ.get("XVFB_SCREEN") or "1600x1300").split("x")]
+            ww = [int(v.split("=")[1]) for v in sh("xdotool", "getwindowgeometry", "--shell", win).stdout.split() if v[:6] in ("WIDTH=", "HEIGHT")]
+            # 1 logical px per guest px if it fits, else the window nearly fills the monitor on one axis.
+            one = abs(first["step"] - fac) < 1e-6
+            fills_mon = ww[0] >= mon[0] / fac - 32 - 16 or ww[1] >= mon[1] / fac - 96 - 16
+            check("first appearance is 1 logical px per guest px, or the largest that fits (step %.3f)" % first["step"], first["step"] <= fac + 1e-6 and (one or fills_mon), [first, ww, mon])
+
+        def win_size():
+            r = sh("xdotool", "getwindowgeometry", "--shell", win)
+            g = dict(l.split("=") for l in r.stdout.split() if "=" in l)
+            return (int(g["WIDTH"]), int(g["HEIGHT"]))
+
+        def fills(pic, view_w, view_h, factor):
+            # One axis is the whole view, to a device pixel; the other is no larger.
+            dw, dh = pic["device"][2], pic["device"][3]
+            return (abs(dw - view_w * factor) <= factor and dh <= view_h * factor + 1) or (abs(dh - view_h * factor) <= factor and dw <= view_w * factor + 1)
+
         if win:
             # run.sh passes an unset HIDPI_WINDOW through as empty.
             size = (os.environ.get("HIDPI_WINDOW") or "1500 1200").split()
@@ -847,24 +868,41 @@ def hidpi():
         factor = m["scale_factor"]
         view_w, view_h = m["screen_bounds"][2], m["screen_bounds"][3]
         guest = m["size"]
-        fit = min(view_w * factor / guest[0], view_h * factor / guest[1])
-        want = int(fit) if int(fit) >= 1 else fit
-        check("fit takes the largest whole step (%s)" % want, abs(pic["step"] - want) < 1e-6 and pic["nearest"] == (want == int(want)), [pic, fit])
-        check("the picture is guest size x step / factor logical px", pic["rect"][2] == round(guest[0] * want / factor), pic)
+        want = min(view_w * factor / guest[0], view_h * factor / guest[1])
+        check("fit fills the view at step %.3f" % want, abs(pic["step"] - want) < 0.002 and fills(pic, view_w, view_h, factor), [pic, want])
+        check("a fractional step is not drawn nearest", pic["nearest"] == (abs(pic["step"] - round(pic["step"])) < 1e-6 and pic["step"] >= 1), pic)
         shot("hidpi-fit")
         json.dump(a.machine("octane2"), open(os.path.join(out, "geometry.json"), "w"))
+        if win:
+            before = win_size()
+            a.req("invoke view.fit octane2")
+            time.sleep(0.8)
+            check("Fit to Window does not resize the window", win_size() == before, [before, win_size()])
+            sh("xdotool", "windowsize", win, "1100", "900")
+            time.sleep(1.2)
+            sized = win_size()
+            time.sleep(1)
+            m = a.machine("octane2")
+            check("a window resize by the user is filled and not undone", win_size() == sized and fills(m["picture"], m["screen_bounds"][2], m["screen_bounds"][3], factor), [sized, win_size(), m["picture"]])
         for cmd, step in [("view.scale-1x", factor), ("view.actual-size", 1.0)]:
             a.req("invoke %s octane2" % cmd)
-            time.sleep(0.8)
-            pic = a.machine("octane2")["picture"]
-            fits = guest[0] * step <= view_w * factor and guest[1] * step <= view_h * factor
-            check("%s: %s device px per guest px%s" % (cmd, step, "" if fits else " (does not fit: falls back to fit)"),
-                  abs(pic["step"] - (step if fits else want)) < 1e-6, pic)
+            time.sleep(1.2)
+            m = a.machine("octane2")
+            pic = m["picture"]
+            # The monitor's logical size, less the app's margin and room for the sidebar and bars.
+            mon = [int(v) / factor for v in (os.environ.get("XVFB_SCREEN") or "1600x1300").split("x")]
+            if guest[0] * step / factor <= mon[0] - 32 - 300 and guest[1] * step / factor <= mon[1] - 96 - 100:
+                check("%s: %s device px per guest px" % (cmd, step), abs(pic["step"] - step) < 1e-6, pic)
+            else:
+                check("%s: does not fit the monitor, so the picture fills what the window can be" % cmd, pic["step"] <= step + 1e-6 and (not win or win_size()[0] <= mon[0] * factor), [pic, mon])
             shot("hidpi-" + cmd.split(".")[1])
+            if win:
+                held = win_size()
+                time.sleep(1)
+                check("%s: the window stays where it was put" % cmd, win_size() == held, [held, win_size()])
             if mode == "x11":
                 # Follow: the host pointer a quarter and three quarters across the
                 # picture lands on the same fraction of the guest's screen.
-                m = a.machine("octane2")
                 bx, by = m["screen_bounds"][0], m["screen_bounds"][1]
                 r = pic["rect"]
                 seen = []

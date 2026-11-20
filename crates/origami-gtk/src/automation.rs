@@ -210,7 +210,6 @@ fn describe(m: &MachineUi) -> Value {
         "pointer": format!("{:?}", m.pointer.get()).to_lowercase(),
         "cpu_panel": json!({"visible": m.cpu.root.is_visible(), "rows": m.cpu.shown(), "legend": m.cpu.legend(), "note": m.cpu.note(), "title": crate::cpu_panel::TITLE}),
         "pointer_at": [m.pointer_at.get().0, m.pointer_at.get().1],
-        "view": format!("{:?}", m.view.get()).to_lowercase(),
         "scale_factor": m.scale_factor(),
         "picture": m.layout().map(|l| json!({"rect": [l.alloc().0, l.alloc().1, l.alloc().2, l.alloc().3], "device": [l.dev.0, l.dev.1, l.dev.2, l.dev.3], "step": l.step, "nearest": l.nearest})),
         "diagnostics": m.diagnostics.borrow().as_ref().map(|d| json!({
