@@ -86,6 +86,13 @@ internal static class Program
         {
         }
 
+        // An older machine file is listed as needing an upgrade, and upgrading says so.
+        Directory.CreateDirectory(Path.Combine(root, "old"));
+        File.WriteAllText(Path.Combine(root, "old", "machine.toml"),
+            "format = 4\n[machine]\nmodel = \"origin200\"\ntopology = \"origin200\"\npopulation = [1]\nnodes = 1\ncpus_per_node = 1\nmemory_per_node = \"256MiB\"\n");
+        var old = core.ListMachines().First(m => m.Name == "old");
+        Expect(old.NeedsUpgrade, "the older machine needs an upgrade");
+        Expect(core.UpgradeMachine(old.Key).Any(l => l.Kind == OrigamiLineKind.Result), "the upgrade reports");
         core.Shutdown();
         Console.WriteLine("ok");
         return 0;

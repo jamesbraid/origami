@@ -15,6 +15,8 @@ pub struct Entry {
     pub art: Option<&'static str>,
     /// Why the machine file could not be read, when it could not.
     pub error: Option<String>,
+    /// Made by an older Origami: it opens as the upgrade dialog until upgraded.
+    pub needs_upgrade: bool,
     pub summary: Summary,
 }
 
@@ -46,6 +48,7 @@ pub fn entries(core: &origami_core::facade::Core) -> Vec<Entry> {
         .map(|m| {
             let mut e = read(Path::new(&m.key));
             e.name = m.name;
+            e.needs_upgrade = m.needs_upgrade;
             if let Some(p) = m.problem {
                 e.error = Some(p);
             }
@@ -71,6 +74,7 @@ pub fn read(dir: &Path) -> Entry {
                 product_label: origami_machine::product_label(&m.model, m.topology.as_deref()),
                 art: crate::art::of(&m.model, m.topology.as_deref()),
                 error: None,
+                needs_upgrade: false,
                 summary: Summary {
                     nodes: m.nodes,
                     topology: m.topology.clone(),
@@ -85,6 +89,7 @@ pub fn read(dir: &Path) -> Entry {
             product_label: String::new(),
             art: None,
             error: Some(e.to_string()),
+            needs_upgrade: false,
             summary: Summary::default(),
         },
     }

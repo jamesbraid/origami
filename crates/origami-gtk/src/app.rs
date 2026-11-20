@@ -276,6 +276,10 @@ pub fn open(app: &Rc<App>, entry: &Entry) -> Option<Rc<MachineUi>> {
         window::select(app, &m);
         return Some(m);
     }
+    if entry.needs_upgrade {
+        crate::upgrade::present(app, entry);
+        return None;
+    }
     let machine = match app.core.open_machine(&entry.dir.to_string_lossy()) {
         Ok(m) => m,
         Err(e) => {

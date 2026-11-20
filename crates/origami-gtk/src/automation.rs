@@ -271,7 +271,20 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 let b = w.cpu_btn.compute_bounds(root.upcast_ref::<gtk::Widget>())?;
                 Some(json!([b.x(), b.y(), b.width(), b.height()]))
             });
-            json!({"machines": ms, "library": lib, "cpu_btn": cpu_btn, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
+            let pills: Vec<String> = app
+                .windows
+                .borrow()
+                .iter()
+                .filter(|w| w.has_library)
+                .flat_map(|w| {
+                    w.rows
+                        .borrow()
+                        .iter()
+                        .map(|r| r.pill.label().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            json!({"machines": ms, "library": lib, "library_pills": pills, "cpu_btn": cpu_btn, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
                    "enabled": enabled, "cpu_s": cpu_seconds(),
                    "toolbar_tips": window::active(app).map(|w| w.toolbar.iter().map(|b| b.tooltip_text().map(|t| t.to_string())).collect::<Vec<_>>()),
                    "pause_tip": window::active(app).and_then(|w| w.pause_btn.tooltip_text()).map(|t| t.to_string()),
@@ -452,7 +465,15 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             let Some(widget) = found.first() else {
                 return json!({"error": format!("no widget {name}")});
             };
+            if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+                return json!({"ok": true, "text": label.label().as_str()});
+            }
             let value = line.splitn(3, ' ').nth(2);
+            // An alert's response, as its button gives it.
+            if let (Some(alert), Some(id)) = (widget.downcast_ref::<adw::AlertDialog>(), value) {
+                alert.emit_by_name::<()>("response", &[&id]);
+                return json!({"ok": true});
+            }
             match (widget.downcast_ref::<adw::ComboRow>(), value) {
                 (Some(row), Some(value)) => {
                     let list = row.model().and_downcast::<gtk::StringList>();

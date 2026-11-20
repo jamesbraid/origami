@@ -28,6 +28,9 @@ public interface ICoreClient : IDisposable
     /// <summary>Edits a stopped machine; throws the core's Busy error while it runs. Read the settings again afterwards.</summary>
     Task ApplyChangeAsync(string key, MachineChange change);
 
+    /// <summary>Upgrades a stopped machine made by an older Origami, off the UI thread; the core's sentence is the exception message.</summary>
+    Task<IReadOnlyList<ReportLine>> UpgradeAsync(string key);
+
     Task StartAsync(string key, CancellationToken ct = default);
     /// <summary>Clean stop. Can take minutes while a disk folds.</summary>
     Task PowerOffAsync(string key, CancellationToken ct = default);

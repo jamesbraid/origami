@@ -693,6 +693,31 @@ public static class Selftest
         w.Invoke("machine.stop");
         await Until(() => core.Status(big).State == MachineState.Stopped, 8000);
         disp.ForceFallback = fallback0;
+
+        // --- an older machine (the format 4 fixture) is listed as needing an upgrade, cannot start, and is upgraded from its card ---
+        var fixture = Path.Combine(Environment.GetEnvironmentVariable("ORIGAMI_FIXTURES") ?? "", "format4-origin200.toml");
+        Check("upgrade: the format 4 fixture is found", File.Exists(fixture), fixture);
+        var olderDir = Path.Combine(core.LibraryRoot, "Older");
+        Directory.CreateDirectory(olderDir);
+        if (File.Exists(fixture)) File.Copy(fixture, Path.Combine(olderDir, "machine.toml"), true);
+        // A real older machine has its state files; the fake engine wants these two to start it.
+        Directory.CreateDirectory(Path.Combine(olderDir, "state"));
+        foreach (var f in new[] { "nvram0", "flash0" }) File.WriteAllBytes(Path.Combine(olderDir, "state", f + ".raw"), new byte[16]);
+        core.Relist();
+        Check("upgrade: the library lists it as needing an upgrade", await Until(() => core.Machines().Any(m => m.Name == "Older" && m.State == MachineState.NeedsUpgrade), 6000));
+        var older = core.Machines().FirstOrDefault(m => m.Name == "Older")?.Key ?? "";
+        w.Reload();
+        w.SelectForTest(older);
+        Check("upgrade: its card shows with the Needs upgrade pill and Start is off",
+            await Until(() => w.UpgradeCardForTest && w.PillTextForTest == "Needs upgrade" && !core.CommandEnabled("machine.start", core.Status(older).State), 3000), w.PillTextForTest);
+        w.PressToolbarForTest("UpgradeButton");
+        Check("upgrade: the machine replaces the card and its notes show",
+            await Until(() => !w.UpgradeCardForTest && core.Status(older).State == MachineState.Stopped && w.UpgradeNotesForTest.Contains("format 5"), 15_000),
+            $"{w.PillTextForTest} | {w.UpgradeErrorForTest} | {w.UpgradeNotesForTest}");
+        w.Invoke("machine.start");
+        Check("upgrade: the upgraded machine starts", await Until(() => core.Status(older).State == MachineState.Running, 15_000), core.Status(older).Reason);
+        w.Invoke("machine.stop");
+        await Until(() => core.Status(older).State == MachineState.Stopped, 8000);
     }
 }
 #endif

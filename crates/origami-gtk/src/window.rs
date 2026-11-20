@@ -396,7 +396,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
 }
 
 /// Reveal a file or folder in the file manager (over the portal when sandboxed).
-fn show_in_files(win: &adw::ApplicationWindow, path: PathBuf) {
+pub(crate) fn show_in_files(win: &adw::ApplicationWindow, path: PathBuf) {
     let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(&path)));
     let win = win.clone();
     glib::spawn_future_local(async move {
@@ -1143,7 +1143,16 @@ pub fn refresh(app: &Rc<App>) {
                 .find(|m| m.dir == r.dir)
                 .map(|m| m.state.get())
                 .unwrap_or(State::Stopped);
-            let (word, class) = state.pill();
+            let old = app
+                .library
+                .borrow()
+                .iter()
+                .any(|e| e.dir == r.dir && e.needs_upgrade);
+            let (word, class) = if old {
+                crate::upgrade::PILL
+            } else {
+                state.pill()
+            };
             for c in ["pill-grey", "pill-green", "pill-amber", "pill-red"] {
                 r.pill.remove_css_class(c);
             }

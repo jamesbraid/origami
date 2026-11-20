@@ -62,6 +62,17 @@ Console, Settings and the main menu. The CPU button shows the
 [CPU panel](#the-cpu-panel). A machine with no graphics opens straight to its
 console.
 
+## Machines from an older Origami
+
+A machine made by an older release shows a **Needs upgrade** pill in the
+library and cannot start. Open it and choose Upgrade (on Linux, opening it
+shows an Upgrade dialog). This is [`origami upgrade`](usage.md#upgrading-a-machine):
+flash, NVRAM, drives, network settings and the Ethernet address are kept, and
+what the guest will notice at its next boot is listed when it is done. A
+machine that needs firmware to be rebuilt downloads it. If that fails, the
+message gives the `origami upgrade` command that takes local firmware files.
+If an upgrade fails, the reason is shown. The machine file stays as it was unless the upgrade had already rewritten it.
+
 ## Create a machine
 
 Choose New Machine (the **+** above the library, or Ctrl+N; Cmd+N on macOS).

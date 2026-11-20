@@ -20,6 +20,40 @@ public sealed partial class MainWindow : Window
     string? _attachedKey, _modeKey;
     int _refreshQueued;
 
+    // ---- upgrading an older machine ----------------------------------------------------------
+
+    readonly Dictionary<string, List<string>> _upgradeShown = new();
+    readonly Dictionary<string, string> _upgradeFailed = new();
+    readonly HashSet<string> _upgrading = new();
+
+    public string UpgradeErrorForTest => UpgradeError.Visibility == Visibility.Visible ? UpgradeError.Text : "";
+    public bool UpgradeCardForTest => UpgradePanel.Visibility == Visibility.Visible;
+    public string UpgradeNotesForTest => UpgradeNotes.Visibility == Visibility.Visible ? UpgradeNotes.Text : "";
+
+    async void RunUpgrade()
+    {
+        if (SelectedKey is not { } key || !_upgrading.Add(key)) return;
+        _upgradeFailed.Remove(key);
+        Refresh();
+        try
+        {
+            _upgradeShown[key] = Logic.UpgradeText.Shown(await _core.UpgradeAsync(key));
+        }
+        catch (Exception e) { _upgradeFailed[key] = Logic.UpgradeText.Failure(e.Message, key); }
+        _upgrading.Remove(key);
+        Refresh();
+    }
+
+    void ShowUpgradeCard(string key)
+    {
+        var busy = _upgrading.Contains(key);
+        UpgradeButton.IsEnabled = !busy;
+        UpgradeRing.IsActive = busy;
+        UpgradeError.Text = _upgradeFailed.GetValueOrDefault(key) ?? "";
+        UpgradeError.Visibility = UpgradeError.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpgradePanel.Visibility = Visibility.Visible;
+    }
+
     public MainWindow(ICoreClient core, SettingsStore store)
     {
         _core = core; _store = store; _settings = store.Load();
@@ -57,6 +91,10 @@ public sealed partial class MainWindow : Window
         CpuButton.Click += (_, _) => SetCpuPanel(CpuButton.IsChecked == true);
         PointerButton.Click += (_, _) => Invoke("machine.pointer-mode");
         ShowShot.Click += (_, _) => ShowInExplorer();
+        UpgradeTitle.Text = UpgradeText.Title;
+        UpgradeBody.Text = Logic.UpgradeText.Explanation;
+        UpgradeButton.Click += (_, _) => RunUpgrade();
+        UpgradeShow.Click += (_, _) => { if (SelectedKey is { } k) ShowMachineInExplorer(k); };
 
         Settings.Saved += s => { _store.Save(s); ApplySettings(s); };
         Settings.Closed += () => { _prefsOpen = false; Refresh(); };
@@ -799,7 +837,7 @@ public sealed partial class MainWindow : Window
         var starting = key != null && !_prefsOpen && _core.Status(key).State == MachineState.Starting;
         if (!starting) StartCube.Close();
         if (key is not null || _prefsOpen) EmptyCube.Close();
-        HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Tint.Visibility = Visibility.Collapsed;
+        HeroPanel.Visibility = StartingPanel.Visibility = Display.Visibility = Tint.Visibility = UpgradePanel.Visibility = Visibility.Collapsed;
         if (_pane is not null) _pane.Visibility = Visibility.Collapsed;
         Settings.Visibility = _prefsOpen ? Visibility.Visible : Visibility.Collapsed;
         if (key is null)
@@ -834,6 +872,8 @@ public sealed partial class MainWindow : Window
         ExitNote.Text = Pill.StoppedNote(st);
         ExitNote.Visibility = ExitNote.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
+        UpgradeNotes.Text = string.Join("\n", _upgradeShown.GetValueOrDefault(key) ?? new List<string>());
+        UpgradeNotes.Visibility = UpgradeNotes.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         HeroName.Text = info.Name;
         HeroDetail.Text = Detail(info);
         BuildCards(info);
@@ -851,6 +891,10 @@ public sealed partial class MainWindow : Window
                 Detach();
                 ShowTint(ChassisOf(info));
                 HeroPanel.Visibility = Visibility.Visible; break;
+            case MachineState.NeedsUpgrade:
+                Detach();
+                ShowUpgradeCard(key);
+                break;
             case MachineState.Starting:
                 Detach();
                 StartingPanel.Visibility = Visibility.Visible;

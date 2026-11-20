@@ -118,6 +118,9 @@ fn catalogue() -> Catalogue {
     };
     let mut big = offering("fakebig.1", "fakebig", 1, 1);
     big["engine"][ID]["size"] = json!([1280, 1024]);
+    // The product of the format 4 machine fixtures, so they can be upgraded here.
+    let mut origin = offering("origin200.1", "origin200", 1, 0);
+    origin["product"] = json!("origin200");
     serde_json::from_value(json!({
         "version": 1,
         "offerings": [
@@ -126,6 +129,7 @@ fn catalogue() -> Catalogue {
             offering("fakeview.1", "fakeview", 1, 2),
             offering("fakeblind.1", "fakeblind", 1, 0),
             big,
+            origin,
         ],
     }))
     .expect("the fake catalogue is well formed")

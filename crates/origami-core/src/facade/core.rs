@@ -6,6 +6,7 @@ use super::error::{CoreError, CoreResult, ErrorKind};
 use super::event::{Dispatcher, EventKind, Observer, Slot};
 use super::machine::{Machine, MachineState, Shared};
 use super::operation::{self, Operation};
+use crate::Report;
 use origami_engine::{Capabilities, Catalogue, Engine};
 use origami_machine::dir::MachineDir;
 use origami_machine::model;
@@ -83,6 +84,8 @@ pub struct MachineSummary {
     pub state: MachineState,
     /// Why the machine file cannot be used, when it cannot.
     pub problem: Option<String>,
+    /// Made by an older Origami: [`Core::upgrade_machine`] first, then it opens.
+    pub needs_upgrade: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -282,6 +285,7 @@ impl Core {
                 state
             };
             let key = key.to_string_lossy().into_owned();
+            let legacy = is_legacy(&path);
             out.push(match origami_machine::read_machine(&path) {
                 Ok(file) => MachineSummary {
                     key,
@@ -307,20 +311,25 @@ impl Core {
                         .unwrap_or(0),
                     state,
                     problem: None,
+                    needs_upgrade: legacy,
                 },
-                Err(error) => MachineSummary {
-                    key,
-                    name,
-                    product: String::new(),
-                    product_label: String::new(),
-                    topology: None,
-                    topology_name: None,
-                    has_display: false,
-                    nodes: 0,
-                    memory_per_node_mib: 0,
-                    state,
-                    problem: Some(error.to_string()),
-                },
+                Err(error) => {
+                    let error = CoreError::machine(error);
+                    MachineSummary {
+                        key,
+                        name,
+                        product: String::new(),
+                        product_label: String::new(),
+                        topology: None,
+                        topology_name: None,
+                        has_display: false,
+                        nodes: 0,
+                        memory_per_node_mib: 0,
+                        state,
+                        needs_upgrade: error.kind == ErrorKind::NeedsUpgrade,
+                        problem: Some(error.message),
+                    }
+                }
             });
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -372,21 +381,69 @@ impl Core {
             }))
     }
 
-    /// The machine at `key`: a key from [`Core::list_machines`], a directory
-    /// path, or a name under the library root. The same machine opened twice
-    /// is the same machine.
-    pub fn open_machine(&self, key: &str) -> CoreResult<Machine> {
+    /// The directory a key from [`Core::list_machines`], a path or a name under the root names.
+    fn resolve(&self, key: &str) -> CoreResult<PathBuf> {
         let given = Path::new(key);
         let path = if given.is_absolute() || given.exists() {
             given.to_path_buf()
         } else {
             self.inner.root().join(given)
         };
-        let path = path.canonicalize().map_err(|_| {
-            CoreError::new(ErrorKind::NotFound, format!("there is no machine {key}"))
-        })?;
+        path.canonicalize()
+            .map_err(|_| CoreError::new(ErrorKind::NotFound, format!("there is no machine {key}")))
+    }
+
+    /// Upgrade the stopped machine at `key` as `origami upgrade` does, on the
+    /// engine its file names or else the first. May download: off the UI thread.
+    pub fn upgrade_machine(&self, key: &str) -> CoreResult<Report> {
+        let path = self.resolve(key)?;
+        // The CLI's choice: the engine the file names, else the first.
+        let named = origami_machine::read_machine(&path)
+            .ok()
+            .map(|file| file.engine.id);
+        let engine = self
+            .inner
+            .engines
+            .iter()
+            .find(|e| Some(e.info().id) == named)
+            .unwrap_or(&self.inner.engines[0]);
+        let done = crate::upgrade(engine.as_ref(), &path, None, None);
+        // A failure after the file was rewritten still changes the listing.
+        self.inner.slot.raise(&[EventKind::Library]);
+        done.map_err(|incomplete| {
+            let error = CoreError::machine(incomplete.error);
+            // The notes so far, for a failure after the rewrite.
+            let notes: Vec<_> = incomplete
+                .report
+                .lines
+                .iter()
+                .map(|l| l.to_string())
+                .collect();
+            if notes.is_empty() {
+                error
+            } else {
+                error.with_detail(notes.join("; "))
+            }
+        })
+    }
+
+    /// The machine at `key`: a key from [`Core::list_machines`], a directory
+    /// path, or a name under the library root. The same machine opened twice
+    /// is the same machine.
+    pub fn open_machine(&self, key: &str) -> CoreResult<Machine> {
+        let path = self.resolve(key)?;
         if let Some(machine) = self.inner.machines.lock().unwrap().get(&path) {
             return Ok(machine.clone());
+        }
+        if is_legacy(&path) {
+            return Err(CoreError::new(
+                ErrorKind::NeedsUpgrade,
+                format!(
+                    "{} is from an older Origami; upgrade it once with origami upgrade {}",
+                    path.display(),
+                    path.display()
+                ),
+            ));
         }
         let file = origami_machine::read_machine(&path).map_err(CoreError::machine)?;
         let (index, mut machine_model) = self.inner.model_of(&file)?;
@@ -454,6 +511,14 @@ impl Core {
 fn left_running(dir: &Path) -> bool {
     origami_machine::control::is_locked(dir).unwrap_or(false)
         && origami_machine::control::read(dir).is_ok()
+}
+
+/// A format 4 file reads, but its machine should be upgraded first.
+fn is_legacy(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join("machine.toml"))
+        .ok()
+        .and_then(|text| origami_machine::migrate::format(&text))
+        == Some(i64::from(origami_machine::FORMAT_WITH_QEMU_TABLE))
 }
 
 fn entry_name(path: &Path) -> String {

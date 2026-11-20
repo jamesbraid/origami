@@ -54,6 +54,7 @@ struct MachineTab: View {
         case .stopping: SavingCard(model: model)
         case .stoppedUnexpectedly: StoppedCard(model: model)
         case .leftRunning: LeftRunningCard(model: model)
+        case .needsUpgrade: UpgradeCard(model: model)
         }
     }
 }
@@ -171,6 +172,7 @@ struct Hero: View {
             }
             .padding(.vertical, 32)
             .frame(maxHeight: 340)
+            ForEach(model.upgradeNotes.compactMap(\.shown), id: \.self) { Text($0).font(.callout).foregroundStyle(.secondary).frame(maxWidth: 520) }
             HStack(spacing: 12) {
                 ForEach(r.cards, id: \.title) { Tile(symbol: $0.symbol, title: $0.title, value: $0.value) }
             }
@@ -292,5 +294,29 @@ struct LeftRunningCard: View {
         Card(symbol: "bolt.horizontal.circle.fill", tint: .orange, title: "Left running",
              detail: "\(model.name) kept running after Origami quit. Reconnect to see it, or power it off.",
              actions: [("Reconnect", { app.invoke(.start) }), ("Power Off", { app.invoke(.powerOff) })])
+    }
+}
+
+struct UpgradeCard: View {
+    @ObservedObject var model: MachineModel
+    @EnvironmentObject var app: AppModel
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "arrow.triangle.2.circlepath.circle.fill").font(.system(size: 44)).foregroundStyle(.orange).accessibilityHidden(true)
+            Text("Needs upgrade").font(.title2.weight(.semibold))
+            Text("This machine was made by an older Origami. Upgrade it once to use it. Flash, NVRAM, drives, network settings and the Ethernet address are kept.")
+                .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
+            if let e = model.upgradeError {
+                Text(e)
+                    .foregroundStyle(.red).multilineTextAlignment(.center).frame(maxWidth: 420).textSelection(.enabled)
+            }
+            HStack {
+                Button { model.upgrade() } label: { Text("Upgrade") }
+                    .buttonStyle(.borderedProminent).disabled(model.upgrading)
+                Button("Show in Finder") { app.invoke(.showInFinder) }
+                if model.upgrading { ProgressView().controlSize(.small) }
+            }
+        }
+        .padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

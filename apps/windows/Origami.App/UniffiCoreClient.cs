@@ -242,7 +242,8 @@ public sealed class UniffiCoreClient : ICoreClient
             var state = has ? v!.State : m.State;
             // The file says whether it has a graphics head; a head the engine reports counts too.
             var display = m.HasDisplay || (has && v!.Heads.Length > 0);
-            return new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes, (int)m.MemoryPerNodeMib, Settle(m.Key, state), m.Problem, display);
+            return new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes, (int)m.MemoryPerNodeMib,
+                m.NeedsUpgrade ? MachineState.NeedsUpgrade : Settle(m.Key, state), m.Problem, display, m.NeedsUpgrade);
         }).ToList();
     }
 
@@ -251,6 +252,7 @@ public sealed class UniffiCoreClient : ICoreClient
         if (TryView(key) is not { } v)
         {
             var listed = _snap.List.FirstOrDefault(m => m.Key == key);
+            if (listed is { NeedsUpgrade: true }) return new MachineStatus(MachineState.NeedsUpgrade, "Made by an older Origami. Upgrade it once to use it.", null);
             return new MachineStatus(listed is null ? MachineState.Stopped : Settle(key, listed.State), "No information about this machine yet.", null);
         }
         return new MachineStatus(Settle(key, v.State), v.Reason, v.LastError);
@@ -276,6 +278,15 @@ public sealed class UniffiCoreClient : ICoreClient
         }
         finally { reg.Dispose(); }
     }, ct);
+
+    public Task<IReadOnlyList<ReportLine>> UpgradeAsync(string key) => Task.Run<IReadOnlyList<ReportLine>>(() =>
+    {
+        try { return _core.UpgradeMachine(key).Select(l => new ReportLine(Enum.Parse<LineKind>(l.Kind.ToString()), l.Text)).ToList(); }
+        finally { ReadCore(true); } // the list says at once whether the machine still needs it
+    });
+
+    /// <summary>Asks the loop to list the library again now.</summary>
+    public void Relist() { _relist = 1; Poke(); }
 
     public Task StartAsync(string key, CancellationToken ct = default) => Run(() => M(key).Start(), ct);
     public Task PowerOffAsync(string key, CancellationToken ct = default) => Run(() => M(key).Stop(OrigamiStopKind.Clean), ct, ignoreEnded: true);
@@ -306,6 +317,7 @@ public sealed class UniffiCoreClient : ICoreClient
     public bool CommandEnabled(string id, MachineState? state)
     {
         _when ??= _core.Commands().ToDictionary(c => c.Id, c => c.EnabledWhen);
+        if (state == MachineState.NeedsUpgrade) return !id.StartsWith("machine."); // nothing of the machine works until it is upgraded
         if (!_when.TryGetValue(id, out var when)) return true; // a command only this app has
         OrigamiMachineState? s = state switch
         {

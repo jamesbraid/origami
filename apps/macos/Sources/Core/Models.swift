@@ -9,6 +9,8 @@ import SwiftUI
 enum MachineState: Equatable {
     case stopped, starting, running, noPicture, stopping
     case stoppedUnexpectedly, leftRunning, paused
+    /// Made by an older Origami; it cannot start until it is upgraded.
+    case needsUpgrade
 
     /// The pill: one or two words. Colour never stands without them.
     var pill: String {
@@ -21,20 +23,33 @@ enum MachineState: Equatable {
         case .stoppedUnexpectedly: return "Stopped unexpectedly"
         case .leftRunning: return "Left running"
         case .paused: return "Paused"
+        case .needsUpgrade: return "Needs upgrade"
         }
     }
 
     var tone: Tone {
         switch self {
         case .stopped: return .grey
-        case .starting, .stopping, .leftRunning, .paused: return .amber
+        case .starting, .stopping, .leftRunning, .paused, .needsUpgrade: return .amber
         case .running: return .green
         case .noPicture, .stoppedUnexpectedly: return .red
         }
     }
     enum Tone { case grey, amber, green, red }
 
-    var isActive: Bool { self != .stopped && self != .stoppedUnexpectedly }
+    var isActive: Bool { self != .stopped && self != .stoppedUnexpectedly && self != .needsUpgrade }
+}
+
+extension OrigamiReportLine {
+    /// What a person is told, or nil for the lines kept for the log.
+    var shown: String? {
+        switch kind {
+        case .result, .detail: return nil
+        case .note, .advice: return text
+        case .guestNote: return "\(text); the guest sees this at its next boot"
+        case .warning: return "Warning: \(text)"
+        }
+    }
 }
 
 enum PointerMode: String { case follow, capture }
@@ -95,6 +110,8 @@ final class MachineModel: ObservableObject, Identifiable {
     /// Take in a library summary: what the machine was before this app opened it.
     func refresh(summary: OrigamiMachineSummary) {
         record = MachineRecord(summary)
+        if summary.needsUpgrade { set(.needsUpgrade); return }
+        if state == .needsUpgrade { set(.stopped) }
         if session == nil {
             // The core lists a machine another process runs as left running.
             if summary.state == .leftRunning { set(.leftRunning) }
@@ -221,6 +238,39 @@ final class MachineModel: ObservableObject, Identifiable {
         case .stoppedUnexpectedly: return failure ?? "The emulator stopped."
         case .leftRunning: return "Running without Origami."
         case .paused: return "Paused. The guest is stopped; Resume continues it."
+        case .needsUpgrade: return "Made by an older Origami. Upgrade it once to use it."
+        }
+    }
+
+    // MARK: upgrade
+
+    @Published private(set) var upgrading = false
+    @Published private(set) var upgradeError: String?
+    /// What the last upgrade said, for the lines a person is told.
+    @Published private(set) var upgradeNotes: [OrigamiReportLine] = []
+
+    /// The core's sentence, with the command for local firmware files when a download failed.
+    nonisolated static func failure(_ error: String, dir: String) -> String {
+        error.lowercased().contains("download") ? "\(error) To use local firmware files, run: origami upgrade \(dir) --prom FILE --io-prom FILE" : error
+    }
+
+    /// Run the core's upgrade off the main thread. The core's library event makes the listing show the result.
+    func upgrade() {
+        guard record.needsUpgrade, !upgrading else { return }
+        upgrading = true
+        upgradeError = nil
+        let (host, key) = (host, record.key)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try host.core.upgradeMachine(key: key) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.upgrading = false
+                    switch result {
+                    case .success(let lines): self.upgradeNotes = lines
+                    case .failure(let e): self.upgradeError = Self.failure(SettingsModel.say(e), dir: key)
+                    }
+                }
+            }
         }
     }
 
@@ -593,7 +643,8 @@ final class AppModel: ObservableObject {
         case .screenshot: return (m?.state == .running || m?.state == .paused) && m?.busy == nil
         case .captureInput: return m?.state == .running && !(m?.captured ?? false)
         case .followMouse: return m != nil
-        case .diagnostics, .settings, .showInFinder: return m != nil
+        case .settings: return m != nil && m?.state != .needsUpgrade
+        case .diagnostics, .showInFinder: return m != nil
         case .console: return m?.state == .running
         case .closeTab: return active != nil
         case .nextTab, .previousTab: return tabs.count > 1

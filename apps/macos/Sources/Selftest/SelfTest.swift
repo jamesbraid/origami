@@ -330,7 +330,7 @@ func runSelfTest(library: String, out: String) {
     // An O2's summary pane in dark and light, at 2x, for looking at the tint fade by eye.
     if let tint = ProcessInfo.processInfo.environment["ORIGAMI_TINT_PNG"] {
         let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", hasDisplay: true, nodes: 1,
-                                                             memoryPerNodeMib: 512, state: .notRunning, problem: nil),
+                                                             memoryPerNodeMib: 512, state: .notRunning, problem: nil, needsUpgrade: false),
                               host: host, defaultPointer: .follow)
         let size = CGSize(width: 800, height: 600)
         let dark = snapshotRetina(Hero(model: o2).environmentObject(app), size: size, dark: true, to: tint)
@@ -1415,6 +1415,34 @@ func runSelfTest(library: String, out: String) {
     app.quitPlan { final = $0 }
     _ = waitFor(30) { final != nil }
     check("quit-none-running-quits-silently", final == .quitNow, ["plan": "\(String(describing: final))"])
+
+    // An older machine (the format 4 fixture) is listed with its own pill, cannot start, and is upgraded through the
+    // model the card's Upgrade button calls; its notes show on the machine, which then starts.
+    do {
+        let fixtures = ProcessInfo.processInfo.environment["ORIGAMI_FIXTURES"] ?? ""
+        try? FileManager.default.createDirectory(atPath: library + "/old", withIntermediateDirectories: true)
+        let copied = (try? FileManager.default.copyItem(atPath: fixtures + "/format4-origin200.toml", toPath: library + "/old/machine.toml")) != nil
+        // A real older machine has its state files; the fake engine wants these two to start it.
+        try? FileManager.default.createDirectory(atPath: library + "/old/state", withIntermediateDirectories: true)
+        for f in ["nvram0", "flash0"] { FileManager.default.createFile(atPath: library + "/old/state/\(f).raw", contents: Data(count: 16)) }
+        check("upgrade-fixture-copied", copied, ["fixtures": fixtures])
+        app.rescanNow()
+        if let old = app.model(named: "old") {
+            check("upgrade-pill-and-no-start", old.state == .needsUpgrade && old.state.pill == "Needs upgrade" && !old.canStart,
+                  ["state": old.state.pill])
+            let card = snapshot(MachineTab(model: old).environmentObject(app), size: CGSize(width: 760, height: 560), to: "\(out)/ui-upgrade-card.png")
+            check("ui-upgrade-card-renders", card.ok && card.colours > 5, ["distinct_colours_sampled": card.colours])
+            old.upgrade()
+            check("upgrade-replaces-the-card-with-the-machine", waitFor(60) { old.state == .stopped && !old.upgrading },
+                  ["state": old.state.pill, "error": old.upgradeError ?? "none"])
+            let notes = old.upgradeNotes.compactMap(\.shown)
+            check("upgrade-notes-are-kept", notes.contains { $0.contains("format 5") }, ["notes": notes])
+            old.start()
+            check("upgraded-machine-starts", waitFor(60) { old.state == .running }, ["state": old.state.pill, "failure": old.failure ?? "none"])
+            old.stop()
+            _ = waitFor(60) { old.state == .stopped }
+        } else { check("upgrade-pill-and-no-start", false, ["error": "the older machine is not listed"]) }
+    }
     #else
     check("fake-build", false, ["error": "the core reports the fake engine but this app was built without -D FAKE"])
     #endif

@@ -180,6 +180,7 @@ jobs:
         working-directory: apps/windows
         run: |
           $out = Join-Path $PWD "selftest-out"
+          $env:ORIGAMI_FIXTURES = (Resolve-Path ..\..\tests\fixtures\machines).Path
           New-Item -ItemType Directory -Force $out | Out-Null
           $exe = Get-ChildItem -Recurse -Filter Origami.exe Origami.App\bin | Select-Object -First 1
           "exe: $($exe.FullName)"

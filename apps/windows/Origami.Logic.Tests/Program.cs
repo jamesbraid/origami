@@ -122,6 +122,15 @@ Test("pill: words and tones", () =>
     Eq("Left running", Pill.Text(MachineState.LeftRunning)); Eq("amber", Pill.Tone(MachineState.LeftRunning));
 });
 
+Test("upgrade: the pill, the lines a person is told and the download hint", () =>
+{
+    Eq("Needs upgrade", Pill.Text(MachineState.NeedsUpgrade)); Eq("amber", Pill.Tone(MachineState.NeedsUpgrade));
+    var lines = new[] { new ReportLine(LineKind.Result, "upgraded x"), new ReportLine(LineKind.GuestNote, "topology renamed"), new ReportLine(LineKind.Warning, "careful"), new ReportLine(LineKind.Advice, "set the host id") };
+    Eq("topology renamed; the guest sees this at its next boot|Warning: careful|set the host id", string.Join("|", UpgradeText.Shown(lines)));
+    Eq("the PROM download failed. To use local firmware files, run: origami upgrade C:\\m --prom FILE --io-prom FILE", UpgradeText.Failure("the PROM download failed.", "C:\\m"));
+    Eq("stop the machine first", UpgradeText.Failure("stop the machine first", "C:\\m"));
+});
+
 Test("guest keys: ordinals follow the core's key order", () =>
 {
     Eq(104, GuestKeys.Names.Length, "key count");

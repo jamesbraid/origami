@@ -20,7 +20,7 @@ APP_OUT=$work/Origami.app ORIGAMI_FFI_FEATURES=fake $here/build.sh
 rm -rf $work/machines $work/out; mkdir -p $work/machines $work/out
 
 set +e
-$work/Origami.app/Contents/MacOS/OrigamiApp \
+ORIGAMI_FIXTURES=$root/tests/fixtures/machines $work/Origami.app/Contents/MacOS/OrigamiApp \
     --selftest $work/machines $work/out | tee $work/out/selftest.jsonl
 exit_code=${pipestatus[1]}
 set -e

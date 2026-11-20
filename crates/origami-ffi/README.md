@@ -53,6 +53,10 @@ it under a lock the observer takes.
   the offering does, and an unknown one fails the operation with `NotFound`.
 - `open_machine(key) -> OrigamiMachine` (same machine, same object state);
   `start_machine(key)` opens, starts and waits.
+- `upgrade_machine(key) -> [OrigamiReportLine]` upgrades a
+  stopped machine whose summary says `needs_upgrade` (it fails `Busy` while it
+  runs; `open_machine` fails `NeedsUpgrade` until then). It may download
+  firmware, so call it off the UI thread.
 - `hinv()`: the About egg's text, an IRIX-style inventory of the host and library.
   Reads the disk and may open the GPU: call off the UI thread.
 - `shutdown()`.

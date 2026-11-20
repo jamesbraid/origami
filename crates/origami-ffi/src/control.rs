@@ -179,6 +179,26 @@ pub struct OrigamiMachineSummary {
     pub memory_per_node_mib: u32,
     pub state: OrigamiMachineState,
     pub problem: Option<String>,
+    /// Made by an older Origami: `upgrade_machine` first, then it opens.
+    pub needs_upgrade: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum OrigamiLineKind {
+    Result,
+    Detail,
+    Advice,
+    Warning,
+    Note,
+    /// A change the guest sees at its next boot.
+    GuestNote,
+}
+
+/// One line of what an operation had to say.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiReportLine {
+    pub kind: OrigamiLineKind,
+    pub text: String,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -728,6 +748,28 @@ impl OrigamiCore {
                 memory_per_node_mib: m.memory_per_node_mib,
                 state: m.state.into(),
                 problem: m.problem,
+                needs_upgrade: m.needs_upgrade,
+            })
+            .collect())
+    }
+
+    /// Upgrade a stopped machine made by an older Origami and say what changed.
+    /// May download firmware: off the UI thread.
+    pub fn upgrade_machine(&self, key: String) -> Res<Vec<OrigamiReportLine>> {
+        let report = self.core.upgrade_machine(&key)?;
+        Ok(report
+            .lines
+            .into_iter()
+            .map(|l| OrigamiReportLine {
+                kind: match l.kind {
+                    origami_core::Kind::Result => OrigamiLineKind::Result,
+                    origami_core::Kind::Detail => OrigamiLineKind::Detail,
+                    origami_core::Kind::Advice => OrigamiLineKind::Advice,
+                    origami_core::Kind::Warning => OrigamiLineKind::Warning,
+                    origami_core::Kind::Note => OrigamiLineKind::Note,
+                    origami_core::Kind::GuestNote => OrigamiLineKind::GuestNote,
+                },
+                text: l.text,
             })
             .collect())
     }

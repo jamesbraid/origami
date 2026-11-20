@@ -105,7 +105,14 @@ fn the_library_lists_created_machines_and_the_catalogue_lists_offerings() {
     let offerings = f.core.catalogue().unwrap();
     assert_eq!(
         offerings.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
-        ["fake.1", "fake.2", "fakeview.1", "fakeblind.1", "fakebig.1"]
+        [
+            "fake.1",
+            "fake.2",
+            "fakeview.1",
+            "fakeblind.1",
+            "fakebig.1",
+            "origin200.1"
+        ]
     );
     assert_eq!(offerings[0].engine, "fake");
     assert_eq!(offerings[0].memory_accepted_mib, [64, 128, 256]);
@@ -1022,4 +1029,78 @@ fn changing_the_root_relists_at_once_and_keeps_a_running_machine() {
         .map(|m| m.name)
         .collect();
     assert_eq!(names, ["new"]);
+}
+
+/// A format 4 Origin 200 in the library, from the repository's fixture.
+fn old_machine(f: &Fixture) -> std::path::PathBuf {
+    let dir = f.root.path().join("old");
+    std::fs::create_dir(&dir).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/machines/format4-origin200.toml");
+    std::fs::copy(fixture, dir.join("machine.toml")).unwrap();
+    dir
+}
+
+#[test]
+fn an_older_machine_is_listed_as_needing_an_upgrade_and_will_not_open() {
+    let f = fixture();
+    let dir = old_machine(&f);
+    let current = f.create("current", "fake.1");
+    let list = f.core.list_machines().unwrap();
+    assert_eq!(
+        list.iter().map(|m| m.needs_upgrade).collect::<Vec<_>>(),
+        [false, true]
+    );
+    assert_eq!(
+        f.core.open_machine("old").err().unwrap().kind,
+        ErrorKind::NeedsUpgrade
+    );
+    assert!(f.core.open_machine(&current).is_ok());
+    // A format 1 file does not read at all; the listing still says why.
+    std::fs::write(dir.join("machine.toml"), "format = 1\n").unwrap();
+    let old = &f.core.list_machines().unwrap()[1];
+    assert!(old.needs_upgrade && old.problem.is_some());
+}
+
+#[test]
+fn upgrading_an_older_machine_reports_what_the_guest_sees_and_then_it_opens() {
+    let f = fixture();
+    let dir = old_machine(&f);
+    let before = std::fs::read(dir.join("machine.toml")).unwrap();
+    let report = f.core.upgrade_machine("old").unwrap();
+    assert!(report.lines.iter().any(|l| l.text.starts_with("upgraded ")));
+    assert!(f
+        .core
+        .list_machines()
+        .unwrap()
+        .iter()
+        .all(|m| !m.needs_upgrade));
+    assert!(f.core.open_machine("old").is_ok());
+    // The format 4 file is kept, as the CLI keeps it.
+    assert_eq!(
+        std::fs::read(dir.join("machine.toml.format4")).unwrap(),
+        before
+    );
+    let again = f.core.upgrade_machine("old").unwrap();
+    assert!(again.lines[0].text.contains("needs no upgrade"));
+}
+
+#[test]
+fn a_failed_upgrade_leaves_an_unwritten_file_alone_and_a_machine_that_runs_is_busy() {
+    let f = fixture();
+    let dir = old_machine(&f);
+    let text = std::fs::read_to_string(dir.join("machine.toml")).unwrap();
+    std::fs::write(
+        dir.join("machine.toml"),
+        text.replace("origin200", "nosuchbox"),
+    )
+    .unwrap();
+    let before = std::fs::read(dir.join("machine.toml")).unwrap();
+    assert!(f.core.upgrade_machine("old").is_err());
+    assert_eq!(std::fs::read(dir.join("machine.toml")).unwrap(), before);
+    let _lock = origami_machine::control::lock_for_edit(&dir, "t").unwrap();
+    assert_eq!(
+        f.core.upgrade_machine("old").unwrap_err().kind,
+        ErrorKind::Busy
+    );
 }

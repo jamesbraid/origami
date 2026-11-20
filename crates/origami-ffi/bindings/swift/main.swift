@@ -76,5 +76,12 @@ do {
 } catch CoreError.NotFound {
     // expected
 }
+// An older machine file is listed as needing an upgrade, and upgrading says so.
+try FileManager.default.createDirectory(atPath: root + "/old", withIntermediateDirectories: true)
+try "format = 4\n[machine]\nmodel = \"origin200\"\ntopology = \"origin200\"\npopulation = [1]\nnodes = 1\ncpus_per_node = 1\nmemory_per_node = \"256MiB\"\n"
+    .write(toFile: root + "/old/machine.toml", atomically: true, encoding: .utf8)
+let old = try core.listMachines().first { $0.name == "old" }!
+expect(old.needsUpgrade, "the older machine needs an upgrade")
+expect(try core.upgradeMachine(key: old.key).contains { $0.kind == .result }, "the upgrade reports")
 core.shutdown()
 print("ok")

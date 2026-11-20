@@ -8,7 +8,7 @@ usage: driver.py OUTDIR x11|wayland SCENARIO [app args]
 Environment: APP, WORK, ORIGAMI_BIN, plus DISPLAY or WAYLAND_DISPLAY.
 Writes OUTDIR/results.json and exits non-zero if any check failed.
 """
-import difflib, json, os, re, socket, subprocess, sys, time
+import difflib, json, os, re, shutil, socket, subprocess, sys, time
 
 out, mode, scenario = sys.argv[1], sys.argv[2], sys.argv[3]
 extra = sys.argv[4:]
@@ -757,6 +757,33 @@ def settings():
         a.stop()
 
 
+def upgrade():
+    """A machine made by an older Origami lists as needing an upgrade, opens as
+    the upgrade dialog (so it cannot start), and opens as a machine once upgraded."""
+    create_machine("octane2")
+    fixtures = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "fixtures", "machines")
+    old = os.path.join(lib, "older")
+    os.makedirs(old, exist_ok=True)
+    shutil.copy(os.path.join(fixtures, "format4-origin200.toml"), os.path.join(old, "machine.toml"))
+    a = App()
+    try:
+        a.wait("library", lambda: "older" in a.state()["library"], 30)
+        pills = lambda: dict(zip(a.state()["library"], a.state()["library_pills"]))
+        check("the library says Needs upgrade", pills().get("older") == "Needs upgrade", pills())
+        a.req("open older")
+        shown = a.wait("the dialog", lambda: a.req("activate upgrade.dialog upgrade").get("ok"), 10, 0.5)
+        check("opening it shows the upgrade dialog and no machine", shown and not a.machine("older"), a.state()["machines"])
+        opened = a.wait("the machine", lambda: a.machine("older"), 60, 0.5)
+        check("the upgraded machine opens", opened, a.req("activate upgrade.error"))
+        text = open(os.path.join(old, "machine.toml")).read()
+        check("its file is the current format", text.startswith("format = 5"), text[:80])
+        check("the pill no longer says Needs upgrade", pills().get("older") != "Needs upgrade", pills())
+        notes = a.wait("the notes", lambda: a.req("activate upgrade.notes").get("text"), 10, 0.5) or ""
+        check("the dialog lists the notes", "format 5" in notes, notes)
+    finally:
+        a.stop()
+
+
 def library_folder():
     """Choosing another library folder re-lists at once, with no restart."""
     create_machine("octane2")
@@ -1300,7 +1327,7 @@ def docs():
         a.stop()
 
 
-SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "library-folder": library_folder, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

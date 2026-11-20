@@ -27,6 +27,7 @@ mod pointer_lock;
 mod prefs;
 mod settings;
 mod style;
+mod upgrade;
 mod view_scale;
 mod vk;
 mod window;

@@ -51,6 +51,7 @@ struct MachineRecord: Identifiable, Hashable {
     let topology: String?
     let nodes: Int
     let memoryPerNodeMiB: Int
+    let needsUpgrade: Bool
 
     var id: String { key }
 
@@ -80,6 +81,7 @@ struct MachineRecord: Identifiable, Hashable {
         topology = s.topology
         nodes = Int(s.nodes)
         memoryPerNodeMiB = Int(s.memoryPerNodeMib)
+        needsUpgrade = s.needsUpgrade
     }
 }
 
