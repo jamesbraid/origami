@@ -59,10 +59,6 @@ public static class Selftest
         Finish();
     }
 
-    static string? SavedViewMode(string dir)
-    {
-        try { return File.ReadAllText(Path.Combine(dir, "view.txt")).Trim(); } catch (IOException) { return null; }
-    }
     [System.Runtime.InteropServices.DllImport("shell32", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     static extern uint ExtractIconEx(string file, int index, IntPtr[]? large, IntPtr[]? small, uint n);
 
@@ -190,6 +186,15 @@ public static class Selftest
         var attached = await Until(() => disp.Attached, 8000);
         Check("display attached", attached, disp.LastError ?? "");
         if (!attached) return;
+        var tol = 2.0 / Math.Min(disp.HeadWidth, disp.HeadHeight); // a couple of device pixels of rounding, as a factor
+        bool Capped() { var (sz, wa) = (w.AppWindow.Size, w.WorkArea); return sz.Width >= wa.W - 2 || sz.Height >= wa.H - 2; }
+        // The picture is at t device px per guest px, unless the window hit the work area (smaller) or its minimum size (larger).
+        bool ScaleIs(double t)
+        {
+            var f = disp.LastFactor; var sz = w.AppWindow.Size;
+            bool atMin = sz.Width <= Math.Round(MainWindow.MinWidthDips * disp.DeviceScale) + 2 && sz.Height <= Math.Round(MainWindow.MinHeightDips * disp.DeviceScale) + 2;
+            return atMin ? f >= t - tol : Capped() ? f <= t + tol : Math.Abs(f - t) <= tol;
+        }
         Check("window: inside the work area once the picture has sized it", await Until(() => w.InsideWorkArea, 3000));
         Check("granite: the surround is drawn at one device pixel per bitmap pixel", await Until(() => disp.GraniteIsDevicePixels, 5000));
         Note("renderer", $"{disp.Renderer} (core view status {disp.CoreViewStatus}; {disp.LastError})");
@@ -297,20 +302,25 @@ public static class Selftest
             Check("terminal: Backspace goes through the core as ^H and moves the echoed cursor left", await Until(() => con.CursorCol == col0 - 1, 3000), $"column {col0} -> {con.CursorCol}");
         }
 
-        // --- picture size: whole device pixels per guest pixel, as DIPs ---
+        // --- picture size: the menu sizes the window once, then the picture fills it ---
         var dip = disp.DeviceScale; // device pixels per DIP
-        w.Invoke("view.actual-size"); await Task.Delay(300);
-        var fa = disp.LastFactor;
-        w.Invoke("view.scale2x"); await Task.Delay(300);
-        var f2 = disp.LastFactor;
-        w.Invoke("view.scale1x"); await Task.Delay(300);
-        var f1 = disp.LastFactor;
-        w.Invoke("view.fit"); await Task.Delay(300);
-        var ff = disp.LastFactor;
-        Check("view: Actual Size is one device pixel per guest pixel", Math.Abs(fa - 1) < 0.01, $"actual={fa:F2}");
-        Check("view: Scale 1x and 2x are one and two DIPs per guest pixel, or Fit when that does not fit", (Math.Abs(f1 - dip) < 0.01 || Math.Abs(f1 - ff) < 0.01) && (Math.Abs(f2 - 2 * dip) < 0.01 || Math.Abs(f2 - ff) < 0.01), $"1x={f1:F2} 2x={f2:F2} fit={ff:F2} (device px per DIP {dip:F2})");
-        Check("view: Fit to Window uses whole device pixels while at least 1 fits", ff >= 1 - 0.001 ? Math.Abs(ff - Math.Round(ff)) < 0.01 : ff > 0, $"fit={ff:F3}");
-        Check("view: the default is Fit to Window", w.CurrentViewMode == ViewMode.FitToWindow, w.CurrentViewMode.ToString());
+        foreach (var (id, target) in new[] { ("view.actual-size", 1.0), ("view.scale1x", dip), ("view.scale2x", 2 * dip) })
+        {
+            w.Invoke(id);
+            Check($"view: {id} sizes the window so the picture is {target:F2} device px per guest px", await Until(() => ScaleIs(target), 2000), $"factor={disp.LastFactor:F3} window={w.AppWindow.Size.Width}x{w.AppWindow.Size.Height}");
+        }
+        var sz0 = w.AppWindow.Size;
+        var resized = new Windows.Graphics.RectInt32(w.AppWindow.Position.X, w.AppWindow.Position.Y, sz0.Width - 150, sz0.Height - 100);
+        w.AppWindow.MoveAndResize(resized);
+        await Task.Delay(500);
+        var sz1 = w.AppWindow.Size;
+        var (rx, ry, rw, rh) = disp.ScreenRect();
+        var (pw1, ph1) = disp.PaneSize;
+        var padPx = ViewScale.PanePadding * dip;
+        Check("view: the app does not undo a resize the user makes", Math.Abs(sz1.Width - resized.Width) <= 2 && Math.Abs(sz1.Height - resized.Height) <= 2, $"{resized.Width}x{resized.Height} -> {sz1.Width}x{sz1.Height}");
+        Check("view: after a resize the picture fills the pane, one axis to the padding", Math.Abs(rw - (pw1 * dip - padPx)) <= 2 || Math.Abs(rh - (ph1 * dip - padPx)) <= 2, $"picture {rw}x{rh} pane {pw1 * dip:F0}x{ph1 * dip:F0} px, padding {padPx:F0}");
+        w.Invoke("view.fit");
+        Check("view: Fit to Window leaves the window as it is", await Until(() => w.StatusForTest.Contains("fills"), 2000) && w.AppWindow.Size.Width == sz1.Width && w.AppWindow.Size.Height == sz1.Height, w.StatusForTest);
 
         // --- toolbar: the console opens from its button's command ---
         w.Invoke("window.console");
@@ -365,23 +375,22 @@ public static class Selftest
         await Task.Delay(300);
 
         // the view shortcuts, as real keys over the screen: the app takes them and the guest never sees the digit
-        var viewKeys = new (ViewMode Mode, string Name, int[] Scans, int Digit)[]
+        var viewKeys = new (string Name, string Id, int[] Scans, int Digit, double? Target)[]
         {
-            (ViewMode.Scale2x, "Ctrl+Alt+2", new[] { 0x1D, 0x38, 0x03 }, 3),
-            (ViewMode.Scale1x, "Ctrl+Alt+1", new[] { 0x1D, 0x38, 0x02 }, 2),
-            (ViewMode.ActualSize, "Ctrl+0", new[] { 0x1D, 0x0B }, 11),
-            (ViewMode.FitToWindow, "Ctrl+9", new[] { 0x1D, 0x0A }, 10),
+            ("Ctrl+Alt+2", "view.scale2x", new[] { 0x1D, 0x38, 0x03 }, 3, 2 * dip),
+            ("Ctrl+Alt+1", "view.scale1x", new[] { 0x1D, 0x38, 0x02 }, 2, dip),
+            ("Ctrl+0", "view.actual-size", new[] { 0x1D, 0x0B }, 11, 1.0),
+            ("Ctrl+9", "view.fit", new[] { 0x1D, 0x0A }, 10, null),
         };
-        foreach (var (mode, name, scans, digit) in viewKeys)
+        foreach (var (name, id, scans, digit, target) in viewKeys)
         {
             lock (log) log.Clear();
             foreach (var sc in scans) Win.Scan(sc, false, true);
             foreach (var sc in scans.Reverse()) Win.Scan(sc, false, false);
-            var took = await Until(() => w.CurrentViewMode == mode, 2000);
+            var took = await Until(() => w.LastViewCommand == id && (target is not { } t || ScaleIs(t)), 2000);
             await Task.Delay(100);
             bool digitLeaked; lock (log) digitLeaked = log.Any(e => e.Kind == InputKind.Key && e.A == digit);
-            Check($"shortcut: {name} over the screen sets {mode} and the digit does not reach the guest", took && !digitLeaked, $"mode={w.CurrentViewMode} leaked={digitLeaked}");
-            Check($"view: {mode} is saved beside the settings", await Until(() => SavedViewMode(dir) == mode.ToString(), 2000), SavedViewMode(dir) ?? "no view.txt");
+            Check($"shortcut: {name} over the screen runs its view command and the digit does not reach the guest", took && !digitLeaked, $"status={w.StatusForTest} factor={disp.LastFactor:F3} leaked={digitLeaked}");
         }
 
         // --- follow-the-mouse ---
@@ -419,7 +428,7 @@ public static class Selftest
         Win.Scan(0x1D, false, true); Win.Scan(0x38, false, true);
         Check("capture: Ctrl+Alt releases the pointer", await Until(() => !disp.Captured, 2000));
         Win.Scan(0x02, false, true); Win.Scan(0x02, false, false); // '1' with the chord still held: the view shortcut, not a guest key
-        Check("capture: Ctrl+Alt+1 after the release is the view shortcut", await Until(() => w.CurrentViewMode == ViewMode.Scale1x, 2000), w.CurrentViewMode.ToString());
+        Check("capture: Ctrl+Alt+1 after the release is the view shortcut", await Until(() => w.LastViewCommand == "view.scale1x", 2000), w.LastViewCommand ?? "none");
         w.Invoke("view.fit");
         Win.Scan(0x38, false, false); Win.Scan(0x1D, false, false); Win.Scan(0x1E, false, false);
         await Task.Delay(150);
@@ -591,6 +600,61 @@ public static class Selftest
         Check("library folder: a machine made there is listed", await Until(() => w.LibraryCount == 1, 5000), $"count {w.LibraryCount}");
         w.ApplySettings(new AppSettings { LibraryRoot = home });
         Check("library folder: the old folder's machines are back", await Until(() => w.LibraryCount == before, 5000), $"count {w.LibraryCount}, want {before}");
+
+        // --- a 1280x1024 picture on the core view: exact sizes from first appearance and the View menu ---
+        var fallback0 = disp.ForceFallback;
+        disp.ForceFallback = false;
+        var big = await core.CreateMachineAsync("Big picture (fake)", "fakebig.1");
+        w.Reload();
+        w.SelectForTest(big);
+        await Until(() => w.SelectedKey == big, 2000);
+        w.Invoke("machine.start");
+        var bigGuest = StartGuest(core, big, out var bigGuestTask);
+        var bigUp = await Until(() => disp.Attached && disp.HeadWidth == 1280 && disp.HeadHeight == 1024, 15_000);
+        Check("big picture: the 1280x1024 head attaches", bigUp, $"{disp.HeadWidth}x{disp.HeadHeight} {disp.LastError}");
+        Note("renderer (big picture)", $"{disp.Renderer} (core view status {disp.CoreViewStatus})");
+        Check("big picture: the core view draws it, not the fallback", disp.Renderer == "core view", disp.Renderer ?? "");
+        if (bigUp)
+        {
+            await Task.Delay(500);
+            var bdip = disp.DeviceScale;
+            var bpad = ViewScale.PanePadding * bdip;
+            var bwa = w.WorkArea;
+            PixelRect WinRect() => new(w.AppWindow.Position.X, w.AppWindow.Position.Y, w.AppWindow.Size.Width, w.AppWindow.Size.Height);
+            string Where() => $"window {WinRect().W}x{WinRect().H}, work area {bwa.W}x{bwa.H}, device px per DIP {bdip:F2}";
+            var (bpw, bph) = disp.PaneSize;
+            var (_, _, brw, brh) = disp.ScreenRect();
+            var bwin = WinRect();
+            // Whether 1 DIP per guest pixel fits: this window's chrome plus the picture and padding.
+            bool oneFits = 1280 * bdip + bpad + (bwin.W - bpw * bdip) <= bwa.W + 2 && 1024 * bdip + bpad + (bwin.H - bph * bdip) <= bwa.H + 2;
+            if (oneFits)
+                Check("big picture: first window shows 1 DIP per guest pixel (it fits)", Math.Abs(disp.LastFactor - bdip) * 1280 <= 2, $"factor {disp.LastFactor:F4}, want {bdip:F4}; {Where()}");
+            else
+            {
+                bool touches = bwin.W >= bwa.W - 2 || bwin.H >= bwa.H - 2;
+                Check("big picture: first window is the largest fit (1 DIP does not fit): it touches the work area on one axis", touches, Where());
+                Check("big picture: first window's picture fills the pane on one axis, aspect 1.25", (Math.Abs(brw - (bpw * bdip - bpad)) <= 2 || Math.Abs(brh - (bph * bdip - bpad)) <= 2) && Math.Abs(brw / (double)brh - 1.25) < 0.01,
+                    $"picture {brw}x{brh}, pane {bpw * bdip:F0}x{bph * bdip:F0} px, padding {bpad:F0}");
+            }
+            foreach (var (id, dpg) in new[] { ("view.actual-size", 1 / bdip), ("view.scale1x", 1.0), ("view.scale2x", 2.0) })
+            {
+                var wb = WinRect();
+                var (p0w, p0h) = disp.PaneSize;
+                var exp = ViewScale.WindowFor(wb, bwa, bdip, p0w, p0h, 1280, 1024, MainWindow.MinWidthDips, MainWindow.MinHeightDips, dpg);
+                var expF = ViewScale.Factor(1280, 1024, p0w * bdip + (exp.W - wb.W) - bpad, p0h * bdip + (exp.H - wb.H) - bpad);
+                var wantF = dpg * bdip;
+                var kase = Math.Abs(expF - wantF) * 1280 <= 2 ? "fits" : "capped to the work area";
+                w.Invoke(id);
+                await Until(() => Math.Abs(WinRect().W - exp.W) <= 2 && Math.Abs(WinRect().H - exp.H) <= 2, 2000);
+                await Task.Delay(300);
+                Check($"big picture: {id} ({kase}) gives the expected window and factor", Math.Abs(WinRect().W - exp.W) <= 2 && Math.Abs(WinRect().H - exp.H) <= 2 && Math.Abs(disp.LastFactor - expF) * 1280 <= 2,
+                    $"factor {disp.LastFactor:F4}, want {expF:F4} (uncapped {wantF:F4}); window {WinRect().W}x{WinRect().H}, want {exp.W}x{exp.H}; work area {bwa.W}x{bwa.H}");
+            }
+        }
+        bigGuest.Cancel(); await bigGuestTask;
+        w.Invoke("machine.stop");
+        await Until(() => core.Status(big).State == MachineState.Stopped, 8000);
+        disp.ForceFallback = fallback0;
     }
 }
 #endif

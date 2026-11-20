@@ -297,28 +297,24 @@ Test("granite: two tones, repeated, pixel-doubled", () =>
     Eq(0xDD, (int)o[(2 * 8 + 0) * 4], "y=2 starts the tile's second row, dark first");
 });
 
-Test("view scale: fit in whole device pixels while that is at least 1, fractional below", () =>
+Test("view scale: the picture fills the pane at any scale, whole only when the pane happens to be", () =>
 {
-    // 1280x1024 head. 200%: fit 2.148, whole step 2 is exactly 1 DIP.
-    Eq(2.0, ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 3000, 2200, 2.0), "200% steps to 2");
-    // 150%: fit 1.855 is a blurry fraction, so it steps down to 1 device pixel per guest pixel.
-    Eq(1.0, ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 2400, 1900, 1.5), "150% steps down to 1");
-    Eq(3.0, ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 4000, 3200, 1.5), "150% steps to 3 once that is 2 DIPs");
-    // 125%: fit 1.5625 steps down to 1; at 2.34 it is 2.
-    Eq(1.0, ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 2000, 1600, 1.25), "125% steps down to 1");
-    Eq(2.0, ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 3000, 2500, 1.25), "125% steps to 2");
-    Eq(3.0, ViewScale.Factor(ViewMode.FitToWindow, 640, 480, 2200, 1700, 1.0), "100% whole steps");
-    Eq(true, Math.Abs(ViewScale.Factor(ViewMode.FitToWindow, 1280, 1024, 800, 700, 1.0) - 0.625) < 1e-9, "100% fractional below 1 device pixel");
+    Eq(true, Math.Abs(ViewScale.Factor(1280, 1024, 2400, 1900) - 1900.0 / 1024) < 1e-9, "150% pane fills fractionally, no stepping");
+    Eq(true, Math.Abs(ViewScale.Factor(1280, 1024, 3000, 2200) - 2200.0 / 1024) < 1e-9, "200% pane is not rounded down to 2");
+    Eq(true, Math.Abs(ViewScale.Factor(640, 480, 2000, 1700) - 2000.0 / 640) < 1e-9, "width-limited pane");
+    Eq(2.0, ViewScale.Factor(1280, 1024, 2560, 2048), "an exact pane gives a whole factor");
+    Eq(true, Math.Abs(ViewScale.Factor(1280, 1024, 800, 700) - 0.625) < 1e-9, "smaller than the head shrinks it");
 });
 
-Test("view scale: 1x and 2x are DIPs per guest pixel and fall back to fit; actual size is a device pixel", () =>
+Test("first appearance: 1 DIP per guest pixel when it fits the work area, else the largest picture that does", () =>
 {
-    Eq(2.0, ViewScale.Factor(ViewMode.Scale1x, 1280, 1024, 3000, 2200, 2.0), "1x at 200% is 2 device px");
-    Eq(2.0, ViewScale.Factor(ViewMode.Scale2x, 1280, 1024, 3000, 2200, 2.0), "2x does not fit at 200%: fit, whole 2");
-    Eq(1.5, ViewScale.Factor(ViewMode.Scale1x, 1280, 1024, 2400, 1900, 1.5), "1x at 150% is 1.5 device px");
-    Eq(1.0, ViewScale.Factor(ViewMode.Scale2x, 1280, 1024, 2400, 1900, 1.5), "2x at 150% falls back to fit, whole 1");
-    Eq(2.0, ViewScale.Factor(ViewMode.Scale2x, 640, 480, 2200, 1700, 1.0), "2x at 100%");
-    Eq(1.0, ViewScale.Factor(ViewMode.ActualSize, 1280, 1024, 3000, 2200, 2.0), "actual size is one device pixel");
+    var work = new PixelRect(0, 0, 1920, 1040);
+    var win = new PixelRect(0, 0, 1500, 1000);
+    Eq(1.0, ViewScale.FirstScale(win, work, 1.0, 1400, 900, 640, 480), "room for 1 DIP gives exactly 1");
+    Eq(1.0, ViewScale.FirstScale(win, new(0, 0, 8000, 6000), 1.0, 1400, 900, 320, 240), "never above 1, however big the work area");
+    // 1280x1024 head, chrome 100x100, padding 12: the work area's height leaves 1040-100-12 = 928 for the picture.
+    Eq(true, Math.Abs(ViewScale.FirstScale(win, work, 1.0, 1400, 900, 1280, 1024) - 928.0 / 1024) < 1e-9, "too small gives the fill");
+    Eq(true, Math.Abs(ViewScale.FirstScale(new(0, 0, 2250, 1500), new(0, 0, 2560, 1400), 1.5, 1400, 900, 1280, 1024) - (1400 - 150 - 18) / 1024.0 / 1.5) < 1e-9, "device-pixel chrome and padding at 150%");
 });
 
 Test("window: sized to the picture, growing or shrinking, kept inside the work area", () =>
@@ -331,26 +327,15 @@ Test("window: sized to the picture, growing or shrinking, kept inside the work a
     Eq(new PixelRect(0, 0, 1112, 712), ViewScale.WindowFor(new(0, 0, 1500, 1000), work, 1.0, 1200, 900, 800, 600, 900, 600), "shrinks to the picture");
     // 150%: sizes are device pixels, the pane and head are DIPs.
     Eq(new PixelRect(100, 0, 2388, 1400), ViewScale.WindowFor(new(100, 100, 2250, 1500), new(0, 0, 2560, 1400), 1.5, 1200, 800, 1280, 1024, 900, 600), "150%");
+    // The menu targets: 2 DIPs per guest pixel at 100%, and 1 device pixel per guest pixel at 150% (2/3 DIP).
+    Eq(new PixelRect(0, 0, 1592, 1040), ViewScale.WindowFor(new(0, 0, 1500, 1000), work, 1.0, 1200, 900, 640, 480, 900, 600, 2), "2 DIPs, capped");
+    Eq(new PixelRect(100, 100, 1748, 1342), ViewScale.WindowFor(new(100, 100, 2250, 1500), new(0, 0, 3000, 2000), 1.5, 1200, 800, 1280, 1024, 900, 600, 1 / 1.5), "1 device pixel at 150%");
+    // The first fit only grows: a window the user made bigger keeps its size.
+    Eq<PixelRect?>(null, ViewScale.Grown(new(0, 0, 1500, 1000), work, new(0, 0, 1112, 712)), "already big enough on both axes");
+    Eq<PixelRect?>(new PixelRect(0, 0, 1500, 1040), ViewScale.Grown(new(0, 0, 1500, 1000), work, new(0, 0, 1112, 1040)), "grows only the short axis");
     // A second monitor to the right: a window straddling its left edge moves onto it.
     Eq(new PixelRect(1920, 0, 1000, 700), ViewScale.Within(new(1800, 0, 1200, 700), new(1920, 0, 1920, 1040), 1000, 700), "moved onto the monitor");
     Eq(new PixelRect(0, 0, 1920, 1040), ViewScale.Within(new(0, 0, 100, 100), work, 5000, 5000), "never larger than the work area");
-});
-
-Test("view mode store: defaults to fit, round-trips, ignores junk and unreadable files", () =>
-{
-    var dir = Path.Combine(Path.GetTempPath(), "origami-vm-" + Guid.NewGuid().ToString("N"));
-    try
-    {
-        var st = new ViewModeStore(Path.Combine(dir, "settings.json"));
-        Eq(ViewMode.FitToWindow, st.Load(), "no file");
-        st.Save(ViewMode.Scale2x); Eq(ViewMode.Scale2x, st.Load(), "round trip");
-        foreach (var junk in new[] { "nonsense", "7", "Scale1x,Scale2x", "" })
-        { File.WriteAllText(Path.Combine(dir, "view.txt"), junk); Eq(ViewMode.FitToWindow, st.Load(), "junk '" + junk + "'"); }
-        File.Delete(Path.Combine(dir, "view.txt"));
-        Directory.CreateDirectory(Path.Combine(dir, "view.txt")); // a file that cannot be read or written
-        Eq(ViewMode.FitToWindow, st.Load(), "unreadable"); st.Save(ViewMode.Scale1x);
-    }
-    finally { Directory.Delete(dir, true); }
 });
 
 Test("accelerators: the four view shortcuts reach the app, bare Ctrl digits stay with the guest", () =>

@@ -43,8 +43,6 @@ public sealed partial class DisplayView : UserControl
     int _swallowButton = -1, _buttonsDown, _wheel;
     int _centerScreenX, _centerScreenY;
 
-    ViewMode _viewMode = ViewMode.FitToWindow;
-    public ViewMode ViewMode { get => _viewMode; set { if (value == _viewMode) return; _viewMode = value; _forcePlace = true; Place(); } }
     /// <summary>Device pixels per guest pixel as last laid out, for the self-test.</summary>
     public double LastFactor => _headW > 0 ? ScreenRect().W / (double)_headW : 0;
 
@@ -111,6 +109,9 @@ public sealed partial class DisplayView : UserControl
 
     // ---- attach / teardown -----------------------------------------------------------------
 
+    /// <summary>--force-fallback keeps the D3D12 presenter under test where the core's own renderer works; the self-test clears it for the core-view rows.</summary>
+    public bool ForceFallback { get; set; } = Array.IndexOf(Environment.GetCommandLineArgs(), "--force-fallback") >= 0;
+
     /// <summary>Returns false while the machine has no picture yet; call again on the next display event.</summary>
     public bool Attach(ICoreClient core, string key)
     {
@@ -135,9 +136,8 @@ public sealed partial class DisplayView : UserControl
         Win32.GetClientRect(_hwnd, out var rc);
         var s = new Frame.Surface { Kind = Frame.SurfaceWin32Hwnd, Window = _hwnd };
         s.Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Frame.Surface>();
-        // --force-fallback keeps the D3D12 presenter under test where the core's own renderer works.
-        CoreViewStatus = Array.IndexOf(Environment.GetCommandLineArgs(), "--force-fallback") >= 0 ? Frame.ErrNoGpu : Frame.origami_view_attach(_frames.MachineHandle, 0, ref s, (uint)Math.Max(1, rc.Right), (uint)Math.Max(1, rc.Bottom), scale, out _view);
-        if (CoreViewStatus == Frame.Ok) Renderer = "core view";
+        CoreViewStatus = ForceFallback ? Frame.ErrNoGpu : Frame.origami_view_attach(_frames.MachineHandle, 0, ref s, (uint)Math.Max(1, rc.Right), (uint)Math.Max(1, rc.Bottom), scale, out _view);
+        if (CoreViewStatus == Frame.Ok) { Renderer = "core view"; Frame.origami_view_set_scale_mode(_view, Frame.ScaleFit); }
         else if (CoreViewStatus != Frame.ErrNoGpu)
         {
             LastError = $"view_attach {CoreViewStatus}: {Frame.LastError()}";
@@ -255,8 +255,7 @@ public sealed partial class DisplayView : UserControl
         var s = XamlRoot.RasterizationScale;
         double aw = Surround.ActualWidth - ViewScale.PanePadding, ah = Surround.ActualHeight - ViewScale.PanePadding;
         if (aw < 16 || ah < 16) return;
-        // Device pixels per guest pixel: whole steps where they fit (the core's view then maps pixels one to one).
-        var k = ViewScale.Factor(ViewMode, _headW, _headH, aw * s, ah * s, s);
+        var k = ViewScale.Factor(_headW, _headH, aw * s, ah * s);
         double pw = Math.Floor(_headW * k) / s, ph = Math.Floor(_headH * k) / s; // DIPs
         var origin = Surround.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
         double x = origin.X + (Surround.ActualWidth - pw) / 2, y = origin.Y + (Surround.ActualHeight - ph) / 2;

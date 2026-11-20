@@ -20,16 +20,12 @@ public sealed partial class MainWindow : Window
     string? _attachedKey, _modeKey;
     int _refreshQueued;
 
-    readonly ViewModeStore _viewStore;
-
     public MainWindow(ICoreClient core, SettingsStore store)
     {
         _core = core; _store = store; _settings = store.Load();
-        _viewStore = new ViewModeStore(App.ArgValue("--settings") ?? SettingsStore.DefaultPath());
         _ui = DispatcherQueue.GetForCurrentThread();
         InitializeComponent();
         Title = "Origami";
-        Display.ViewMode = _viewStore.Load();
         var icon = Path.Combine(AppContext.BaseDirectory, "Origami.ico");
         if (File.Exists(icon))
         {
@@ -141,6 +137,8 @@ public sealed partial class MainWindow : Window
     public string PillTextForTest => PillText.Text;
     public int LibraryCount => Library.Items.Count;
     public string StatusForTest => StatusText.Text;
+    /// <summary>The last View menu scale command run, for the self-test: the status line it sets can be replaced at once.</summary>
+    public string? LastViewCommand { get; private set; }
     public void FocusLibrary() => Library.Focus(FocusState.Programmatic);
     public bool LibraryShown => LibraryColumn.Width.Value > 0;
     public IReadOnlyList<CommandInfo> Commands => _commands;
@@ -532,10 +530,10 @@ public sealed partial class MainWindow : Window
             case "window.diagnostics" when key != null: OpenDiagnostics(key); break;
             case "machine.eject-cd":
                 StatusText.Text = "Not built yet: " + _commands.First(c => c.Id == id).Title; break;
-            case "view.fit": SetViewMode(ViewMode.FitToWindow); break;
-            case "view.scale1x": SetViewMode(ViewMode.Scale1x); break;
-            case "view.scale2x": SetViewMode(ViewMode.Scale2x); break;
-            case "view.actual-size": SetViewMode(ViewMode.ActualSize); break;
+            case "view.fit": LastViewCommand = id; StatusText.Text = "Picture fills the window"; break; // it always does
+            case "view.scale1x": LastViewCommand = id; SizeWindowForPicture(1, "scale 1x"); break;
+            case "view.scale2x": LastViewCommand = id; SizeWindowForPicture(2, "scale 2x"); break;
+            case "view.actual-size": LastViewCommand = id; SizeWindowForPicture(1 / Root.XamlRoot.RasterizationScale, "actual size"); break;
             case "app.about": OpenAbout(); break;
             case "app.quit": Close(); break;
         }
@@ -584,11 +582,12 @@ public sealed partial class MainWindow : Window
         w.Activate();
     }
     public ConsoleView? ConsoleForTest(string key) => _consoles.GetValueOrDefault(key)?.View;
-    bool _sized;
-    const double MinWidthDips = 900, MinHeightDips = 600;
+    /// <summary>Machines whose current run has had its first fit; a key leaves when its run ends.</summary>
+    readonly HashSet<string> _sized = new();
+    public const double MinWidthDips = 900, MinHeightDips = 600;
 
     PixelRect WindowRect => new(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
-    PixelRect WorkArea
+    public PixelRect WorkArea
     {
         get
         {
@@ -606,15 +605,26 @@ public sealed partial class MainWindow : Window
         MoveResize(ViewScale.Within(WindowRect, WorkArea, (int)Math.Round(w * s), (int)Math.Round(h * s)));
     }
 
-    /// <summary>Once per run, when the first picture arrives: size the window so the picture shows at 1 DIP per guest pixel, in the work area.
-    /// A maximised, minimised or full-screen window is left alone.</summary>
-    void SizeForPicture()
+    /// <summary>Once per machine run, when its first picture arrives: grow the window to show the picture at 1 DIP per guest pixel, or the
+    /// largest that fits the work area. A maximised, minimised or full-screen window is left alone.</summary>
+    void SizeForPicture(string key)
     {
-        if (_sized || Display.HeadWidth <= 0) return;
-        _sized = true;
+        if (Display.HeadWidth <= 0 || !_sized.Add(key)) return;
         if (AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Restored }) return;
         var (pw, ph) = Display.PaneSize;
-        MoveResize(ViewScale.WindowFor(WindowRect, WorkArea, Root.XamlRoot.RasterizationScale, pw, ph, Display.HeadWidth, Display.HeadHeight, MinWidthDips, MinHeightDips));
+        var s = Root.XamlRoot.RasterizationScale;
+        var d = ViewScale.FirstScale(WindowRect, WorkArea, s, pw, ph, Display.HeadWidth, Display.HeadHeight);
+        var want = ViewScale.WindowFor(WindowRect, WorkArea, s, pw, ph, Display.HeadWidth, Display.HeadHeight, MinWidthDips, MinHeightDips, d);
+        if (ViewScale.Grown(WindowRect, WorkArea, want) is { } r) MoveResize(r);
+    }
+
+    /// <summary>View menu: resize the window once so the picture is <paramref name="dipsPerGuest"/> DIPs per guest pixel; free resizing fills after.</summary>
+    void SizeWindowForPicture(double dipsPerGuest, string name)
+    {
+        StatusText.Text = "Picture size: " + name;
+        if (Display.HeadWidth <= 0 || AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Restored }) return;
+        var (pw, ph) = Display.PaneSize;
+        MoveResize(ViewScale.WindowFor(WindowRect, WorkArea, Root.XamlRoot.RasterizationScale, pw, ph, Display.HeadWidth, Display.HeadHeight, MinWidthDips, MinHeightDips, dipsPerGuest));
     }
 
     /// <summary>Self-test: the window lies in its monitor's work area.</summary>
@@ -622,14 +632,6 @@ public sealed partial class MainWindow : Window
     {
         get { var (r, wa) = (WindowRect, WorkArea); return r.X >= wa.X - 2 && r.Y >= wa.Y - 2 && r.X + r.W <= wa.X + wa.W + 2 && r.Y + r.H <= wa.Y + wa.H + 2; }
     }
-
-    void SetViewMode(ViewMode mode)
-    {
-        Display.ViewMode = mode; _viewStore.Save(mode);
-        StatusText.Text = "Picture size: " + mode switch { ViewMode.FitToWindow => "fit to window", ViewMode.Scale1x => "scale 1x", ViewMode.Scale2x => "scale 2x", _ => "actual size" };
-    }
-
-    public ViewMode CurrentViewMode => Display.ViewMode;
 
     AboutWindow? _about;
     public AboutWindow? AboutForTest => _about;
@@ -784,6 +786,7 @@ public sealed partial class MainWindow : Window
         RebuildTabs();
         foreach (var m in _core.Machines())
         {
+            if (m.State is MachineState.Stopped or MachineState.Exited) _sized.Remove(m.Key);
             if (!_pills.TryGetValue(m.Key, out var p)) continue;
             p.Text.Text = Pill.Text(m.State, !m.HasDisplay);
             p.Pill.Background = new SolidColorBrush(Tones.For(Pill.Tone(m.State)));
@@ -864,7 +867,7 @@ public sealed partial class MainWindow : Window
                 if (!Display.Attached || _attachedKey != key)
                 {
                     // The panel must be laid out before the child window is placed over it.
-                    _ui.TryEnqueue(DispatcherQueuePriority.Low, () => { if (Display.Attach(_core, key)) { _attachedKey = key; SizeForPicture(); } });
+                    _ui.TryEnqueue(DispatcherQueuePriority.Low, () => { if (Display.Attach(_core, key)) { _attachedKey = key; SizeForPicture(key); } });
                 }
                 break;
         }

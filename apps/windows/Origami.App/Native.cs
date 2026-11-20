@@ -34,6 +34,7 @@ public static unsafe class Frame
 {
     const string Dll = "origami_ffi.dll";
 
+    public const uint ScaleFit = 1; // fill keeping aspect; the default, 0, floors to whole steps
     public const int Ok = 0, ErrBufferTooSmall = -4, ErrUnsupported = -5, ErrNoGpu = -6;
     public const uint FrameNone = 0, FrameRows = 1;
     public const uint SurfaceWin32Hwnd = 3;
@@ -77,6 +78,7 @@ public static unsafe class Frame
     [DllImport(Dll)] public static extern int origami_view_attach(IntPtr machine, uint head, ref Surface s, uint w, uint h, double scale, out IntPtr view);
     [DllImport(Dll)] public static extern int origami_view_resize(IntPtr view, uint w, uint h);
     [DllImport(Dll)] public static extern int origami_view_set_scale(IntPtr view, double scale);
+    [DllImport(Dll)] public static extern int origami_view_set_scale_mode(IntPtr view, uint mode);
     [DllImport(Dll)] public static extern int origami_view_set_visible(IntPtr view, uint visible);
     [DllImport(Dll)] public static extern int origami_view_readback(IntPtr view, byte* buf, nuint cap, out uint w, out uint h, out uint stride);
     public const uint CubeEnvStudio = 0, CubeEnvScene = 1, CubeEnvMachine = 2;
