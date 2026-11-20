@@ -108,8 +108,6 @@ pub struct MachineUi {
     /// A headless machine's console page, and its own update hook.
     pub console_tab: RefCell<Option<crate::console::Open>>,
     pub console_tab_notify: RefCell<Option<Box<dyn Fn()>>>,
-    /// The picture's scale as header text; empty until there is a picture.
-    pub scale_text: RefCell<String>,
     pub error: RefCell<Option<String>>,
 
     // widgets
@@ -280,7 +278,6 @@ impl MachineUi {
             console_notify: RefCell::new(None),
             console_tab: RefCell::new(None),
             console_tab_notify: RefCell::new(None),
-            scale_text: RefCell::new(String::new()),
             error: RefCell::new(None),
             root,
             hero,
@@ -322,7 +319,7 @@ impl MachineUi {
             console: RefCell::new(None),
             diagnostics: RefCell::new(None),
         });
-        m.place_picture(Rc::downgrade(app));
+        m.place_picture();
         m
     }
 
@@ -357,7 +354,7 @@ impl MachineUi {
 
     /// Put the picture where `layout` says, and lay it out again when the
     /// display's scale changes.
-    fn place_picture(self: &Rc<Self>, app: std::rc::Weak<App>) {
+    fn place_picture(self: &Rc<Self>) {
         let weak = Rc::downgrade(self);
         self.screen.connect_get_child_position(move |_, child| {
             let m = weak.upgrade()?;
@@ -365,16 +362,6 @@ impl MachineUi {
                 return None;
             }
             let l = m.layout()?;
-            let text = view_scale::label(m.view.get(), l.step);
-            if *m.scale_text.borrow() != text {
-                *m.scale_text.borrow_mut() = text;
-                let app = app.clone();
-                glib::idle_add_local_once(move || {
-                    if let Some(app) = app.upgrade() {
-                        crate::window::refresh(&app);
-                    }
-                });
-            }
             let place = Place {
                 nearest: l.nearest,
                 factor: l.factor,

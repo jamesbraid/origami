@@ -142,8 +142,6 @@
         <Grid Grid.Row="3" Padding="12,4" Background="{ThemeResource LayerFillColorDefaultBrush}">
             <StackPanel Orientation="Horizontal" Spacing="8">
                 <TextBlock x:Name="StatusText" FontSize="12" Opacity="0.8" VerticalAlignment="Center" AutomationProperties.AutomationId="status.text"/>
-                <DropDownButton x:Name="ScaleButton" FontSize="12" Padding="6,0" Visibility="Collapsed" VerticalAlignment="Center"
-                                AutomationProperties.AutomationId="status.scale" ToolTipService.ToolTip="Change the picture's scale"/>
                 <HyperlinkButton x:Name="ShowShot" Content="Show in Explorer" FontSize="12" Padding="4,0" Visibility="Collapsed"
                                  AutomationProperties.AutomationId="status.showshot"/>
             </StackPanel>

@@ -304,22 +304,6 @@ struct PointerControl: View {
     }
 }
 
-/// The picture's scale in the status bar; choosing from it does what the View menu does.
-struct ScaleMenu: View {
-    @ObservedObject var model: MachineModel
-    @EnvironmentObject var app: AppModel
-    var body: some View {
-        SwiftUI.Menu(model.scaleLabel) {
-            ForEach([CommandID.fit, .pointScale, .doubleScale, .actualSize], id: \.self) { c in
-                Button(c.title) { app.invoke(c) }
-            }
-        }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-        .help("Change the picture's scale")
-        .accessibilityLabel("Picture scale")
-    }
-}
-
 struct StatusBar: View {
     @ObservedObject var model: MachineModel
     @EnvironmentObject var app: AppModel
@@ -327,7 +311,6 @@ struct StatusBar: View {
         HStack(spacing: 14) {
             StatusPill(state: model.state)
             Text(model.statusLine).foregroundStyle(.secondary).lineLimit(1)
-            if model.state == .running, model.picture != nil, !model.scaleLabel.isEmpty { ScaleMenu(model: model) }
             if let n = app.notice {
                 Text(n.text).lineLimit(1)
                 if let url = n.reveal {

@@ -29,10 +29,6 @@ public static class ViewScale
         };
     }
 
-    /// <summary>The status bar's text: device pixels per guest pixel as a percentage, led by Fit when that is the mode.</summary>
-    public static string Label(ViewMode mode, double factor) =>
-        (mode == ViewMode.FitToWindow ? "Fit " : "") + (int)Math.Round(factor * 100) + "%";
-
     /// <summary>The window resized to <paramref name="w"/> by <paramref name="h"/>, no larger than the work area and moved inside it.</summary>
     public static PixelRect Within(PixelRect window, PixelRect work, int w, int h)
     {

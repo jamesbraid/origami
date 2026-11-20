@@ -36,7 +36,6 @@ pub struct Win {
     /// Every header button, for the automation's tooltip check.
     pub toolbar: Vec<gtk::Widget>,
     pub cpu_btn: gtk::ToggleButton,
-    pub scale_btn: gtk::MenuButton,
     pub stack: gtk::Stack,
     pub list: gtk::ListBox,
     pub rows: RefCell<Vec<Row>>,
@@ -178,26 +177,9 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .valign(gtk::Align::Center)
         .visible(false)
         .build();
-    let scale_btn = gtk::MenuButton::builder()
-        .css_classes(["flat"])
-        .valign(gtk::Align::Center)
-        .tooltip_text("Picture scale")
-        .visible(false)
-        .build();
-    let sm = gio::Menu::new();
-    for (label, action) in [
-        ("Fit to Window", "win.view.fit"),
-        ("Scale 1×", "win.view.scale-1x"),
-        ("Scale 2×", "win.view.scale-2x"),
-        ("Actual Size", "win.view.actual-size"),
-    ] {
-        sm.append(Some(label), Some(action));
-    }
-    scale_btn.set_menu_model(Some(&sm));
     let title_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     title_box.append(&title);
     title_box.append(&pill);
-    title_box.append(&scale_btn);
 
     let power_btn = gtk::Button::builder()
         .label("Start")
@@ -350,7 +332,6 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         pause_btn,
         toolbar,
         cpu_btn,
-        scale_btn,
         stack,
         list: list.clone(),
         rows: RefCell::new(Vec::new()),
@@ -1104,10 +1085,6 @@ pub fn refresh(app: &Rc<App>) {
                 w.pill.add_css_class(class);
                 w.pill.set_label(word);
                 w.pill.set_visible(true);
-                let text = m.scale_text.borrow();
-                w.scale_btn.set_label(&text);
-                w.scale_btn
-                    .set_visible(!text.is_empty() && m.state.get().is_up());
                 let up = m.state.get().is_up();
                 let (label, tip, action) = match m.state.get() {
                     State::Starting | State::Stopping => (
@@ -1151,7 +1128,6 @@ pub fn refresh(app: &Rc<App>) {
                 w.title.set_title("Origami");
                 w.title.set_subtitle("");
                 w.pill.set_visible(false);
-                w.scale_btn.set_visible(false);
                 w.power_btn.set_label("Start");
                 w.power_btn
                     .set_tooltip_text(Some("Start the machine (Ctrl+Shift+R)"));
