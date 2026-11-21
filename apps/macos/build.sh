@@ -72,7 +72,7 @@ cat > $app/Contents/Info.plist <<PLIST
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>Origami</string>
 <key>CFBundleDisplayName</key><string>Origami</string>
-<key>CFBundleIdentifier</key><string>fans.irix.origami</string>
+<key>CFBundleIdentifier</key><string>fans.irix.Origami</string>
 <key>CFBundleExecutable</key><string>OrigamiApp</string>
 <key>CFBundleIconFile</key><string>Origami</string>
 <key>CFBundlePackageType</key><string>APPL</string>

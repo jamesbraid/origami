@@ -257,6 +257,23 @@ func runSelfTest(library: String, out: String) {
                "command_chords_left_to_the_app": commandKept, "whole_typed_string": wholeString, "arrow_meta": arrowMeta])
     }
 
+    do {
+        let old = "origami.selftest.old", new = "origami.selftest.new"
+        UserDefaults.standard.removePersistentDomain(forName: old)
+        UserDefaults.standard.removePersistentDomain(forName: new)
+        defer { UserDefaults.standard.removePersistentDomain(forName: old); UserDefaults.standard.removePersistentDomain(forName: new) }
+        let oldSuite = UserDefaults(suiteName: old)!, newSuite = UserDefaults(suiteName: new)!
+        oldSuite.set("/old/library", forKey: "libraryRoot"); oldSuite.set(true, forKey: "optionAsMeta")
+        newSuite.set("/new/library", forKey: "libraryRoot")
+        let first = PrefsMigration.run(from: old, into: newSuite)
+        oldSuite.set("later", forKey: "addedAfter")
+        let again = PrefsMigration.run(from: old, into: newSuite)
+        check("prefs-migrate-once-and-keep-existing", first == ["optionAsMeta"] && again.isEmpty
+              && newSuite.string(forKey: "libraryRoot") == "/new/library" && newSuite.bool(forKey: "optionAsMeta")
+              && newSuite.object(forKey: "addedAfter") == nil && oldSuite.string(forKey: "libraryRoot") == "/old/library",
+              ["copied": first, "second_run": again])
+    }
+
     let wanted = ProcessInfo.processInfo.environment["ORIGAMI_TEST_MACHINE"]
     guard let model = (wanted.flatMap { app.model(named: $0) } ?? app.models.first) else {
         check("library", false, ["error": "no machines in \(library)"]); finish()

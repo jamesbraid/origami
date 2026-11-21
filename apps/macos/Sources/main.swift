@@ -13,6 +13,8 @@ args = args.filter { !$0.hasPrefix("-psn_") && !$0.hasPrefix("-NS") && !$0.hasPr
 
 let nsApp = NSApplication.shared
 
+if args.first != "--selftest" { PrefsMigration.run() }
+
 if args.first == "--selftest" {
     guard args.count >= 3 else {
         FileHandle.standardError.write(Data("usage: Origami --selftest MACHINES_DIR OUTDIR\n".utf8))
