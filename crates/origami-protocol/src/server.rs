@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -10,6 +10,7 @@ use crate::frame::{write_line, FrameError, LineReader, RawStream};
 use crate::message::{ErrorKind, Event, PingData, Reply, Request, Verb, PROTOCOL};
 
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+const DRAIN: Duration = Duration::from_secs(2);
 
 /// What a handler decided for one request.
 pub enum Outcome {
@@ -83,6 +84,8 @@ struct Shared {
     next_id: AtomicU64,
     stop: AtomicBool,
     live: Mutex<HashMap<u64, TcpStream>>,
+    /// Requests being handled or replied to; shutdown lets them finish.
+    busy: (Mutex<usize>, Condvar),
 }
 
 pub struct Server {
@@ -103,6 +106,7 @@ impl Server {
             next_id: AtomicU64::new(1),
             stop: AtomicBool::new(false),
             live: Mutex::new(HashMap::new()),
+            busy: (Mutex::new(0), Condvar::new()),
         });
         let sh = shared.clone();
         let accept = thread::Builder::new()
@@ -124,6 +128,9 @@ impl Server {
         self.shared.stop.store(true, Ordering::Release);
         // Wake the blocked accept.
         let _ = TcpStream::connect_timeout(&self.addr, Duration::from_secs(1));
+        // A request that made the machine exit is still writing its reply.
+        let (count, idle) = &self.shared.busy;
+        let _ = idle.wait_timeout_while(count.lock().unwrap(), DRAIN, |n| *n > 0);
         for s in self.shared.live.lock().unwrap().values() {
             let _ = s.shutdown(Shutdown::Both);
         }
@@ -175,6 +182,22 @@ fn serve(stream: TcpStream, sh: Arc<Shared>) {
     sh.live.lock().unwrap().remove(&id);
 }
 
+struct Busy<'a>(&'a (Mutex<usize>, Condvar));
+
+impl<'a> Busy<'a> {
+    fn enter(b: &'a (Mutex<usize>, Condvar)) -> Self {
+        *b.0.lock().unwrap() += 1;
+        Busy(b)
+    }
+}
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        *self.0 .0.lock().unwrap() -= 1;
+        self.0 .1.notify_all();
+    }
+}
+
 fn reply(conn: &Conn, r: &Reply) -> io::Result<()> {
     let mut s = conn.out.stream.lock().unwrap();
     write_line(&mut *s, &r.to_line())
@@ -210,6 +233,7 @@ fn run(conn: &Conn, stream: TcpStream, sh: &Shared) {
             }
         };
         let verb = req.verb();
+        let busy = Busy::enter(&sh.busy);
         let outcome = if verb == Verb::Ping {
             Outcome::Reply(Reply::data(PingData {
                 protocol: PROTOCOL,
@@ -240,6 +264,7 @@ fn run(conn: &Conn, stream: TcpStream, sh: &Shared) {
                     }
                     conn.out.raw.store(true, Ordering::Release);
                 }
+                drop(busy);
                 let (stream, pending) = reader.into_parts();
                 handler.raw(conn, RawStream::new(stream, pending));
                 let _ = conn.out.stream.lock().unwrap().flush();
