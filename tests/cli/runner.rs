@@ -11,6 +11,8 @@ use serde_json::Value;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
+use std::process::Command;
 use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -167,14 +169,27 @@ fn a_second_console_client_does_not_hang() {
     wait_for_text(&out, "# ");
 }
 
-#[cfg(unix)]
+/// End the runner this test started, leaving its QEMU running.
+fn kill_runner(pid: u32) {
+    #[cfg(unix)]
+    // SAFETY: SIGKILL to the runner this test started.
+    unsafe {
+        libc::kill(pid as libc::pid_t, libc::SIGKILL)
+    };
+    #[cfg(windows)]
+    assert!(Command::new("taskkill")
+        .args(["/F", "/PID", &pid.to_string()])
+        .status()
+        .unwrap()
+        .success());
+}
+
 #[test]
 fn stop_falls_back_to_qmp_when_the_runner_is_killed() {
     let root = tempfile::tempdir().unwrap();
     let (machine, _guard) = started(root.path(), &[]);
     let r = record(&machine);
-    // SAFETY: SIGKILL to the runner this test started.
-    unsafe { libc::kill(r.pid as libc::pid_t, libc::SIGKILL) };
+    kill_runner(r.pid);
     wait_until("the runner to die", TIMEOUT, || {
         !control::is_locked(&machine).unwrap()
     });
@@ -190,14 +205,12 @@ fn stop_falls_back_to_qmp_when_the_runner_is_killed() {
     assert!(!machine.join("state/run.json").exists());
 }
 
-#[cfg(unix)]
 #[test]
 fn a_runnerless_console_reconnects_to_qemu_with_a_warning() {
     let root = tempfile::tempdir().unwrap();
     let (machine, _guard) = started(root.path(), &[]);
     let r = record(&machine);
-    // SAFETY: SIGKILL to the runner this test started.
-    unsafe { libc::kill(r.pid as libc::pid_t, libc::SIGKILL) };
+    kill_runner(r.pid);
     wait_until("the runner to die", TIMEOUT, || {
         !control::is_locked(&machine).unwrap()
     });

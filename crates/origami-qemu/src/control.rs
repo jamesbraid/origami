@@ -105,7 +105,7 @@ pub fn stop(dir: &Path) -> Result<()> {
 }
 
 fn qemu_alive(record: &Record) -> bool {
-    if cfg!(unix) && record.qemu_pid != 0 {
+    if record.qemu_pid != 0 {
         process_alive(record.qemu_pid)
     } else {
         verified_qmp(record).is_ok()
