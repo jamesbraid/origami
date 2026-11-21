@@ -168,6 +168,24 @@ final class MachineView: NSView {
         return (Int(w), Int(h), buf)
     }
 
+    #if FAKE
+    /// Draw now even when the system calls the window occluded, as a runner's windows are: redraw() leaves those alone.
+    func drawForTest() {
+        guard !detached, coreView != nil || attach(), let v = coreView else { return }
+        origami_view_set_visible(v, 1)
+        var drawn: UInt32 = 0
+        _ = origami_view_present(v, &drawn)
+    }
+
+    /// What the core's last present drew: its surface and the picture's rectangle in it. For the display self-test.
+    func lastDraw() -> origami_view_last_draw? {
+        guard let v = coreView else { return nil }
+        var d = origami_view_last_draw()
+        d.size = UInt32(MemoryLayout<origami_view_last_draw>.size)
+        return origami_view_get_last_draw(v, &d) == ORIGAMI_OK ? d : nil
+    }
+    #endif
+
     private func attach() -> Bool {
         let size = pixelSize
         var surface = origami_surface()

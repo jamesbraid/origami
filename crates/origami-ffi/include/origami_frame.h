@@ -435,6 +435,23 @@ typedef struct origami_view_layout {
   double scale;
 } origami_view_layout;
 
+#if defined(ORIGAMI_FAKE)
+// What the view's last present drew, for self-tests: the surface it drew into
+// and the picture's rectangle in it, in window physical pixels.
+typedef struct origami_view_last_draw {
+  uint32_t size;
+  uint32_t reserved;
+  uint32_t surface_width;
+  uint32_t surface_height;
+  int32_t x;
+  int32_t y;
+  uint32_t width;
+  uint32_t height;
+  // Pictures presented so far, so a test can tell a redraw from a stale read.
+  uint64_t presents;
+} origami_view_last_draw;
+#endif
+
 #define ORIGAMI_OK 0
 
 #define ORIGAMI_ERR_NULL_ARGUMENT -1
@@ -740,6 +757,13 @@ origami_status origami_view_set_scale_mode(struct origami_view *view, uint32_t m
 // Read where the picture is drawn under the current scale mode. Set `size` to
 // `sizeof`. `NotFound` before the first picture.
 origami_status origami_view_get_layout(struct origami_view *view, struct origami_view_layout *out);
+
+#if defined(ORIGAMI_FAKE)
+// Read what the last present drew. Set `size` to `sizeof`. `NotFound` before
+// the first present.
+origami_status origami_view_get_last_draw(struct origami_view *view,
+                                          struct origami_view_last_draw *out);
+#endif
 
 // A hidden view draws nothing and takes nothing from the swapchain.
 origami_status origami_view_set_visible(struct origami_view *view, uint32_t visible);

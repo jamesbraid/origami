@@ -20,6 +20,8 @@ required-features = ["test-tools"]
 
 [features]
 test-tools = ["dep:wayland-protocols-wlr"]
+# The `behaviour` automation request, for the self-test. Never in a release.
+selftest = ["origami-core/selftest"]
 # The iris engine beside QEMU. iris itself runs in the `origami` runner, which
 # must be built with its own `iris` feature.
 iris = ["dep:origami-iris"]
@@ -52,3 +54,4 @@ x11rb = { version = "0.14", features = ["xinput"] }
 
 [dev-dependencies]
 tempfile = "3"
+origami-core = { path = "../origami-core", features = ["selftest"] }

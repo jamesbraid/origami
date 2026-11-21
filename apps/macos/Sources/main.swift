@@ -3,6 +3,7 @@
 //   Origami --machines DIR          use DIR as the library (repeatable)
 //   Origami --selftest DIR OUT      headless: no window is ever shown
 //   Origami --docs-shots DIR OUT    the pictures the documentation shows, from real windows
+//   Origami --selftest-display DIR OUT   dev builds: the real window against the behaviour table
 // The core finds its QEMU beside the executable (ORIGAMI_RUNTIME_DIR overrides).
 
 import AppKit
@@ -14,6 +15,19 @@ args = args.filter { !$0.hasPrefix("-psn_") && !$0.hasPrefix("-NS") && !$0.hasPr
 let nsApp = NSApplication.shared
 
 if args.first != "--selftest" { PrefsMigration.run() }
+
+#if FAKE
+// The real machine window on screen, checked against the core's behaviour table; never in a release build, which has the QEMU engine.
+if args.first == "--selftest-display" {
+    guard args.count >= 3 else {
+        FileHandle.standardError.write(Data("usage: Origami --selftest-display MACHINES_DIR OUTDIR\n".utf8))
+        exit(2)
+    }
+    nsApp.setActivationPolicy(.regular)
+    nsApp.finishLaunching()
+    MainActor.assumeIsolated { runDisplaySelfTest(library: args[1], out: args[2]) }
+}
+#endif
 
 if args.first == "--selftest" {
     guard args.count >= 3 else {

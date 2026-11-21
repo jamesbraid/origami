@@ -44,12 +44,12 @@ func readPPM(_ path: String) -> Picture? {
 
 #if FAKE
 /// A machine on the fake engine, with its stand-in firmware file in `library`; the error if the core refuses it.
-func makeFakeMachine(_ host: CoreHost, library: String, name: String) -> Error? {
+func makeFakeMachine(_ host: CoreHost, library: String, name: String, offering: String = "fake.1") -> Error? {
     let prom = library + "/prom.bin"
     FileManager.default.createFile(atPath: prom, contents: Data(count: 16))
     do {
         let op = try host.core.createMachine(request: OrigamiCreateRequest(
-            name: name, offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil, systemDisk: nil, identity: nil))
+            name: name, offering: offering, memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil, systemDisk: nil, identity: nil))
         return op.wait(timeoutMs: 10_000) == .succeeded ? nil : NSError(domain: "fake", code: 1)
     } catch { return error }
 }

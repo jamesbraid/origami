@@ -9,6 +9,8 @@
 //! machine's edit lock; new machines are [`MachineSpec`] values given to
 //! [`create`].
 
+#[cfg(any(test, feature = "selftest"))]
+pub mod behaviour;
 mod change;
 mod create;
 mod first_boot;

@@ -29,6 +29,8 @@ final class FitView: NSView {
     var available = CGSize.zero
     var backing: CGFloat = 1
     private static var done = Set<String>()
+    /// How many pictures have had their one fit; the display self-test reads it.
+    static var fittedCount: Int { done.count }
     /// The room the window may grow into; the self-test replaces it on a runner with no screen.
     static var visibleFrame: (NSWindow) -> CGRect? = { ($0.screen ?? NSScreen.main)?.visibleFrame }
 

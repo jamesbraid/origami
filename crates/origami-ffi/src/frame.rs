@@ -1134,6 +1134,45 @@ pub unsafe extern "C" fn origami_view_get_layout(
     })
 }
 
+/// What the view's last present drew, for self-tests: the surface it drew into
+/// and the picture's rectangle in it, in window physical pixels.
+#[cfg(feature = "fake")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct origami_view_last_draw {
+    pub size: u32,
+    pub reserved: u32,
+    pub surface_width: u32,
+    pub surface_height: u32,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// Pictures presented so far, so a test can tell a redraw from a stale read.
+    pub presents: u64,
+}
+
+/// Read what the last present drew. Set `size` to `sizeof`. `NotFound` before
+/// the first present.
+#[cfg(feature = "fake")]
+#[no_mangle]
+pub unsafe extern "C" fn origami_view_get_last_draw(
+    view: *mut origami_view,
+    out: *mut origami_view_last_draw,
+) -> origami_status {
+    guard(|| {
+        // SAFETY: `out` is writable when non-null.
+        let out = unsafe { out.as_mut() }
+            .ok_or_else(|| Fail(Status::NullArgument, "out is null".into()))?;
+        if (out.size as usize) < std::mem::size_of::<origami_view_last_draw>() {
+            return fail(Status::InvalidArgument, "out->size is too small");
+        }
+        let size = out.size;
+        *out = present::with(view, |v| v.last_draw(size))?;
+        Ok(())
+    })
+}
+
 /// A hidden view draws nothing and takes nothing from the swapchain.
 #[no_mangle]
 pub unsafe extern "C" fn origami_view_set_visible(
@@ -1272,6 +1311,8 @@ pub(crate) mod present {
         size: (u32, u32),
         scale: f64,
         mode: ScaleMode,
+        #[cfg(feature = "fake")]
+        last: Option<origami_view_last_draw>,
     }
 
     pub(crate) fn gpu() -> Result<Gpu, Fail> {
@@ -1381,6 +1422,8 @@ pub(crate) mod present {
                 size: (width, height),
                 scale,
                 mode: ScaleMode::Integer,
+                #[cfg(feature = "fake")]
+                last: None,
             }),
         })
     }
@@ -1449,6 +1492,14 @@ pub(crate) mod present {
                 height: f64::from(l.height),
                 scale: f64::from(l.scale),
             })
+        }
+
+        #[cfg(feature = "fake")]
+        pub(super) fn last_draw(&self, size: u32) -> Result<origami_view_last_draw, Fail> {
+            let Some(last) = &self.last else {
+                return fail(Status::NotFound, "nothing has been presented yet");
+            };
+            Ok(origami_view_last_draw { size, ..*last })
         }
 
         pub(super) fn set_visible(&mut self, visible: bool) -> Result<(), Fail> {
@@ -1589,6 +1640,25 @@ pub(crate) mod present {
             {
                 texture.note_imported(gpu, rows, frame);
             }
+            // An occluded window is drawn offscreen at its real size, which is what a runner's window gets.
+            #[cfg(feature = "fake")]
+            if matches!(drawn, Drawn::Presented | Drawn::Occluded) {
+                if let Some(t) = &self.texture {
+                    let l = self.view.layout((t.width, t.height), self.mode);
+                    let (w, h) = self.view.size();
+                    self.last = Some(origami_view_last_draw {
+                        size: 0,
+                        reserved: 0,
+                        surface_width: w,
+                        surface_height: h,
+                        x: l.x.round() as i32,
+                        y: l.y.round() as i32,
+                        width: l.width.round() as u32,
+                        height: l.height.round() as u32,
+                        presents: self.view.presents,
+                    });
+                }
+            }
             Ok(match drawn {
                 Drawn::Presented => ORIGAMI_DRAWN_PRESENTED,
                 Drawn::Skipped => ORIGAMI_DRAWN_SKIPPED,
@@ -1646,6 +1716,10 @@ mod present {
             unreachable!()
         }
         pub(super) fn layout(&self, _: u32) -> Result<origami_view_layout, Fail> {
+            unreachable!()
+        }
+        #[cfg(feature = "fake")]
+        pub(super) fn last_draw(&self, _: u32) -> Result<origami_view_last_draw, Fail> {
             unreachable!()
         }
         pub(super) fn present(&mut self) -> Result<u32, Fail> {

@@ -6,7 +6,7 @@
 //! is what is tested. The core's shared automation socket replaces this one.
 //!
 //! Requests:
-//!   ping | state | stats | cursor [MACHINE] | release-keys [MACHINE]
+//!   ping | behaviour | state | stats | cursor [MACHINE] | release-keys [MACHINE]
 //!   invoke COMMAND [MACHINE]      run a command as a menu item would
 //!   open MACHINE | select MACHINE
 //!   clipboard | clipboard-set JSON_STRING   read or set the clipboard text
@@ -236,6 +236,14 @@ fn run(app: &Rc<App>, line: &str) -> Value {
     let a2 = it.next();
     match cmd {
         "ping" => json!({"ok": true}),
+        #[cfg(feature = "selftest")]
+        "behaviour" => serde_json::from_str(origami_core::behaviour::JSON).unwrap_or(Value::Null),
+        // The rest of the line, with no spaces in it: one JSON request for `behaviour::evaluate`.
+        #[cfg(feature = "selftest")]
+        "behaviour-evaluate" => {
+            serde_json::from_str(&origami_core::behaviour::evaluate(a1.unwrap_or("")))
+                .unwrap_or(Value::Null)
+        }
         "state" => {
             let ms: Vec<Value> = app.machines.borrow().iter().map(|m| describe(m)).collect();
             let w = window::active(app);

@@ -274,6 +274,40 @@ mod tests {
         );
     }
 
+    // The numbers the app's self-tests read back from the real window are the core's table.
+    #[test]
+    fn the_layout_matches_the_core_behaviour_table() {
+        use origami_core::behaviour::{table, Action, Picture};
+        let t = table();
+        let mut checked = 0;
+        for r in &t.rows {
+            let (Some(scale), Some(pane), Picture::At(at), Action::Resize | Action::ViewFit) =
+                (r.scale, r.pane, r.picture, r.action)
+            else {
+                continue;
+            };
+            let l = layout(
+                (pane[0] as i32, pane[1] as i32),
+                (t.guest[0], t.guest[1]),
+                scale,
+            )
+            .unwrap();
+            let got = [l.dev.0, l.dev.1, l.dev.2, l.dev.3];
+            assert!(
+                got.iter()
+                    .zip(at)
+                    .all(|(g, w)| (g - w).abs() <= t.tolerance_px),
+                "{}: {got:?}, want {at:?}",
+                r.id
+            );
+            if let Some(whole) = r.whole_pixel {
+                assert_eq!(l.nearest, whole, "{}", r.id);
+            }
+            checked += 1;
+        }
+        assert!(checked >= 10);
+    }
+
     #[test]
     fn view_scales_round_trip_through_their_commands() {
         for s in [

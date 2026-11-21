@@ -349,6 +349,36 @@ fails with AADSTS700213 prints the subject it saw. The app needs the Artifact
 Signing Certificate Profile Signer role. Only PE files with no signature yet
 are signed, which leaves Microsoft's own DLLs alone.
 
+## Machine window behaviour
+
+What the machine window must show is one table in the core,
+`crates/origami-core/src/behaviour.json` (served by `origami_core::behaviour`,
+the `origami_behaviour_json` function and GTK's `behaviour` automation
+request). A row is a situation (display scale, the picture pane's size, an
+action: resize, a View menu item, zoom, a restart, a tab switch) and the
+picture rectangle, whole-pixel steps and window-frame change it must give,
+in device pixels, written out rather than computed. Each app's self-test
+drives the real window through real commands and resizes and reads back the
+renderer's last picture rectangle, its surface and the window frame; a row
+whose pane the window cannot reach, or that needs more screen than the run
+has, or that is for another display scale, is skipped and listed. The run fails if
+fewer than six rows ran (two on Windows).
+
+- Linux: the `behaviour` scenario of `crates/origami-gtk/ci/driver.py` (Xvfb, a
+  real PROM picture), at 1x and at `GDK_SCALE=2`.
+- Windows: `BehaviourSelftest.cs`, run inside the fake-engine self-test on a
+  1280x1024 fake machine, in the runner's real work area. The window has a minimum size
+  and a small screen a maximum, so a Windows runner reaches few panes: those rows are skipped
+  with the reason, and the rows with no pane of their own (zoom, Fit, 2x, reattach, a new run) are that
+  job's floor of two.
+- macOS: `OrigamiApp --selftest-display DIR OUT`, run by `apps/macos/ci.sh` after the
+  headless self-test; the window is real and on screen, the visible frame fixed at
+  2800x2000 points. Fake-engine builds only.
+
+Only the Linux job can force a 2x display (`GDK_SCALE=2`). The macOS and Windows
+runners run the rows for the scale they have, which is 1x unless the log says
+otherwise.
+
 ## App screenshots
 
 `tools/screenshots` regenerates `docs/images/app/`, the pictures in the

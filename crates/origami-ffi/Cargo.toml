@@ -17,7 +17,7 @@ path = "src/bin/uniffi-bindgen.rs"
 [features]
 default = ["qemu", "render", "ghostty"]
 # FakeEngine as the only engine, for the bindings tests and the app teams.
-fake = ["origami-engine/fake", "origami-core/fake"]
+fake = ["origami-engine/fake", "origami-core/fake", "origami-core/selftest"]
 # QemuEngine as the engine, unless `fake` is on.
 qemu = ["dep:origami-qemu"]
 # The C frame plane's view functions (attach, resize, present).

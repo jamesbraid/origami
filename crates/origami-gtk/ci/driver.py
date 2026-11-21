@@ -1101,6 +1101,153 @@ def hidpi():
         a.stop()
 
 
+def behaviour():
+    """The core's behaviour table (the `behaviour` request), row by row, on the real window with
+    a running machine: the picture rectangle and window frame read back after real commands, resizes
+    and window-manager actions, against the table's literal device-pixel numbers. Runs at the
+    display's scale (GDK_SCALE) and takes the rows for it."""
+    factor = float(os.environ.get("GDK_SCALE") or 1)
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        a.req("invoke machine.start octane2")
+        check("first picture within 15 min", prom_ready(a, "octane2") is not None)
+        win = app_window()
+        if not win:
+            skip("behaviour table", "no window to drive (needs X11)")
+            return
+        table = a.req("behaviour")
+        guest = table["guest"]
+        mon = [int(v) / factor for v in (os.environ.get("XVFB_SCREEN") or "1600x1300").split("x")[:2]]
+        menu = {"view-fit": "view.fit", "view-actual": "view.actual-size", "view1x": "view.scale-1x", "view2x": "view.scale-2x"}
+        hexid = "0x%x" % int(win)
+
+        def win_size():
+            g = dict(l.split("=") for l in sh("xdotool", "getwindowgeometry", "--shell", win).stdout.split() if "=" in l)
+            return (int(g["WIDTH"]), int(g["HEIGHT"]))
+
+        def seen():
+            m = a.machine("octane2")
+            if not m or not m.get("picture") or not m.get("screen_bounds"):
+                return None
+            f = m["scale_factor"]
+            b = m["screen_bounds"]
+            return {"frame": win_size(), "pane": (b[2], b[3]), "pane_dev": (round(b[2] * f), round(b[3] * f)), "pic": m["picture"]["device"], "step": m["picture"]["step"], "factor": f}
+
+        def settle():
+            last, stable, end = None, 0, time.time() + 10
+            while time.time() < end:
+                time.sleep(0.25)
+                s = seen()
+                if not s:
+                    continue
+                stable = stable + 1 if last and (s["frame"], s["pic"]) == (last["frame"], last["pic"]) else 0
+                last = s
+                if stable >= 4:
+                    return s
+            return last
+
+        def set_pane(pw, ph):
+            for _ in range(6):
+                s = settle()
+                if not s:
+                    return False
+                dw, dh = pw - s["pane"][0], ph - s["pane"][1]
+                if abs(dw) < 0.5 and abs(dh) < 0.5:
+                    return True
+                sh("xdotool", "windowsize", win, str(round(s["frame"][0] + dw * factor)), str(round(s["frame"][1] + dh * factor)))
+            s = settle()
+            return bool(s) and abs(pw - s["pane"][0]) <= 1 and abs(ph - s["pane"][1]) <= 1
+
+        def evaluate(req):
+            # One JSON request for the core's checker; no spaces, as the automation line splits on them.
+            return a.req("behaviour-evaluate " + json.dumps(req, separators=(",", ":")))
+
+        ran, skipped = 0, []
+        for row in table["rows"]:
+            rid = row["id"]
+            s0 = settle()
+            if not s0:
+                check("behaviour: " + rid, False, "no picture")
+                continue
+            # The monitor's logical size, less the app's margin and the window's chrome.
+            chrome = (s0["frame"][0] / factor - s0["pane"][0], s0["frame"][1] / factor - s0["pane"][1])
+            room = [round(mon[0] - 32 - chrome[0]), round(mon[1] - 96 - chrome[1])]
+            ask = {"op": "skip", "id": rid, "scale": factor, "room_available": room, "pane_reached": True}
+            why = evaluate(ask)["skip"]
+            if why:
+                skipped.append("%s: %s" % (rid, why))
+                continue
+            if row["view_before"]:
+                a.req("invoke %s octane2" % menu[row["view_before"]])
+            # An action that shrinks the window may be refused by its minimum size: try that pane first.
+            small = row["room"] and row["pane"] and (row["room"][0] < row["pane"][0] or row["room"][1] < row["pane"][1])
+            if small and not set_pane(*row["room"]):
+                skipped.append("%s: %s" % (rid, evaluate(dict(ask, pane_reached=False))["skip"]))
+                continue
+            if row["pane"] and not set_pane(*row["pane"]):
+                skipped.append("%s: %s" % (rid, evaluate(dict(ask, pane_reached=False))["skip"]))
+                continue
+            was = settle()
+            act = row["action"]
+            if act in menu:
+                a.req("invoke %s octane2" % menu[act])
+            elif act == "zoom":
+                sh("wmctrl", "-i", "-r", hexid, "-b", "add,maximized_vert,maximized_horz")
+            elif act == "reattach":
+                a.req("invoke window.move-to-new-window octane2")
+                time.sleep(1.5)
+                sh("wmctrl", "-c", ":ACTIVE:")
+                time.sleep(1)
+                a.req("open octane2")
+                time.sleep(1.5)
+            elif act == "first-window":
+                # A PROM does not answer a clean power-off, so end the run the way Force Quit does.
+                a.req("invoke machine.force-quit octane2")
+                a.wait("stopped", lambda: (a.machine("octane2") or {}).get("state") in ("Stopped", "Stopped unexpectedly"), 60)
+                time.sleep(1)
+                # A start asked for while the stop is still settling is dropped, and the machine then stays stopped: ask again.
+                for _ in range(3):
+                    a.req("invoke machine.start octane2")
+                    if a.wait("started", lambda: (a.machine("octane2") or {}).get("state") != "Stopped", 20, 1):
+                        break
+                if not prom_ready(a, "octane2"):
+                    check("behaviour: " + rid, False, "no picture after the restart")
+                    continue
+            elif act != "resize":
+                check("behaviour: " + rid, False, "unknown action " + act)
+                continue
+            now = settle()
+            if not now or not was:
+                m = a.machine("octane2") or {}
+                check("behaviour: " + rid, False, [was, now, {k: v for k, v in m.items() if k not in ("cards", "cpu_panel", "diagnostics", "console", "console_tab")}, a.state()["windows"]])
+                continue
+            ran += 1
+            time.sleep(1)
+            later = seen()
+            # GTK lays the picture out from the widget on every allocation: there is no separate draw to force or to miss.
+            problems = evaluate({
+                "op": "check", "id": rid, "scale": factor, "pane_dev": list(now["pane_dev"]),
+                "picture_before": was["pic"], "picture": now["pic"],
+                "surface": now["pic"][2:], "rendered": [0, 0, now["pic"][2], now["pic"][3]],
+                "frame_before": list(was["frame"]), "frame": list(now["frame"]),
+                "later": {"frame": list(later["frame"]), "picture": later["pic"]} if later else None,
+                "drew": None,
+            })["problems"]
+            check("behaviour: " + rid, not problems, {"problems": problems, "picture": now["pic"], "pane": now["pane_dev"], "frame": now["frame"], "scale": factor})
+            if act == "zoom":
+                sh("wmctrl", "-i", "-r", hexid, "-b", "remove,maximized_vert,maximized_horz")
+                time.sleep(0.5)
+        check("behaviour: enough rows ran", ran >= 6, {"ran": ran, "skipped": skipped})
+        for sk in skipped:
+            skip("behaviour: " + sk.split(":")[0], sk.split(": ", 1)[1])
+        shot("behaviour-end")
+    finally:
+        a.stop()
+
+
 def frames():
     """Boot to the PROM and record what presenting cost, for comparing builds."""
     create_machine("octane2")
@@ -1458,7 +1605,7 @@ def docs():
         a.stop()
 
 
-SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

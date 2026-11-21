@@ -70,6 +70,14 @@ public static unsafe class Frame
     [StructLayout(LayoutKind.Sequential)]
     public struct ViewCounters { public uint Size, Reserved; public ulong Presents, TakeNs, DrawNs, PresentNs; }
 
+#if ORIGAMI_FAKE
+    /// <summary>What the view's last present drew: its surface and the picture's rectangle in it, physical pixels.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LastDraw { public uint Size, Reserved, SurfaceWidth, SurfaceHeight; public int X, Y; public uint Width, Height; public ulong Presents; }
+
+    [DllImport(Dll)] public static extern int origami_view_get_last_draw(IntPtr view, ref LastDraw d);
+#endif
+
     [DllImport(Dll)] public static extern int origami_frame_stats(IntPtr machine, ref FrameCounters c);
     [DllImport(Dll)] public static extern int origami_view_stats(IntPtr view, ref ViewCounters c);
     [DllImport(Dll)] public static extern int origami_frame_take(IntPtr machine, uint head, byte* pixels, nuint pixelsCap, Run* runs, nuint runsCap, ref FrameOut o);

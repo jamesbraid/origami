@@ -992,6 +992,22 @@ pub fn origami_frame_plane_version() -> u32 {
     crate::frame::ABI_VERSION
 }
 
+/// What the machine window must show, as one JSON document (see
+/// `origami_core::behaviour`): the table each app's self-test drives.
+#[cfg(feature = "fake")]
+#[uniffi::export]
+pub fn origami_behaviour_json() -> String {
+    origami_core::behaviour::JSON.to_owned()
+}
+
+/// Whether a row can run here and what is wrong with what a self-test read
+/// back (see `origami_core::behaviour::evaluate`): JSON in, JSON out.
+#[cfg(feature = "fake")]
+#[uniffi::export]
+pub fn origami_behaviour_evaluate(request: String) -> String {
+    origami_core::behaviour::evaluate(&request)
+}
+
 /// The About credits as one JSON document (see `origami-credits`).
 #[uniffi::export]
 pub fn origami_credits_json() -> String {

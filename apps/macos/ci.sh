@@ -1,7 +1,8 @@
 #!/bin/zsh
 # The macOS app's nightly check, one command for the workflow to call: build
 # the app on the core's fake engine and run its headless self-test. No window
-# is shown.
+# is shown; then a second pass shows the real window and checks what it draws
+# against the core's behaviour table.
 #
 #   apps/macos/ci.sh [WORKDIR]
 #
@@ -25,4 +26,14 @@ ORIGAMI_FIXTURES=$root/tests/fixtures/machines $work/Origami.app/Contents/MacOS/
 exit_code=${pipestatus[1]}
 set -e
 echo "self-test exit status: $exit_code"
-exit $exit_code
+
+# The window is on screen for this one: it needs a window server, so it has its own library and output.
+rm -rf $work/display-machines $work/display-out; mkdir -p $work/display-machines $work/display-out
+set +e
+$work/Origami.app/Contents/MacOS/OrigamiApp --selftest-display $work/display-machines $work/display-out \
+    | tee $work/out/selftest-display.jsonl
+display_code=${pipestatus[1]}
+set -e
+cp -R $work/display-out/. $work/out/ 2>/dev/null || true
+echo "display self-test exit status: $display_code"
+(( exit_code == 0 && display_code == 0 ))

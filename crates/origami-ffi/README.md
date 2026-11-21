@@ -172,7 +172,13 @@ and fits only when 1x is too big. Fit fills the window keeping the aspect
 ratio, at any scale, with sharp bilinear filtering: each guest pixel stays
 flat and blends with its neighbour over one window pixel at its edge.
 `origami_view_get_layout` returns the picture's rectangle and scale in
-window pixels, to map the pointer.
+window pixels, to map the pointer. In a `fake` build only (never a release),
+`origami_view_get_last_draw` returns the surface and picture rectangle the last
+present drew, and `origami_behaviour_json` and `origami_behaviour_evaluate` give
+the apps' self-tests the window behaviour table and its checker; the frame ABI
+version does not move for these. A view that detaches leaves its picture in the
+machine (`Machine::keep_picture`) for the next view of that machine, which takes it
+on its first present: the display client hands a picture to one view only.
 `origami_view_readback` copies what the view last drew (cursor included, also
 for an occluded window) to the caller as BGRX rows, for self-tests on every
 platform; it waits for the GPU, so keep it off the frame path.

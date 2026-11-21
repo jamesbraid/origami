@@ -9,6 +9,8 @@ license = "BSD-3-Clause"
 [features]
 # Makes `cargo test -p origami-core --features fake` valid beside origami-ffi.
 fake = ["origami-engine/fake"]
+# The machine-window behaviour table and its checker, for the apps' self-tests. Never in a release.
+selftest = []
 
 [dependencies]
 origami-engine = { path = "../origami-engine" }

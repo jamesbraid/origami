@@ -25,7 +25,8 @@ cargo_features=()
 swift_defines=()
 if [[ -n $features ]]; then
     cargo_features=(--features $features)
-    [[ $features == *fake* ]] && swift_defines=(-D FAKE)
+    # The header carries the fake engine's functions (and the self-test's hooks) only under ORIGAMI_FAKE.
+    [[ $features == *fake* ]] && swift_defines=(-D FAKE -Xcc -DORIGAMI_FAKE)
 fi
 cargo build --release -p origami-ffi $cargo_features --lib
 dylib=$CARGO_TARGET_DIR/release/liborigami_ffi.dylib

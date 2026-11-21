@@ -380,6 +380,29 @@ public sealed partial class DisplayView : UserControl
         return Frame.origami_view_stats(_view, ref c) == Frame.Ok ? c : null;
     }
 
+#if ORIGAMI_FAKE
+    /// <summary>Self-test: what the last present drew. The copy fallback has no renderer to ask: null.</summary>
+    public Frame.LastDraw? LastDrawn()
+    {
+        if (_view != IntPtr.Zero)
+        {
+            var d = new Frame.LastDraw { Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Frame.LastDraw>() };
+            return Frame.origami_view_get_last_draw(_view, ref d) == Frame.Ok ? d : null;
+        }
+        return null; // the copy fallback has no renderer to ask, so it has no measurement to give
+    }
+
+    /// <summary>Self-test: the pane's top-left on screen, physical pixels (the pane is the surround less its padding).</summary>
+    public (int X, int Y) PaneOrigin()
+    {
+        var s = DeviceScale;
+        var o = Surround.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, 0));
+        var p = new Win32.POINT();
+        Win32.ClientToScreen(WindowHandle(), ref p);
+        return ((int)Math.Round(p.X + (o.X + ViewScale.PanePadding / 2.0) * s), (int)Math.Round(p.Y + (o.Y + ViewScale.PanePadding / 2.0) * s));
+    }
+#endif
+
     /// <summary>The pane the picture lays out in, in DIPs.</summary>
     public (double W, double H) PaneSize => (Surround.ActualWidth, Surround.ActualHeight);
     public double DeviceScale => XamlRoot?.RasterizationScale ?? 1.0;

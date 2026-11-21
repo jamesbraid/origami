@@ -831,6 +831,7 @@ public static class Selftest
                     $"factor {disp.LastFactor:F4}, want {expF:F4} (uncapped {wantF:F4}); window {WinRect().W}x{WinRect().H}, want {exp.W}x{exp.H}; work area {bwa.W}x{bwa.H}");
             }
         }
+        if (bigUp) await BehaviourSelftest.Run(w, core, disp, big, core.Machines().First(m => m.Key != big).Key, Check);
         bigGuest.Cancel(); await bigGuestTask;
         w.Invoke("machine.stop");
         await Until(() => core.Status(big).State == MachineState.Stopped, 8000);

@@ -27,7 +27,7 @@ export CARGO_TARGET_DIR="$S/target"
 cd "$ROOT"
 [ -n "${SHOTS_ONLY:-}" ] || cargo clippy --locked -p origami-gtk --features iris --all-targets -- -D warnings
 # iris is hosted by the origami runner, so both are built with it.
-cargo build --locked --release -p origami-gtk -p origami --features origami-gtk/iris,origami/iris
+cargo build --locked --release -p origami-gtk -p origami --features origami-gtk/iris,origami-gtk/selftest,origami/iris
 cargo build --locked --release -p origami-gtk --features test-tools --bin vptr
 [ -n "${SHOTS_ONLY:-}" ] || cargo test --locked -p origami-gtk -p origami-terminal
 # The renderer's GPU tests, on lavapipe; elsewhere they skip without an adapter.
@@ -46,4 +46,7 @@ run() { # NAME MODE SCENARIO
 }
 for sc in $SCEN; do run "$sc" x11 "$sc"; done
 [ -n "${SHOTS_ONLY:-}" ] || [ -n "${*:-}" ] || GDK_SCALE=2 XVFB_SCREEN=3200x2600 run hidpi-2x x11 hidpi
+# The behaviour table at 1x and 2x, on a screen big enough for its larger rows.
+[ -n "${SHOTS_ONLY:-}" ] || [ -n "${*:-}" ] || XVFB_SCREEN=3200x2400 run behaviour x11 behaviour
+[ -n "${SHOTS_ONLY:-}" ] || [ -n "${*:-}" ] || GDK_SCALE=2 XVFB_SCREEN=4200x3000 run behaviour-2x x11 behaviour
 [ -n "${SHOTS_ONLY:-}" ] || run pointer-sway sway pointer
