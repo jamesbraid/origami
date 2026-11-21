@@ -61,13 +61,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let app = Shared.model!
+        if app.installServing {
+            guard app.confirmStopInstall(true) else { return .terminateCancel }
+            app.stopInstalls { [weak self] in self?.planQuit(app) }
+            return .terminateLater
+        }
+        planQuit(app)
+        return .terminateLater
+    }
+
+    @MainActor
+    private func planQuit(_ app: AppModel) {
         // One prompt at most, naming only machines that are up now; none up quits silently. The core
         // is asked off the main thread, so the answer comes later.
         app.quitPlan { [weak self] plan in
             guard case .ask(let running) = plan else { AppDelegate.reply(true); return }
             self?.askAboutRunning(running, app)
         }
-        return .terminateLater
     }
 
     @MainActor
@@ -156,7 +166,7 @@ struct OrigamiCommands: Commands {
             Divider()
             item(.captureInput); item(.followMouse); item(.pasteAsTyping)
             Divider()
-            item(.settings); item(.showInFinder)
+            item(.settings); item(.installIrix); item(.showInFinder)
         }
         CommandGroup(replacing: .sidebar) {
             item(.showLibrary)
@@ -192,6 +202,12 @@ struct OrigamiApp: App {
             if let key { ConsoleWindow(key: key).environmentObject(app) }
         }
         .defaultSize(width: 700, height: 440)
+        .commandsRemoved()
+
+        WindowGroup("Install IRIX", id: "install", for: String.self) { $key in
+            if let key { InstallWindow(key: key).environmentObject(app) }
+        }
+        .windowResizability(.contentSize)
         .commandsRemoved()
 
         Window("About Origami", id: "about") {

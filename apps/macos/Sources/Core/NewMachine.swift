@@ -42,6 +42,9 @@ final class NewMachineModel: ObservableObject {
     @Published private(set) var readyDisks: [OrigamiReadyDisk] = []
     @Published var readyPick = 0
     private var asked = 0
+    /// Open the Install IRIX assistant on the new machine; offered only with an empty disk.
+    @Published var installAfter = false
+    var offersInstall: Bool { disk == .empty && offerings.indices.contains(selected) && offerings[selected].runsIrix }
     /// The copy's progress, while one runs.
     @Published private(set) var progress: (fraction: Double, text: String)?
     let image: ImageChoice
@@ -209,6 +212,7 @@ final class NewMachineModel: ObservableObject {
                     if nothingMade { done(false); return }
                     self.app.rescanNow()   // the new machine must be listed before its tab opens
                     if let key { self.app.openInNewTab(key) }
+                    if self.offersInstall && self.installAfter, let key { self.app.installIrix(key) }
                     done(true)
                 }
             }

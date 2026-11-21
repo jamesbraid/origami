@@ -434,6 +434,19 @@ final class AppModel: ObservableObject {
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }
+    /// The core's prompt for a running install, with its own text for a quit or a tab close; true to stop it.
+    /// Return keeps installing, Escape too. Tests answer it themselves.
+    var confirmStopInstall: (_ quitting: Bool) -> Bool = { quitting in
+        let t = origamiInstallTexts()
+        let alert = NSAlert()
+        alert.messageText = t.quitHeading
+        alert.informativeText = quitting ? t.quitText : t.tabText
+        alert.addButton(withTitle: quitting ? t.stopAndQuit : t.stopAndClose)
+        alert.addButton(withTitle: t.keep)
+        alert.buttons[0].keyEquivalent = ""
+        alert.buttons[1].keyEquivalent = "\r"
+        return alert.runModal() == .alertFirstButtonReturn
+    }
     var openFolderPanel: () -> URL? = {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -461,6 +474,7 @@ final class AppModel: ObservableObject {
     }
     var openWindow: ((String) -> Void)?
     var openConsole: ((String) -> Void)?
+    var openInstall: ((String) -> Void)?
     /// Whether the CPU panel is shown; hidden, nothing is polled.
     @Published var showsCpu = false
 
@@ -632,6 +646,7 @@ final class AppModel: ObservableObject {
         case .captureInput: return m?.state == .running && !(m?.captured ?? false)
         case .followMouse: return m != nil
         case .settings: return m != nil && m?.state != .needsUpgrade
+        case .installIrix: return m?.record.runsIrix == true && (m?.state == .stopped || m?.state == .stoppedUnexpectedly)
         case .diagnostics, .showInFinder: return m != nil
         case .console: return m?.state == .running
         case .closeTab: return active != nil
@@ -678,9 +693,10 @@ final class AppModel: ObservableObject {
         case .diagnostics: openWindow?("diagnostics")
         case .console: if let m { if m.headless { select(m.id) } else { openConsole?(m.id) } }
         case .settings: wantSettings = true
+        case .installIrix: if let m { installIrix(m.id) }
         case .showInFinder:
             if let m { NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent(m.name)]) }
-        case .closeTab: if let a = active { closeTab(a) }
+        case .closeTab: if let a = active { closeTabAsking(a) }
         case .nextTab: step(1)
         case .previousTab: step(-1)
         case .showLibrary: sidebarVisible.toggle()
@@ -695,6 +711,46 @@ final class AppModel: ObservableObject {
         case .pasteAsTyping: break
         }
     }
+
+    // MARK: install assistants
+
+    /// One assistant per machine; a window takes its model from here, so a second request finds the first.
+    private var installs: [String: InstallModel] = [:]
+
+    func installModel(for key: String) -> InstallModel? {
+        if let open = installs[key] { return open }
+        guard let m = models.first(where: { $0.id == key }) else { return nil }
+        let made = InstallModel(machine: m, app: self)
+        installs[key] = made
+        return made
+    }
+
+    func installIrix(_ key: String) {
+        guard installModel(for: key) != nil else { return }
+        openInstall?(key)
+    }
+
+    func forgetInstall(_ key: String) { installs[key] = nil }
+
+    /// Closing a tab whose install server runs asks first, in the core's words; Keep Installing leaves the tab open.
+    func closeTabAsking(_ id: String) {
+        guard let install = installs[id], installRunning(id) else { closeTab(id); return }
+        if confirmStopInstall(false) { install.stopInstall { self.closeTab(id) } }
+    }
+
+    /// Cancel every running server and force-stop its machine, for a quit that was confirmed.
+    func stopInstalls(done: @escaping @MainActor () -> Void) {
+        let running = installs.filter { installRunning($0.key) }.map { $0.value }
+        var left = running.count
+        if left == 0 { done(); return }
+        for i in running { i.stopInstall { left -= 1; if left == 0 { done() } } }
+    }
+
+    /// Whether any assistant's media server is running, which quitting would stop.
+    var installServing: Bool { installs.keys.contains { installRunning($0) } }
+
+    /// Whether the machine's install is running and quitting or closing its tab would stop it.
+    func installRunning(_ id: String) -> Bool { installs[id]?.serving ?? false }
 
     // MARK: quit
 

@@ -35,7 +35,10 @@ struct NewMachineSheet: View {
                         ForEach(model.readyDisks.indices, id: \.self) { Text(model.readyDisks[$0].label).tag($0) }
                     }
                 }
-                if model.disk == .empty { Stepper("Disk size: \(model.sizeGB) GB", value: $model.sizeGB, in: 1...2048) }
+                if model.disk == .empty {
+                    Stepper("Disk size: \(model.sizeGB) GB", value: $model.sizeGB, in: 1...2048)
+                    Toggle("Install IRIX after creating", isOn: $model.installAfter)
+                }
                 if model.disk == .image { ImageChoiceView(choice: model.image) }
                 DisclosureGroup("Advanced") {
                     TextField("Machine ID", text: $model.idText, prompt: Text("1 to 2999"))

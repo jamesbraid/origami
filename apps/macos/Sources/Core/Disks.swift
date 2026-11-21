@@ -11,10 +11,12 @@ import SwiftUI
 enum PathPicker {
     static var answers: [URL] = []
 
-    static func choose(_ prompt: String) -> URL? {
+    static func choose(_ prompt: String, folder: Bool = false) -> URL? {
         if !answers.isEmpty { return answers.removeFirst() }
         let panel = NSOpenPanel()
         panel.prompt = prompt
+        panel.canChooseDirectories = folder
+        panel.canChooseFiles = !folder
         return panel.runModal() == .OK ? panel.url : nil
     }
 

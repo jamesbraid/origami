@@ -46,6 +46,7 @@ struct MainView: View {
         .onAppear {
             app.openWindow = { openWindow(id: $0) }
             app.openConsole = { openWindow(id: "console", value: $0) }
+            app.openInstall = { openWindow(id: "install", value: $0) }
         }
         .onChange(of: app.wantSettings) { _, want in
             if want { settingsFor = app.current; app.wantSettings = false }
@@ -171,7 +172,7 @@ struct TabItem: View {
             Text(model.name).lineLimit(1).font(.callout)
             Circle().fill(model.state.tone.colour).frame(width: 6, height: 6).accessibilityHidden(true)
             // The close button shows on the selected tab and on hover; the space stays reserved.
-            Button { app.closeTab(model.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+            Button { app.closeTabAsking(model.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
                 .buttonStyle(.borderless).help("Close Tab").accessibilityLabel("Close \(model.name)")
                 .opacity(active || hover ? 1 : 0)
         }

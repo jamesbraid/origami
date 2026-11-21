@@ -54,6 +54,8 @@ struct MachineRecord: Identifiable, Hashable {
     let needsUpgrade: Bool
     /// What the system disk holds, such as "IRIX 6.5.30", once the core has read it.
     let systemDisk: String?
+    /// Install IRIX is offered only to machines that run IRIX.
+    let runsIrix: Bool
 
     var id: String { key }
 
@@ -85,6 +87,7 @@ struct MachineRecord: Identifiable, Hashable {
         memoryPerNodeMiB = Int(s.memoryPerNodeMib)
         needsUpgrade = s.needsUpgrade
         systemDisk = s.systemDisk
+        runsIrix = s.runsIrix
     }
 }
 

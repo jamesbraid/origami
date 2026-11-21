@@ -7,7 +7,7 @@ enum CommandID: String, CaseIterable {
     case newMachine, chooseLibrary, closeTab
     case start, powerOff, forceQuit, reset, pause, resume, screenshot
     case captureInput, followMouse, pasteAsTyping
-    case console, diagnostics, library, settings, showInFinder
+    case console, diagnostics, library, settings, installIrix, showInFinder
     case showLibrary, fit, actualSize, pointScale, doubleScale
     case nextTab, previousTab
 
@@ -38,6 +38,7 @@ enum CommandID: String, CaseIterable {
         case .followMouse: return Info(title: "Follow My Mouse", menu: .machine, key: nil, modifiers: [])
         case .pasteAsTyping: return Info(title: "Paste as Typing", menu: .machine, key: "v", modifiers: [.command, .option], needsCore: true)
         case .settings: return Info(title: "Settings…", menu: .machine, key: "i", modifiers: .command)
+        case .installIrix: return Info(title: "Install IRIX…", menu: .machine, key: nil, modifiers: [])
         case .showInFinder: return Info(title: "Show in Finder", menu: .machine, key: nil, modifiers: [])
         case .showLibrary: return Info(title: "Show Library", menu: .view, key: "s", modifiers: [.control, .command])
         case .fit: return Info(title: "Fit to Window", menu: .view, key: "9", modifiers: .command)

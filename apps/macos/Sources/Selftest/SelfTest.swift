@@ -381,7 +381,7 @@ func runSelfTest(library: String, out: String) {
     check("ui-hero-renders", hero.ok && hero.colours > 20, ["distinct_colours_sampled": hero.colours])
     // An O2's summary pane in dark and light, at 2x, for looking at the tint fade by eye.
     if let tint = ProcessInfo.processInfo.environment["ORIGAMI_TINT_PNG"] {
-        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", hasDisplay: true, nodes: 1,
+        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", hasDisplay: true, runsIrix: true, nodes: 1,
                                                              memoryPerNodeMib: 512, state: .notRunning, problem: nil, needsUpgrade: false, systemDisk: nil),
                               host: host, defaultPointer: .follow)
         let size = CGSize(width: 800, height: 600)
@@ -1573,6 +1573,92 @@ func runSelfTest(library: String, out: String) {
                 _ = try? host.core.openMachine(key: vic.record.key).stop(how: .force).wait(timeoutMs: 30_000)
             } else { check("disk-cd-attached-while-stopped", false, ["error": "the machine is not listed"]) }
         } else { check("disk-cd-attached-while-stopped", false, ["error": "the machine was not made"]) }
+    }
+    // The Install IRIX assistant, through its model on the fake engine's stand-in media server: release, media, software, disk,
+    // check, serving with the machine running, the console, the guide, and Finish putting the network back.
+    do {
+        let nm = NewMachineModel(app: app)
+        nm.load(); _ = waitFor(30) { !nm.loading }
+        nm.disk = .noDisk
+        let offeredWithoutDisk = nm.offersInstall
+        nm.disk = .empty
+        check("install-after-creating-is-offered-only-with-an-empty-disk", !offeredWithoutDisk && nm.offersInstall, [:])
+        check("install-command-in-the-core-table", host.core.commands().contains { $0.id == "machine.install-irix" }, [:])
+        if makeFakeMachine(host, library: library, name: "irixbox") == nil {
+            app.rescanNow()
+            if let box = app.model(named: "irixbox") {
+                app.select(box.id)
+                check("install-command-enabled-while-stopped", app.isEnabled(.installIrix), [:])
+                app.invoke(.installIrix)
+                if let im = app.installModel(for: box.id) {
+                    _ = waitFor(30) { im.loaded }
+                    check("install-opens-at-the-newest-release-with-standard",
+                          im.step == .release && im.flow.release() == origamiInstallReleases().first?.release && im.flow.profile() == "standard",
+                          ["release": im.flow.release(), "profile": im.flow.profile()])
+                    im.next()
+                    // A folder with no discs is red and blocks Continue; downloading clears it.
+                    let bare = library + "/install-media"
+                    try? FileManager.default.createDirectory(atPath: bare, withIntermediateDirectories: true)
+                    im.choosePath = { _, _ in URL(fileURLWithPath: bare) }
+                    im.edit { $0.setUseFolder(on: true) }; im.chooseFolder()
+                    _ = waitFor(30) { im.folderVerdict != nil }
+                    check("install-empty-folder-blocks-continue",
+                          im.folderVerdict == "That folder has no 6.5.30 or 6.5-base folder." && im.folderTone == .red && !im.canContinue,
+                          ["verdict": im.folderVerdict ?? "none"])
+                    im.edit { $0.setUseFolder(on: false) }
+                    check("install-download-allows-continue", im.canContinue, [:])
+                    im.next()
+                    _ = waitFor(30) { !im.flow.addons().isEmpty }
+                    im.edit { $0.tick(name: "mipspro", on: true) }
+                    im.next()
+                    _ = waitFor(30) { im.diskKnown }
+                    check("install-disk-step-offers-a-disk-of-the-default-size",
+                          im.step == .disk && im.disk == nil && im.flow.newDiskGb() == origamiDiskLabels().defaultGb && im.canContinue,
+                          ["size": im.flow.newDiskGb()])
+                    im.next()
+                    check("install-disk-is-created", waitFor(60) { im.step == .check && im.disk != nil }, ["error": im.error ?? "none"])
+                    im.runCheck()
+                    check("install-check-passes", waitFor(60) { im.flow.check() == .passed && im.canContinue }, ["error": im.error ?? "none"])
+                    im.next()
+                    check("install-serves-and-starts-the-machine",
+                          waitFor(60) { im.footer == "10.98.0.2 serving 6.5.30, Standard + MIPSpro" && box.state == .running },
+                          ["footer": im.footer, "state": box.state.pill, "failed": im.serveFailed ?? "none"])
+                    _ = waitFor(30) { im.guide != nil }
+                    // Type It exists only on a serial machine; pressed, its text reaches the fake guest's console.
+                    // Cancel here asks the core's question first; Back keeps the assistant and its server footer.
+                    var asked: (title: String, buttons: [String])?
+                    im.ask = { title, _, buttons, _ in asked = (title, buttons); return buttons.firstIndex(of: "Back") ?? 0 }
+                    im.requestClose()
+                    check("install-cancel-asks-before-stopping-the-machine",
+                          asked?.title == "Stop the machine?" && asked?.buttons.contains("Back") == true, ["asked": asked?.title ?? "none"])
+                    check("install-cancel-back-keeps-the-window-and-server",
+                          !im.closing && im.footer == "10.98.0.2 serving 6.5.30, Standard + MIPSpro" && im.serving, ["footer": im.footer])
+                    let serialBox = (try? host.core.openMachine(key: box.id).bootConsole()) == .serial
+                    check("install-type-it-follows-the-boot-console", im.canTypeIt == serialBox, ["serial": serialBox])
+                    if im.canTypeIt {
+                        let send = im.guide?.prepare.compactMap(\.send).first
+                        let from = box.session?.machine.consoleRead(from: 0, max: 1).next ?? 0
+                        if let send { im.typeIt(send) }
+                        let reached = waitFor(30) {
+                            guard let send, let c = box.session?.machine.consoleRead(from: from, max: 4096) else { return false }
+                            return String(decoding: c.bytes, as: UTF8.self).contains(send)
+                        }
+                        check("install-type-it-reaches-the-console", send != nil && reached, ["send": send ?? "none"])
+                    }
+                    im.next(); im.next(); im.next()
+                    check("install-reaches-finish-and-waits-for-the-machine", im.step == .finish && !im.canContinue, ["state": box.state.pill])
+                    box.stop()
+                    check("install-finish-waits-for-the-machine-to-stop", waitFor(60) { box.state == .stopped && im.canContinue }, ["state": box.state.pill])
+                    var closed = false
+                    im.onClose = { closed = true }
+                    im.next()
+                    check("install-finish-closes-the-window", waitFor(30) { closed && !im.serving }, ["error": im.error ?? "none"])
+                    let sm = SettingsModel(machine: box)
+                    sm.load(); _ = waitFor(30) { sm.settings != nil }
+                    check("install-finish-puts-the-network-back-as-it-was", sm.settings?.network.mode == "user", ["mode": sm.settings?.network.mode ?? "none"])
+                } else { check("install-opens-an-assistant", false, [:]) }
+            } else { check("install-opens-an-assistant", false, ["error": "the machine is not listed"]) }
+        } else { check("install-opens-an-assistant", false, ["error": "the machine was not made"]) }
     }
     #else
     check("fake-build", false, ["error": "the core reports the fake engine but this app was built without -D FAKE"])
