@@ -299,7 +299,11 @@ and the zip.
 `.github/workflows/release.yml` calls it for `v*` tags and publishes a GitHub
 release with the ten archives and `SHA256SUMS`, and the `CHANGELOG.md`
 section for that version. Pull requests and `main` pushes on GitHub do not
-build archives. Forgejo's required check is `cli.yml`: formatting, Clippy and
+build archives. Running the Release workflow by hand (Actions, or
+`gh workflow run release.yml --ref BRANCH`) is a dry run: it builds every
+package unsigned, checks the ten archives are named for `git describe` and
+sums them, and stops before upload, signing, notarization and the tap.
+Forgejo's required check is `cli.yml`: formatting, Clippy and
 `cargo test` on Linux.
 
 Each job also extracts its archive to a path with spaces and checks that

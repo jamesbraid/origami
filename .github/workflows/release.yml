@@ -2,9 +2,12 @@ name: Release
 
 # A v* tag builds the CLI and app packages and publishes them with SHA256SUMS
 # and the CHANGELOG.md section. The tag is made on the canonical repository.
+# A manual run builds every package unsigned and checks the archives as a
+# release would, then stops: nothing is uploaded, signed or notarized.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,7 +22,7 @@ jobs:
   # Signs the four Windows zips after the build, so id-token: write is granted to this job alone.
   sign-windows:
     needs: build
-    if: github.server_url == 'https://github.com'
+    if: github.server_url == 'https://github.com' && github.event_name == 'push'
     name: sign ${{ matrix.artifact }}
     runs-on: windows-latest
     timeout-minutes: 30
@@ -98,9 +101,29 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  dry-run:
+    needs: build
+    if: github.server_url == 'https://github.com' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: origami-*
+          path: assets
+          merge-multiple: true
+      - name: The archives are the release's, named for this checkout
+        run: |
+          v=$(git describe --tags --match 'v[0-9]*' --always)
+          .github/scripts/release-assets.sh "${v#v}" assets
+
   publish:
     needs: [build, sign-windows]
-    if: github.server_url == 'https://github.com'
+    if: github.server_url == 'https://github.com' && github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -120,19 +143,7 @@ jobs:
         run: |
           set -eu
           version=${TAG#v}
-          # The thin macOS packages feed the universal ones; they are not releases.
-          rm -f assets/*-macos-arm64.* assets/*-macos-x86_64.*
-          ls assets
-          test "$(ls assets/origami-cli-*.tar.gz assets/origami-cli-*.zip | wc -l)" = 5
-          test "$(ls assets/origami-*.tar.gz assets/origami-*.zip | grep -vc '/origami-cli-')" = 5
-          # A dirty or untagged build would be named for the commit instead.
-          for f in assets/origami-*; do
-            case $f in
-              assets/origami-cli-"$version"-* | assets/origami-"$version"-*) ;;
-              *) echo "$f is not named for $version" >&2; exit 1 ;;
-            esac
-          done
-          (cd assets && sha256sum -- *.tar.gz *.zip > SHA256SUMS && sha256sum --check SHA256SUMS)
+          .github/scripts/release-assets.sh "$version" assets
           # The section under "## <version> - <date>" (or a bare "## <version>"
           # for releases before dated headings), up to the next "## ".
           awk -v v="$version" '$0 == "## " v || index($0, "## " v " - ") == 1 {on=1; next} /^## / {on=0} on' CHANGELOG.md > notes.md
@@ -155,7 +166,7 @@ jobs:
   # a suffix (v0.7.0-rc1) is a prerelease and leaves the tap alone.
   tap:
     needs: publish
-    if: github.server_url == 'https://github.com' && !contains(github.ref_name, '-')
+    if: github.server_url == 'https://github.com' && github.event_name == 'push' && !contains(github.ref_name, '-')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: release
