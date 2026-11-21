@@ -641,29 +641,12 @@ impl Session for QemuSession {
         Ok(())
     }
 
-    // The drives have block names (`drive0`) and no qdev ids, so `device`.
-    #[allow(deprecated)]
     fn media(&self, drive: &str, image: Option<&Path>) -> Result<()> {
         let Some((_, device)) = self.removable.iter().find(|(name, _)| name == drive) else {
             return Err(format!("{drive} is not a removable drive of this machine").into());
         };
         let mut qmp = self.qmp()?;
-        match image {
-            Some(image) => qmp.execute(&qmp::blockdev_change_medium {
-                device: Some(device.clone()),
-                id: None,
-                filename: image.display().to_string(),
-                format: None,
-                force: None,
-                read_only_mode: None,
-            })?,
-            None => qmp.execute(&qmp::eject {
-                device: Some(device.clone()),
-                id: None,
-                force: None,
-            })?,
-        };
-        Ok(())
+        change_medium(&mut qmp, device, image)
     }
 
     fn screendump(&self, head: usize, path: &Path) -> Result<()> {
@@ -729,6 +712,28 @@ impl Session for QemuSession {
             verified_qmp(&self.record)
         })
     }
+}
+
+/// Put `image` in the CD drive `device`, or eject. The drives have block
+/// names (`drive0`) and no qdev ids, so `device`.
+#[allow(deprecated)]
+pub(crate) fn change_medium(qmp: &mut Qmp, device: &str, image: Option<&Path>) -> Result<()> {
+    match image {
+        Some(image) => qmp.execute(&qmp::blockdev_change_medium {
+            device: Some(device.into()),
+            id: None,
+            filename: image.display().to_string(),
+            format: None,
+            force: None,
+            read_only_mode: None,
+        })?,
+        None => qmp.execute(&qmp::eject {
+            device: Some(device.into()),
+            id: None,
+            force: None,
+        })?,
+    };
+    Ok(())
 }
 
 #[cfg(test)]

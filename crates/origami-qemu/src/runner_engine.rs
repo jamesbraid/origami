@@ -621,8 +621,17 @@ impl Session for RunnerSession {
         Ok(())
     }
 
-    fn media(&self, _drive: &str, _image: Option<&Path>) -> Result<()> {
-        Err("the viewer does not change media".into())
+    // The runner started QEMU from this file, whose drive order names the devices.
+    fn media(&self, drive: &str, image: Option<&Path>) -> Result<()> {
+        let file = origami_machine::read_machine(&self.shown.dir)?;
+        let at = file
+            .drive
+            .iter()
+            .position(|d| d.kind == "cdrom" && d.name == drive);
+        let Some(at) = at else {
+            return Err(format!("{drive} is not a removable drive of this machine").into());
+        };
+        crate::engine::change_medium(&mut self.qmp()?, &format!("drive{at}"), image)
     }
 
     fn screendump(&self, head: usize, path: &Path) -> Result<()> {
@@ -1353,6 +1362,72 @@ mod tests {
         };
         session.control(Control::Pause).unwrap();
         assert_eq!(session.status().state, RunState::Paused);
+    }
+
+    #[test]
+    fn a_cd_is_changed_by_the_device_its_position_in_the_file_names() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (seen, commands) = mpsc::channel();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let mut out = stream.unwrap();
+                let mut lines = BufReader::new(out.try_clone().unwrap()).lines();
+                let version = r#"{"qemu":{"major":9,"minor":0,"micro":0},"package":""}"#;
+                writeln!(
+                    out,
+                    r#"{{"QMP":{{"version":{version},"capabilities":[]}}}}"#
+                )
+                .unwrap();
+                while let Some(Ok(line)) = lines.next() {
+                    let reply = if line.contains("query-name") {
+                        r#"{"return":{"name":"m"}}"#
+                    } else {
+                        if line.contains("change-medium") || line.contains("eject") {
+                            seen.send(line).unwrap();
+                        }
+                        r#"{"return":{}}"#
+                    };
+                    writeln!(out, "{reply}").unwrap();
+                }
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        let file = "format = 5\n[machine]\nmodel = \"octane2\"\nnodes = 1\ncpus_per_node = 1\nmemory_per_node = \"256MiB\"\n[engine]\nid = \"qemu\"\n";
+        let drive = |name: &str, kind: &str, target: u32| {
+            format!("[[drive]]\nname = \"{name}\"\ntype = \"{kind}\"\nbus = 0\ntarget = {target}\nimage = \"x\"\n")
+        };
+        let text = [
+            file.into(),
+            drive("system", "disk", 1),
+            drive("cdrom4", "cdrom", 4),
+        ]
+        .concat();
+        std::fs::write(dir.path().join("machine.toml"), text).unwrap();
+        let record = machine_control::Record {
+            qmp_port: port,
+            name: "m".into(),
+            ..Default::default()
+        };
+        machine_control::write(dir.path(), &record).unwrap();
+        let session = RunnerSession {
+            shown: shown(dir.path()),
+            cpus: Default::default(),
+            threads: Mutex::new(vec![]),
+            qmp_timeout: Duration::from_millis(300),
+        };
+        session.media("cdrom4", Some(Path::new("/a.iso"))).unwrap();
+        // The disk is drive0, so the CD is drive1.
+        let sent = commands.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            sent.contains("blockdev-change-medium")
+                && sent.contains("drive1")
+                && sent.contains("/a.iso"),
+            "{sent}"
+        );
+        assert!(session.media("system", None).is_err());
     }
 
     #[test]
