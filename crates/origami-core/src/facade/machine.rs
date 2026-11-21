@@ -137,8 +137,10 @@ pub(crate) fn classify_exit(
         (None, None) => None,
     };
     let reason = match (code, signal) {
-        // A forced stop kills QEMU, so a signal after one is ours.
-        (None, Some(_)) if requested == Some(StopKind::Force) => ExitReason::HostStopped,
+        // A forced stop kills QEMU: a signal on Unix, exit status 1 on Windows.
+        (Some(_), _) | (None, Some(_)) if requested == Some(StopKind::Force) => {
+            ExitReason::HostStopped
+        }
         (Some(0), _) if requested.is_some() => ExitReason::HostStopped,
         (Some(0), _) => ExitReason::GuestPoweredOff,
         (None, None) => ExitReason::RunnerError,

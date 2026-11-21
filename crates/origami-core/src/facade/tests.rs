@@ -1104,3 +1104,13 @@ fn a_failed_upgrade_leaves_an_unwritten_file_alone_and_a_machine_that_runs_is_bu
         ErrorKind::Busy
     );
 }
+
+#[test]
+fn a_forced_stop_reads_as_ours_whatever_status_the_kill_leaves() {
+    for (code, signal) in [(None, Some(9)), (Some(1), None)] {
+        let (reason, _) = classify_exit(code, signal, None, Some(StopKind::Force));
+        assert_eq!(reason, ExitReason::HostStopped);
+    }
+    let (reason, _) = classify_exit(Some(1), None, None, None);
+    assert_eq!(reason, ExitReason::Crashed);
+}
