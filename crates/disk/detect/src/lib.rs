@@ -4,6 +4,7 @@ pub mod image;
 
 use disk_dvh as dvh;
 use disk_efs::Efs;
+use disk_ext::Ext;
 use disk_rofs::{Dev, Part, ReadFs, Volumes};
 use disk_xfs::Xfs;
 use std::collections::HashMap;
@@ -154,19 +155,6 @@ fn kernel_release(kernel: &[u8]) -> Option<String> {
         .map(String::from)
 }
 
-struct Ext4Dev(Part);
-
-impl ext4_view::Ext4Read for Ext4Dev {
-    fn read(
-        &mut self,
-        start: u64,
-        dst: &mut [u8],
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
-        disk_rofs::ReadAt::read_exact_at(&self.0, start, dst).map_err(Box::new)?;
-        Ok(())
-    }
-}
-
 /// Linux on an SGI disk: an ext2/3/4 partition (type 0x83) with an os-release.
 fn linux(dev: &Dev, size: u64) -> Option<Detected> {
     let mut head = [0u8; 512];
@@ -176,32 +164,19 @@ fn linux(dev: &Dev, size: u64) -> Option<Detected> {
         .iter()
         .filter(|p| !p.is_empty() && p.kind == 0x83 && p.start() + p.len() <= size)
         .find_map(|p| {
-            let fs = ext4_view::Ext4::load(Box::new(Ext4Dev(Part {
+            let fs = Ext::open(Part {
                 dev: dev.clone(),
                 start: p.start(),
                 len: p.len(),
-            })))
+            })
             .ok()?;
+            let mut vols = Volumes::new();
+            vols.mount("/", Box::new(fs));
             let text = ["/etc/os-release", "/usr/lib/os-release"]
                 .iter()
-                .find_map(|f| read_capped(&fs, f))?;
-            parse_os_release(&text)
+                .find_map(|f| vols.read_file(f, 64 << 10).ok())?;
+            parse_os_release(&String::from_utf8_lossy(&text))
         })
-}
-
-/// Reads up to 64 KiB of a file, so a hostile size can't make us allocate.
-fn read_capped(fs: &ext4_view::Ext4, path: &str) -> Option<String> {
-    let mut file = fs.open(path).ok()?;
-    let mut buf = vec![0u8; 64 << 10];
-    let mut len = 0;
-    while len < buf.len() {
-        match file.read_bytes(&mut buf[len..]).ok()? {
-            0 => break,
-            n => len += n,
-        }
-    }
-    buf.truncate(len);
-    String::from_utf8(buf).ok()
 }
 
 fn parse_os_release(text: &str) -> Option<Detected> {
