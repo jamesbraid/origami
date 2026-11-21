@@ -76,8 +76,9 @@ pub fn read_limited(f: &dyn ReadAt, size: u64, limit: u64) -> io::Result<Vec<u8>
 }
 
 const MAX_LINKS: usize = 40;
-/// Components a single lookup may process, links included.
-const MAX_STEPS: usize = 4096;
+/// Components a single lookup may process, links included. Each costs a
+/// walk of the prefix so far, so the limit keeps a hostile loop cheap.
+const MAX_STEPS: usize = 256;
 
 /// File systems mounted at absolute paths, with symlink-following lookups.
 #[derive(Default)]
