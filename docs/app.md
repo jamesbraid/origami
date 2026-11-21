@@ -255,6 +255,44 @@ machine refuses edits; stop it first, except for the CD-ROM. The Drives page
 adds a disk image and inserts a CD-ROM image. Change CD and Eject work while
 the machine runs.
 
+## Install IRIX
+
+Machine > Install IRIX… opens the install assistant for a stopped machine.
+New Machine can open it for you: with an empty disk chosen, tick Install IRIX
+after creating. It is the app's version of
+[Install IRIX](usage.md#install-irix) from the command line, and you still
+type the PROM and installer commands yourself. The assistant gets everything
+else ready, serves the discs and lists each step with the machine's own
+release and addresses in it.
+
+Choose the release and profile (IRIX 6.5.30 Standard or Minimal, or 6.5.22),
+then where the discs come from: downloaded from the Origami server while the
+install runs, or a folder of disc images you already have, which the
+assistant checks as soon as you choose it. Tick the software to add after
+IRIX, such as MIPSpro, or add a package from a file or an HTTPS address. The
+Disk step creates a system disk when the machine has none and asks before it
+erases one it has. Check switches the machine to the private installation
+network and checks every disc; Check thoroughly also reads the downloaded
+ones.
+
+The next three steps start the media server and the machine, then list what
+to do: label the disk, start the installer and install the packages. Copy
+puts a command on the clipboard. On a machine whose console is a serial line,
+Type It sends it to the console for you. A machine with graphics keeps its
+screen as the console and is never switched to serial. Show Machine and Open
+Console bring the machine and its console forward. The footer shows what the
+media server is serving, and turns red with its message and a Restart button
+if the server stops. Cancel stops the media server, and in the middle of the
+install asks whether to stop the machine too. Quitting the app while the
+server runs asks first, because the server stops with the app.
+
+When the machine has stopped after `halt -p`, Finish puts the network back as
+it was before the install, stops the media server and closes the assistant.
+Closing earlier offers the same on a stopped machine, and a machine left on
+the installation network offers it the next time you open the assistant.
+Reopening on a machine that is already set up starts at the Disk step, with
+Start over to begin again. Install IRIX is for machines that run IRIX.
+
 ## About
 
 ![The About window](images/app/linux-about.png)
