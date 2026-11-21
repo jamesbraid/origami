@@ -36,13 +36,13 @@ def skip(name, why):
 
 
 class App:
-    def __init__(self):
+    def __init__(self, env=None):
         self.log = open(os.path.join(out, "app.log"), "w")
         if os.path.exists(sock_path):
             os.remove(sock_path)
         self.proc = subprocess.Popen(
             [app, "--library", lib, "--config-dir", os.path.join(work, "config"), "--automation", sock_path] + extra,
-            stdout=self.log, stderr=subprocess.STDOUT)
+            stdout=self.log, stderr=subprocess.STDOUT, env=None if env is None else {**os.environ, **env})
         t = time.time()
         while not os.path.exists(sock_path):
             if self.proc.poll() is not None or time.time() - t > 30:
@@ -888,6 +888,113 @@ def settings():
         a.stop()
 
 
+def stand_in_runtime():
+    """The session's runtime tree with an Instigator that answers check and serves until killed,
+    so the install flow runs without discs. Returns the runtime directory to select."""
+    real = os.environ["ORIGAMI_RUNTIME_DIR"]
+    tree = os.path.join(work, "rt")
+    own = os.path.join(tree, "libexec", "origami")
+    os.makedirs(own, exist_ok=True)
+    for name in os.listdir(real):
+        if name != "instigator" and not os.path.lexists(os.path.join(own, name)):
+            os.symlink(os.path.join(real, name), os.path.join(own, name))
+    share = os.path.join(tree, "share")
+    if not os.path.lexists(share):
+        os.symlink(os.path.abspath(os.path.join(real, "..", "..", "share")), share)
+    script = os.path.join(own, "instigator")
+    open(script, "w").write('#!/bin/sh\ncase "$1" in check) cat >/dev/null ;; serve) exec sleep 100000 ;; esac\n')
+    os.chmod(script, 0o755)
+    return own
+
+
+def install():
+    """The Install IRIX assistant through its own controls, from the release to Finish."""
+    create_machine("origin200", "origin200-1")
+    a = App({"ORIGAMI_RUNTIME_DIR": stand_in_runtime()})
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open origin200")
+        ok = lambda v: a.req(v).get("ok")
+        text = lambda w: a.req("activate " + w).get("text")
+        widget = lambda w: a.req("widget " + w)
+        press = lambda w: a.wait(w, lambda: ok("activate " + w), 30, 0.5)
+        at = lambda name: a.wait("step " + name, lambda: text("install.step") == name, 60, 0.5)
+        usable = lambda w: a.wait(w, lambda: widget(w).get("sensitive"), 60, 0.5)
+        r = a.req("invoke machine.install-irix origin200")
+        check("Install IRIX opens", r.get("ok") and at("Release"), r)
+        check("6.5.30 Standard is the default", widget("install.release.6.5.30").get("active") and widget("install.profile.standard").get("active"))
+        press("install.continue")
+        check("Continue moves to Media", at("Media"))
+        empty = os.path.join(work, "discs")
+        os.makedirs(empty, exist_ok=True)
+        press("install.media.folder")
+        a.req("pick " + empty)
+        press("install.media.choose")
+        verdict = a.wait("the verdict", lambda: (text("install.media.verdict") or "").startswith("That folder"), 30, 0.5)
+        check("the folder's verdict is shown", verdict and text("install.media.verdict").endswith(" folder.") and "6.5-base" in text("install.media.verdict"), text("install.media.verdict"))
+        check("Continue waits for a complete folder", widget("install.continue").get("sensitive") is False)
+        press("install.media.download")
+        usable("install.continue")
+        press("install.continue")
+        at("Software")
+        press("install.addon.mipspro")
+        press("install.continue")
+        at("Disk")
+        check("a machine with no disk offers to make one", a.wait("size", lambda: widget("install.disk.size").get("found"), 30, 0.5))
+        usable("install.continue")
+        press("install.continue")
+        check("the disk is made and the check step opens", at("Check") and "drives/" in open(os.path.join(lib, "origin200", "machine.toml")).read())
+        press("install.check.now")
+        passed = a.wait("the check", lambda: text("install.check.status") == "All sources answered.", 120, 0.5)
+        check("the install media check passes", passed, text("install.check.status"))
+        usable("install.continue")
+        press("install.continue")
+        at("Prepare the disk")
+        line = a.wait("the footer", lambda: (text("install.footer") or "").startswith("10.98.0.2 serving"), 60, 0.5)
+        check("the footer says what is served", line and text("install.footer") == "10.98.0.2 serving 6.5.30, Standard + MIPSpro", text("install.footer"))
+        # Cancel asks first, and Back keeps the server running.
+        press("install.cancel")
+        asked = a.wait("the question", lambda: ok("activate install.ask stay"), 30, 0.5)
+        check("Cancel at Prepare asks and Back keeps the assistant and its server", asked and text("install.step") == "Prepare the disk" and (text("install.footer") or "").startswith("10.98.0.2 serving"), [text("install.step"), text("install.footer")])
+        up = a.wait("up", lambda: (a.machine("origin200") or {}).get("state") == "Running", 120, 0.5)
+        check("the machine starts", up, a.machine("origin200"))
+        received = lambda: (a.machine("origin200")["console_tab"] or {}).get("received", 0)
+        a.wait("serial output", lambda: received() > 0, 600, 3)
+        check("a serial machine has Type It", widget("install.type.5.0").get("found"))
+        before = received()
+        check("Type It sends", ok("activate install.type.5.0"))
+        echoed = a.wait("the guest's answer", lambda: received() > before, 60, 1)
+        check("the guest answers what Type It sent", echoed, (before, received()))
+        press("install.continue")
+        press("install.continue")
+        at("Install packages")
+        press("install.continue")
+        at("Finish")
+        r = a.req("invoke machine.force-quit origin200")
+        down = a.wait("down", lambda: (a.machine("origin200") or {}).get("state") == "Stopped", 60, 0.5)
+        check("the machine is stopped", down, [r, a.machine("origin200")])
+        # The core may still be finishing the stop, which Finish then reports as busy: press again.
+        def finish():
+            usable("install.continue")
+            ok("activate install.continue")
+            return widget("install.step").get("found") is False
+        gone = a.wait("the window to close", finish, 60, 2)
+        check("Finish closes the window", gone, [text("install.step"), text("install.error"), widget("install.continue")])
+        read = lambda: open(os.path.join(lib, "origin200", "machine.toml")).read()
+        back = a.wait("the network", lambda: 'mode = "user"' in read(), 20, 0.5)
+        check("the network is back as it was", back, read()[-400:])
+        # New Machine offers the install only with an empty disk.
+        a.req("invoke machine.new")
+        a.wait("the dialog", lambda: widget("new.install").get("found"), 30, 0.5)
+        hidden = widget("new.install").get("mapped") is False
+        a.req("activate new.disk Empty disk")
+        shown = widget("new.install").get("mapped")
+        check("Install IRIX after creating shows only with an empty disk", hidden and shown, (hidden, shown))
+        a.req("activate new.dialog")
+    finally:
+        a.stop()
+
+
 def upgrade():
     """A machine made by an older Origami lists as needing an upgrade, opens as
     the upgrade dialog (so it cannot start), and opens as a machine once upgraded."""
@@ -1605,7 +1712,7 @@ def docs():
         a.stop()
 
 
-SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

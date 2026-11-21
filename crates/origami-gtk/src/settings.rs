@@ -1367,6 +1367,7 @@ fn new_machine_dialog(
         .title("New Machine")
         .content_width(460)
         .build();
+    dialog.set_widget_name("new.dialog");
     let page = adw::PreferencesPage::new();
     let g = adw::PreferencesGroup::new();
     // The engine comes first: it decides which models are offered, and the
@@ -1476,9 +1477,40 @@ fn new_machine_dialog(
         .visible(false)
         .build();
     release.set_widget_name("new.release");
+    let after = gtk::CheckButton::builder()
+        .valign(gtk::Align::Center)
+        .build();
+    after.set_widget_name("new.install");
+    let sync_after = Rc::new(RefCell::new(None::<Box<dyn Fn()>>));
+    let after_row = adw::ActionRow::builder()
+        .title("Install IRIX after creating")
+        .activatable_widget(&after)
+        .visible(false)
+        .build();
+    after_row.add_prefix(&after);
     g.add(&disk);
     g.add(&release);
     g.add(&size);
+    g.add(&after_row);
+    {
+        let combo2 = combo.clone();
+        let (disk, combo, offerings, row) = (
+            disk.clone(),
+            combo.clone(),
+            offerings.clone(),
+            after_row.clone(),
+        );
+        let sync = Rc::new(move || {
+            let irix = offerings
+                .borrow()
+                .get(combo.selected() as usize)
+                .is_some_and(|o| o.runs_irix);
+            row.set_visible(disk.selected() == 1 && irix);
+        });
+        let s = sync.clone();
+        combo2.connect_selected_notify(move |_| s());
+        *sync_after.borrow_mut() = Some(Box::new(move || sync()));
+    }
     g.add(&choose);
     let image_ok = Rc::new(std::cell::Cell::new(false));
     let identity = IdentityForm::new();
@@ -1546,16 +1578,20 @@ fn new_machine_dialog(
     };
     form.group.set_visible(false);
     {
-        let (size, choose, form, ready, release) = (
+        let (size, choose, form, ready, release, sync_after) = (
             size.clone(),
             choose.clone(),
             form.clone(),
             ready.clone(),
             release.clone(),
+            sync_after.clone(),
         );
         disk.connect_selected_notify(move |d| {
             release.set_visible(d.selected() == base_choices);
             size.set_visible(d.selected() == 1);
+            if let Some(f) = &*sync_after.borrow() {
+                f();
+            }
             choose.set_visible(d.selected() == 2);
             form.group.set_visible(d.selected() == 2);
             ready();
@@ -1678,6 +1714,7 @@ fn new_machine_dialog(
             (disk.clone(), size.clone(), form.clone(), identity.clone());
         let (release, ready_disks) = (release.clone(), ready_disks.clone());
         let (bar, line, stop) = (bar.clone(), line.clone(), stop.clone());
+        let (after, parent) = (after.clone(), parent.clone());
         create.connect_clicked(move |b| {
             let Some(o) = offerings.borrow().get(combo.selected() as usize).cloned() else {
                 return;
@@ -1722,6 +1759,7 @@ fn new_machine_dialog(
             };
             b.set_sensitive(false);
             let (app, dialog, err, b) = (app.clone(), dialog.clone(), err.clone(), b.clone());
+            let (install, parent) = (disk.selected() == 1 && after.is_active(), parent.clone());
             match app.core.create_machine(request) {
                 Ok(op) => {
                     let finished = op.clone();
@@ -1731,7 +1769,10 @@ fn new_machine_dialog(
                             dialog.close();
                             let opened = finished.result_machine();
                             if let Some(entry) = opened.and_then(|k| app::find_entry(&app, &k)) {
-                                let _ = app::open(&app, &entry);
+                                let m = app::open(&app, &entry);
+                                if let Some(m) = m.filter(|_| install) {
+                                    crate::install::open(&app, &parent, &m);
+                                }
                             }
                         }
                         // A cancelled copy leaves the machine without a disk; a cancelled download made nothing.
@@ -1916,6 +1957,7 @@ mod engine_tests {
             topology: String::new(),
             topology_name: String::new(),
             has_display: false,
+            runs_irix: true,
             nodes: 1,
             cpus: 1,
             memory_default_mib: 0,

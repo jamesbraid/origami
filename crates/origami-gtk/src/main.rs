@@ -21,6 +21,7 @@ mod disks;
 mod display;
 mod granite;
 mod input;
+mod install;
 mod keys;
 mod library;
 mod machine;

@@ -34,7 +34,7 @@ pub fn pick_path(parent: &impl IsA<gtk::Window>, title: &str, then: impl Fn(Path
     });
 }
 
-/// The one place a folder is chosen.
+/// The one place a folder is chosen; the self-test answers it through the same queue.
 pub fn pick_folder(parent: &impl IsA<gtk::Window>, title: &str, then: impl Fn(PathBuf) + 'static) {
     if let Some(path) = PICKS.with(|p| p.borrow_mut().pop()) {
         return then(path);

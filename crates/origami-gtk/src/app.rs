@@ -87,9 +87,10 @@ pub fn run(mut cfg: Config) -> glib::ExitCode {
     let started = (|| -> Result<_, String> {
         let runner = RunnerEngine::locate_runner().map_err(|e| e.to_string())?;
         let runtime = origami_qemu::Runtime::locate().map_err(|e| e.to_string())?;
-        Ok(Arc::new(RunnerEngine::new(runtime, runner)))
+        let instigator = runtime.instigator().ok().map(std::path::Path::to_path_buf);
+        Ok((Arc::new(RunnerEngine::new(runtime, runner)), instigator))
     })();
-    let engine = match started {
+    let (engine, instigator) = match started {
         Ok(e) => e,
         Err(e) => {
             eprintln!("origami-gtk: {e}");
@@ -113,11 +114,9 @@ pub fn run(mut cfg: Config) -> glib::ExitCode {
         }
         Err(e) => eprintln!("origami-gtk: no iris engine: {e}"),
     }
-    let core = match Core::new(
-        CoreConfig::new(&cfg.library),
-        engines,
-        Some(Arc::new(Forward(tx.clone()))),
-    ) {
+    let mut core_config = CoreConfig::new(&cfg.library);
+    core_config.instigator = instigator;
+    let core = match Core::new(core_config, engines, Some(Arc::new(Forward(tx.clone())))) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("origami-gtk: {e}");
@@ -501,9 +500,25 @@ pub fn running_machines(app: &App) -> Vec<Rc<MachineUi>> {
         .collect()
 }
 
+/// Quit, first confirming when an install server is running, then asking
+/// what to do with machines still running.
+pub fn request_quit(app: &Rc<App>) {
+    let win = app.windows.borrow().first().map(|w| w.win.clone());
+    let Some(win) = win.filter(|_| crate::install::install_running(None)) else {
+        return quit_machines(app);
+    };
+    let app = app.clone();
+    glib::spawn_future_local(async move {
+        if crate::install::stop_install(&win, false).await {
+            crate::install::stop_installs(&app, None);
+            quit_stopping(&app);
+        }
+    });
+}
+
 /// Quit, asking what to do with machines still running. They outlive the app
 /// by design: "keep running" is a real answer.
-pub fn request_quit(app: &Rc<App>) {
+fn quit_machines(app: &Rc<App>) {
     let running = running_machines(app);
     let Some(win) = app.windows.borrow().first().map(|w| w.win.clone()) else {
         app.app.quit();

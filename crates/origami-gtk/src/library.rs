@@ -19,6 +19,8 @@ pub struct Entry {
     pub needs_upgrade: bool,
     /// What the system disk holds, such as `IRIX 6.5.30`, once read.
     pub system_disk: Option<String>,
+    /// Install IRIX applies only to machines that run IRIX.
+    pub runs_irix: bool,
     pub summary: Summary,
 }
 
@@ -52,6 +54,7 @@ pub fn entries(core: &origami_core::facade::Core) -> Vec<Entry> {
             e.name = m.name;
             e.needs_upgrade = m.needs_upgrade;
             e.system_disk = m.system_disk;
+            e.runs_irix = m.runs_irix;
             if let Some(p) = m.problem {
                 e.error = Some(p);
             }
@@ -79,6 +82,7 @@ pub fn read(dir: &Path) -> Entry {
                 error: None,
                 needs_upgrade: false,
                 system_disk: None,
+                runs_irix: true,
                 summary: Summary {
                     nodes: m.nodes,
                     topology: m.topology.clone(),
@@ -95,6 +99,7 @@ pub fn read(dir: &Path) -> Entry {
             error: Some(e.to_string()),
             needs_upgrade: false,
             system_disk: None,
+            runs_irix: true,
             summary: Summary::default(),
         },
     }

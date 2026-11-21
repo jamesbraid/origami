@@ -14,6 +14,7 @@
 //!   activate WIDGET [VALUE]       use a control by its widget name, as a click, a
 //!                                 pick of the combo item labelled VALUE, or a
 //!                                 dialog's close would
+//!   widget WIDGET                 whether a control is shown and usable, and a check's state
 //!   change memory N | cpus N | network MODE | forward NAME HOST GUEST | share NAME DIR
 //!   compare NAME [MACHINE]        the picture shown, against QMP screendump
 //!   quit                          stop every machine and exit
@@ -542,6 +543,23 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                         None => json!({"ok": widget.activate()}),
                     },
                 },
+            }
+        }
+        "widget" => {
+            let mut found = Vec::new();
+            for top in gtk::Window::list_toplevels() {
+                descendants(
+                    top.upcast_ref(),
+                    &|c| Some(c.widget_name().as_str()) == a1,
+                    &mut found,
+                );
+            }
+            match found.first() {
+                Some(w) => {
+                    json!({"found": true, "mapped": w.is_mapped(), "sensitive": w.is_sensitive(),
+                                  "active": w.downcast_ref::<gtk::CheckButton>().map(|c| c.is_active())})
+                }
+                None => json!({"found": false}),
             }
         }
         "library" => match a1 {

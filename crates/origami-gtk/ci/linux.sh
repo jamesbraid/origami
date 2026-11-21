@@ -22,6 +22,8 @@ sh "$HERE/build.sh" "$S" build --release -p origami-gtk -p origami --features or
 sh "$HERE/build.sh" "$S" xtask runtime --platform linux-x86_64
 rm -rf "$S/rt" && mkdir -p "$S/rt"
 cp -rL "$S/target/runtime/linux-x86_64/tree/libexec" "$S/target/runtime/linux-x86_64/tree/share" "$S/rt/"
+# A selected runtime directory is searched for its own instigator first.
+cp -L "$S/target/runtime/linux-x86_64/tree/bin/instigator" "$S/rt/libexec/origami/"
 for sc in $SCEN; do
   rm -rf "$S/work/$sc" "$S/out/$sc"
   sh "$HERE/run.sh" "$S" "$sc" x11 "${GPU:-none}" -- "$sc"

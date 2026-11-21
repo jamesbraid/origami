@@ -549,6 +549,18 @@ fn wire_tabs(app: &Rc<App>, w: &Rc<Win>) {
             let child = page.child();
             let m = app.machines.borrow().iter().find(|m| m.root.upcast_ref::<gtk::Widget>() == &child).cloned();
             let Some(m) = m else { return glib::Propagation::Proceed };
+            if crate::install::install_running(Some(m.machine.key())) {
+                let (tv, page, app) = (tv.clone(), page.clone(), app.clone());
+                glib::spawn_future_local(async move {
+                    let quit = crate::install::stop_install(&w.win, true).await;
+                    if quit {
+                        crate::install::stop_installs(&app, Some(m.machine.key()));
+                        forget(&app, &m);
+                    }
+                    tv.close_page_finish(&page, quit);
+                });
+                return glib::Propagation::Stop;
+            }
             if !m.state.get().is_up() || app.cfg.automation.is_some() {
                 forget(&app, &m);
                 tv.close_page_finish(page, true);
@@ -884,6 +896,7 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
                 settings::present_machine(app, &w.win, &m);
             }
         }
+        ("machine.install-irix", Some(m)) => crate::install::open(app, &w.win, &m),
         ("window.console", Some(m)) => crate::console::present(app, &m),
         ("window.diagnostics", Some(m)) => crate::diagnostics::present(app, &m),
         ("view.show-library", _) => w.split.set_show_sidebar(!w.split.shows_sidebar()),
@@ -912,6 +925,13 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
         ("app.about", _) => about(app, &w.win),
         ("app.quit", _) => app::request_quit(app),
         _ => {}
+    }
+}
+
+/// A short message over the window the user is working in.
+pub fn toast(app: &App, text: &str) {
+    if let Some(w) = active(app) {
+        w.toasts.add_toast(adw::Toast::new(text));
     }
 }
 
@@ -1013,6 +1033,13 @@ pub fn enabled(app: &App, w: &Win, id: &str) -> bool {
             "machine.start" if m.is_none() => selected,
             "machine.start" => when.holds(core_state) || st == Some(State::LeftRunning),
             "machine.settings" => selected,
+            "machine.install-irix" => {
+                let runs = match &m {
+                    Some(m) => m.entry.borrow().runs_irix,
+                    None => selected_entry(app, w).is_none_or(|e| e.runs_irix),
+                };
+                runs && (m.is_none() || when.holds(core_state))
+            }
             "machine.force-quit" => up,
             _ => when.holds(core_state),
         };
