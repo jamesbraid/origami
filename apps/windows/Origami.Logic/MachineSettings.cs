@@ -51,6 +51,8 @@ public abstract record MachineChange
     public sealed record SetConsole(string? Port) : MachineChange;
     /// <summary>A CD-ROM image in a new drive at <c>Target</c>.</summary>
     public sealed record AttachCd(string Path, int Target) : MachineChange;
+    /// <summary>A new, empty system disk.</summary>
+    public sealed record CreateDisk(ulong SizeMib) : MachineChange;
 }
 
 /// <summary>What the settings sheet decides itself, matching the Linux app.</summary>

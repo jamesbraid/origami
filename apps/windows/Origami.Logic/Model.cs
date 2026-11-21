@@ -17,7 +17,9 @@ public sealed record MachineSummary(
     bool HasDisplay = true,
     bool NeedsUpgrade = false,
     /// <summary>What the system disk holds, such as "IRIX 6.5.30", once the core has read it.</summary>
-    string? SystemDisk = null);
+    string? SystemDisk = null,
+    /// <summary>Whether the machine runs IRIX: Install IRIX is only for those.</summary>
+    bool RunsIrix = true);
 
 public sealed record MachineStatus(MachineState State, string Reason, string? LastError);
 

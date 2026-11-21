@@ -1,7 +1,7 @@
 namespace Origami.Logic;
 
 /// <summary>One catalogue entry: a machine the core can create.</summary>
-public sealed record Offering(string Id, string Engine, string Product, string Topology, int Nodes, int Cpus);
+public sealed record Offering(string Id, string Engine, string Product, string Topology, int Nodes, int Cpus, bool RunsIrix = true);
 
 /// <summary>What the New Machine sheet shows, matching the Linux app.</summary>
 public static class NewMachine

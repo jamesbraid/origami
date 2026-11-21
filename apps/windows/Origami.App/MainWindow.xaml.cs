@@ -16,7 +16,7 @@ public sealed partial class MainWindow : Window
     AppSettings _settings;
     readonly DispatcherQueue _ui;
     readonly Dictionary<string, ConsoleWindow> _consoles = new();
-    bool _prefsOpen, _closeApproved;
+    bool _prefsOpen, _closeApproved, _installQuitApproved;
     string? _attachedKey, _modeKey;
     int _refreshQueued;
 
@@ -361,6 +361,12 @@ public sealed partial class MainWindow : Window
     public async Task CloseTabAsync(string key, bool ask = true)
     {
         var m = _core.Machines().FirstOrDefault(x => x.Key == key);
+        if (ask && _installs.GetValueOrDefault(key) is { } install && InstallRunning(install))
+        {
+            if (!await ConfirmStopInstallsAsync(tab: true)) return;
+            await install.StopAndCloseAsync();
+            m = _core.Machines().FirstOrDefault(x => x.Key == key);
+        }
         if (ask && m is { State: MachineState.Running or MachineState.Starting or MachineState.Paused })
         {
             var dlg = new ContentDialog
@@ -547,7 +553,7 @@ public sealed partial class MainWindow : Window
         if (id == "machine.pause" && state == MachineState.Paused) id = "machine.resume";
         // Diagnostics needs a machine; the shared gate would drop the command silently, so say why first.
         if (id == "window.diagnostics" && key == null) { StatusText.Text = "Select a machine first."; return; }
-        if (!_core.CommandEnabled(id, state)) return;
+        if (!CommandOn(id, state, key)) return;
         switch (id)
         {
             case "machine.start" when key != null: _ = RunAsync(() => _core.StartAsync(key)); break;
@@ -559,6 +565,7 @@ public sealed partial class MainWindow : Window
             case "machine.release-keys" when key != null: Display.LoseFocus(); break;
             case "machine.screenshot" when key != null: _ = ScreenshotAsync(key); break;
             case "machine.settings" when key != null && !_dialogOpen: _ = RunAsync(() => MachineSettingsAsync(key)); break;
+            case "machine.install-irix" when key != null: OpenInstall(key); break;
             case "app.preferences": _prefsOpen = true; Settings.Load(_settings); Refresh(); break; // load once: a refresh must not reset unsaved edits
             case "machine.pointer-mode" when key != null:
                 {
@@ -583,6 +590,10 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>The core's gate, and Install IRIX only on a machine that runs IRIX.</summary>
+    bool CommandOn(string id, MachineState? state, string? key) =>
+        _core.CommandEnabled(id, state) && (id != "machine.install-irix" || _core.Machines().FirstOrDefault(m => m.Key == key)?.RunsIrix == true);
+
     async Task RunAsync(Func<Task> f)
     {
         try { await f(); }
@@ -604,13 +615,62 @@ public sealed partial class MainWindow : Window
     {
         PathPicker.Hwnd = Hwnd;
         _dialogOpen = true;
-        string? made;
+        (string Key, bool Install)? made;
         try { made = await NewMachineDialog.ShowAsync(Root.XamlRoot, _core); }
         finally { _dialogOpen = false; }
-        if (made is not { } key) return;
+        if (made is not { } m) return;
         _prefsOpen = false;
         Reload();
-        Library.SelectedItem = Library.Items.Cast<ListViewItem>().FirstOrDefault(i => (string?)i.Tag == key) ?? Library.SelectedItem;
+        Library.SelectedItem = Library.Items.Cast<ListViewItem>().FirstOrDefault(i => (string?)i.Tag == m.Key) ?? Library.SelectedItem;
+        if (m.Install) OpenInstall(m.Key);
+    }
+
+    // ---- Install IRIX ------------------------------------------------------------------------
+
+    readonly Dictionary<string, InstallWindow> _installs = new();
+    public InstallWindow? InstallForTest(string key) => _installs.GetValueOrDefault(key);
+
+    /// <summary>One assistant per machine: asking again brings the open one forward.</summary>
+    void OpenInstall(string key)
+    {
+        if (!_installs.TryGetValue(key, out var w))
+        {
+            var name = _core.Machines().First(m => m.Key == key).Name;
+            w = new InstallWindow((UniffiCoreClient)_core, key, name, () => { SelectForTabs(key); OpenInNewTab(key); Activate(); }, () => ShowConsole(key), TellAsync);
+            w.Closed += (_, _) => _installs.Remove(key);
+            _installs[key] = w;
+        }
+        w.Activate();
+    }
+
+    void ShowConsole(string key)
+    {
+        SelectForTabs(key);
+        if (_paneKey == key) _pane?.FocusTerminal(); else OpenConsole(key);
+    }
+
+    /// <summary>Whether an install is under way on this assistant's machine; the one place quit and tab close ask.</summary>
+    static bool InstallRunning(InstallWindow w) => w.Serving;
+
+    /// <summary>The core's prompt for quitting or closing a tab while an install runs; true to stop it and the machine. Return keeps installing.</summary>
+    async Task<bool> ConfirmStopInstallsAsync(bool tab = false)
+    {
+        var t = uniffi.origami_ffi.OrigamiFfiMethods.OrigamiInstallTexts();
+        var ask = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot, Title = t.QuitHeading, Content = tab ? t.TabText : t.QuitText,
+            PrimaryButtonText = tab ? t.StopAndClose : t.StopAndQuit, CloseButtonText = t.Keep, DefaultButton = ContentDialogButton.Close,
+        };
+        return await ask.ShowAsync() == ContentDialogResult.Primary;
+    }
+
+    /// <summary>A note after the assistant has closed; it waits for any other dialog on this window.</summary>
+    async Task TellAsync(string text)
+    {
+        while (_dialogOpen) await Task.Delay(100);
+        _dialogOpen = true;
+        try { await new ContentDialog { XamlRoot = Root.XamlRoot, Title = "Install IRIX", Content = text, CloseButtonText = "OK" }.ShowAsync(); }
+        finally { _dialogOpen = false; }
     }
 
     public void ClearSelectionForTest() => Library.SelectedItem = null;
@@ -869,7 +929,7 @@ public sealed partial class MainWindow : Window
         PillText.Text = Pill.Text(st.State, !info.HasDisplay);
         PillBorder.Background = new SolidColorBrush(Tones.For(Pill.Tone(st.State)));
         StatusText.Text = st.LastError is { Length: > 0 } e ? st.Reason + " " + e : st.Reason;
-        foreach (var (cid, mi) in _menuItems) mi.IsEnabled = _core.CommandEnabled(cid, st.State);
+        foreach (var (cid, mi) in _menuItems) mi.IsEnabled = CommandOn(cid, st.State, key);
         StartButton.IsEnabled = HeroStart.IsEnabled = _core.CommandEnabled("machine.start", st.State);
         HeroStart.Content = st.State == MachineState.LeftRunning ? "Reconnect" : "Start";
         PowerOffButton.IsEnabled = _core.CommandEnabled("machine.stop", st.State);
@@ -1060,6 +1120,20 @@ public sealed partial class MainWindow : Window
     {
         if (_closeApproved) return;
         if (_quitting) { args.Cancel = true; return; } // one prompt at a time, even if closed again while powering off
+        if (_installs.Values.Any(InstallRunning) && !_installQuitApproved)
+        {
+            args.Cancel = true;
+            _quitting = true;
+            try
+            {
+                if (!await ConfirmStopInstallsAsync()) return;
+                _installQuitApproved = true;
+                foreach (var w in _installs.Values.Where(InstallRunning).ToList()) await w.StopAndCloseAsync();
+            }
+            finally { _quitting = false; }
+            Close();
+            return;
+        }
         var up = Up(); // live state, so only machines that are up right now are named
         if (up.Count == 0 || !_settings.ConfirmQuitWithRunningMachines) { _recheck?.Stop(); Display.Detach(); return; }
         args.Cancel = true;

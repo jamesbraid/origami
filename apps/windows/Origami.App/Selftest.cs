@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Origami.Logic;
+using OStep = uniffi.origami_ffi.OrigamiInstallStep;
 
 namespace Origami.App;
 
@@ -312,6 +313,121 @@ public static class Selftest
         Check("disks: swapping the CD leaves the machine's file alone", (await core.SettingsAsync(cdKey)).Drives.First(d => d.Kind == "cdrom").Image.EndsWith("one.iso"));
         w.Invoke("machine.stop");
         await Until(() => core.Status(cdKey).State == MachineState.Stopped, 8000);
+        if (selected != null) w.SelectForTest(selected);
+
+        // --- Install IRIX: the assistant start to finish on a machine with no disk, through its real window ---
+        var instKey = await core.CreateMachineAsync("Install test", "origin200.1");
+        var netBefore = (await core.SettingsAsync(instKey)).Network.Mode;
+        Check("install: the fake machines run IRIX", core.Machines().First(m => m.Key == instKey).RunsIrix);
+        w.Reload();
+        w.SelectForTest(instKey);
+        await Until(() => w.SelectedKey == instKey, 2000);
+        InstallWindow? iw = null;
+        for (var tries = 0; tries < 4 && iw == null; tries++)
+        {
+            w.Invoke("machine.install-irix");
+            await Until(() => (iw = w.InstallForTest(instKey)) != null, 2000);
+        }
+        Check("install: Machine > Install IRIX opens the assistant", iw != null);
+        if (iw != null)
+        {
+            async Task<bool> OnStep(OStep s) => await Until(() => iw.StepForTest == s, 8000);
+            async Task Go()
+            {
+                await Until(() => iw.Find<Button>("install.continue") is { IsEnabled: true }, 8000);
+                Press(iw.Find<Button>("install.continue"));
+            }
+            await OnStep(OStep.Release);
+            Check("install: step 1 offers 6.5.30 and Standard by default",
+                await Until(() => iw.Find<RadioButton>("install.release.6.5.30")?.IsChecked == true && iw.Find<RadioButton>("install.profile.standard")?.IsChecked == true, 5000));
+            await Go();
+            await OnStep(OStep.Media);
+            var emptyMedia = Path.Combine(dir, "empty-media");
+            Directory.CreateDirectory(emptyMedia);
+            PathPicker.Answers.Enqueue(emptyMedia);
+            await Until(() => iw.Find<RadioButton>("install.media.folder") != null, 5000);
+            iw.Find<RadioButton>("install.media.folder")!.IsChecked = true;
+            await Until(() => iw.Find<Button>("install.media.choose") is { Visibility: Visibility.Visible }, 3000);
+            Press(iw.Find<Button>("install.media.choose"));
+            Check("install: an empty media folder is refused in the core's words",
+                await Until(() => iw.Find<TextBlock>("install.media.verdict")?.Text == "That folder has no 6.5.30 or 6.5-base folder.", 5000), iw.Find<TextBlock>("install.media.verdict")?.Text ?? "none");
+            Check("install: Continue waits while the folder is incomplete", iw.Find<Button>("install.continue") is { IsEnabled: false });
+            iw.Find<RadioButton>("install.media.download")!.IsChecked = true;
+            await Go();
+            await OnStep(OStep.Software);
+            await Until(() => iw.Find<CheckBox>("install.addon.mipspro") != null, 8000);
+            iw.Find<CheckBox>("install.addon.mipspro")!.IsChecked = true;
+            await Go();
+            await OnStep(OStep.Disk);
+            Check("install: a machine with no disk offers one at the default size",
+                await Until(() => iw.Find<NumberBox>("install.disk.size")?.Value == core.Labels().DefaultGb, 8000));
+            await Go();
+            await OnStep(OStep.Check);
+            Check("install: Continue made the disk", (await core.SettingsAsync(instKey)).Drives.Any(d => d.Kind == "disk"));
+            await Until(() => iw.Find<Button>("install.check.run") != null, 5000);
+            Press(iw.Find<Button>("install.check.run"));
+            Check("install: the check passes", await Until(() => iw.Find<TextBlock>("install.check.status")?.Text == "All sources answered.", 30_000), iw.Find<TextBlock>("install.check.status")?.Text ?? "none");
+            await Go();
+            await OnStep(OStep.Prepare);
+            Check("install: the footer says what the server serves", await Until(() => iw.ServerLineForTest == "10.98.0.2 serving 6.5.30, Standard + MIPSpro", 15_000), iw.ServerLineForTest);
+            Check("install: the machine is running", await Until(() => core.Status(instKey).State == MachineState.Running, 15_000), core.Status(instKey).Reason);
+            Press(iw.Find<Button>("install.cancel"));
+            Check("install: Cancel while the install runs asks the core's question with a Back button",
+                await Until(() => iw.OpenDialog is { Title: "Stop the machine?", CloseButtonText: "Back" }, 5000), iw.OpenDialog?.Title as string ?? "none");
+            iw.OpenDialog?.Hide();
+            Check("install: Back keeps the assistant open with its server line",
+                await Until(() => iw.OpenDialog == null, 5000) && w.InstallForTest(instKey) == iw && iw.ServerLineForTest.Contains("serving"), iw.ServerLineForTest);
+            var serialMachine = core.Open(instKey).BootConsole() == uniffi.origami_ffi.OrigamiBootConsole.Serial;
+            var guide = core.Raw.InstallGuide(instKey);
+            var typed = guide.Prepare.ToList().FindIndex(g => g.Send != null);
+            await Until(() => iw.FindWhere<Button>(b => Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(b).EndsWith(".typeit")) != null || !serialMachine, 8000);
+            var typeIt = typed < 0 ? null : iw.Find<Button>($"install.guide.{(int)OStep.Prepare}.{typed}.typeit");
+            Check("install: Type It shows only on a serial machine", (typeIt != null) == (serialMachine && typed >= 0), $"serial {serialMachine}, step {typed}");
+            if (typeIt != null)
+            {
+                Press(typeIt);
+                var typedText = guide.Prepare[typed].Send!.TrimEnd('\r', '\n');
+                Check("install: Type It reaches the guest console",
+                    await Until(() => Encoding.UTF8.GetString(core.ConsoleRead(instKey, 0, out _)).Contains(typedText), 5000), typedText);
+            }
+            await Go();
+            await OnStep(OStep.Installer);
+            await Go();
+            await OnStep(OStep.Packages);
+            w.Invoke("machine.stop");
+            Check("install: the machine stops", await Until(() => core.Status(instKey).State == MachineState.Stopped, 10_000), core.Status(instKey).Reason);
+            await Go();
+            await OnStep(OStep.Finish);
+            await Until(() => iw.Find<Button>("install.continue") is { IsEnabled: true, Content: "Finish" }, 8000);
+            Press(iw.Find<Button>("install.continue"));
+            Check("install: Finish closes the assistant", await Until(() => w.InstallForTest(instKey) == null, 8000));
+            Check("install: Finish says IRIX is installed", await Until(() => FindOpen<ContentDialog>(w, null) != null, 5000));
+            FindOpen<ContentDialog>(w, null)?.Hide();
+            await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
+            var settingsShown = await OpenSettings("settings.insertcd");
+            Check("install: the network is back as it was", settingsShown && (await core.SettingsAsync(instKey)).Network.Mode == netBefore, $"{netBefore} then {(await core.SettingsAsync(instKey)).Network.Mode}");
+            FindOpen<ContentDialog>(w, null)?.Hide();
+            await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
+        }
+        // New Machine offers the assistant only with an empty disk.
+        for (var tries = 0; tries < 4 && FindOpen<TextBox>(w, "new.name") == null; tries++)
+        {
+            w.Invoke("machine.new");
+            await Until(() => FindOpen<TextBox>(w, "new.name") != null, 2000);
+        }
+        var installBox = FindOpen<CheckBox>(w, "new.install");
+        var diskChoice = FindOpen<ComboBox>(w, "new.disk");
+        if (installBox != null && diskChoice != null)
+        {
+            var none = installBox.Visibility == Visibility.Collapsed;
+            diskChoice.SelectedIndex = DiskChoices.Empty;
+            var empty = installBox.Visibility == Visibility.Visible;
+            diskChoice.SelectedIndex = DiskChoices.Image;
+            Check("install: New Machine offers it only with an empty disk", none && empty && installBox.Visibility == Visibility.Collapsed, $"none {none}, empty {empty}");
+        }
+        else Check("install: New Machine offers it only with an empty disk", false, "no dialog");
+        FindOpen<ContentDialog>(w, null)?.Hide();
+        await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
         if (selected != null) w.SelectForTest(selected);
 
         // --- tabs ---

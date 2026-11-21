@@ -85,6 +85,10 @@ public sealed class UniffiCoreClient : ICoreClient
         if (!before.SequenceEqual(list.Select(m => m.Key))) Events?.Invoke(new MachineEvent("", MachineEventKind.LibraryChanged));
     }
 
+    /// <summary>The generated core and machine objects, for the install assistant, which drives the core's own flow.</summary>
+    internal OrigamiCore Raw => _core;
+    internal OrigamiMachine Open(string key) => M(key);
+
     public string LibraryRoot => _core.LibraryRoot();
 
     public void SetLibraryRoot(string root)
@@ -139,7 +143,7 @@ public sealed class UniffiCoreClient : ICoreClient
 #endif
 
     public IReadOnlyList<Offering> Catalogue() => _core.Catalogue()
-        .Select(o => new Offering(o.Id, o.Engine, o.Product, o.Topology, (int)o.Nodes, (int)o.Cpus)).ToList();
+        .Select(o => new Offering(o.Id, o.Engine, o.Product, o.Topology, (int)o.Nodes, (int)o.Cpus, o.RunsIrix)).ToList();
 
     public Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default, SystemDisk? disk = null, IProgress<CopyProgress>? progress = null, IdentityRequest? identity = null) => Task.Run(() =>
     {
@@ -297,6 +301,7 @@ public sealed class UniffiCoreClient : ICoreClient
         MachineChange.DetachDrive c => new OrigamiChange.DetachDrive(c.Name),
         MachineChange.SetConsole c => new OrigamiChange.SetConsole(c.Port),
         MachineChange.AttachCd c => new OrigamiChange.AttachDrive(c.Path, OrigamiDriveKind.Cdrom, (uint)c.Target, false),
+        MachineChange.CreateDisk c => new OrigamiChange.CreateDisk(c.SizeMib),
         _ => throw new ArgumentException("unknown change"),
     })).Select(l => new ReportLine(Enum.Parse<LineKind>(l.Kind.ToString()), l.Text, l.Shown, l.Copy)).ToList());
 
@@ -347,7 +352,7 @@ public sealed class UniffiCoreClient : ICoreClient
             // The file says whether it has a graphics head; a head the engine reports counts too.
             var display = m.HasDisplay || (has && v!.Heads.Length > 0);
             return new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes, (int)m.MemoryPerNodeMib,
-                m.NeedsUpgrade ? MachineState.NeedsUpgrade : Settle(m.Key, state), m.Problem, display, m.NeedsUpgrade, m.SystemDisk);
+                m.NeedsUpgrade ? MachineState.NeedsUpgrade : Settle(m.Key, state), m.Problem, display, m.NeedsUpgrade, m.SystemDisk, m.RunsIrix);
         }).ToList();
     }
 

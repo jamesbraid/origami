@@ -8,8 +8,8 @@ namespace Origami.App;
 /// <summary>The New Machine sheet: a model, a name, Create. A failed create stays on the sheet with the core's reason.</summary>
 public static class NewMachineDialog
 {
-    /// <summary>Shows the sheet; returns the new machine's key, or null when cancelled.</summary>
-    public static async Task<string?> ShowAsync(XamlRoot root, ICoreClient core)
+    /// <summary>Shows the sheet; returns the new machine's key and whether to open Install IRIX on it, or null when cancelled.</summary>
+    public static async Task<(string Key, bool Install)?> ShowAsync(XamlRoot root, ICoreClient core)
     {
         IReadOnlyList<Offering> offerings;
         try { offerings = await Task.Run(core.Catalogue); }
@@ -51,6 +51,8 @@ public static class NewMachineDialog
             release.SelectedIndex = found.Count > 0 ? 0 : -1;
         }
         var size = new NumberBox { Header = "Disk size (GB)", Value = core.Labels().DefaultGb, Minimum = 1, Maximum = 2048, Visibility = Visibility.Collapsed };
+        var install = new CheckBox { Content = "Install IRIX after creating", Visibility = Visibility.Collapsed };
+        AutomationProperties.SetAutomationId(install, "new.install");
         var image = new ImagePanel(core, null);
         image.Root.Visibility = Visibility.Collapsed;
         // Advanced: the machine ID, prefilled with the next free one, and an Ethernet address to use instead of the one it makes.
@@ -83,7 +85,7 @@ public static class NewMachineDialog
         {
             XamlRoot = root,
             Title = "New Machine",
-            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, disk, release, size, image.Root, advanced, problem, bar, line, stop, error } },
+            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, disk, release, size, install, image.Root, advanced, problem, bar, line, stop, error } },
             PrimaryButtonText = "Create",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
@@ -124,16 +126,19 @@ public static class NewMachineDialog
         {
             release.Visibility = disk.SelectedIndex == DiskChoices.Ready ? Visibility.Visible : Visibility.Collapsed;
             size.Visibility = disk.SelectedIndex == DiskChoices.Empty ? Visibility.Visible : Visibility.Collapsed;
+            SyncInstall();
             image.Root.Visibility = disk.SelectedIndex == DiskChoices.Image ? Visibility.Visible : Visibility.Collapsed;
             Sync();
         };
-        model.SelectionChanged += (_, _) => { SyncEngines(); SyncReady(); Sync(); RefreshIdentity(); };
+        model.SelectionChanged += (_, _) => { SyncEngines(); SyncReady(); SyncInstall(); Sync(); RefreshIdentity(); };
         release.SelectionChanged += (_, _) => Sync();
+        void SyncInstall() => install.Visibility = disk.SelectedIndex == DiskChoices.Empty && model.SelectedIndex >= 0 && models[model.SelectedIndex].RunsIrix ? Visibility.Visible : Visibility.Collapsed;
         SyncEngines();
         SyncReady();
         RefreshIdentity();
 
         string? created = null;
+        var openInstall = false;
         dlg.PrimaryButtonClick += async (_, e) =>
         {
             var deferral = e.GetDeferral();
@@ -153,6 +158,7 @@ public static class NewMachineDialog
                     bar.Value = p.Fraction;
                     line.Text = p.Text;
                 });
+                openInstall = disk.SelectedIndex == DiskChoices.Empty && install.IsChecked == true;
                 created = await core.CreateMachineAsync(name.Text.Trim(), models[model.SelectedIndex].Id, engines[engine.SelectedIndex], copy.Token, system, progress, new IdentityRequest(id.Text, TypedAddress()));
             }
             catch (OperationCanceledException)
@@ -174,7 +180,7 @@ public static class NewMachineDialog
             finally { deferral.Complete(); }
         };
         await dlg.ShowAsync();
-        return created;
+        return created is { } key ? (key, openInstall) : null;
     }
 
     static async Task Message(XamlRoot root, string title, string text) =>

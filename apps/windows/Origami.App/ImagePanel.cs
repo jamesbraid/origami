@@ -5,7 +5,7 @@ using Origami.Logic;
 
 namespace Origami.App;
 
-/// <summary>The one place a disk image is chosen. The self-test queues answers because a native picker cannot be driven headless.</summary>
+/// <summary>The one place a disk image, a package or a folder is chosen. The self-test queues answers because a native picker cannot be driven headless.</summary>
 public static class PathPicker
 {
     public static IntPtr Hwnd;
@@ -18,6 +18,16 @@ public static class PathPicker
         picker.FileTypeFilter.Add("*");
         WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
         return (await picker.PickSingleFileAsync())?.Path;
+    }
+
+    /// <summary>A folder, from the same queue of self-test answers.</summary>
+    public static async Task<string?> PickFolderAsync()
+    {
+        if (Answers.Count > 0) return Answers.Dequeue();
+        var picker = new Windows.Storage.Pickers.FolderPicker();
+        picker.FileTypeFilter.Add("*");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
+        return (await picker.PickSingleFolderAsync())?.Path;
     }
 }
 
