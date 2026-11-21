@@ -3,6 +3,13 @@ use std::process::Command;
 use vergen_gitcl::{Emitter, Gitcl};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // iris's camera crate brings windows 0.34, whose libwindows.a binds WaitOnAddress to vertdll.dll
+    // and crashes outside enclaves. MinGW's own import library, linked first, wins that symbol.
+    if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")
+        && std::env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|env| env == "gnu")
+    {
+        println!("cargo:rustc-link-lib=static:+whole-archive=synchronization");
+    }
     let git = Gitcl::builder()
         .describe(true, true, Some("v[0-9]*"))
         .build();
