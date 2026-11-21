@@ -7,11 +7,12 @@
 `pull` takes the release set from GitHub; the other commands make one platform's."""
 import argparse, io, os, pathlib, shutil, subprocess, sys, tempfile
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CI = ROOT / "crates" / "origami-gtk" / "ci"
 OUT = ROOT / "docs" / "images" / "app"
+BASELINES = ROOT / "tests" / "screenshots"
 XVFB_SCREEN = "1440x960"
 GITHUB_REPO = "jamesbraid/origami"
 
@@ -23,6 +24,12 @@ SETS = {
     "windows": ["windows-running", "windows-cpu-panel", "windows-diagnostics", "windows-acknowledgements", "windows-licences"],
     "macos": ["macos-library", "macos-new-machine", "macos-running", "macos-cpu-panel", "macos-diagnostics", "macos-about", "macos-acknowledgements", "macos-licences"],
 }
+# The main window with a running machine, per app: what `compare` holds against a stored image.
+RUNNING = {"linux": "linux-running", "windows": "windows-running", "macos": "macos-running"}
+# A pixel is wrong when any channel differs by more than DIFF; the picture fails when more than BAD of its pixels are wrong.
+DIFF, BAD = 32, 0.15
+
+
 def run(*cmd, **kw):
     print("+", " ".join(map(str, cmd)), flush=True)
     subprocess.run(list(map(str, cmd)), check=True, **kw)
@@ -108,6 +115,53 @@ def pull(a):
                 collect(pathlib.Path(t) / artifact, platform)
 
 
+def judge(got: Image.Image, want: Image.Image):
+    """(fraction of pixels that differ by more than DIFF, a diff picture), or None when the sizes differ."""
+    if got.size != want.size:
+        return None
+    a, b = got.convert("RGB"), want.convert("RGB")
+    bands = [c.point(lambda v: 255 if v > DIFF else 0) for c in ImageChops.difference(a, b).split()]
+    wrong = ImageChops.lighter(ImageChops.lighter(bands[0], bands[1]), bands[2])
+    bad = wrong.histogram()[255] / (got.width * got.height)
+    return bad, Image.composite(Image.new("RGB", got.size, (255, 0, 0)), b, wrong)
+
+
+def compare(a):
+    """Hold each app's main-window picture in --from against tests/screenshots; exit 1 on a mismatch."""
+    src = pathlib.Path(a.src)
+    failed = False
+    for platform in a.platform or RUNNING:
+        name = RUNNING[platform]
+        base = BASELINES / f"{name}.png"
+        if not (src / f"{name}.png").is_file() or not base.is_file():
+            print(f"{name}: missing {'picture' if not (src / f'{name}.png').is_file() else 'baseline'}")
+            failed = True
+            continue
+        got = Image.open(src / f"{name}.png")
+        r = judge(got, Image.open(base))
+        if r is None:
+            print(f"{name}: size {got.size}, baseline {Image.open(base).size}")
+            failed = True
+        elif r[0] > a.bad:
+            r[1].save(src / f"{name}.diff.png")
+            print(f"{name}: {r[0]:.2%} of pixels differ (limit {a.bad:.2%}); diff in {name}.diff.png")
+            failed = True
+        else:
+            print(f"{name}: {r[0]:.2%} of pixels differ (limit {a.bad:.2%})")
+    sys.exit(1 if failed else 0)
+
+
+def baseline(a):
+    """Store the screenshots workflow's main-window pictures, from its artifacts, as the known-good ones."""
+    global OUT
+    OUT = BASELINES
+    repo = ["--repo", a.repo]
+    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR") or None) as t:
+        run("gh", "run", "download", a.run, *repo, "--dir", t, "-n", "screenshots-linux", "-n", "screenshots-windows", "-n", "screenshots-macos")
+        for artifact, platform in (("screenshots-linux", "linux"), ("screenshots-windows", "windows"), ("screenshots-macos", "macos")):
+            save(pathlib.Path(t) / artifact / f"{RUNNING[platform]}.png", RUNNING[platform])
+
+
 def macos(a):
     src = pathlib.Path(a.src) if a.src else None
     if src is None:
@@ -123,6 +177,8 @@ HELP = {
     "linux": "build the GTK app in the CI container and run the docs scenario (lavapipe, or --gpu N)",
     "cli": "render origami command transcripts to PNG (run linux first)",
     "windows": "collect the unzipped screenshots-windows artifact",
+    "compare": "hold each app's main-window picture against tests/screenshots, within a tolerance",
+    "baseline": "store a screenshots workflow run's main-window pictures as the known-good ones",
     "macos": "on a Mac build and render the pictures; or collect a folder with --from",
 }
 
@@ -138,13 +194,20 @@ def main():
     c = sub.add_parser("pull", help=HELP["pull"])
     c.add_argument("--run", help="a workflow run id (default: the latest successful one)")
     c.add_argument("--repo", default=GITHUB_REPO, help="GitHub OWNER/NAME (origin is Forgejo); default %(default)s")
+    c = sub.add_parser("compare", help=HELP["compare"])
+    c.add_argument("--from", dest="src", required=True, help="a folder holding the pictures: linux-running.png and so on")
+    c.add_argument("--platform", action="append", choices=sorted(RUNNING), help="only this app (repeatable)")
+    c.add_argument("--bad", type=float, default=BAD, help="the fraction of pixels that may differ; default %(default)s")
+    c = sub.add_parser("baseline", help=HELP["baseline"])
+    c.add_argument("--run", required=True, help="a screenshots workflow run id")
+    c.add_argument("--repo", default=GITHUB_REPO, help="GitHub OWNER/NAME; default %(default)s")
     c = sub.add_parser("windows", help=HELP["windows"])
     c.add_argument("--from", dest="src", required=True, help="the unzipped screenshots-windows artifact")
     c = sub.add_parser("macos", help=HELP["macos"])
     c.add_argument("--from", dest="src", help="the folder OrigamiApp --docs-shots wrote, or the unzipped screenshots-macos artifact")
     c.add_argument("--scratch")
     a = p.parse_args()
-    {"linux": linux, "cli": cli, "windows": windows, "macos": macos, "pull": pull}[a.cmd](a)
+    {"linux": linux, "cli": cli, "windows": windows, "macos": macos, "pull": pull, "compare": compare, "baseline": baseline}[a.cmd](a)
 
 
 if __name__ == "__main__":

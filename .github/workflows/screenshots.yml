@@ -1,5 +1,6 @@
 name: screenshots
 # App pictures for the docs, one job per platform; `tools/screenshots pull` collects the artifacts.
+# Each job also holds the main window with a running machine against tests/screenshots.
 on:
   workflow_dispatch:
 
@@ -46,6 +47,16 @@ jobs:
           path: set
           if-no-files-found: error
           retention-days: 14
+      - name: The main window matches its stored picture
+        run: |
+          apt-get install -y --no-install-recommends python3-pil
+          python3 tools/screenshots compare --platform linux --from set
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: screenshots-linux-diff
+          path: set/*.diff.png
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         continue-on-error: true
@@ -114,6 +125,16 @@ jobs:
           path: set
           if-no-files-found: error
           retention-days: 14
+      - name: The main window matches its stored picture
+        run: |
+          python -m pip install --quiet pillow
+          python tools/screenshots compare --platform windows --from set
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: screenshots-windows-diff
+          path: set/*.diff.png
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         continue-on-error: true
@@ -148,3 +169,14 @@ jobs:
           path: ${{ runner.temp }}/macos-shots/macos-*.png
           if-no-files-found: error
           retention-days: 14
+      - name: The main window matches its stored picture
+        run: |
+          python3 -m venv "$RUNNER_TEMP/pil"
+          "$RUNNER_TEMP/pil/bin/pip" install --quiet pillow
+          "$RUNNER_TEMP/pil/bin/python" tools/screenshots compare --platform macos --from "$RUNNER_TEMP/macos-shots"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: screenshots-macos-diff
+          path: ${{ runner.temp }}/macos-shots/*.diff.png
+          if-no-files-found: ignore

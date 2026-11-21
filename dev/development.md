@@ -356,6 +356,14 @@ make one platform's set locally. The Linux set is the `docs` scenario of
 shows the plain dialog. A new picture goes in the table in `tools/screenshots`
 and in the page that shows it.
 
+Each job of the `screenshots` workflow also holds the main window with a running
+machine (`linux-running`, `windows-running`, `macos-running`) against the stored
+picture in `tests/screenshots/` with `tools/screenshots compare`: it fails when
+more than 15% of pixels differ by more than 32 levels in a channel, or the size
+differs, and uploads a diff picture. The stored pictures come only from a workflow
+run's artifacts: `tools/screenshots baseline --run RUN_ID` writes them. Run it, and
+commit the result, when the window is meant to look different.
+
 ## Functional tests
 
 A functional test is a full-machine boot. `tests/functional` boots a published
