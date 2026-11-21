@@ -1,0 +1,11 @@
+[package]
+name = "disk-ext"
+version = "0.0.0"
+publish = false
+edition = "2021"
+rust-version = "1.95"
+license = "BSD-3-Clause"
+description = "Read-only Linux ext2, ext3 and ext4 file systems"
+
+[dependencies]
+disk-rofs = { path = "../rofs" }
