@@ -57,7 +57,7 @@ internal static class Program
         var recorder = new Recorder();
         var core = new OrigamiCore(root, recorder);
         Expect(core.ListMachines().Length == 0, "an empty library");
-        Expect(core.Engines().First().id == "fake", "the fake engine");
+        Expect(core.Engines().First().Id == "fake", "the fake engine");
         Expect(core.Commands().Any(c => c.Id == "machine.start"), "a Start command");
 
         var create = core.CreateMachine(new OrigamiCreateRequest("alpha", "fake.1", null, null, prom, null, null, new OrigamiSystemDisk.Empty(1)));

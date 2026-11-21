@@ -111,6 +111,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - uses: ./.github/actions/qapi-schema-copies
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x

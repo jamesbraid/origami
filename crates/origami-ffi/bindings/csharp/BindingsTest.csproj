@@ -14,6 +14,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="$(GeneratedBindings)" />
     <None Include="$(OrigamiLibDir)/origami_ffi.dll" Condition="Exists('$(OrigamiLibDir)/origami_ffi.dll')" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(OrigamiLibDir)/ghostty-vt.dll" Condition="Exists('$(OrigamiLibDir)/ghostty-vt.dll')" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(OrigamiLibDir)/liborigami_ffi.so" Condition="Exists('$(OrigamiLibDir)/liborigami_ffi.so')" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
