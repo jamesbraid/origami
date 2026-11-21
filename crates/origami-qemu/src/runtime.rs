@@ -300,6 +300,11 @@ impl Runtime {
         let beside = exe
             .parent()
             .ok_or("cannot locate origami executable directory")?;
+        // A package manager may launch us through a link (winget, Homebrew).
+        let real = (!beside.join("..").join("libexec").join("origami").is_dir())
+            .then(|| exe.canonicalize().ok())
+            .flatten();
+        let beside = real.as_deref().and_then(Path::parent).unwrap_or(beside);
         let (dir, instigator) = match selected {
             Some(dir) => {
                 // A runtime directory may carry its own Instigator; without
@@ -1374,6 +1379,23 @@ mod tests {
             firstboot: None,
             engine: origami_machine::model::EngineChoice::qemu(&[]),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_runtime_is_found_beside_the_real_executable_behind_a_link() {
+        let root = tempfile::tempdir().unwrap();
+        let real = root.path().join("pkg");
+        std::fs::create_dir_all(real.join("bin")).unwrap();
+        std::fs::create_dir_all(real.join("libexec/origami")).unwrap();
+        std::fs::write(real.join("bin/origami"), "").unwrap();
+        let links = root.path().join("links");
+        std::fs::create_dir(&links).unwrap();
+        std::os::unix::fs::symlink(real.join("bin/origami"), links.join("origami")).unwrap();
+        let runtime = Runtime::resolve(None, &links.join("origami")).unwrap();
+        assert!(runtime
+            .qemu()
+            .starts_with(real.canonicalize().unwrap().join("bin/../libexec/origami")));
     }
 
     #[test]
