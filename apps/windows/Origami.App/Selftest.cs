@@ -825,8 +825,8 @@ public static class Selftest
                 var wantF = dpg * bdip;
                 var kase = Math.Abs(expF - wantF) * 1280 <= 2 ? "fits" : "capped to the work area";
                 w.Invoke(id);
-                await Until(() => Math.Abs(WinRect().W - exp.W) <= 2 && Math.Abs(WinRect().H - exp.H) <= 2, 2000);
-                await Task.Delay(300);
+                // The picture follows the window a layout pass later: wait for the factor too, not a fixed delay.
+                await Until(() => Math.Abs(WinRect().W - exp.W) <= 2 && Math.Abs(WinRect().H - exp.H) <= 2 && Math.Abs(disp.LastFactor - expF) * 1280 <= 2, 5000);
                 Check($"big picture: {id} ({kase}) gives the expected window and factor", Math.Abs(WinRect().W - exp.W) <= 2 && Math.Abs(WinRect().H - exp.H) <= 2 && Math.Abs(disp.LastFactor - expF) * 1280 <= 2,
                     $"factor {disp.LastFactor:F4}, want {expF:F4} (uncapped {wantF:F4}); window {WinRect().W}x{WinRect().H}, want {exp.W}x{exp.H}; work area {bwa.W}x{bwa.H}");
             }
