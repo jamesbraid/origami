@@ -16,7 +16,7 @@ enum DiskChoice: Int, CaseIterable, Identifiable {
 @MainActor
 final class NewMachineModel: ObservableObject {
     @Published private(set) var offerings: [OrigamiOffering] = []
-    @Published var selected = 0 { didSet { loadReady() } }
+    @Published var selected = 0 { didSet { loadReady(); refreshIdentity() } }
     /// The engine the machine will run on. It is always explicit; the catalogue's first engine until the person picks.
     @Published var engine: String? {
         didSet {
@@ -27,6 +27,14 @@ final class NewMachineModel: ObservableObject {
         }
     }
     @Published var name = ""
+    /// Advanced: the machine ID, prefilled with the next free one, and an Ethernet address to use instead of the one it makes.
+    @Published var idText = "" { didSet { if !writing { refreshIdentity() } } }
+    @Published var useAddress = false { didSet { refreshIdentity() } }
+    @Published var addressText = "" { didSet { refreshIdentity() } }
+    @Published private(set) var identity: OrigamiIdentityPreview?
+    @Published private(set) var previewError: String?
+    private var writing = false
+    private var identityRound = 0
     @Published var disk = DiskChoice.noDisk
     /// The empty disk's size in GB.
     @Published var sizeGB = Int(origamiDiskLabels().defaultGb)
@@ -85,7 +93,42 @@ final class NewMachineModel: ObservableObject {
 
     var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     var canCreate: Bool {
-        !trimmedName.isEmpty && !creating && offerings.indices.contains(selected) && (disk != .image || image.ready) && (disk != .ready || readyDisks.indices.contains(readyPick))
+        !trimmedName.isEmpty && !creating && offerings.indices.contains(selected) && (disk != .image || image.ready) && (disk != .ready || readyDisks.indices.contains(readyPick)) && identityProblem == nil
+    }
+
+    /// Why the ID or address cannot be used, in the core's words.
+    var identityProblem: String? { identity?.problem ?? previewError }
+
+    /// The address row: the one the ID makes, or the typed one, or that the machine sets its own.
+    var addressShown: String {
+        guard let identity else { return "" }
+        return identity.mac.isEmpty ? "Set by the machine" : identity.mac
+    }
+
+    /// Ask the core what the choices so far give. It reads the library folder, so off the main thread.
+    func refreshIdentity() {
+        guard let core = app.host?.core, offerings.indices.contains(selected) else { return }
+        identityRound += 1
+        let round = identityRound, offering = offerings[selected].id, chosen = self.engine ?? offerings[selected].engine
+        let typed = idText, mac = useAddress && !addressText.isEmpty ? addressText : nil
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try core.previewNewIdentity(offering: offering, engine: chosen, emuId: typed, mac: mac) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard round == self.identityRound else { return }
+                    switch result {
+                    case .success(let p):
+                        self.identity = p; self.previewError = nil
+                        // The next free ID fills an empty field, never one the person has started typing.
+                        if typed.trimmingCharacters(in: .whitespaces).isEmpty, self.idText.trimmingCharacters(in: .whitespaces).isEmpty {
+                            self.writing = true; self.idText = String(p.emuId); self.writing = false
+                        }
+                        if p.mac.isEmpty, !self.useAddress { self.useAddress = true }
+                    case .failure(let e): self.previewError = SettingsModel.say(e)
+                    }
+                }
+            }
+        }
     }
 
     /// Stops a download or a copy.
@@ -123,6 +166,10 @@ final class NewMachineModel: ObservableObject {
         }
     }
 
+    private var identityRequest: OrigamiIdentityRequest {
+        OrigamiIdentityRequest(emuId: idText, mac: useAddress && !addressText.isEmpty ? addressText : nil)
+    }
+
     /// Create the machine; `done(true)` once it exists and is open, `done(false)` with `error` set.
     func create(done: @escaping @MainActor (Bool) -> Void) {
         guard canCreate, let core = app.host?.core else { return }
@@ -135,7 +182,7 @@ final class NewMachineModel: ObservableObject {
         }
         let request = OrigamiCreateRequest(name: trimmedName, offering: offerings[selected].id, memoryPerNodeMib: nil,
                                            graphics: nil, bootProm: bootProm, ioProm: nil, engine: engine ?? offerings[selected].engine,
-                                           systemDisk: systemDisk)
+                                           systemDisk: systemDisk, identity: identityRequest)
         creating = true; error = nil
         DispatchQueue.global(qos: .userInitiated).async {
             var key: String?

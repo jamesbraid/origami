@@ -6,13 +6,28 @@ public sealed record Drive(string Name, string Kind, int Bus, int Target, string
 public sealed record Pipe(string Slot, string Product, string Family);
 public sealed record ConsoleLine(string Name, string Label, bool IsDefault);
 
+/// <summary>A machine's network as its file has it; <c>Mode</c> is user, private, none, tap or vmnet.</summary>
+public sealed record NetworkSetting(string Mode, string Device, string? ShareAddress, string Subnet, string? Mac, string MacNote, IReadOnlyList<string> Warnings);
+
+/// <summary>One way to connect a machine that this computer offers.</summary>
+public sealed record NetworkChoice(string Mode, string Label, string Detail);
+
+/// <summary>How to set up the host side of Bridged here: the field's label, an example for it, the steps and the commands to copy.</summary>
+public sealed record BridgedSetup(string Field, string Example, string Steps, string? Commands);
+
+/// <summary>What New Machine shows for the machine ID and Ethernet address; <c>Problem</c> is the core's reason it cannot be used.</summary>
+public sealed record IdentityPreview(uint EmuId, string Mac, bool FromId, string? Problem);
+
+/// <summary>A machine ID and an Ethernet address to give a new machine instead of the next free ones.</summary>
+public sealed record IdentityRequest(string? EmuId, string? Mac);
+
 /// <summary>What a machine's file says, for the settings sheet.</summary>
 public sealed record MachineSettings(
     int Nodes, string Processor, string ProcessorPart,
     int CpusPerNode, IReadOnlyList<int> CpusAllowed,
     int MemoryMiB, IReadOnlyList<int> MemoryAllowed,
     IReadOnlyList<Pipe> Pipes, IReadOnlyList<Drive> Drives,
-    string NetworkMode, IReadOnlyList<Forward> Forwards, IReadOnlyList<Share> Shares,
+    NetworkSetting Network, IReadOnlyList<Forward> Forwards, IReadOnlyList<Share> Shares,
     string ConsolePort, IReadOnlyList<ConsoleLine> ConsoleLines,
     /// <summary>The first free target on the first SCSI bus, for a disk added in Settings.</summary>
     int? DiskTarget = null,
@@ -24,8 +39,8 @@ public abstract record MachineChange
 {
     public sealed record SetCpus(int CpusPerNode) : MachineChange;
     public sealed record SetMemory(int MiB) : MachineChange;
-    /// <summary><c>user</c>, <c>private</c> or <c>none</c>.</summary>
-    public sealed record SetNetwork(string Mode) : MachineChange;
+    /// <summary><c>Mode</c> as in <see cref="NetworkSetting"/>; the core builds the whole change from the machine's file, <c>Device</c> being the Bridged field's text.</summary>
+    public sealed record SetNetwork(string Mode, string Device = "", string? ShareAddress = null, string? Subnet = null) : MachineChange;
     public sealed record AddForward(Forward Forward) : MachineChange;
     public sealed record RemoveForward(string Name) : MachineChange;
     public sealed record AddShare(Share Share) : MachineChange;
@@ -40,7 +55,9 @@ public abstract record MachineChange
 /// <summary>What the settings sheet decides itself, matching the Linux app.</summary>
 public static class MachineSettingsRules
 {
-    public static readonly (string Mode, string Label)[] NetworkModes = { ("user", "Shared (NAT)"), ("private", "Private"), ("none", "Off") };
+    /// <summary>The person's lines from what an edit returned, each with the command to copy when it names one.</summary>
+    public static List<(string Text, string? Copy)> Notes(IEnumerable<ReportLine> lines) =>
+        lines.Where(l => l.Shown != null).Select(l => (l.Shown!, l.Copy)).ToList();
 
     /// <summary>Choosing the default line clears the choice, as the CLI's console-set without --port does.</summary>
     public static MachineChange SetConsoleTo(ConsoleLine l) => new MachineChange.SetConsole(l.IsDefault ? null : l.Name);

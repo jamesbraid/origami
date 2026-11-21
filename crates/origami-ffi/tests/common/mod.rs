@@ -30,6 +30,7 @@ impl Lab {
                 io_prom: None,
                 engine: None,
                 system_disk: None,
+                identity: None,
             })
             .unwrap();
         assert_eq!(op.wait(Some(10_000)), OrigamiOperationState::Succeeded);

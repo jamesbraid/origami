@@ -13,6 +13,14 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var badges: [String: String] = [:]
     /// The copy's progress, while one runs.
     @Published private(set) var progress: (fraction: Double, text: String)?
+    /// Advice the last edit returned, such as the lease to clear after a network move.
+    @Published private(set) var notes: [OrigamiReportLine] = []
+    /// The Bridged choice was made but not applied: the core needs the device with the mode.
+    @Published var bridging = false
+    @Published var bridgeDevice = ""
+    @Published var bridgeShare = ""
+    @Published var subnetText = ""
+    let networkChoices = origamiHostNetworkModes()
     private var operation: OrigamiOperation?
     private var ticker: Timer?
 
@@ -23,14 +31,14 @@ final class SettingsModel: ObservableObject {
 
     func load() {
         guard !working else { return }
-        run { m in try m.settings() }
+        run { m in (try m.settings(), []) }
     }
 
     func apply(_ change: OrigamiChange) {
         guard !working else { return }
         if case .detachDrive(let name) = change { badges[name] = nil }
         if locked { error = "Power off the machine to change its settings."; return }
-        run { m in try m.applyChange(change: change); return try m.settings() }
+        run { m in let lines = try m.applyChange(change: change); return (try m.settings(), lines) }
     }
 
     /// Insert a CD-ROM image in a new drive at `target`, while stopped.
@@ -41,7 +49,7 @@ final class SettingsModel: ObservableObject {
     /// Swap or eject the CD in `drive`. Unlike the other edits it works while the machine runs.
     func changeMedia(_ drive: String, to url: URL?) {
         guard !working else { return }
-        run { m in try m.changeMedia(drive: drive, image: url?.path); return try m.settings() }
+        run { m in try m.changeMedia(drive: drive, image: url?.path); return (try m.settings(), []) }
     }
 
     /// Add the chosen image as a disk at `target`; a copy shows progress and can be cancelled.
@@ -96,25 +104,83 @@ final class SettingsModel: ObservableObject {
         }
     }
 
+    private static func isBridged(_ m: OrigamiNetworkMode) -> Bool { m == .tap || m == .vmnet }
+
+    /// The mode the picker shows: the Bridged choice while its fields are open, else the file's.
+    var networkMode: OrigamiNetworkMode? {
+        if bridging { return networkChoices.first { Self.isBridged($0.mode) }?.mode }
+        return networkChoices.first { $0.mode == currentMode }?.mode
+    }
+
+    /// The file's mode, which the core names as a string.
+    private var currentMode: OrigamiNetworkMode? {
+        switch settings?.network.mode {
+        case "user": return .user
+        case "private": return .private
+        case "none": return OrigamiNetworkMode.none
+        case "tap": return .tap
+        case "vmnet": return .vmnet
+        default: return nil
+        }
+    }
+
+    private func readNetwork(_ n: OrigamiNetworkSetting) {
+        bridging = networkChoices.contains { Self.isBridged($0.mode) && $0.mode == currentMode }
+        bridgeDevice = n.device
+        bridgeShare = n.shareAddress ?? ""
+        subnetText = n.subnet
+    }
+
+    /// A picked mode. Bridged only opens its fields; choosing the file's own mode closes them.
+    func chooseNetwork(_ mode: OrigamiNetworkMode) {
+        bridging = Self.isBridged(mode)
+        if !bridging && mode != currentMode { applyNetwork(mode, device: "", share: nil, subnet: nil) }
+    }
+
+    /// Apply Bridged with the device or socket and the shared-folder address as typed.
+    func applyBridged() {
+        guard let mode = networkChoices.first(where: { Self.isBridged($0.mode) })?.mode else { return }
+        applyNetwork(mode, device: bridgeDevice, share: bridgeShare, subnet: nil)
+    }
+
+    /// Move the private /24 of Shared or Private.
+    func applySubnet() {
+        guard let mode = currentMode else { return }
+        applyNetwork(mode, device: "", share: nil, subnet: subnetText)
+    }
+
+    /// The core builds the change from the machine's file; both steps run off the main actor.
+    private func applyNetwork(_ mode: OrigamiNetworkMode, device: String, share: String?, subnet: String?) {
+        guard !working else { return }
+        if locked { error = "Power off the machine to change its settings."; return }
+        run { m in
+            let lines = try m.setNetwork(mode: mode, device: device, shareAddress: share, subnet: subnet)
+            return (try m.settings(), lines)
+        }
+    }
+
     /// The default line is chosen by sending none, as the CLI's console-set without --port does.
     func setConsole(_ name: String) {
         let isDefault = settings?.consolePorts.first { $0.name == name }?.isDefault ?? false
         apply(.setConsole(port: isDefault ? nil : name))
     }
 
-    private func run(_ work: @escaping @Sendable (OrigamiMachine) throws -> OrigamiMachineSettings) {
+    private func run(_ work: @escaping @Sendable (OrigamiMachine) throws -> (OrigamiMachineSettings, [OrigamiReportLine])) {
         let host = machine.coreHost
         let key = machine.record.key
         let open = machine.session?.machine
         working = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let result: Result<OrigamiMachineSettings, Error>
+            let result: Result<(OrigamiMachineSettings, [OrigamiReportLine]), Error>
             do { result = .success(try work(try open ?? host.core.openMachine(key: key))) } catch { result = .failure(error) }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.working = false
                     switch result {
-                    case .success(let s): self.settings = s; self.error = nil; self.readBadges()
+                    case .success(let (s, lines)):
+                        self.settings = s; self.error = nil; self.readBadges()
+                        self.notes = lines.filter { $0.shown != nil }
+                        self.readNetwork(s.network)
                     case .failure(let e): self.error = Self.say(e)
                     }
                 }

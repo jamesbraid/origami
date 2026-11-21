@@ -3,7 +3,8 @@ namespace Origami.Logic;
 public enum LineKind { Result, Detail, Advice, Warning, Note, GuestNote }
 
 /// <summary>One line of what an operation had to say.</summary>
-public sealed record ReportLine(LineKind Kind, string Text);
+/// <summary><c>Shown</c> is what a person is told, from the core, or null for the lines kept for the log; <c>Copy</c> is a command to offer a Copy button for.</summary>
+public sealed record ReportLine(LineKind Kind, string Text, string? Shown = null, string? Copy = null);
 
 /// <summary>The words of upgrading an older machine; the macOS and GTK apps say the same.</summary>
 public static class UpgradeText
@@ -15,12 +16,6 @@ public static class UpgradeText
     public static string Failure(string error, string dir) =>
         error.Contains("download", StringComparison.OrdinalIgnoreCase) ? $"{error} To use local firmware files, run: origami upgrade {dir} --prom FILE --io-prom FILE" : error;
 
-    /// <summary>What a person is told: everything but the lines kept for the log.</summary>
-    public static List<string> Shown(IEnumerable<ReportLine> lines) => lines.Select(l => l.Kind switch
-    {
-        LineKind.Result or LineKind.Detail => null,
-        LineKind.GuestNote => l.Text + "; the guest sees this at its next boot",
-        LineKind.Warning => "Warning: " + l.Text,
-        _ => l.Text,
-    }).OfType<string>().ToList();
+    /// <summary>What a person is told: the lines the core marks to show.</summary>
+    public static List<string> Shown(IEnumerable<ReportLine> lines) => lines.Select(l => l.Shown).OfType<string>().ToList();
 }

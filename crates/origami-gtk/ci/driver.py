@@ -792,6 +792,39 @@ def settings():
         activate("Serial port A (IOC3) (default)")
         cleared = a.wait("the file", lambda: "console =" not in read(), 30, 0.5)
         check("the default line clears the console choice", cleared, read()[:400])
+        # An edit rebuilds the dialog; wait until its build count settles before the next one.
+        def quiet():
+            last, since = None, time.time()
+            while time.time() - since < 2:
+                now = a.state()["settings_builds"]
+                if now != last:
+                    last, since = now, time.time()
+                time.sleep(0.4)
+            return last
+        def act(cmd):
+            quiet()
+            got = {}
+            def once():
+                got.update(a.req("activate " + cmd))
+                return got.get("ok")
+            a.wait("the widget", once, 30, 0.5)
+            r = dict(got)
+            quiet()
+            return r
+        act("settings.network Bridged")
+        check("choosing Bridged only opens its fields", 'mode = "tap"' not in read(), read()[-300:])
+        r = act("network.device tap0")
+        bridged = a.wait("the file", lambda: 'mode = "tap"' in read() and 'interface = "tap0"' in read(), 30, 0.5)
+        check("Bridged and its tap device are set in Settings", bridged, [r, read()[-300:]])
+        check("the Ethernet address is the one the machine ID makes", 'mac = "08:00:69:e1:' in read(), read()[-300:])
+        act("settings.network Shared (NAT)")
+        check("Shared (NAT) applies and drops the tap device", 'mode = "user"' in read() and "tap0" not in read(), read()[-300:])
+        act("network.subnet 10.42.0.0/24")
+        check("the private subnet is moved in Settings", "10.42.0.0/24" in read(), read()[-300:])
+        builds = a.state()["settings_builds"]
+        r = act("network.subnet 8.8.8.0/24")
+        check("a public subnet is refused and the file keeps the old one",
+              r.get("ok") and "8.8.8.0" not in read() and "10.42.0.0/24" in read() and a.state()["settings_builds"] == builds, [r, read()[-300:]])
         # The dialog is rebuilt after each edit: close until none is left.
         closed = []
         def none_left():

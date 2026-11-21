@@ -166,7 +166,7 @@ public static class Selftest
         await core.ApplyChangeAsync(made, new MachineChange.RemoveShare("shared"));
         await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("none"));
         var st4 = await core.SettingsAsync(made);
-        Check("settings: a share is removed and the network mode set", st4.Shares.Count == 0 && st4.NetworkMode == "none", st4.NetworkMode);
+        Check("settings: a share is removed and the network mode set", st4.Shares.Count == 0 && st4.Network.Mode == "none", st4.Network.Mode);
 
         // --- console line: the Settings dialog's own combo, then the file the core wrote ---
         var selected = w.SelectedKey;
@@ -189,8 +189,28 @@ public static class Selftest
             var back = await Until(() => core.SettingsAsync(made).Result.ConsolePort == "ttyS0", 3000);
             Check("console line: picking the default line puts the choice back", fresh && back, $"file {core.SettingsAsync(made).Result.ConsolePort}");
         }
+        // --- network: Bridged opens its fields first, applies with its device; a moved subnet returns the lease advice ---
+        var modes = core.NetworkModes().ToList();
+        var bridgedAt = modes.FindIndex(c => c.Label == "Bridged");
+        ComboBox? netMode = null;
+        await Until(() => (netMode = FindOpen<ComboBox>(w, "settings.network")) != null, 3000);
+        if (netMode != null) netMode.SelectedIndex = bridgedAt;
+        TextBox? device = null;
+        await Until(() => (device = FindOpen<TextBox>(w, "settings.bridge.device")) != null, 3000);
+        var beforeApply = core.SettingsAsync(made).Result.Network.Mode;
+        Check("network: choosing Bridged opens its fields and saves nothing yet", device != null && beforeApply == "none", $"fields={(device != null)} mode={beforeApply}");
+        if (device != null) { device.Text = "tap0"; Press(FindOpen<Button>(w, "settings.bridge.apply")); }
+        var bridgedOn = await Until(() => core.SettingsAsync(made).Result.Network is { Mode: "tap" or "vmnet" } n && n.Device == "tap0", 3000);
+        var netNow = core.SettingsAsync(made).Result.Network;
+        Check("network: Bridged is applied with its device and the Ethernet address is the machine's", bridgedOn && netNow.Mac is { } m0 && m0.StartsWith("08:00:69:") && netNow.MacNote.Contains("ID"), $"{netNow.Mode} {netNow.Device} {netNow.Mac} {netNow.MacNote}");
         FindOpen<ContentDialog>(w, null)?.Hide();
         await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
+        await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("user"));
+        var movedLines = await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("user", "", null, "10.42.0.0/24"));
+        Check("network: a moved subnet returns the lease advice with a command to copy", core.SettingsAsync(made).Result.Network.Subnet == "10.42.0.0/24" && MachineSettingsRules.Notes(movedLines).Any(n => n.Copy?.StartsWith("rm /var/adm") == true), string.Join("|", movedLines.Select(l => l.Text)));
+        string publicSubnet = "";
+        try { await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("user", "", null, "8.8.8.0/24")); } catch (Exception e) { publicSubnet = e.Message; }
+        Check("network: a public subnet is refused with the core's sentence", publicSubnet.Length > 0 && core.SettingsAsync(made).Result.Network.Subnet == "10.42.0.0/24", publicSubnet);
         if (selected != null) w.SelectForTest(selected);
 
         // --- disks: the real New Machine dialog with an empty disk, an image copied in and one used in place; the badge; the CD ---

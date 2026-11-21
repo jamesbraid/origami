@@ -132,7 +132,7 @@ func runSelfTest(library: String, out: String) {
     if fake {
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "beta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil))
+                name: "beta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil, identity: nil))
             check("create-second-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
             app.rescanNow()
         } catch { check("create-second-machine", false, ["error": "\(error)"]) }
@@ -157,7 +157,7 @@ func runSelfTest(library: String, out: String) {
     if fake {
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "settingsvic", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil))
+                name: "settingsvic", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil, identity: nil))
             _ = op.wait(timeoutMs: 10_000)
             app.rescanNow()
         } catch { check("create-settings-machine", false, ["error": "\(error)"]) }
@@ -187,6 +187,27 @@ func runSelfTest(library: String, out: String) {
                 let reset = waitFor(30) { sm.settings?.consolePort == line.name && !sm.working }
                 check("console-line-default-puts-it-back", reset, ["now": sm.settings?.consolePort ?? "", "error": sm.error ?? "none"])
             } else { check("console-line-chosen", false, ["error": "the machine lists no second serial line"]) }
+            // Network: Bridged opens its fields before anything is saved, applies with its device, and a moved
+            // subnet returns the lease advice with a command to copy.
+            if let bridged = sm.networkChoices.first(where: { $0.label == "Bridged" }) {
+                sm.chooseNetwork(bridged.mode)
+                check("network-bridged-opens-its-fields-first", sm.bridging && sm.settings?.network.mode == "user", ["mode": sm.settings?.network.mode ?? ""])
+                sm.bridgeDevice = "tap0"
+                sm.applyBridged()
+                let bridgedOn = waitFor(30) { ["tap", "vmnet"].contains(sm.settings?.network.mode ?? "") && !sm.working }
+                let device = sm.settings?.network.device
+                check("network-bridged-is-applied-with-its-device", bridgedOn && device == "tap0", ["device": device ?? "", "error": sm.error ?? "none"])
+                check("network-ethernet-address-is-shown-with-where-it-came-from",
+                      sm.settings?.network.mac?.hasPrefix("08:00:69:") == true && sm.settings?.network.macNote.contains("ID") == true, ["mac": sm.settings?.network.mac ?? ""])
+                sm.chooseNetwork(.user)
+                _ = waitFor(30) { sm.settings?.network.mode == "user" && !sm.working }
+                sm.subnetText = "10.42.0.0/24"; sm.applySubnet()
+                let moved = waitFor(30) { sm.settings?.network.subnet == "10.42.0.0/24" && !sm.working }
+                check("network-subnet-moves-and-returns-advice-to-copy", moved && sm.notes.contains { $0.copy?.hasPrefix("rm /var/adm") == true }, ["error": sm.error ?? "none"])
+                sm.subnetText = "8.8.8.0/24"; sm.applySubnet()
+                _ = waitFor(30) { !sm.working && sm.error != nil }
+                check("network-public-subnet-is-refused", sm.error != nil && sm.settings?.network.subnet == "10.42.0.0/24", ["error": sm.error ?? "none"])
+            } else { check("network-bridged-opens-its-fields-first", false, ["error": "no Bridged choice"]) }
             // While the machine runs an edit is refused before it reaches the core.
             let wasLocked = sm.locked
             check("settings-locked-follows-the-machine", !wasLocked && victim.state == .stopped, ["locked_at_rest": wasLocked])
@@ -607,6 +628,16 @@ func runSelfTest(library: String, out: String) {
               ["offerings": nm.offerings.map(\.id), "selected": nm.offerings.indices.contains(nm.selected) ? nm.offerings[nm.selected].id : "none"])
         let expectedDefault = nm.offerings.firstIndex { $0.id == "octane2-vpro" } ?? 0
         check("new-machine-defaults-to-octane2-vpro-when-offered", nm.selected == expectedDefault, ["selected": nm.selected])
+        // Advanced: the ID is prefilled with the next free one, and a bad one stops Create with the core's sentence.
+        let prefilled = waitFor(30) { !nm.idText.isEmpty && nm.identity?.mac.isEmpty == false }
+        check("new-machine-advanced-prefills-the-id-and-address", prefilled, ["id": nm.idText, "mac": nm.identity?.mac ?? ""])
+        let next = nm.idText
+        nm.idText = "0"
+        let refused = waitFor(30) { nm.identityProblem != nil }
+        nm.name = "x"
+        check("new-machine-advanced-refuses-an-id-out-of-range", refused && !nm.canCreate, ["problem": nm.identityProblem ?? "none"])
+        nm.idText = next
+        _ = waitFor(30) { nm.identityProblem == nil }
         nm.name = ""; let emptyOff = !nm.canCreate
         nm.name = "  \t "; let blankOff = !nm.canCreate
         nm.name = " gamma "; let namedOn = nm.canCreate
@@ -1224,7 +1255,7 @@ func runSelfTest(library: String, out: String) {
     do {
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "wide", offering: "fakebig.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil))
+                name: "wide", offering: "fakebig.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil, identity: nil))
             check("create-wide-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
             app.rescanNow()
         } catch { check("create-wide-machine", false, ["error": "\(error)"]) }
@@ -1405,7 +1436,7 @@ func runSelfTest(library: String, out: String) {
         // A machine nothing has opened, so a stale state on it can only be corrected by the listing.
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "delta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil))
+                name: "delta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil, identity: nil))
             check("create-quit-test-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
             app.rescanNow()
         } catch { check("create-quit-test-machine", false, ["error": "\(error)"]) }

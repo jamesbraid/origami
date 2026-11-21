@@ -40,18 +40,6 @@ enum MachineState: Equatable {
     var isActive: Bool { self != .stopped && self != .stoppedUnexpectedly && self != .needsUpgrade }
 }
 
-extension OrigamiReportLine {
-    /// What a person is told, or nil for the lines kept for the log.
-    var shown: String? {
-        switch kind {
-        case .result, .detail: return nil
-        case .note, .advice: return text
-        case .guestNote: return "\(text); the guest sees this at its next boot"
-        case .warning: return "Warning: \(text)"
-        }
-    }
-}
-
 enum PointerMode: String { case follow, capture }
 
 /// How long a running machine may show nothing before the view says so.

@@ -329,6 +329,7 @@ fn a_create_may_name_an_engine() {
                 io_prom: None,
                 engine: engine.map(Into::into),
                 system_disk: None,
+                identity: None,
             })
             .unwrap()
             .wait(Some(10_000))
@@ -361,6 +362,7 @@ fn a_create_with_an_unknown_ready_disk_fails_and_leaves_no_machine() {
             system_disk: Some(OrigamiSystemDisk::Ready {
                 name: "irix/none.chd".into(),
             }),
+            identity: None,
         })
         .unwrap()
         .wait(Some(10_000));

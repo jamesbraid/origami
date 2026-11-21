@@ -163,7 +163,7 @@ pub fn check_claims(claims: &[Claim], reach: u32, mac: &str) -> Result<()> {
     match conflict(claims, first, last) {
         Some(other) => Err(format!(
             "{mac} collides with the machine in {}, which {}. Machines on one \
-             network need different MACs; choose another with --mac",
+             network need different MACs; choose another",
             other.dir.display(),
             other.describe()
         )

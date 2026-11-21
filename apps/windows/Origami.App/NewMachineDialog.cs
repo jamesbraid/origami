@@ -53,6 +53,18 @@ public static class NewMachineDialog
         var size = new NumberBox { Header = "Disk size (GB)", Value = core.Labels().DefaultGb, Minimum = 1, Maximum = 2048, Visibility = Visibility.Collapsed };
         var image = new ImagePanel(core, null);
         image.Root.Visibility = Visibility.Collapsed;
+        // Advanced: the machine ID, prefilled with the next free one, and an Ethernet address to use instead of the one it makes.
+        var id = new TextBox { Header = "Machine ID (1 to 2999)" };
+        var addressShown = new TextBlock();
+        var custom = new CheckBox { Content = "Use this address instead" };
+        var typed = new TextBox { Header = "Address", PlaceholderText = "08:00:69:__:__:__", Visibility = Visibility.Collapsed };
+        var problem = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed) };
+        var advanced = new Expander { Header = "Advanced", HorizontalAlignment = HorizontalAlignment.Stretch, Content = new StackPanel { Spacing = 8, Children = { id, addressShown, custom, typed } } };
+        AutomationProperties.SetAutomationId(id, "new.id");
+        AutomationProperties.SetAutomationId(addressShown, "new.mac");
+        AutomationProperties.SetAutomationId(custom, "new.mac.custom");
+        AutomationProperties.SetAutomationId(typed, "new.mac.entry");
+        AutomationProperties.SetAutomationId(problem, "new.identity.problem");
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, Visibility = Visibility.Collapsed };
         var line = new TextBlock { Visibility = Visibility.Collapsed };
         var stop = new Button { Content = "Cancel", Visibility = Visibility.Collapsed };
@@ -71,13 +83,41 @@ public static class NewMachineDialog
         {
             XamlRoot = root,
             Title = "New Machine",
-            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, disk, release, size, image.Root, bar, line, stop, error } },
+            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, disk, release, size, image.Root, advanced, problem, bar, line, stop, error } },
             PrimaryButtonText = "Create",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
             IsPrimaryButtonEnabled = false,
         };
-        void Sync() => dlg.IsPrimaryButtonEnabled = NewMachine.CanCreate(name.Text, model.SelectedIndex) && (disk.SelectedIndex != DiskChoices.Image || image.Choice.Ready) && (disk.SelectedIndex != DiskChoices.Ready || release.SelectedIndex >= 0);
+        string? identityProblem = null;
+        void Sync() => dlg.IsPrimaryButtonEnabled = NewMachine.CanCreate(name.Text, model.SelectedIndex) && identityProblem is null && (disk.SelectedIndex != DiskChoices.Image || image.Choice.Ready) && (disk.SelectedIndex != DiskChoices.Ready || release.SelectedIndex >= 0);
+        int round = 0;
+        bool writing = false;
+        string? TypedAddress() => custom.IsChecked == true && typed.Text.Trim() is { Length: > 0 } a ? a : null;
+        async void RefreshIdentity()
+        {
+            if (model.SelectedIndex < 0) return;
+            var mine = ++round;
+            var asked = id.Text;
+            IdentityPreview p;
+            try { p = await core.PreviewIdentityAsync(models[model.SelectedIndex].Id, engine.SelectedIndex >= 0 ? engines[engine.SelectedIndex] : null, asked, TypedAddress()); }
+            catch (Exception e) { if (mine == round) { identityProblem = e.Message; problem.Text = e.Message; problem.Visibility = Visibility.Visible; Sync(); } return; }
+            if (mine != round) return;
+            // The next free ID fills an empty field, never one the person has started typing.
+            if (asked.Trim().Length == 0 && id.Text.Trim().Length == 0) { writing = true; id.Text = p.EmuId.ToString(); writing = false; }
+            if (!p.FromId) custom.IsChecked = true;
+            custom.IsEnabled = p.FromId;
+            addressShown.Text = "Ethernet address: " + (p.Mac.Length > 0 ? p.Mac : "Set by the machine");
+            identityProblem = p.Problem;
+            problem.Text = identityProblem ?? "";
+            problem.Visibility = identityProblem is null ? Visibility.Collapsed : Visibility.Visible;
+            Sync();
+        }
+        id.TextChanged += (_, _) => { if (!writing) RefreshIdentity(); };
+        typed.TextChanged += (_, _) => RefreshIdentity();
+        custom.Checked += (_, _) => { typed.Visibility = Visibility.Visible; RefreshIdentity(); };
+        custom.Unchecked += (_, _) => { typed.Visibility = Visibility.Collapsed; RefreshIdentity(); };
+        engine.SelectionChanged += (_, _) => RefreshIdentity();
         name.TextChanged += (_, _) => Sync();
         image.Changed += Sync;
         disk.SelectionChanged += (_, _) =>
@@ -87,10 +127,11 @@ public static class NewMachineDialog
             image.Root.Visibility = disk.SelectedIndex == DiskChoices.Image ? Visibility.Visible : Visibility.Collapsed;
             Sync();
         };
-        model.SelectionChanged += (_, _) => { SyncEngines(); SyncReady(); Sync(); };
+        model.SelectionChanged += (_, _) => { SyncEngines(); SyncReady(); Sync(); RefreshIdentity(); };
         release.SelectionChanged += (_, _) => Sync();
         SyncEngines();
         SyncReady();
+        RefreshIdentity();
 
         string? created = null;
         dlg.PrimaryButtonClick += async (_, e) =>
@@ -112,7 +153,7 @@ public static class NewMachineDialog
                     bar.Value = p.Fraction;
                     line.Text = p.Text;
                 });
-                created = await core.CreateMachineAsync(name.Text.Trim(), models[model.SelectedIndex].Id, engines[engine.SelectedIndex], copy.Token, system, progress);
+                created = await core.CreateMachineAsync(name.Text.Trim(), models[model.SelectedIndex].Id, engines[engine.SelectedIndex], copy.Token, system, progress, new IdentityRequest(id.Text, TypedAddress()));
             }
             catch (OperationCanceledException)
             {

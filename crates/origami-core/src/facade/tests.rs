@@ -647,8 +647,146 @@ fn settings_read_what_the_machine_file_holds() {
         (s.memory_per_node_mib, s.memory_allowed_mib),
         (128, vec![64, 128, 256])
     );
-    assert_eq!(s.network_mode, "user");
+    assert_eq!(s.network.mode, "user");
     assert!(s.forwards.is_empty() && s.shares.is_empty() && s.drives.is_empty());
+}
+
+#[test]
+fn a_change_keeps_only_what_the_new_mode_uses() {
+    use crate::NetworkMode::{Private, Tap, User, Vmnet};
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("b", "fake.1")).unwrap();
+    let net = || machine.settings().unwrap().network;
+    machine
+        .apply_change(&Change::SetNetwork(crate::NetworkChange {
+            mode: Private,
+            endpoint: Some("/run/net.sock".into()),
+            interface: None,
+            share_address: None,
+            subnet: None,
+            mac: None,
+        }))
+        .unwrap();
+    machine.set_network(Private, "", None, None).unwrap();
+    assert_eq!(net().endpoint.as_deref(), Some("/run/net.sock"));
+    // Another mode must not inherit it: a private endpoint goes to the network socket.
+    machine.set_network(Vmnet, "/x/vmnet", None, None).unwrap();
+    assert_eq!((net().device, net().warnings.len()), ("/x/vmnet".into(), 1));
+    machine.set_network(Private, "", None, None).unwrap();
+    assert_eq!(net().endpoint, None);
+    machine
+        .set_network(Tap, "tap0", Some("192.168.1.5/24"), None)
+        .unwrap();
+    machine
+        .set_network(User, "tap0", Some("192.168.1.5/24"), None)
+        .unwrap();
+    let n = net();
+    assert!(n.device.is_empty() && n.share_address.is_none());
+    let error = machine
+        .set_network(Tap, " ", None, None)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.starts_with("Enter the ") && !error.contains("--"),
+        "{error}"
+    );
+}
+
+#[test]
+fn moving_the_subnet_or_the_network_returns_the_lease_advice() {
+    use crate::NetworkMode::{Tap, User};
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("a", "fake.1")).unwrap();
+    let advice = |r: crate::Report| {
+        r.lines
+            .into_iter()
+            .filter(|l| l.kind == crate::Kind::Advice)
+            .collect::<Vec<_>>()
+    };
+    let moved = advice(
+        machine
+            .set_network(User, "", None, Some("10.42.0.0/24"))
+            .unwrap(),
+    );
+    assert!(moved.len() == 1 && moved[0].text.contains("booted on 10.98.0.0/24"));
+    assert_eq!(
+        moved[0].copy_text(),
+        Some("rm /var/adm/proclaim.lease_info* /etc/resolv.conf")
+    );
+    assert!(advice(
+        machine
+            .set_network(User, "", None, Some("10.42.0.0/24"))
+            .unwrap()
+    )
+    .is_empty());
+    assert_eq!(
+        advice(machine.set_network(Tap, "tap0", None, None).unwrap()).len(),
+        1
+    );
+    let error = machine
+        .set_network(User, "", None, Some("8.8.8.0/24"))
+        .unwrap_err();
+    assert!(error.to_string().contains("private"), "{error}");
+}
+
+#[test]
+fn a_new_machine_previews_its_id_and_address_and_refuses_ones_taken() {
+    let f = fixture();
+    let key = f.create("first", "fake.1");
+    let held = origami_machine::read_machine(Path::new(&key))
+        .unwrap()
+        .identity
+        .unwrap();
+    let id = held.emu_id.unwrap();
+    let preview = |id: &str, mac: Option<&str>| {
+        f.core
+            .preview_new_identity("fake.1", None, id, mac)
+            .unwrap()
+    };
+    let next = preview("", None);
+    assert!(
+        next.emu_id != id
+            && next.problem.is_none()
+            && next.from_id
+            && next.mac.starts_with("08:00:69:e1:")
+    );
+    assert!(preview(&id.to_string(), None)
+        .problem
+        .unwrap()
+        .contains("already"));
+    assert_eq!(
+        preview("x", None).problem.as_deref(),
+        Some("Choose a number from 1 to 2999.")
+    );
+    assert!(preview("3500", None).problem.unwrap().contains("reserved"));
+    assert!(preview("77", Some(&held.mac))
+        .problem
+        .unwrap()
+        .contains("collides"));
+    assert!(preview("77", Some("nonsense")).problem.is_some());
+    let own = preview(" 77 ", Some("08:00:69:12:34:56"));
+    assert!(own.problem.is_none());
+    assert_eq!((own.emu_id, own.mac.as_str()), (77, "08:00:69:12:34:56"));
+    let op = f
+        .core
+        .create_machine(CreateRequest {
+            name: "m".into(),
+            offering: "fake.1".into(),
+            boot_prom: Some(f.root.path().join("prom.bin")),
+            emu_id: Some("41".into()),
+            mac: Some("08:00:69:12:34:50".into()),
+            ..Default::default()
+        })
+        .unwrap();
+    op.wait(Some(WAIT));
+    let made = origami_machine::read_machine(&f.root.path().join("m"))
+        .unwrap()
+        .identity
+        .unwrap();
+    assert_eq!(
+        (made.emu_id, made.mac.as_str()),
+        (Some(41), "08:00:69:12:34:50")
+    );
 }
 
 #[test]

@@ -202,6 +202,30 @@ pub enum OrigamiLineKind {
 pub struct OrigamiReportLine {
     pub kind: OrigamiLineKind,
     pub text: String,
+    /// What to tell the person, or none for the lines kept for the log.
+    pub shown: Option<String>,
+    /// A command the line tells the person to run, for a Copy button.
+    pub copy: Option<String>,
+}
+
+fn report_lines(report: origami_core::Report) -> Vec<OrigamiReportLine> {
+    report
+        .lines
+        .into_iter()
+        .map(|l| OrigamiReportLine {
+            kind: match l.kind {
+                origami_core::Kind::Result => OrigamiLineKind::Result,
+                origami_core::Kind::Detail => OrigamiLineKind::Detail,
+                origami_core::Kind::Advice => OrigamiLineKind::Advice,
+                origami_core::Kind::Warning => OrigamiLineKind::Warning,
+                origami_core::Kind::Note => OrigamiLineKind::Note,
+                origami_core::Kind::GuestNote => OrigamiLineKind::GuestNote,
+            },
+            shown: l.shown(),
+            copy: l.copy_text().map(Into::into),
+            text: l.text,
+        })
+        .collect()
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -217,6 +241,26 @@ pub struct OrigamiCreateRequest {
     /// first engine that does. The machine keeps it for life.
     pub engine: Option<String>,
     pub system_disk: Option<OrigamiSystemDisk>,
+    /// The ID and Ethernet address to give the machine instead of the next free ones.
+    pub identity: Option<OrigamiIdentityRequest>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiIdentityRequest {
+    /// The ID as typed, 1 to 2999.
+    pub emu_id: Option<String>,
+    pub mac: Option<String>,
+}
+
+/// What New Machine shows for the machine ID and Ethernet address.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiIdentityPreview {
+    pub emu_id: u32,
+    /// Empty when the address cannot be made from an ID.
+    pub mac: String,
+    /// Whether the address is made from the ID, so a typed one is optional.
+    pub from_id: bool,
+    pub problem: Option<String>,
 }
 
 /// The system disk a new machine starts with.
@@ -398,8 +442,7 @@ pub struct OrigamiMachineSettings {
     pub disk_target: Option<u32>,
     /// The last free target there, for a CD-ROM.
     pub cd_target: Option<u32>,
-    /// `user`, `private`, `none`, `tap` or `vmnet`.
-    pub network_mode: String,
+    pub network: OrigamiNetworkSetting,
     pub forwards: Vec<OrigamiForward>,
     pub shares: Vec<OrigamiShare>,
     /// The serial line in use: the file's choice, else the default.
@@ -441,7 +484,7 @@ impl From<f::MachineSettings> for OrigamiMachineSettings {
                 .collect(),
             disk_target: s.disk_target,
             cd_target: s.cd_target,
-            network_mode: s.network_mode,
+            network: s.network.into(),
             forwards: s
                 .forwards
                 .into_iter()
@@ -474,12 +517,119 @@ impl From<f::MachineSettings> for OrigamiMachineSettings {
     }
 }
 
-/// The networking a change can pick; `tap` and `vmnet` need more than a mode.
+/// A machine's network as its file has it.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiNetworkSetting {
+    /// `user`, `private`, `none`, `tap` or `vmnet`.
+    pub mode: String,
+    pub endpoint: Option<String>,
+    pub interface: Option<String>,
+    pub share_address: Option<String>,
+    /// The /24 Shared and Private use.
+    pub subnet: String,
+    pub mac: Option<String>,
+    /// The tap device or socket_vmnet socket, as its field shows it.
+    pub device: String,
+    /// Where the Ethernet address came from.
+    pub mac_note: String,
+    /// Findings for a bridged machine.
+    pub warnings: Vec<String>,
+}
+
+impl From<f::NetworkSetting> for OrigamiNetworkSetting {
+    fn from(n: f::NetworkSetting) -> Self {
+        Self {
+            mode: n.mode,
+            endpoint: n.endpoint,
+            interface: n.interface,
+            share_address: n.share_address,
+            subnet: n.subnet,
+            mac: n.mac,
+            device: n.device,
+            mac_note: n.mac_note,
+            warnings: n.warnings,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum OrigamiNetworkMode {
     User,
     Private,
     None,
+    /// Bridged on Linux and Windows.
+    Tap,
+    /// Bridged on macOS, through socket_vmnet.
+    Vmnet,
+}
+
+impl From<OrigamiNetworkMode> for origami_core::NetworkMode {
+    fn from(m: OrigamiNetworkMode) -> Self {
+        match m {
+            OrigamiNetworkMode::User => Self::User,
+            OrigamiNetworkMode::Private => Self::Private,
+            OrigamiNetworkMode::None => Self::None,
+            OrigamiNetworkMode::Tap => Self::Tap,
+            OrigamiNetworkMode::Vmnet => Self::Vmnet,
+        }
+    }
+}
+
+impl From<origami_core::NetworkMode> for OrigamiNetworkMode {
+    fn from(m: origami_core::NetworkMode) -> Self {
+        use origami_core::NetworkMode as M;
+        match m {
+            M::User => Self::User,
+            M::Private => Self::Private,
+            M::None => Self::None,
+            M::Tap => Self::Tap,
+            M::Vmnet => Self::Vmnet,
+        }
+    }
+}
+
+/// One way to connect a machine that this computer offers.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiNetworkChoice {
+    pub mode: OrigamiNetworkMode,
+    pub label: String,
+    pub detail: String,
+}
+
+/// How to set up the host side of Bridged on this computer.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiBridgedSetup {
+    /// The label of the one field Bridged needs.
+    pub field: String,
+    /// An example for it, or the socket found on this computer.
+    pub example: String,
+    pub steps: String,
+    /// The commands in `steps`, for a Copy button.
+    pub commands: Option<String>,
+}
+
+/// The modes this computer can run, in picker order.
+#[uniffi::export]
+pub fn origami_host_network_modes() -> Vec<OrigamiNetworkChoice> {
+    f::host_network_modes()
+        .into_iter()
+        .map(|c| OrigamiNetworkChoice {
+            mode: c.mode.into(),
+            label: c.label,
+            detail: c.detail,
+        })
+        .collect()
+}
+
+#[uniffi::export]
+pub fn origami_bridged_setup() -> OrigamiBridgedSetup {
+    let b = f::bridged_setup();
+    OrigamiBridgedSetup {
+        field: b.field,
+        example: b.example,
+        steps: b.steps,
+        commands: b.commands,
+    }
 }
 
 /// One edit to a stopped machine's settings.
@@ -490,9 +640,6 @@ pub enum OrigamiChange {
     },
     SetMemory {
         mib: u32,
-    },
-    SetNetwork {
-        mode: OrigamiNetworkMode,
     },
     AddForward {
         forward: OrigamiForward,
@@ -523,25 +670,12 @@ pub enum OrigamiChange {
 
 impl From<OrigamiChange> for origami_core::Change {
     fn from(c: OrigamiChange) -> Self {
-        use origami_core::{NetworkChange, NetworkMode};
         match c {
             OrigamiChange::SetProcessor { cpus_per_node } => Self::SetProcessor {
                 module: None,
                 cpus_per_node: Some(cpus_per_node),
             },
             OrigamiChange::SetMemory { mib } => Self::SetMemory(mib),
-            OrigamiChange::SetNetwork { mode } => Self::SetNetwork(NetworkChange {
-                mode: match mode {
-                    OrigamiNetworkMode::User => NetworkMode::User,
-                    OrigamiNetworkMode::Private => NetworkMode::Private,
-                    OrigamiNetworkMode::None => NetworkMode::None,
-                },
-                endpoint: None,
-                interface: None,
-                share_address: None,
-                subnet: None,
-                mac: None,
-            }),
             OrigamiChange::AddForward { forward: p } => {
                 Self::AddForward(origami_core::PortForward {
                     name: p.name,
@@ -942,22 +1076,7 @@ impl OrigamiCore {
     /// Upgrade a stopped machine made by an older Origami and say what changed.
     /// May download firmware: off the UI thread.
     pub fn upgrade_machine(&self, key: String) -> Res<Vec<OrigamiReportLine>> {
-        let report = self.core.upgrade_machine(&key)?;
-        Ok(report
-            .lines
-            .into_iter()
-            .map(|l| OrigamiReportLine {
-                kind: match l.kind {
-                    origami_core::Kind::Result => OrigamiLineKind::Result,
-                    origami_core::Kind::Detail => OrigamiLineKind::Detail,
-                    origami_core::Kind::Advice => OrigamiLineKind::Advice,
-                    origami_core::Kind::Warning => OrigamiLineKind::Warning,
-                    origami_core::Kind::Note => OrigamiLineKind::Note,
-                    origami_core::Kind::GuestNote => OrigamiLineKind::GuestNote,
-                },
-                text: l.text,
-            })
-            .collect())
+        Ok(report_lines(self.core.upgrade_machine(&key)?))
     }
 
     /// The OS and release on a disk image, such as `IRIX 6.5.30`, or
@@ -1045,6 +1164,8 @@ impl OrigamiCore {
             boot_prom: request.boot_prom.map(PathBuf::from),
             io_prom: request.io_prom.map(PathBuf::from),
             engine: request.engine,
+            emu_id: request.identity.as_ref().and_then(|i| i.emu_id.clone()),
+            mac: request.identity.and_then(|i| i.mac),
             system_disk: request.system_disk.map(|d| match d {
                 OrigamiSystemDisk::Empty { gb } => f::SystemDisk::Empty { gb },
                 OrigamiSystemDisk::Image {
@@ -1060,6 +1181,29 @@ impl OrigamiCore {
             }),
         })?;
         Ok(Arc::new(OrigamiOperation(operation)))
+    }
+
+    /// The ID and Ethernet address a new machine of `offering` would get
+    /// with the choices so far. Reads the library folder: off the UI thread.
+    pub fn preview_new_identity(
+        &self,
+        offering: String,
+        engine: Option<String>,
+        emu_id: String,
+        mac: Option<String>,
+    ) -> Res<OrigamiIdentityPreview> {
+        let p = self.core.preview_new_identity(
+            &offering,
+            engine.as_deref(),
+            &emu_id,
+            mac.as_deref(),
+        )?;
+        Ok(OrigamiIdentityPreview {
+            emu_id: p.emu_id,
+            mac: p.mac,
+            from_id: p.from_id,
+            problem: p.problem,
+        })
     }
 
     pub fn open_machine(&self, key: String) -> Res<Arc<OrigamiMachine>> {
@@ -1317,10 +1461,28 @@ impl OrigamiMachine {
         Ok(self.0.settings()?.into())
     }
 
+    /// Move the stopped machine to `mode`; the core builds the whole change from
+    /// its file. `device` is the Bridged field's text. Off the UI thread.
+    pub fn set_network(
+        &self,
+        mode: OrigamiNetworkMode,
+        device: String,
+        share_address: Option<String>,
+        subnet: Option<String>,
+    ) -> Res<Vec<OrigamiReportLine>> {
+        let report = self.0.set_network(
+            mode.into(),
+            &device,
+            share_address.as_deref(),
+            subnet.as_deref(),
+        )?;
+        Ok(report_lines(report))
+    }
+
     /// Edit the machine. `Busy` unless it is stopped. Off the UI thread;
-    /// read `settings` again afterwards.
-    pub fn apply_change(&self, change: OrigamiChange) -> Res<()> {
-        Ok(self.0.apply_change(&change.into())?)
+    /// read `settings` again afterwards. The lines carry advice to show.
+    pub fn apply_change(&self, change: OrigamiChange) -> Res<Vec<OrigamiReportLine>> {
+        Ok(report_lines(self.0.apply_change(&change.into())?))
     }
 
     pub fn screendump(&self, head: u32, path: String) -> Res<()> {

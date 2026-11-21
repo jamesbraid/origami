@@ -118,16 +118,55 @@ struct MachineSettings: View {
     }
 
     @ViewBuilder private func network(_ s: OrigamiMachineSettings) -> some View {
-        let modes: [(OrigamiNetworkMode, String, String)] = [(.user, "user", "Shared (NAT)"), (.private, "private", "Private"), (.none, "none", "Off")]
-        // tap and vmnet need an endpoint this sheet does not ask for: shown, never changed.
-        let known = modes.contains { $0.1 == s.networkMode }
-        Picker("Mode", selection: Binding(get: { s.networkMode }, set: { m in
-            if let pick = modes.first(where: { $0.1 == m }) { edit.apply(.setNetwork(mode: pick.0)) }
-        })) {
-            ForEach(modes, id: \.1) { Text($0.2).tag($0.1) }
-            if !known { Text(s.networkMode).tag(s.networkMode) }
-        }.disabled(locked || edit.working || !known)
-        if !known { Text("Currently \(s.networkMode)").font(.caption).foregroundStyle(.secondary) }
+        let setup = origamiBridgedSetup()
+        ForEach(Array(edit.notes.enumerated()), id: \.offset) { _, note in
+            HStack {
+                Text(note.shown ?? "").font(.callout).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                if let command = note.copy {
+                    Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(command, forType: .string) }
+                }
+            }
+            .padding(8).background(RoundedRectangle(cornerRadius: 6).fill(Color.accentColor.opacity(0.12)))
+        }
+        Picker("Mode", selection: Binding(get: { edit.networkMode }, set: { if let m = $0 { edit.chooseNetwork(m) } })) {
+            ForEach(edit.networkChoices, id: \.label) { c in
+                VStack(alignment: .leading) { Text(c.label); Text(c.detail).font(.caption).foregroundStyle(.secondary) }.tag(Optional(c.mode))
+            }
+        }
+        .pickerStyle(.radioGroup).disabled(locked || edit.working)
+        if edit.networkMode == nil { Text("Currently \(s.network.mode)").font(.caption).foregroundStyle(.secondary) }
+        if edit.bridging {
+            Section("Bridged") {
+                TextField(setup.field, text: $edit.bridgeDevice, prompt: Text(setup.example)).disabled(locked || edit.working)
+                TextField("Address for shared folders", text: $edit.bridgeShare, prompt: Text("ADDRESS/PREFIX")).disabled(locked || edit.working)
+                DisclosureGroup("How to set this up") {
+                    Text(setup.steps).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    if let commands = setup.commands {
+                        Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(commands, forType: .string) }
+                    }
+                }
+                Button("Apply") { edit.applyBridged() }.disabled(locked || edit.working)
+                ForEach(s.network.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
+            }
+        }
+        LabeledContent("Ethernet address") {
+            HStack {
+                Text(s.network.mac ?? "None").textSelection(.enabled)
+                if let mac = s.network.mac {
+                    Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(mac, forType: .string) }
+                }
+            }
+        }
+        Text(s.network.macNote).font(.caption).foregroundStyle(.secondary)
+        if s.network.mode == "user" || s.network.mode == "private" {
+            DisclosureGroup("Advanced") {
+                HStack {
+                    TextField("Private subnet", text: $edit.subnetText).onSubmit { edit.applySubnet() }
+                    Button("Set") { edit.applySubnet() }
+                }.disabled(locked || edit.working)
+            }
+        }
         Section("Port forwards") {
             ForEach(s.forwards, id: \.name) { f in
                 HStack {

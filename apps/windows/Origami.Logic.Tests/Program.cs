@@ -113,6 +113,13 @@ Test("console line: picking the default clears the choice", () =>
     Eq("ioc3_a", ((MachineChange.SetConsole)MachineSettingsRules.SetConsoleTo(a)).Port); Eq(null, ((MachineChange.SetConsole)MachineSettingsRules.SetConsoleTo(l1)).Port);
 });
 
+Test("network: advice lines come with the command to copy, the log lines stay out", () =>
+{
+    var lines = new[] { new ReportLine(LineKind.Result, "network: user"), new ReportLine(LineKind.Advice, "run rm x", "run rm x", "rm x"), new ReportLine(LineKind.Warning, "careful", "Warning: careful") };
+    var notes = MachineSettingsRules.Notes(lines);
+    Eq(2, notes.Count, "shown"); Eq("rm x", notes[0].Copy, "command"); Eq("Warning: careful", notes[1].Text, "warning");
+});
+
 Test("pill: words and tones", () =>
 {
     Eq("Running", Pill.Text(MachineState.Running, false));
@@ -125,7 +132,7 @@ Test("pill: words and tones", () =>
 Test("upgrade: the pill, the lines a person is told and the download hint", () =>
 {
     Eq("Needs upgrade", Pill.Text(MachineState.NeedsUpgrade)); Eq("amber", Pill.Tone(MachineState.NeedsUpgrade));
-    var lines = new[] { new ReportLine(LineKind.Result, "upgraded x"), new ReportLine(LineKind.GuestNote, "topology renamed"), new ReportLine(LineKind.Warning, "careful"), new ReportLine(LineKind.Advice, "set the host id") };
+    var lines = new[] { new ReportLine(LineKind.Result, "upgraded x"), new ReportLine(LineKind.GuestNote, "topology renamed", "topology renamed; the guest sees this at its next boot"), new ReportLine(LineKind.Warning, "careful", "Warning: careful"), new ReportLine(LineKind.Advice, "set the host id", "set the host id") };
     Eq("topology renamed; the guest sees this at its next boot|Warning: careful|set the host id", string.Join("|", UpgradeText.Shown(lines)));
     Eq("the PROM download failed. To use local firmware files, run: origami upgrade C:\\m --prom FILE --io-prom FILE", UpgradeText.Failure("the PROM download failed.", "C:\\m"));
     Eq("stop the machine first", UpgradeText.Failure("stop the machine first", "C:\\m"));

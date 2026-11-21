@@ -420,7 +420,7 @@ impl Machine {
                 overlay: false,
             }));
         }
-        self.edit(&changes)
+        self.edit(&changes).map(|_| ())
     }
 
     /// Copy or use the disk image in `request` as a new drive of the stopped
@@ -440,6 +440,7 @@ impl Machine {
                 }
                 machine
                     .apply_locked(&[Change::AttachDrive(request)])
+                    .map(|_| ())
                     .inspect_err(|_| {
                         if let Some(file) = &copied {
                             let _ = std::fs::remove_file(file);
@@ -486,14 +487,32 @@ impl Machine {
         settings::read(&loaded).map_err(CoreError::machine)
     }
 
+    /// Move the stopped machine to `mode`. `device` is the Bridged field's
+    /// text; the core builds the change from the machine's file, so a mode keeps
+    /// only what it uses. Off the UI thread.
+    pub fn set_network(
+        &self,
+        mode: crate::NetworkMode,
+        device: &str,
+        share_address: Option<&str>,
+        subnet: Option<&str>,
+    ) -> CoreResult<crate::Report> {
+        let file =
+            origami_machine::read_machine(self.inner.dir.path()).map_err(CoreError::machine)?;
+        let change = super::network::change(&file, mode, device, share_address, subnet)
+            .map_err(|text| CoreError::new(ErrorKind::Invalid, text))?;
+        self.apply_change(&Change::SetNetwork(change))
+    }
+
     /// Edit the machine's file: `Busy` unless it is stopped and no other edit
-    /// runs, and a start waits out an edit. Off the UI thread.
-    pub fn apply_change(&self, change: &Change) -> CoreResult<()> {
+    /// runs, and a start waits out an edit. Off the UI thread. The report
+    /// carries advice the person may need, such as a lease to clear.
+    pub fn apply_change(&self, change: &Change) -> CoreResult<crate::Report> {
         self.edit(std::slice::from_ref(change))
     }
 
     /// The changes in order, all or none, under the same guard.
-    fn edit(&self, changes: &[Change]) -> CoreResult<()> {
+    fn edit(&self, changes: &[Change]) -> CoreResult<crate::Report> {
         self.inner.claim_edit()?;
         let _editing = Editing(&self.inner.run);
         self.inner.apply_locked(changes)
@@ -695,9 +714,9 @@ impl MachineInner {
     }
 
     /// Writes the changes and reloads the model, with the edit phase held.
-    fn apply_locked(&self, changes: &[Change]) -> CoreResult<()> {
+    fn apply_locked(&self, changes: &[Change]) -> CoreResult<crate::Report> {
         let (engine, dir) = (self.engine.as_ref(), self.dir.path());
-        crate::apply_changes(engine, dir, changes).map_err(CoreError::machine)?;
+        let report = crate::apply_changes(engine, dir, changes).map_err(CoreError::machine)?;
         self.shared.slot.raise(&[EventKind::Library]);
         let stale = |error: Box<dyn std::error::Error + Send + Sync>| {
             CoreError::new(
@@ -710,7 +729,7 @@ impl MachineInner {
             model::Machine::from_file(&loaded.catalogue, &loaded.file).map_err(stale)?;
         model.engine.id = engine.info().id;
         *self.model.lock().unwrap() = model;
-        Ok(())
+        Ok(report)
     }
 
     fn live(&self, run: &Run) -> bool {

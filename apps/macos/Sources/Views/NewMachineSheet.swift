@@ -37,6 +37,13 @@ struct NewMachineSheet: View {
                 }
                 if model.disk == .empty { Stepper("Disk size: \(model.sizeGB) GB", value: $model.sizeGB, in: 1...2048) }
                 if model.disk == .image { ImageChoiceView(choice: model.image) }
+                DisclosureGroup("Advanced") {
+                    TextField("Machine ID", text: $model.idText, prompt: Text("1 to 2999"))
+                    LabeledContent("Ethernet address", value: model.addressShown)
+                    Toggle("Use this address instead", isOn: $model.useAddress).disabled(model.identity?.fromId == false)
+                    if model.useAddress { TextField("Address", text: $model.addressText, prompt: Text("08:00:69:__:__:__")) }
+                }
+                if let p = model.identityProblem { Text(p).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true) }
                 if let p = model.progress { OperationProgress(progress: p) { model.cancelCopy() } }
                 if let e = model.error {
                     Text(e).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true)

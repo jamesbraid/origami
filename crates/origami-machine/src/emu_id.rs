@@ -28,10 +28,10 @@ pub fn check_range(emu_id: u32) -> Result<()> {
     match emu_id {
         1..=LAST_MINTED => Ok(()),
         s if s <= MAX => Err(format!(
-            "--emu-id {s} is reserved for harness and CI machines; choose from 1 to {LAST_MINTED}"
+            "machine ID {s} is reserved for harness and CI machines; choose from 1 to {LAST_MINTED}"
         )
         .into()),
-        _ => Err(format!("--emu-id must be from 1 to {LAST_MINTED}; 0 means no emu-id").into()),
+        _ => Err(format!("machine ID must be from 1 to {LAST_MINTED}; 0 means none").into()),
     }
 }
 
@@ -124,8 +124,8 @@ pub fn taken(dir: &Path) -> Vec<(PathBuf, u32)> {
 pub fn check_free(dir: &Path, emu_id: u32) -> Result<()> {
     match taken(dir).iter().find(|(_, other)| *other == emu_id) {
         Some((other, _)) => Err(format!(
-            "emu-id {emu_id} is already the emu-id of the machine in {}. Machines need different \
-             emu-ids; choose another with --emu-id",
+            "machine ID {emu_id} is already the machine ID of the machine in {}. Machines need \
+             different machine IDs; choose another",
             other.display()
         )
         .into()),
@@ -163,10 +163,7 @@ pub fn assign(
         }
         return Ok(emu_id);
     }
-    Err(format!(
-        "emu-ids 1 to {LAST_MINTED} are all in use beside this machine; choose one with --emu-id"
-    )
-    .into())
+    Err(format!("machine IDs 1 to {LAST_MINTED} are all in use beside this machine").into())
 }
 
 /// One warning for each neighbouring machine that holds `file`'s emu-id.
@@ -321,7 +318,7 @@ mod tests {
         let error = assign(&machines, &new, offer, Some(7), true)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("emu-id 7 is already"), "{error}");
+        assert!(error.contains("machine ID 7 is already"), "{error}");
     }
 
     #[test]

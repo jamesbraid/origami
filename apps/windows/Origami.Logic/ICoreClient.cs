@@ -22,7 +22,9 @@ public interface ICoreClient : IDisposable
     IReadOnlyList<Offering> Catalogue();
     /// <summary>Creates a machine from an offering and returns its key; the core fetches any firmware. <paramref name="engine"/> null takes the first engine that offers it.</summary>
     /// <param name="disk">The system disk to start with; a copy reports <paramref name="progress"/> and stops when <paramref name="ct"/> is cancelled, leaving a machine with no disk.</param>
-    Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default, SystemDisk? disk = null, IProgress<CopyProgress>? progress = null);
+    Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default, SystemDisk? disk = null, IProgress<CopyProgress>? progress = null, IdentityRequest? identity = null);
+    /// <summary>The ID and Ethernet address a new machine would get with the choices so far; reads the library folder, so call off the UI thread.</summary>
+    Task<IdentityPreview> PreviewIdentityAsync(string offeringId, string? engine, string emuId, string? mac);
 
     /// <summary>Whether a file can be attached and what a copy needs. <paramref name="machineKey"/> is the machine it is for; without it the library folder stands in.</summary>
     Task<DiskImageCheck> CheckDiskImageAsync(string path, string? machineKey);
@@ -48,8 +50,11 @@ public interface ICoreClient : IDisposable
 
     /// <summary>Reads the machine file.</summary>
     Task<MachineSettings> SettingsAsync(string key);
-    /// <summary>Edits a stopped machine; throws the core's Busy error while it runs. Read the settings again afterwards.</summary>
-    Task ApplyChangeAsync(string key, MachineChange change);
+    /// <summary>Edits a stopped machine; throws the core's Busy error while it runs. Read the settings again afterwards. The lines carry advice to show.</summary>
+    Task<IReadOnlyList<ReportLine>> ApplyChangeAsync(string key, MachineChange change);
+    /// <summary>The modes this computer can run, in picker order.</summary>
+    IReadOnlyList<NetworkChoice> NetworkModes();
+    BridgedSetup HostBridgedSetup();
 
     /// <summary>Upgrades a stopped machine made by an older Origami, off the UI thread; the core's sentence is the exception message.</summary>
     Task<IReadOnlyList<ReportLine>> UpgradeAsync(string key);

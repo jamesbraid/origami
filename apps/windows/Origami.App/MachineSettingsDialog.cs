@@ -14,6 +14,8 @@ public static class MachineSettingsDialog
         var dlg = new ContentDialog { XamlRoot = root, Title = name + " Settings", Content = new ScrollViewer { Content = body, MaxHeight = 520 }, CloseButtonText = "Close" };
         var note = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed), Visibility = Visibility.Collapsed };
         AutomationProperties.SetAutomationId(note, "settings.error");
+        List<(string Text, string? Copy)> notes = new(); // advice an edit returned, shown once on the next rebuild
+        bool bridgedOpen = false; // Bridged chosen but not applied: the core needs its device with the mode
         ImagePanel? adding = null; // an image being added, shown inline: a ContentDialog cannot open another
 
         async void ReadBadge(string drive, TextBlock badge)
@@ -31,12 +33,18 @@ public static class MachineSettingsDialog
             // Every edit goes through here: apply off the UI thread, show the core's refusal, else rebuild from the file.
             async void Apply(MachineChange c)
             {
-                try { await core.ApplyChangeAsync(key, c); await Rebuild(); }
+                try { notes = MachineSettingsRules.Notes(await core.ApplyChangeAsync(key, c)); await Rebuild(); }
                 catch (Exception e) { note.Text = e.Message; note.Visibility = Visibility.Visible; await Rebuild(); }
             }
             body.Children.Clear();
             if (!ok) body.Children.Add(Text("This machine is running. Hardware settings are locked until it is powered off."));
             body.Children.Add(note);
+            foreach (var (text, copy) in notes)
+            {
+                if (copy is null) body.Children.Add(Text(text));
+                else body.Children.Add(Row(text, "Copy", "settings.notecopy", true, () => CopyText(copy)));
+            }
+            notes = new();
 
             body.Children.Add(Heading("Processor and memory"));
             body.Children.Add(Text($"{s.Processor} ({s.ProcessorPart}), {s.Nodes} node{(s.Nodes == 1 ? "" : "s")}"));
@@ -123,11 +131,53 @@ public static class MachineSettingsDialog
             }
 
             body.Children.Add(Heading("Network"));
-            var modes = MachineSettingsRules.NetworkModes;
-            var at = Array.FindIndex(modes, m => m.Mode == s.NetworkMode);
-            // tap and vmnet need an endpoint this sheet does not ask for.
-            if (at < 0) body.Children.Add(Text("Currently " + s.NetworkMode));
-            body.Children.Add(Combo("settings.network", "Mode", modes.Select(m => m.Label).ToList(), at, ok && at >= 0, i => Apply(new MachineChange.SetNetwork(modes[i].Mode))));
+            var choices = core.NetworkModes();
+            var setup = core.HostBridgedSetup();
+            static bool IsHost(string mode) => mode is "tap" or "vmnet";
+            var at = choices.ToList().FindIndex(c => c.Mode == s.Network.Mode);
+            var bridgedAt = choices.ToList().FindIndex(c => IsHost(c.Mode));
+            if (at < 0) body.Children.Add(Text("Currently " + s.Network.Mode));
+            // A chosen Bridged shows as selected while its fields are open, before anything is saved.
+            var shown = bridgedOpen ? bridgedAt : at;
+            body.Children.Add(Combo("settings.network", "Mode", choices.Select(c => c.Label).ToList(), shown, ok, i =>
+            {
+                bridgedOpen = IsHost(choices[i].Mode);
+                if (bridgedOpen || i == at) { _ = Rebuild(); return; }
+                Apply(new MachineChange.SetNetwork(choices[i].Mode));
+            }));
+            if (shown >= 0) body.Children.Add(Text(choices[shown].Detail));
+            if (shown == bridgedAt && shown >= 0)
+            {
+                var device = new TextBox { Header = setup.Field, PlaceholderText = setup.Example, IsEnabled = ok, Text = s.Network.Device };
+                var share = new TextBox { Header = "Address for shared folders", PlaceholderText = "ADDRESS/PREFIX", IsEnabled = ok, Text = s.Network.ShareAddress ?? "" };
+                AutomationProperties.SetAutomationId(device, "settings.bridge.device");
+                AutomationProperties.SetAutomationId(share, "settings.bridge.share");
+                body.Children.Add(device);
+                body.Children.Add(share);
+                var help = new StackPanel { Spacing = 6, Children = { Text(setup.Steps) } };
+                if (setup.Commands is { } commands) help.Children.Add(Btn("Copy", "settings.bridge.copy", true, () => { CopyText(commands); return Task.CompletedTask; }));
+                body.Children.Add(new Expander { Header = "How to set this up", Content = help });
+                body.Children.Add(Btn("Apply", "settings.bridge.apply", ok, () =>
+                {
+                    Apply(new MachineChange.SetNetwork(choices[bridgedAt].Mode, device.Text, share.Text));
+                    return Task.CompletedTask;
+                }));
+                foreach (var w in s.Network.Warnings) body.Children.Add(Text(w));
+            }
+            body.Children.Add(Row("Ethernet address: " + (s.Network.Mac ?? "None"), "Copy", "settings.mac.copy", s.Network.Mac is not null, () => CopyText(s.Network.Mac!)));
+            body.Children.Add(Text(s.Network.MacNote));
+            if (s.Network.Mode is "user" or "private")
+            {
+                var subnet = new TextBox { Header = "Private subnet (a /24)", IsEnabled = ok, Text = s.Network.Subnet };
+                AutomationProperties.SetAutomationId(subnet, "settings.subnet");
+                var advanced = new StackPanel { Spacing = 6, Children = { subnet } };
+                advanced.Children.Add(Btn("Set", "settings.subnet.apply", ok, () =>
+                {
+                    Apply(new MachineChange.SetNetwork(s.Network.Mode, "", null, subnet.Text));
+                    return Task.CompletedTask;
+                }));
+                body.Children.Add(new Expander { Header = "Advanced", Content = advanced });
+            }
 
             body.Children.Add(Heading("Port forwards"));
             foreach (var f in s.Forwards)
@@ -164,6 +214,13 @@ public static class MachineSettingsDialog
 
         await Rebuild();
         await dlg.ShowAsync();
+    }
+
+    static void CopyText(string text)
+    {
+        var pkg = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        pkg.SetText(text);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(pkg);
     }
 
     static Button Btn(string text, string id, bool enabled, Func<Task> click)

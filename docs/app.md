@@ -122,6 +122,13 @@ Remove button, which is refused while a disk is being downloaded or copied.
 The machine gets its own copy because the CHD driver keeps its
 changes beside the image file and offers no way to put them elsewhere.
 
+**Advanced** holds the machine ID and the Ethernet address. The ID is the
+lowest free number from 1 to 2999 and makes the serial number, host id and
+Ethernet address, so two machines in one folder never share them. Choose
+another number, or give an address of your own for a machine that will sit on
+your network. The sheet says why a number or address cannot be used. It is
+`origami create --emu-id` and `--mac`.
+
 ## Start it
 
 Select the machine and press Start (Ctrl+Shift+R; Cmd+R on macOS). The
@@ -223,7 +230,15 @@ hidden.
 
 Settings (Ctrl+Shift+I; Cmd+I on macOS) edits the selected machine's file:
 its name, memory and processor, graphics, drives, network, startup and input.
-The Network page includes port forwards from the host to the guest. Startup
+The Network page picks how the machine connects: Shared (NAT), Private,
+Bridged or Off. Bridged gives the machine its own address on your network
+through a tap device on Linux and Windows, or socket_vmnet on macOS; the page
+says how to set that up and offers the commands to copy. It also shows the
+machine's Ethernet address, which you can copy but not change, and the private
+subnet under Advanced. After a change that moves the machine to a different
+network, the page shows the command that makes the guest forget its old
+address. This is [`origami network-set`](usage.md#join-a-real-network). The
+page also holds port forwards from the host to the guest. Startup
 and firmware picks the console serial line, the same choice as
 [`origami console-set`](usage.md#which-serial-line-is-the-console). A running
 machine refuses edits; stop it first, except for the CD-ROM. The Drives page

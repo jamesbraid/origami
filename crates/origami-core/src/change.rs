@@ -95,6 +95,9 @@ pub(crate) fn cpu_counts(catalogue: &Catalogue, offer: &Offering) -> Vec<u32> {
     counts
 }
 
+/// What a guest runs, as root, to forget the address of its old network.
+pub const CLEAR_LEASE: &str = "rm /var/adm/proclaim.lease_info* /etc/resolv.conf";
+
 /// Apply `change` to the stopped machine in `dir`.
 pub fn apply_change(engine: &dyn Engine, dir: &Path, change: &Change) -> Result<Report> {
     apply_changes(engine, dir, std::slice::from_ref(change))
@@ -423,6 +426,7 @@ impl Staged<'_> {
         use NetworkMode::{Private, Tap, User, Vmnet};
         let mode = change.mode;
         let old_subnet = addressing::Addresses::of(&self.file)?;
+        let old_mode = std::mem::take(&mut self.file.network.mode);
         self.file.network = Network {
             mode: mode.as_str().into(),
             endpoint: change.endpoint.clone(),
@@ -460,19 +464,34 @@ impl Staged<'_> {
             self.report.result(format!("assigned MAC {mac}"));
         }
         self.report.result(format!("network: {}", mode.as_str()));
+        let mut advised = false;
         if matches!(mode, User | Private) {
             let subnet = addressing::Addresses::of(&self.file)?;
             self.report.detail(format!("subnet: {}", subnet.cidr()));
             if subnet != old_subnet {
+                advised = true;
                 self.report.push(
                     crate::Kind::Advice,
                     format!(
                         "A guest that booted on {} keeps its old address until, as root in IRIX, \
-                         you run rm /var/adm/proclaim.lease_info* /etc/resolv.conf and restart it.",
+                         you run {CLEAR_LEASE} and restart it.",
                         old_subnet.cidr()
                     ),
                 );
             }
+        }
+        if !advised
+            && mode != NetworkMode::None
+            && !matches!(old_mode.as_str(), "none" | "")
+            && old_mode != mode.as_str()
+        {
+            self.report.push(
+                crate::Kind::Advice,
+                format!(
+                    "A guest that ran on the old network keeps its address until, as root in IRIX, \
+                     you run {CLEAR_LEASE} and restart it."
+                ),
+            );
         }
         if mode != User && !self.file.network.forward.is_empty() {
             self.report

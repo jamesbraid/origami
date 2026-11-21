@@ -62,7 +62,7 @@ fn an_explicit_emu_id_is_checked_and_a_taken_one_is_skipped() {
     assert_eq!(identity(root, "a"), ("08:00:69:e1:02:a0".into(), Some(42)));
 
     let error = create(root, "b", "origin200-1", &["--emu-id", "42"]).unwrap_err();
-    assert!(error.contains("emu-id 42 is already"), "{error}");
+    assert!(error.contains("machine ID 42 is already"), "{error}");
     assert!(!error.contains(r"\\?\"), "{error}");
     assert!(
         error.contains(&format!("{}a", std::path::MAIN_SEPARATOR)),
@@ -78,7 +78,10 @@ fn an_explicit_emu_id_is_checked_and_a_taken_one_is_skipped() {
     }
     for bad in ["0", "4096", "x"] {
         let error = create(root, "b", "origin200-1", &["--emu-id", bad]).unwrap_err();
-        assert!(error.contains("--emu-id"), "{bad}: {error}");
+        assert!(
+            error.contains("machine ID") || error.contains("emu-id"),
+            "{bad}: {error}"
+        );
     }
 
     // The auto-minted ones fill from 1, stepping over what siblings hold.

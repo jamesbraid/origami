@@ -45,7 +45,7 @@ expect(core.engines().first?.id == "fake", "the fake engine")
 expect(core.commands().contains { $0.id == "machine.start" }, "a Start command")
 
 let create = try core.createMachine(request: OrigamiCreateRequest(
-    name: "alpha", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil, systemDisk: .empty(gb: 1)))
+    name: "alpha", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil, systemDisk: .empty(gb: 1), identity: nil))
 expect(create.wait(timeoutMs: 10_000) == .succeeded, "the machine is created")
 let machines = try core.listMachines()
 print("machines:", machines.map { $0.name })
@@ -54,6 +54,9 @@ expect(machines.count == 1 && machines[0].name == "alpha", "alpha in the list")
 let key = machines[0].key
 let stopped = try core.openMachine(key: key)
 try stopped.applyChange(change: .setConsole(port: "ttyS1"))
+_ = try stopped.setNetwork(mode: .tap, device: "tap0", shareAddress: nil, subnet: nil)
+expect(try stopped.settings().network.device == "tap0", "the tap device kept")
+expect(origamiHostNetworkModes().count == 4, "four network modes")
 expect(try stopped.settings().consolePort == "ttyS1", "the console line chosen")
 expect(try stopped.settings().diskTarget == 2, "an empty system disk at target 1")
 expect(try stopped.driveInfo(drive: "system") == "Unknown", "a blank disk is Unknown")

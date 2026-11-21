@@ -49,7 +49,7 @@ func makeFakeMachine(_ host: CoreHost, library: String, name: String) -> Error? 
     FileManager.default.createFile(atPath: prom, contents: Data(count: 16))
     do {
         let op = try host.core.createMachine(request: OrigamiCreateRequest(
-            name: name, offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil, systemDisk: nil))
+            name: name, offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil, systemDisk: nil, identity: nil))
         return op.wait(timeoutMs: 10_000) == .succeeded ? nil : NSError(domain: "fake", code: 1)
     } catch { return error }
 }

@@ -17,6 +17,7 @@ mod event;
 mod install;
 mod lease;
 mod machine;
+mod network;
 mod operation;
 mod osview;
 mod ready;
@@ -35,6 +36,9 @@ pub(crate) use machine::classify_exit;
 pub use machine::{
     ConsoleChunk, ConsoleView, ExitReason, FrameHook, HeadView, HookId, Machine, MachineState,
     MachineView, StopKind,
+};
+pub use network::{
+    bridged_setup, host_network_modes, BridgedSetup, IdentityPreview, NetworkChoice, NetworkSetting,
 };
 pub use operation::{Operation, OperationState};
 pub use osview::{Osview, OsviewBar, OsviewKey, OsviewSegment, CAPTION as OSVIEW_CAPTION};

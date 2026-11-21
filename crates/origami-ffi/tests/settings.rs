@@ -30,9 +30,7 @@ fn every_change_kind_edits_the_stopped_machine() {
         .apply_change(OrigamiChange::SetProcessor { cpus_per_node: 1 })
         .unwrap();
     machine
-        .apply_change(OrigamiChange::SetNetwork {
-            mode: OrigamiNetworkMode::Private,
-        })
+        .set_network(OrigamiNetworkMode::Private, String::new(), None, None)
         .unwrap();
     machine
         .apply_change(OrigamiChange::AddForward {
@@ -47,7 +45,7 @@ fn every_change_kind_edits_the_stopped_machine() {
         .unwrap();
     let s = machine.settings().unwrap();
     assert_eq!(
-        (s.memory_per_node_mib, s.network_mode.as_str()),
+        (s.memory_per_node_mib, s.network.mode.as_str()),
         (256, "private")
     );
     assert_eq!((s.forwards.len(), s.shares.len()), (1, 1));
@@ -58,12 +56,10 @@ fn every_change_kind_edits_the_stopped_machine() {
         .apply_change(OrigamiChange::RemoveShare { name: "src".into() })
         .unwrap();
     machine
-        .apply_change(OrigamiChange::SetNetwork {
-            mode: OrigamiNetworkMode::None,
-        })
+        .set_network(OrigamiNetworkMode::None, String::new(), None, None)
         .unwrap();
     let s = machine.settings().unwrap();
-    assert_eq!(s.network_mode, "none");
+    assert_eq!(s.network.mode, "none");
     assert!(s.forwards.is_empty() && s.shares.is_empty());
     // There is no change to attach with, so give the file a drive by hand.
     let toml = std::path::Path::new(&lab.key).join("machine.toml");
@@ -164,4 +160,34 @@ fn disks_are_imported_swapped_and_named() {
         .unwrap();
     machine.change_media("cdrom4".into(), None).unwrap();
     assert_eq!(machine.settings().unwrap().drives.len(), 1);
+}
+
+#[test]
+fn a_bridged_network_is_set_by_the_core_and_returns_advice_to_copy() {
+    let lab = Lab::new(None);
+    let machine = lab.core.open_machine(lab.key.clone()).unwrap();
+    let set = |mode, device: &str, subnet: Option<&str>| {
+        machine.set_network(mode, device.into(), None, subnet.map(Into::into))
+    };
+    set(OrigamiNetworkMode::Tap, "tap0", None).unwrap();
+    let n = machine.settings().unwrap().network;
+    assert_eq!((n.mode.as_str(), n.device.as_str()), ("tap", "tap0"));
+    let lines = set(OrigamiNetworkMode::User, "", Some("10.42.0.0/24")).unwrap();
+    let advice = lines
+        .iter()
+        .find(|l| l.kind == OrigamiLineKind::Advice)
+        .unwrap();
+    assert!(advice.shown.is_some());
+    assert_eq!(
+        advice.copy.as_deref(),
+        Some("rm /var/adm/proclaim.lease_info* /etc/resolv.conf")
+    );
+    let bad = lab
+        .core
+        .preview_new_identity("fake.1".into(), None, "x".into(), None)
+        .unwrap();
+    assert_eq!(
+        bad.problem.as_deref(),
+        Some("Choose a number from 1 to 2999.")
+    );
 }

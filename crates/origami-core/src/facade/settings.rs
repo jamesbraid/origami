@@ -1,5 +1,6 @@
 //! What a machine's file says, as plain data for a settings pane.
 
+use super::network::NetworkSetting;
 use crate::Loaded;
 use origami_machine::{serial, PortForward, Result};
 
@@ -52,8 +53,7 @@ pub struct MachineSettings {
     pub disk_target: Option<u32>,
     /// The last free target there, for a CD-ROM, so disks keep the low numbers.
     pub cd_target: Option<u32>,
-    /// `user`, `private`, `none`, `tap` or `vmnet`.
-    pub network_mode: String,
+    pub network: NetworkSetting,
     pub forwards: Vec<PortForward>,
     pub shares: Vec<ShareSetting>,
     /// The serial line in use: the file's choice, else the machine's default.
@@ -119,7 +119,7 @@ pub(crate) fn read(loaded: &Loaded) -> Result<MachineSettings> {
             .collect(),
         disk_target: free_targets(file, offer).first().copied(),
         cd_target: free_targets(file, offer).last().copied(),
-        network_mode: file.network.mode.clone(),
+        network: NetworkSetting::read(file, offer),
         forwards: file.network.forward.clone(),
         shares: file
             .share

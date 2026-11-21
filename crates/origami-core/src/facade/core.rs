@@ -107,6 +107,10 @@ pub struct CreateRequest {
     pub boot_prom: Option<PathBuf>,
     pub io_prom: Option<PathBuf>,
     pub system_disk: Option<SystemDisk>,
+    /// The machine's ID as typed, 1 to 2999; empty or none takes the lowest free one.
+    pub emu_id: Option<String>,
+    /// The Ethernet address; without it the one the ID makes.
+    pub mac: Option<String>,
 }
 
 /// The system disk a new machine starts with.
@@ -242,6 +246,25 @@ impl Core {
                 }
             })
             .collect()
+    }
+
+    /// The machine ID and Ethernet address a new machine of `offering` would
+    /// get with the choices so far (`emu_id` as typed), and why they cannot be
+    /// used. Reads the library folder; off the UI thread.
+    pub fn preview_new_identity(
+        &self,
+        offering: &str,
+        engine: Option<&str>,
+        emu_id: &str,
+        mac: Option<&str>,
+    ) -> CoreResult<super::IdentityPreview> {
+        let (index, offer) = self.inner.find_offering(offering, engine)?;
+        let machines = self.inner.catalogue(index)?;
+        // Machines are compared by the folder they sit in, so any new name will do.
+        let dir = self.inner.root().join(".new-machine");
+        Ok(super::network::preview(
+            &machines, &dir, &offer, emu_id, mac,
+        ))
     }
 
     /// What can be created: the engines' offerings, neutral fields only.
@@ -462,6 +485,18 @@ impl Core {
             )
             .with_detail("name"));
         }
+        let emu_id = match request
+            .emu_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+        {
+            Some(text) => Some(
+                text.parse::<u32>()
+                    .map_err(|_| CoreError::new(ErrorKind::Invalid, super::network::not_an_id()))?,
+            ),
+            None => None,
+        };
         let slot = self.inner.slot.clone();
         // Read now: a switch made while this waits must not move the machine.
         let dir = inner.root().join(&request.name);
@@ -503,6 +538,8 @@ impl Core {
                 let mut spec = crate::MachineSpec::new(&dir, preset_of(&machines, &offering));
                 spec.memory_per_node_mib = request.memory_per_node_mib;
                 spec.graphics.product = request.graphics.clone();
+                spec.identity.emu_id = emu_id;
+                spec.identity.mac = request.mac.clone();
                 spec.firmware = crate::FirmwareRequest {
                     boot_prom: request.boot_prom.clone(),
                     io_prom: request.io_prom.clone(),

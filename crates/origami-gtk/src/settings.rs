@@ -12,10 +12,18 @@ use crate::prefs::PointerMode;
 use crate::{input, window};
 use adw::prelude::*;
 use gtk::glib;
+use origami_core::facade::NetworkSetting;
 use origami_core::facade::{CreateRequest, OperationState, SystemDisk};
-use origami_core::{Change, NetworkChange, NetworkMode};
+use origami_core::{Change, Line, NetworkMode};
 use std::cell::RefCell;
 use std::rc::Rc;
+
+/// How many times a machine's settings dialog has been built, for the scenarios to wait on a rebuild.
+static BUILDS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+pub fn builds() -> u32 {
+    BUILDS.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 fn value_row(title: &str, value: &str) -> adw::ActionRow {
     let r = adw::ActionRow::builder()
@@ -44,6 +52,7 @@ struct Loaded {
     console_ports: Vec<origami_core::facade::ConsolePortSetting>,
     disk_target: Option<u32>,
     cd_target: Option<u32>,
+    network: NetworkSetting,
 }
 
 /// Through the machine's own engine, so an iris machine is read by iris.
@@ -57,11 +66,22 @@ fn load(machine: &origami_core::facade::Machine, dir: &std::path::Path) -> Resul
         console_ports: settings.console_ports,
         disk_target: settings.disk_target,
         cd_target: settings.cd_target,
+        network: settings.network,
         file,
     })
 }
 
 pub fn present_machine(app: &Rc<App>, parent: &adw::ApplicationWindow, m: &Rc<MachineUi>) {
+    present_with(app, parent, m, vec![]);
+}
+
+/// Open the settings with `notes`, advice an edit just returned, shown at the top.
+fn present_with(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    notes: Vec<Line>,
+) {
     let (app, parent, m) = (app.clone(), parent.clone(), m.clone());
     glib::spawn_future_local(async move {
         let (machine, dir) = (m.machine.clone(), m.dir.clone());
@@ -71,7 +91,7 @@ pub fn present_machine(app: &Rc<App>, parent: &adw::ApplicationWindow, m: &Rc<Ma
         })
         .await
         .unwrap_or_else(|_| Err("the settings could not be read".into()));
-        build_machine_dialog(&app, &parent, &m, loaded);
+        build_machine_dialog(&app, &parent, &m, loaded, notes);
     });
 }
 
@@ -84,15 +104,48 @@ fn apply(
     dialog: &adw::PreferencesDialog,
     change: Change,
 ) {
+    apply_with(app, parent, m, dialog, move |machine| {
+        machine.apply_change(&change)
+    });
+}
+
+/// A network edit: the core builds the change from the machine's file.
+fn apply_network(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    dialog: &adw::PreferencesDialog,
+    (mode, device, share, subnet): (NetworkMode, String, Option<String>, Option<String>),
+) {
+    apply_with(app, parent, m, dialog, move |machine| {
+        machine.set_network(mode, &device, share.as_deref(), subnet.as_deref())
+    });
+}
+
+fn apply_with(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    dialog: &adw::PreferencesDialog,
+    edit: impl FnOnce(
+            &origami_core::facade::Machine,
+        ) -> origami_core::facade::CoreResult<origami_core::Report>
+        + Send
+        + 'static,
+) {
     let machine = m.machine.clone();
     let (app, parent, m, dialog) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
     glib::spawn_future_local(async move {
-        let r = gtk::gio::spawn_blocking(move || {
-            machine.apply_change(&change).map_err(|e| e.to_string())
-        })
-        .await;
+        let r = gtk::gio::spawn_blocking(move || edit(&machine).map_err(|e| e.to_string())).await;
         match r {
-            Ok(Ok(_)) => reopen(&app, &parent, &m, &dialog),
+            Ok(Ok(report)) => {
+                let notes = report
+                    .lines
+                    .into_iter()
+                    .filter(|l| l.shown().is_some())
+                    .collect();
+                reopen(&app, &parent, &m, &dialog, notes)
+            }
             Ok(Err(e)) => dialog.add_toast(adw::Toast::new(&e)),
             Err(_) => dialog.add_toast(adw::Toast::new("the change could not be applied")),
         }
@@ -105,12 +158,13 @@ fn reopen(
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
     dialog: &adw::PreferencesDialog,
+    notes: Vec<Line>,
 ) {
     *m.entry.borrow_mut() = library::read(&m.dir);
     crate::window::rebuild_hero(m);
     crate::window::refresh(app);
     dialog.close();
-    present_machine(app, parent, m);
+    present_with(app, parent, m, notes);
 }
 
 fn build_machine_dialog(
@@ -118,11 +172,13 @@ fn build_machine_dialog(
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
     loaded: Result<Loaded, String>,
+    notes: Vec<Line>,
 ) {
     let dialog = adw::PreferencesDialog::builder()
         .title(format!("{} Settings", m.name))
         .build();
     dialog.set_widget_name("settings.dialog");
+    BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let running = m.state.get().is_up();
 
     let general = adw::PreferencesPage::builder()
@@ -355,51 +411,10 @@ fn build_machine_dialog(
                 .title("Network")
                 .icon_name("network-wired-symbolic")
                 .build();
-            let g = adw::PreferencesGroup::builder().title("Network").build();
-            let modes = [
-                (NetworkMode::User, "user"),
-                (NetworkMode::Private, "private"),
-                (NetworkMode::None, "none"),
-            ];
-            let mode = adw::ComboRow::builder()
-                .title("Mode")
-                .sensitive(!running)
-                .build();
-            mode.set_model(Some(&gtk::StringList::new(&[
-                "Shared (NAT)",
-                "Private",
-                "Off",
-            ])));
-            let at = modes.iter().position(|(_, n)| *n == f.network.mode);
-            match at {
-                Some(i) => mode.set_selected(i as u32),
-                None => {
-                    // tap and vmnet need an endpoint this sheet does not ask for.
-                    mode.set_sensitive(false);
-                    mode.set_subtitle(&format!("Currently {}", f.network.mode));
-                }
+            if !notes.is_empty() {
+                net.add(&notes_group(&notes, dialog.upcast_ref()));
             }
-            let start = mode.selected();
-            {
-                let (app, parent, m, d) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
-                mode.connect_selected_notify(move |c| {
-                    if c.selected() != start {
-                        if let Some((mode, _)) = modes.get(c.selected() as usize) {
-                            let change = NetworkChange {
-                                mode: *mode,
-                                endpoint: None,
-                                interface: None,
-                                share_address: None,
-                                subnet: None,
-                                mac: None,
-                            };
-                            apply(&app, &parent, &m, &d, Change::SetNetwork(change));
-                        }
-                    }
-                });
-            }
-            g.add(&mode);
-            net.add(&g);
+            network_groups(app, parent, m, &dialog, &net, &l.network, running);
             let fg = adw::PreferencesGroup::builder()
                 .title("Port forwards")
                 .build();
@@ -491,6 +506,9 @@ fn build_machine_dialog(
             sg.add(&add);
             net.add(&sg);
             dialog.add(&net);
+            if !notes.is_empty() {
+                dialog.set_visible_page(&net);
+            }
             let startup = adw::PreferencesPage::builder()
                 .title("Startup & Firmware")
                 .icon_name("system-shutdown-symbolic")
@@ -628,6 +646,212 @@ fn list_downloaded(
     }
 }
 
+/// Advice an edit returned, each line with a Copy button when it names a command.
+fn notes_group(notes: &[Line], root: &gtk::Widget) -> adw::PreferencesGroup {
+    let g = adw::PreferencesGroup::new();
+    g.set_widget_name("settings.notes");
+    for n in notes {
+        let row = adw::ActionRow::builder()
+            .title(n.shown().unwrap_or_default())
+            .title_lines(0)
+            .build();
+        if let Some(command) = n.copy_text() {
+            let copy = gtk::Button::builder()
+                .label("Copy")
+                .valign(gtk::Align::Center)
+                .build();
+            let root = root.clone();
+            copy.connect_clicked(move |_| root.clipboard().set_text(command));
+            row.add_suffix(&copy);
+        }
+        g.add(&row);
+    }
+    g
+}
+
+/// A button that puts `text` on the clipboard.
+fn copy_button(root: &adw::PreferencesDialog, text: String) -> gtk::Button {
+    let copy = gtk::Button::builder()
+        .label("Copy")
+        .valign(gtk::Align::Center)
+        .build();
+    let root = root.clone();
+    copy.connect_clicked(move |_| root.clipboard().set_text(&text));
+    copy
+}
+
+fn entry(title: &str, id: &str, text: &str, running: bool) -> adw::EntryRow {
+    let row = adw::EntryRow::builder()
+        .title(title)
+        .show_apply_button(true)
+        .sensitive(!running)
+        .build();
+    row.set_widget_name(id);
+    row.set_text(text);
+    row
+}
+
+/// Mode, the Bridged fields, the Ethernet address and the private subnet.
+fn network_groups(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    dialog: &adw::PreferencesDialog,
+    page: &adw::PreferencesPage,
+    n: &NetworkSetting,
+    running: bool,
+) {
+    let choices = origami_core::facade::host_network_modes();
+    let setup = origami_core::facade::bridged_setup();
+    let is_bridged = |mode: NetworkMode| matches!(mode, NetworkMode::Tap | NetworkMode::Vmnet);
+    let current = choices.iter().position(|c| c.mode.as_str() == n.mode);
+    let host_mode = choices.iter().map(|c| c.mode).find(|m| is_bridged(*m));
+    let g = adw::PreferencesGroup::builder().title("Network").build();
+    let mode = adw::ComboRow::builder()
+        .title("Mode")
+        .sensitive(!running)
+        .build();
+    mode.set_widget_name("settings.network");
+    let labels: Vec<&str> = choices.iter().map(|c| c.label.as_str()).collect();
+    mode.set_model(Some(&gtk::StringList::new(&labels)));
+    match current {
+        Some(i) => {
+            mode.set_selected(i as u32);
+            mode.set_subtitle(&choices[i].detail);
+        }
+        // A mode this computer cannot run: nothing is selected, so any choice is a change.
+        None => {
+            mode.set_selected(gtk::INVALID_LIST_POSITION);
+            mode.set_subtitle(&format!("Currently {}", n.mode));
+        }
+    }
+    let start = mode.selected();
+    g.add(&mode);
+    page.add(&g);
+
+    // Bridged shows its fields before anything is saved: the core needs the device with the mode.
+    let host = adw::PreferencesGroup::builder()
+        .title("Bridged")
+        .visible(current.is_some_and(|i| is_bridged(choices[i].mode)))
+        .build();
+    let device = entry(
+        &format!("{} ({})", setup.field, setup.example),
+        "network.device",
+        &n.device,
+        running,
+    );
+    let share = entry(
+        "Address for shared folders (ADDRESS/PREFIX)",
+        "network.share-address",
+        n.share_address.as_deref().unwrap_or_default(),
+        running,
+    );
+    let help = adw::ExpanderRow::builder()
+        .title("How to set this up")
+        .build();
+    help.add_row(
+        &adw::ActionRow::builder()
+            .title(&setup.steps)
+            .title_lines(0)
+            .build(),
+    );
+    if let Some(commands) = setup.commands.clone() {
+        help.add_suffix(&copy_button(dialog, commands));
+    }
+    host.add(&device);
+    host.add(&share);
+    host.add(&help);
+    for w in &n.warnings {
+        host.add(&adw::ActionRow::builder().title(w).title_lines(0).build());
+    }
+    page.add(&host);
+
+    if let Some(host_mode) = host_mode {
+        let send = {
+            let (app, parent, m, d, device, share) = (
+                app.clone(),
+                parent.clone(),
+                m.clone(),
+                dialog.clone(),
+                device.clone(),
+                share.clone(),
+            );
+            move |_: &adw::EntryRow| {
+                let (device, share) = (device.text().to_string(), share.text().to_string());
+                apply_network(
+                    &app,
+                    &parent,
+                    &m,
+                    &d,
+                    (host_mode, device, Some(share), None),
+                );
+            }
+        };
+        device.connect_apply(send.clone());
+        share.connect_apply(send);
+    }
+    {
+        let (app, parent, m, d, host) = (
+            app.clone(),
+            parent.clone(),
+            m.clone(),
+            dialog.clone(),
+            host.clone(),
+        );
+        let choices = choices.clone();
+        mode.connect_selected_notify(move |c| {
+            let Some(choice) = choices.get(c.selected() as usize) else {
+                return;
+            };
+            c.set_subtitle(&choice.detail);
+            // Choosing the mode the machine has leaves the fields as the file shows them.
+            host.set_visible(is_bridged(choice.mode));
+            if c.selected() != start && !is_bridged(choice.mode) {
+                apply_network(
+                    &app,
+                    &parent,
+                    &m,
+                    &d,
+                    (choice.mode, String::new(), None, None),
+                );
+            }
+        });
+    }
+
+    let id = adw::PreferencesGroup::builder()
+        .title("Ethernet address")
+        .build();
+    let address = value_row(n.mac.as_deref().unwrap_or("None"), &n.mac_note);
+    address.set_widget_name("network.mac");
+    if let Some(mac) = n.mac.clone() {
+        address.add_suffix(&copy_button(dialog, mac));
+    }
+    id.add(&address);
+    page.add(&id);
+
+    if let Some(mode) = current
+        .map(|i| choices[i].mode)
+        .filter(|m| matches!(m, NetworkMode::User | NetworkMode::Private))
+    {
+        let adv = adw::ExpanderRow::builder().title("Advanced").build();
+        let subnet = entry(
+            "Private subnet (a /24)",
+            "network.subnet",
+            &n.subnet,
+            running,
+        );
+        let (app, parent, m, d) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
+        subnet.connect_apply(move |row| {
+            let subnet = Some(row.text().to_string());
+            apply_network(&app, &parent, &m, &d, (mode, String::new(), None, subnet));
+        });
+        adv.add_row(&subnet);
+        let ag = adw::PreferencesGroup::new();
+        ag.add(&adv);
+        page.add(&ag);
+    }
+}
+
 /// Change and Eject for a CD-ROM row. They work while the machine runs, too.
 fn cd_buttons(
     app: &Rc<App>,
@@ -697,7 +921,7 @@ fn media(
         })
         .await;
         match r {
-            Ok(Ok(())) => reopen(&app, &parent, &m, &dialog),
+            Ok(Ok(())) => reopen(&app, &parent, &m, &dialog, vec![]),
             Ok(Err(e)) => {
                 eprintln!("origami-gtk: CD change refused: {e}");
                 dialog.add_toast(adw::Toast::new(&e))
@@ -820,7 +1044,7 @@ fn add_image(
                         }
                         _ => {
                             dialog.close();
-                            reopen(&app, &parent, &m, &settings);
+                            reopen(&app, &parent, &m, &settings, vec![]);
                         }
                     });
                 }
@@ -1188,6 +1412,7 @@ fn new_machine_dialog(
     g.add(&size);
     g.add(&choose);
     let image_ok = Rc::new(std::cell::Cell::new(false));
+    let identity = IdentityForm::new();
     let create = gtk::Button::builder()
         .label("Create")
         .css_classes(["suggested-action"])
@@ -1195,13 +1420,54 @@ fn new_machine_dialog(
         .build();
     create.set_widget_name("new.create");
     let ready = {
-        let (create, name, disk, image_ok) =
-            (create.clone(), name.clone(), disk.clone(), image_ok.clone());
+        let (create, name, disk, image_ok, id_ok) = (
+            create.clone(),
+            name.clone(),
+            disk.clone(),
+            image_ok.clone(),
+            identity.ok.clone(),
+        );
         Rc::new(move || {
             let named = !name.text().trim().is_empty();
-            create.set_sensitive(named && (disk.selected() != 2 || image_ok.get()));
+            create.set_sensitive(named && id_ok.get() && (disk.selected() != 2 || image_ok.get()));
         })
     };
+    // The preview follows the model, the engine and what is typed in Advanced.
+    let refresh = {
+        let (app, identity, offerings, engine, combo, ready) = (
+            app.clone(),
+            identity.clone(),
+            offerings.clone(),
+            engine.clone(),
+            combo.clone(),
+            ready.clone(),
+        );
+        let engines = engines.clone();
+        Rc::new(move || {
+            let offering = offerings
+                .borrow()
+                .get(combo.selected() as usize)
+                .map(|o| o.id.clone());
+            if let Some(offering) = offering {
+                identity.refresh(
+                    &app,
+                    offering,
+                    engines.get(engine.selected() as usize).cloned(),
+                    ready.clone(),
+                );
+            }
+        })
+    };
+    identity.watch(refresh.clone());
+    {
+        let refresh = refresh.clone();
+        combo.connect_selected_notify(move |_| refresh());
+    }
+    {
+        let refresh = refresh.clone();
+        engine.connect_selected_notify(move |_| refresh());
+    }
+    refresh();
     let form = {
         let (image_ok, ready) = (image_ok.clone(), ready.clone());
         disks::ImageForm::new(app, None, move |ok| {
@@ -1300,6 +1566,7 @@ fn new_machine_dialog(
         .build();
     g.add(&err);
     page.add(&g);
+    page.add(&identity.group);
     page.add(&form.group);
     let progress = adw::PreferencesGroup::new();
     let bar = gtk::ProgressBar::builder().visible(false).build();
@@ -1338,7 +1605,8 @@ fn new_machine_dialog(
             name.clone(),
             err.clone(),
         );
-        let (disk, size, form) = (disk.clone(), size.clone(), form.clone());
+        let (disk, size, form, identity) =
+            (disk.clone(), size.clone(), form.clone(), identity.clone());
         let (release, ready_disks) = (release.clone(), ready_disks.clone());
         let (bar, line, stop) = (bar.clone(), line.clone(), stop.clone());
         create.connect_clicked(move |b| {
@@ -1357,6 +1625,8 @@ fn new_machine_dialog(
                 return;
             }
             let request = CreateRequest {
+                emu_id: Some(identity.id.text().to_string()),
+                mac: identity.mac(),
                 name: name.text().trim().to_string(),
                 offering: o.id.clone(),
                 engine: engines.get(engine.selected() as usize).cloned(),
@@ -1418,6 +1688,150 @@ fn new_machine_dialog(
         });
     }
     dialog.present(Some(parent));
+}
+
+/// New Machine's Advanced rows: the machine ID and the Ethernet address it makes.
+#[derive(Clone)]
+struct IdentityForm {
+    group: adw::PreferencesGroup,
+    id: adw::EntryRow,
+    shown: adw::ActionRow,
+    custom: adw::SwitchRow,
+    mac: adw::EntryRow,
+    /// Whether the ID and address can be used, so Create may be offered.
+    ok: Rc<std::cell::Cell<bool>>,
+    /// Set while the form writes a row itself, so that is not read as typing.
+    writing: Rc<std::cell::Cell<bool>>,
+    /// The latest question put to the core; older answers are dropped.
+    round: Rc<std::cell::Cell<u32>>,
+}
+
+impl IdentityForm {
+    fn new() -> Self {
+        let advanced = adw::ExpanderRow::builder().title("Advanced").build();
+        let id = adw::EntryRow::builder()
+            .title("Machine ID (1 to 2999)")
+            .build();
+        id.set_widget_name("new.id");
+        let shown = adw::ActionRow::builder()
+            .title("Ethernet address")
+            .subtitle_selectable(true)
+            .build();
+        shown.set_widget_name("new.mac");
+        let custom = adw::SwitchRow::builder()
+            .title("Use this address instead")
+            .build();
+        custom.set_widget_name("new.mac-custom");
+        let mac = adw::EntryRow::builder()
+            .title("Address (08:00:69:__:__:__)")
+            .visible(false)
+            .build();
+        mac.set_widget_name("new.mac-entry");
+        for row in [
+            id.upcast_ref::<gtk::Widget>(),
+            shown.upcast_ref(),
+            custom.upcast_ref(),
+            mac.upcast_ref(),
+        ] {
+            advanced.add_row(row);
+        }
+        let group = adw::PreferencesGroup::new();
+        group.add(&advanced);
+        let this = Self {
+            group,
+            id,
+            shown,
+            custom,
+            mac,
+            ok: Rc::new(std::cell::Cell::new(true)),
+            writing: Rc::new(std::cell::Cell::new(false)),
+            round: Rc::new(std::cell::Cell::new(0)),
+        };
+        this.custom.connect_active_notify({
+            let mac = this.mac.clone();
+            move |c| mac.set_visible(c.is_active())
+        });
+        this
+    }
+
+    fn watch(&self, refresh: Rc<dyn Fn()>) {
+        let (writing, r) = (self.writing.clone(), refresh.clone());
+        self.id.connect_changed(move |_| {
+            if !writing.get() {
+                r()
+            }
+        });
+        let (writing, r) = (self.writing.clone(), refresh.clone());
+        self.mac.connect_changed(move |_| {
+            if !writing.get() {
+                r()
+            }
+        });
+        self.custom.connect_active_notify(move |_| refresh());
+    }
+
+    fn mac(&self) -> Option<String> {
+        let typed = self.mac.text().trim().to_string();
+        (self.custom.is_active() && !typed.is_empty()).then_some(typed)
+    }
+
+    fn refresh(
+        &self,
+        app: &Rc<App>,
+        offering: String,
+        engine: Option<String>,
+        ready: Rc<dyn Fn()>,
+    ) {
+        let (core, id, mac) = (app.core.clone(), self.id.text().to_string(), self.mac());
+        let round = self.round.get() + 1;
+        self.round.set(round);
+        let this = self.clone();
+        glib::spawn_future_local(async move {
+            let asked = id.clone();
+            let preview = gtk::gio::spawn_blocking(move || {
+                core.preview_new_identity(&offering, engine.as_deref(), &id, mac.as_deref())
+                    .map_err(|e| e.to_string())
+            })
+            .await;
+            // A later change has asked again; its answer is the one to show.
+            if this.round.get() != round {
+                return;
+            }
+            let (shown, problem) = match preview {
+                Ok(Ok(p)) => {
+                    // The next free ID fills an empty field, never one the person has started typing.
+                    if asked.trim().is_empty() && this.id.text().trim().is_empty() {
+                        this.writing.set(true);
+                        this.id.set_text(&p.emu_id.to_string());
+                        this.writing.set(false);
+                    }
+                    if !p.from_id {
+                        this.custom.set_active(true);
+                    }
+                    this.custom.set_sensitive(p.from_id);
+                    let shown = if p.mac.is_empty() {
+                        "Set by the machine".into()
+                    } else {
+                        p.mac
+                    };
+                    (shown, p.problem)
+                }
+                Ok(Err(e)) => (String::new(), Some(e)),
+                Err(_) => (
+                    String::new(),
+                    Some("the address could not be checked".into()),
+                ),
+            };
+            this.shown.set_subtitle(&shown);
+            this.id.remove_css_class("error");
+            if problem.is_some() {
+                this.id.add_css_class("error");
+            }
+            this.group.set_description(problem.as_deref());
+            this.ok.set(problem.is_none());
+            ready();
+        });
+    }
 }
 
 #[cfg(test)]

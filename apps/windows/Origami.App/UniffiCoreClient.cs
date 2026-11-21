@@ -113,7 +113,7 @@ public sealed class UniffiCoreClient : ICoreClient
         if (_core.ListMachines().Length > 0) return;
         foreach (var name in new[] { "Octane2 (fake)", "O2 (fake)" })
         {
-            var op = _core.CreateMachine(new OrigamiCreateRequest(name, "fake.1", null, null, prom, null, null, null));
+            var op = _core.CreateMachine(new OrigamiCreateRequest(name, "fake.1", null, null, prom, null, null, null, null));
             if (op.Wait(30_000) is not OrigamiOperationState.Succeeded) throw new InvalidOperationException("could not create " + name);
         }
         ReadCore(true);
@@ -130,7 +130,7 @@ public sealed class UniffiCoreClient : ICoreClient
     public string CreateFrom(string name, string product, string? graphics = null)
     {
         var o = _core.Catalogue().First(x => x.Product.Contains(product, StringComparison.OrdinalIgnoreCase));
-        var op = _core.CreateMachine(new OrigamiCreateRequest(name, o.Id, null, graphics, null, null, null, null));
+        var op = _core.CreateMachine(new OrigamiCreateRequest(name, o.Id, null, graphics, null, null, null, null, null));
         if (op.Wait(300_000) is not OrigamiOperationState.Succeeded) throw new InvalidOperationException("create failed: " + op.State());
         var made = op.ResultMachine() ?? "";
         ReadCore(true);
@@ -141,7 +141,7 @@ public sealed class UniffiCoreClient : ICoreClient
     public IReadOnlyList<Offering> Catalogue() => _core.Catalogue()
         .Select(o => new Offering(o.Id, o.Engine, o.Product, o.Topology, (int)o.Nodes, (int)o.Cpus)).ToList();
 
-    public Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default, SystemDisk? disk = null, IProgress<CopyProgress>? progress = null) => Task.Run(() =>
+    public Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default, SystemDisk? disk = null, IProgress<CopyProgress>? progress = null, IdentityRequest? identity = null) => Task.Run(() =>
     {
 #if ORIGAMI_FAKE
         var prom = _fakeProm;
@@ -155,7 +155,7 @@ public sealed class UniffiCoreClient : ICoreClient
             SystemDisk.Ready r => new OrigamiSystemDisk.Ready(r.Name),
             _ => null,
         };
-        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null, engine, system));
+        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null, engine, system, identity is null ? null : new OrigamiIdentityRequest(identity.EmuId, identity.Mac)));
         var reg = ct.Register(() => op.Cancel());
         try
         {
@@ -242,24 +242,46 @@ public sealed class UniffiCoreClient : ICoreClient
             (int)s.MemoryPerNodeMib, s.MemoryAllowedMib.Select(x => (int)x).ToList(),
             s.Pipes.Select(p => new Pipe(p.Slot, p.Product, p.Family)).ToList(),
             s.Drives.Select(d => new Drive(d.Name, d.Kind, (int)d.Bus, (int)d.Target, d.Image, d.ReadOnly)).ToList(),
-            s.NetworkMode,
+            new NetworkSetting(s.Network.Mode, s.Network.Device, s.Network.ShareAddress, s.Network.Subnet, s.Network.Mac, s.Network.MacNote, s.Network.Warnings.ToList()),
             s.Forwards.Select(f => new Forward(f.Name, f.Protocol, f.HostPort, f.GuestPort)).ToList(),
             s.Shares.Select(x => new Share(x.Name, x.HostDir)).ToList(),
             s.ConsolePort, s.ConsolePorts.Select(c => new ConsoleLine(c.Name, c.Label, c.IsDefault)).ToList(),
             (int?)s.DiskTarget, (int?)s.CdTarget);
     });
 
-    public Task ApplyChangeAsync(string key, MachineChange change) => Task.Run(() => M(key).ApplyChange(change switch
+    static string ModeName(OrigamiNetworkMode m) => m switch
+    {
+        OrigamiNetworkMode.User => "user", OrigamiNetworkMode.Private => "private", OrigamiNetworkMode.None => "none",
+        OrigamiNetworkMode.Tap => "tap", _ => "vmnet",
+    };
+
+    static OrigamiNetworkMode ModeOf(string name) => name switch
+    {
+        "user" => OrigamiNetworkMode.User, "private" => OrigamiNetworkMode.Private, "none" => OrigamiNetworkMode.None,
+        "tap" => OrigamiNetworkMode.Tap, "vmnet" => OrigamiNetworkMode.Vmnet,
+        _ => throw new ArgumentException("unknown network mode " + name),
+    };
+
+    public IReadOnlyList<NetworkChoice> NetworkModes() => OrigamiFfiMethods.OrigamiHostNetworkModes().Select(c => new NetworkChoice(ModeName(c.Mode), c.Label, c.Detail)).ToList();
+
+    public BridgedSetup HostBridgedSetup()
+    {
+        var b = OrigamiFfiMethods.OrigamiBridgedSetup();
+        return new BridgedSetup(b.Field, b.Example, b.Steps, b.Commands);
+    }
+
+    public Task<IdentityPreview> PreviewIdentityAsync(string offeringId, string? engine, string emuId, string? mac) => Task.Run(() =>
+    {
+        var p = _core.PreviewNewIdentity(offeringId, engine, emuId, mac);
+        return new IdentityPreview(p.EmuId, p.Mac, p.FromId, p.Problem);
+    });
+
+    public Task<IReadOnlyList<ReportLine>> ApplyChangeAsync(string key, MachineChange change) => Task.Run<IReadOnlyList<ReportLine>>(() => (change is MachineChange.SetNetwork n
+        ? M(key).SetNetwork(ModeOf(n.Mode), n.Device, n.ShareAddress, n.Subnet)
+        : M(key).ApplyChange(change switch
     {
         MachineChange.SetCpus c => new OrigamiChange.SetProcessor((uint)c.CpusPerNode),
         MachineChange.SetMemory c => new OrigamiChange.SetMemory((uint)c.MiB),
-        MachineChange.SetNetwork c => new OrigamiChange.SetNetwork(c.Mode switch
-        {
-            "user" => OrigamiNetworkMode.User,
-            "private" => OrigamiNetworkMode.Private,
-            "none" => OrigamiNetworkMode.None,
-            _ => throw new ArgumentException("unknown network mode " + c.Mode),
-        }),
         MachineChange.AddForward c => new OrigamiChange.AddForward(new OrigamiForward(c.Forward.Name, c.Forward.Protocol, (ushort)c.Forward.HostPort, (ushort)c.Forward.GuestPort)),
         MachineChange.RemoveForward c => new OrigamiChange.RemoveForward(c.Name),
         MachineChange.AddShare c => new OrigamiChange.AddShare(c.Share.Name, c.Share.HostDir),
@@ -268,7 +290,7 @@ public sealed class UniffiCoreClient : ICoreClient
         MachineChange.SetConsole c => new OrigamiChange.SetConsole(c.Port),
         MachineChange.AttachCd c => new OrigamiChange.AttachDrive(c.Path, OrigamiDriveKind.Cdrom, (uint)c.Target, false),
         _ => throw new ArgumentException("unknown change"),
-    }));
+    })).Select(l => new ReportLine(Enum.Parse<LineKind>(l.Kind.ToString()), l.Text, l.Shown, l.Copy)).ToList());
 
     public string Heads(string key) => string.Join("; ", (TryView(key)?.Heads ?? Array.Empty<OrigamiHeadView>()).Select(h => $"#{h.Index} {h.Width}x{h.Height} active={h.Active} seq={h.Seq}"));
 
@@ -355,7 +377,7 @@ public sealed class UniffiCoreClient : ICoreClient
 
     public Task<IReadOnlyList<ReportLine>> UpgradeAsync(string key) => Task.Run<IReadOnlyList<ReportLine>>(() =>
     {
-        try { return _core.UpgradeMachine(key).Select(l => new ReportLine(Enum.Parse<LineKind>(l.Kind.ToString()), l.Text)).ToList(); }
+        try { return _core.UpgradeMachine(key).Select(l => new ReportLine(Enum.Parse<LineKind>(l.Kind.ToString()), l.Text, l.Shown, l.Copy)).ToList(); }
         finally { ReadCore(true); } // the list says at once whether the machine still needs it
     });
 

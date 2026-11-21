@@ -68,10 +68,10 @@ HostStopped | Crashed | RunnerError`, and `exit_detail`), `start()`, `stop(Clean
 be cancelled and can take minutes), `control(Reset | PowerButton | Nmi | Pause |
 Resume)`, `change_media(drive, image?)`, `screendump(head, path)`,
 `settings()` (the machine file: processor, CPUs and memory with the values the
-offering allows, graphics pipes, drives, network mode, port forwards,
+offering allows, graphics pipes, drives, network (mode, device, subnet, Ethernet address), port forwards,
 shares and serial lines), `apply_change(OrigamiChange)` (`SetProcessor | SetMemory | SetNetwork
 | AddForward | RemoveForward | AddShare | RemoveShare | DetachDrive |
-SetConsole`; `Busy`
+SetConsole`; returns the report lines, such as advice; `Busy`
 unless the machine is stopped, so read `settings()` again after it),
 `send_key(OrigamiKey, down)`, `send_pointer(Move | At | Button | Wheel)`,
 `release_all_keys()` (call when your window loses focus; returns how many it

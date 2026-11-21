@@ -299,7 +299,7 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 })
                 .collect();
             json!({"machines": ms, "library": lib, "library_pills": pills, "library_badges": badges, "cpu_btn": cpu_btn, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
-                   "enabled": enabled, "cpu_s": cpu_seconds(),
+                   "enabled": enabled, "cpu_s": cpu_seconds(), "settings_builds": crate::settings::builds(),
                    "toolbar_tips": window::active(app).map(|w| w.toolbar.iter().map(|b| b.tooltip_text().map(|t| t.to_string())).collect::<Vec<_>>()),
                    "pause_tip": window::active(app).and_then(|w| w.pause_btn.tooltip_text()).map(|t| t.to_string()),
                    "status_pills": app.windows.borrow().iter().map(|w| w.pill.label().to_string()).collect::<Vec<_>>()})
@@ -498,6 +498,8 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             }
             if let (Some(row), Some(value)) = (widget.downcast_ref::<adw::EntryRow>(), value) {
                 row.set_text(value);
+                // A row with an apply button applies on this, as the button does.
+                row.emit_by_name::<()>("apply", &[]);
                 return json!({"ok": true});
             }
             if let (Some(row), Some(value)) = (widget.downcast_ref::<adw::SpinRow>(), value) {

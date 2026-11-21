@@ -36,6 +36,26 @@ pub struct Line {
 }
 
 impl Line {
+    /// What a person is told, or none for the lines kept for the log. Every
+    /// app shows this and nothing else.
+    pub fn shown(&self) -> Option<String> {
+        match self.kind {
+            Kind::Result | Kind::Detail => None,
+            Kind::Note | Kind::Advice => Some(self.text.clone()),
+            Kind::GuestNote => Some(format!(
+                "{}; the guest sees this at its next boot",
+                self.text
+            )),
+            Kind::Warning => Some(format!("Warning: {}", self.text)),
+        }
+    }
+
+    /// A command the line tells the user to run, for a Copy button.
+    pub fn copy_text(&self) -> Option<&'static str> {
+        let command = crate::change::CLEAR_LEASE;
+        (self.kind == Kind::Advice && self.text.contains(command)).then_some(command)
+    }
+
     pub fn stream(&self) -> Stream {
         match self.kind {
             Kind::Warning => Stream::Err,
