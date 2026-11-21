@@ -1157,7 +1157,6 @@ fn an_image_is_used_in_place_or_copied_into_the_machines_folder() {
     let f = fixture();
     let image = f.root.path().join("irix.img");
     std::fs::write(&image, irix_disk()).unwrap();
-    let image_text = image.to_string_lossy().into_owned();
     let place = |copy| SystemDisk::Image {
         file: image.clone(),
         copy,
@@ -1172,7 +1171,9 @@ fn an_image_is_used_in_place_or_copied_into_the_machines_folder() {
         .settings()
         .unwrap()
         .drives;
-    assert_eq!(drives[0].image, image_text);
+    // Windows temp paths can come back in their short 8.3 form, so compare files, not text.
+    let canon = |p: &str| std::fs::canonicalize(p).unwrap();
+    assert_eq!(canon(&drives[0].image), canon(&image.to_string_lossy()));
     let (key, state) = f.create_with("copied", place(true));
     assert_eq!(state, OperationState::Succeeded);
     let drives = f
