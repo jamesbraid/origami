@@ -210,6 +210,7 @@ func runDisplaySelfTest(library: String, out: String) {
         emitStep(id, problems.isEmpty, ["problems": problems, "picture": rect(now.picture), "surface": [now.surface.w, now.surface.h],
                                         "frame": [Int(now.frame.width), Int(now.frame.height)], "draw_forced": forced])
     }
+    if let png = model.view?.readback() { writePNG(png, to: "\(out)/display-picture.png") }
     // A view attached before the one it replaces detaches, as SwiftUI may do on a tab switch, shows the
     // picture the old one leaves behind: the machine keeps it and wakes the new view.
     if let first = model.view {
@@ -222,7 +223,13 @@ func runDisplaySelfTest(library: String, out: String) {
         second.detach()
     }
     emitStep("rows-ran", ran >= 6, ["ran": ran, "skipped": skipped.count])
-    emit(["step": "window-capture", "ok": true, "window_number": win.windowNumber])
+    // The window as the screen shows it, for whoever reads the readbacks; it needs the screen permission and may not be given.
+    let shot = Process()
+    shot.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+    shot.arguments = ["-x", "-o", "-l\(win.windowNumber)", "\(out)/display-window.png"]
+    try? shot.run()
+    shot.waitUntilExit()
+    emit(["step": "window-capture", "ok": true, "file": "display-window.png", "exists": FileManager.default.fileExists(atPath: "\(out)/display-window.png")])
     var stopped = false
     app.stopAll(force: true) { _ in stopped = true }
     _ = waitFor(60) { stopped }

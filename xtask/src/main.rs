@@ -9,6 +9,7 @@
 //! cargo xtask universal --arm64 FILE --x86_64 FILE [--out DIR]
 //! cargo xtask bump    qemu|instigator TAG
 //! cargo xtask tokens [--check]
+//! cargo xtask selftest --display [--out DIR]
 //! ```
 
 mod app;
@@ -16,6 +17,7 @@ mod archive;
 mod instigator;
 mod lock;
 mod notices;
+mod selftest;
 mod tokens;
 mod universal;
 
@@ -56,6 +58,7 @@ struct Options {
     qemu_archive: Option<PathBuf>,
     out: Option<PathBuf>,
     app: bool,
+    display: bool,
     target: Option<String>,
     prebuild: Option<PathBuf>,
     prebuilt: Option<PathBuf>,
@@ -78,6 +81,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--qemu-archive" => options.qemu_archive = Some(value("--qemu-archive")?.into()),
             "--out" => options.out = Some(value("--out")?.into()),
             "--app" => options.app = true,
+            "--display" => options.display = true,
             "--target" => options.target = Some(value("--target")?),
             "--prebuild" => options.prebuild = Some(value("--prebuild")?.into()),
             "--prebuilt" => options.prebuilt = Some(value("--prebuilt")?.into()),
@@ -546,7 +550,7 @@ fn main() {
     let result = (|| -> Result<()> {
         let Some((command, rest)) = args.split_first() else {
             return Err(
-                "usage: cargo xtask runtime | test | dist | bump qemu|instigator TAG | tokens [--check]".into(),
+                "usage: cargo xtask runtime | test | selftest --display | dist | bump qemu|instigator TAG | tokens [--check]".into(),
             );
         };
         if command == "tokens" {
@@ -582,6 +586,8 @@ fn main() {
                     "usage: cargo xtask universal --arm64 FILE --x86_64 FILE [--out DIR]".into(),
                 ),
             },
+            "selftest" if options.display => selftest::run_display(options.out.clone()),
+            "selftest" => Err("usage: cargo xtask selftest --display [--out DIR]".into()),
             "test" => test(&options),
             "dist" => dist(&options),
             "bump" => match options.positional.as_slice() {

@@ -375,6 +375,13 @@ fewer than six rows ran (two on Windows).
   headless self-test; the window is real and on screen, the visible frame fixed at
   2800x2000 points. Fake-engine builds only.
 
+`cargo xtask selftest --display [--out DIR]` builds that fake-engine app on a Mac
+and runs the same table on the Mac's own screen, so a Retina display is covered by
+whoever has one. It writes the JSON lines (`selftest-display.jsonl`), the renderer's
+picture (`display-picture.png`) and a screenshot of the window (`display-window.png`,
+which needs screen-recording permission for the terminal) to `DIR/readbacks`, and prints
+that path. On other systems it says where the equivalent run is.
+
 Only the Linux job can force a 2x display (`GDK_SCALE=2`). The macOS and Windows
 runners run the rows for the scale they have, which is 1x unless the log says
 otherwise.
