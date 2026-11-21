@@ -1,21 +1,29 @@
 //! Which operating system and version is on a disk image.
 
 pub mod image;
+mod label;
 
 use disk_dvh as dvh;
 use disk_efs::Efs;
 use disk_ext::Ext;
+use disk_ffs::Ffs;
 use disk_rofs::{Dev, Part, ReadFs, Volumes};
 use disk_xfs::Xfs;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 
-/// Opens the file system on one partition, whichever of EFS and XFS it is.
+/// Opens the file system on one partition, whichever kind it is.
 fn open_fs(part: Part) -> Option<Box<dyn ReadFs>> {
     if let Ok(fs) = Efs::open(part.clone()) {
         return Some(Box::new(fs));
     }
-    Xfs::open(part)
+    if let Ok(fs) = Xfs::open(part.clone()) {
+        return Some(Box::new(fs));
+    }
+    if let Ok(fs) = Ffs::open(part.clone()) {
+        return Some(Box::new(fs));
+    }
+    Ext::open(part)
         .ok()
         .map(|fs| Box::new(fs) as Box<dyn ReadFs>)
 }
@@ -112,14 +120,84 @@ pub fn detect_path(path: &std::path::Path) -> io::Result<Detected> {
     Ok(detect(&dev, size))
 }
 
-/// Detects the system on an SGI disk. Read errors count as "not found".
+/// Detects the system on a disk: an SGI volume header, a BSD disklabel, or
+/// a bare file system. Read errors, and a panic in any reader, count as "not found".
 pub fn detect(dev: &Dev, size: u64) -> Detected {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| detect_disk(dev, size)))
+        .unwrap_or(Detected::Unknown)
+}
+
+fn detect_disk(dev: &Dev, size: u64) -> Detected {
     if let Ok(vols) = mount_sgi(dev, size) {
         if let Some(version) = irix_version(&vols) {
             return Detected::Irix { version };
         }
     }
-    linux(dev, size).unwrap_or(Detected::Unknown)
+    for part in candidates(dev, size) {
+        let Some(fs) = open_fs(part) else { continue };
+        let mut vols = Volumes::new();
+        vols.mount("/", fs);
+        if let Some(found) = identify(&vols) {
+            return found;
+        }
+    }
+    Detected::Unknown
+}
+
+/// Byte ranges that may hold a file system: volume header partitions, BSD
+/// disklabel slots, then the whole disk for a bare file system.
+fn candidates(dev: &Dev, size: u64) -> Vec<Part> {
+    let mut head = vec![0u8; 1024];
+    let n = dev.read_at(0, &mut head).unwrap_or(0);
+    head.truncate(n);
+    let part = |start: u64, len: u64| {
+        (len > 0 && start.checked_add(len).is_some_and(|e| e <= size)).then(|| Part {
+            dev: dev.clone(),
+            start,
+            len,
+        })
+    };
+    let mut out = vec![];
+    let add_label = |at: u64, out: &mut Vec<Part>| {
+        let mut b = vec![0u8; 1024];
+        let n = dev.read_at(at, &mut b).unwrap_or(0);
+        if let Some(l) = label::find(&b[..n]) {
+            for s in l.slots {
+                if matches!(s.fstype, label::FS_BSDFFS | label::FS_EXT2FS) {
+                    out.extend(part(s.offset * l.sector, s.size * l.sector));
+                }
+            }
+        }
+    };
+    match dvh::parse(&head) {
+        Ok(hdr) => {
+            for p in hdr.partitions.iter().filter(|p| !p.is_empty()) {
+                if matches!(p.kind, dvh::TYPE_VOLHDR | dvh::TYPE_VOLUME) {
+                    continue;
+                }
+                out.extend(part(p.start(), p.len()));
+                if p.kind == dvh::TYPE_BSD && p.start() < size {
+                    add_label(p.start(), &mut out);
+                }
+            }
+        }
+        Err(_) => add_label(0, &mut out),
+    }
+    out.extend(part(0, size));
+    let mut seen = HashSet::new();
+    out.retain(|p| seen.insert((p.start, p.len)));
+    out
+}
+
+/// The system a mounted root file system belongs to.
+fn identify(vols: &Volumes) -> Option<Detected> {
+    if let Some(version) = irix_version(vols) {
+        return Some(Detected::Irix { version });
+    }
+    ["/etc/os-release", "/usr/lib/os-release"]
+        .iter()
+        .find_map(|f| vols.read_file(f, 64 << 10).ok())
+        .and_then(|text| parse_os_release(&String::from_utf8_lossy(&text)))
 }
 
 /// The release the kernel carries. IRIX keeps its installed-product history in
@@ -153,30 +231,6 @@ fn kernel_release(kernel: &[u8]) -> Option<String> {
         .filter(|t| is_release(t))
         .max_by_key(|t| t.matches('.').count())
         .map(String::from)
-}
-
-/// Linux on an SGI disk: an ext2/3/4 partition (type 0x83) with an os-release.
-fn linux(dev: &Dev, size: u64) -> Option<Detected> {
-    let mut head = [0u8; 512];
-    dev.read_exact_at(0, &mut head).ok()?;
-    let hdr = dvh::parse(&head).ok()?;
-    hdr.partitions
-        .iter()
-        .filter(|p| !p.is_empty() && p.kind == 0x83 && p.start() + p.len() <= size)
-        .find_map(|p| {
-            let fs = Ext::open(Part {
-                dev: dev.clone(),
-                start: p.start(),
-                len: p.len(),
-            })
-            .ok()?;
-            let mut vols = Volumes::new();
-            vols.mount("/", Box::new(fs));
-            let text = ["/etc/os-release", "/usr/lib/os-release"]
-                .iter()
-                .find_map(|f| vols.read_file(f, 64 << 10).ok())?;
-            parse_os_release(&String::from_utf8_lossy(&text))
-        })
 }
 
 fn parse_os_release(text: &str) -> Option<Detected> {

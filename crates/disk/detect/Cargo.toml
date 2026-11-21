@@ -10,6 +10,7 @@ description = "Works out which operating system and version is on a disk image"
 disk-rofs = { path = "../rofs" }
 disk-dvh = { path = "../dvh" }
 disk-efs = { path = "../efs" }
+disk-ffs = { path = "../ffs" }
 disk-ext = { path = "../ext" }
 disk-xfs = { path = "../xfs" }
 chd = "0.4"

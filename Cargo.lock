@@ -1564,6 +1564,7 @@ dependencies = [
  "disk-dvh",
  "disk-efs",
  "disk-ext",
+ "disk-ffs",
  "disk-rofs",
  "disk-xfs",
  "flate2",

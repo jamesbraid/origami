@@ -34,6 +34,38 @@ fn linux_partition_reports_os_release() {
     assert_eq!(got.to_string(), "Debian GNU/Linux 12");
 }
 
+fn gunzip(gz: &[u8]) -> Vec<u8> {
+    let mut v = vec![];
+    flate2::read::GzDecoder::new(gz)
+        .read_to_end(&mut v)
+        .unwrap();
+    v
+}
+
+fn detect_bytes(disk: Vec<u8>) -> String {
+    let size = disk.len() as u64;
+    detect(&(Arc::new(disk) as _), size).to_string()
+}
+
+#[test]
+fn bare_ext_file_system_is_detected() {
+    assert_eq!(
+        detect_bytes(gunzip(include_bytes!("data/ext2.img.gz"))),
+        "Debian GNU/Linux 12"
+    );
+}
+
+#[test]
+fn a_panicking_reader_is_unknown() {
+    struct Boom;
+    impl disk_rofs::ReadAt for Boom {
+        fn read_at(&self, _: u64, _: &mut [u8]) -> std::io::Result<usize> {
+            panic!("boom")
+        }
+    }
+    assert_eq!(detect(&(Arc::new(Boom) as _), 1 << 20), Detected::Unknown);
+}
+
 #[test]
 fn blank_disk_is_unknown() {
     assert_eq!(
@@ -61,4 +93,10 @@ fn irix_53_chd() {
 #[ignore = "needs DISK_DETECT_IRIX65 pointing at a published IRIX 6.5.22 CHD"]
 fn irix_65_chd() {
     real("DISK_DETECT_IRIX65", "IRIX 6.5.22m");
+}
+
+#[test]
+#[ignore = "needs DISK_DETECT_GENTOO pointing at a bare ext4 Gentoo file system"]
+fn gentoo_ext4_image() {
+    real("DISK_DETECT_GENTOO", "Gentoo 2.18");
 }
