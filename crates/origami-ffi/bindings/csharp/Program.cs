@@ -76,6 +76,10 @@ internal static class Program
         Expect(stopped.Settings().ConsolePort == "ttyS1", "the console line chosen");
         Expect(stopped.Settings().DiskTarget == 2, "an empty system disk at target 1");
         Expect(stopped.DriveInfo("system") == "Unknown", "a blank disk is Unknown");
+        Expect(core.InstallPlan(key) is null, "no install setup yet");
+        Expect(OrigamiFfiMethods.OrigamiInstallReleases()[0].Release == "6.5.30", "the newest release first");
+        Expect(new OrigamiInstallFlow(null).Step() == OrigamiInstallStep.Release, "a new assistant starts at Release");
+        Expect(stopped.BootConsole() is OrigamiBootConsole.Serial, "a headless machine prints on serial");
         var machine = core.StartMachine(key);
         Expect(machine.View().State == OrigamiMachineState.Running, "a running machine");
         Expect(recorder.Wait(e => e.Machine == key && e.Kinds.Contains(OrigamiEventKind.State)), "a state event");

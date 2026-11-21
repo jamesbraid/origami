@@ -11,6 +11,7 @@ mod control;
 #[cfg(feature = "render")]
 mod cube;
 mod engines;
+mod flow;
 mod frame;
 mod keys;
 mod terminal;
@@ -19,6 +20,7 @@ mod wake;
 pub use control::*;
 #[cfg(feature = "render")]
 pub use cube::*;
+pub use flow::*;
 pub use frame::*;
 pub use keys::{origami_key, OrigamiKey};
 pub use terminal::*;

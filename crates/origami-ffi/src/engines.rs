@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 pub(crate) struct Engines {
     pub list: Vec<Arc<dyn Engine>>,
+    /// The install media server's program, when the build has one.
+    pub instigator: Option<std::path::PathBuf>,
     #[cfg(feature = "fake")]
     pub fake: Arc<origami_engine::fake::FakeEngine>,
 }
@@ -15,8 +17,34 @@ pub(crate) fn build() -> Result<Engines, CoreError> {
     let fake = Arc::new(origami_engine::fake::FakeEngine::new());
     Ok(Engines {
         list: vec![fake.clone()],
+        instigator: fake_instigator(),
         fake,
     })
+}
+
+/// A stand-in for Instigator: `check` passes and `serve` runs until it is
+/// killed, as the install self-tests need.
+#[cfg(feature = "fake")]
+fn fake_instigator() -> Option<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join(format!("origami-fake-instigator-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).ok()?;
+    #[cfg(windows)]
+    let (path, text) = (
+        dir.join("instigator.cmd"),
+        "@echo off\r\nif \"%1\"==\"serve\" ping -n 3600 127.0.0.1 >nul\r\nexit /b 0\r\n",
+    );
+    #[cfg(not(windows))]
+    let (path, text) = (
+        dir.join("instigator"),
+        "#!/bin/sh\ncase \"$1\" in serve) exec sleep 3600;; esac\ncat >/dev/null\n",
+    );
+    std::fs::write(&path, text).ok()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).ok()?;
+    }
+    Some(path)
 }
 
 /// QEMU runs in the `origami` runner beside this library; this process
@@ -24,6 +52,7 @@ pub(crate) fn build() -> Result<Engines, CoreError> {
 #[cfg(all(feature = "qemu", not(feature = "fake")))]
 pub(crate) fn build() -> Result<Engines, CoreError> {
     let runtime = origami_qemu::Runtime::locate().map_err(CoreError::machine)?;
+    let instigator = runtime.instigator().ok().map(std::path::Path::to_path_buf);
     let runner = origami_qemu::RunnerEngine::locate_runner().map_err(CoreError::machine)?;
     let engine = origami_qemu::RunnerEngine::new(runtime, runner);
     #[cfg(feature = "render")]
@@ -41,7 +70,7 @@ pub(crate) fn build() -> Result<Engines, CoreError> {
         iris.attach_display(None);
         list.push(Arc::new(iris));
     }
-    Ok(Engines { list })
+    Ok(Engines { list, instigator })
 }
 
 /// The adapter's name for the About egg, when the GPU can be opened.

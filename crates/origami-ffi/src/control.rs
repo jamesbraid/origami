@@ -159,6 +159,8 @@ pub struct OrigamiOffering {
     pub topology_name: String,
     /// Whether a machine made with the defaults has a graphics head.
     pub has_display: bool,
+    /// Whether the machine runs IRIX, so Install IRIX applies.
+    pub runs_irix: bool,
     pub nodes: u32,
     pub cpus: u32,
     pub memory_default_mib: u32,
@@ -175,6 +177,8 @@ pub struct OrigamiMachineSummary {
     pub topology_name: Option<String>,
     /// Whether the machine has a graphics head, from its file.
     pub has_display: bool,
+    /// Whether the machine runs IRIX, so Install IRIX applies.
+    pub runs_irix: bool,
     pub nodes: u32,
     pub memory_per_node_mib: u32,
     pub state: OrigamiMachineState,
@@ -677,6 +681,10 @@ pub enum OrigamiChange {
     DetachDrive {
         name: String,
     },
+    /// A new, empty system disk.
+    CreateDisk {
+        size_mib: u64,
+    },
     AttachDrive {
         path: String,
         kind: OrigamiDriveKind,
@@ -711,6 +719,7 @@ impl From<OrigamiChange> for origami_core::Change {
             },
             OrigamiChange::RemoveShare { name } => Self::RemoveShare(name),
             OrigamiChange::DetachDrive { name } => Self::DetachDrive(name),
+            OrigamiChange::CreateDisk { size_mib } => Self::CreateDisk { size_mib },
             OrigamiChange::AttachDrive {
                 path,
                 kind,
@@ -1014,6 +1023,141 @@ pub fn origami_credits_json() -> String {
     origami_credits::credits_json()
 }
 
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiInstallProfile {
+    pub name: String,
+    pub label: String,
+    pub detail: String,
+}
+
+/// An IRIX release the install assistant offers.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiInstallRelease {
+    pub release: String,
+    pub label: String,
+    pub profiles: Vec<OrigamiInstallProfile>,
+}
+
+/// What a machine's install setup configures.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiInstallPlan {
+    /// What it sets up, for the footer.
+    pub summary: String,
+    pub release: String,
+    pub profile: String,
+    pub local_media: bool,
+    pub addons: Vec<String>,
+}
+
+/// A package to install after IRIX: a known one by `name`, or one from
+/// `source` (a file or HTTPS address) with its `install` selections.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiInstallAddon {
+    pub name: String,
+    pub source: Option<String>,
+    pub install: Vec<String>,
+}
+
+/// What the assistant has asked for.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiInstallSetup {
+    pub release: String,
+    pub profile: String,
+    pub media_root: Option<String>,
+    pub addons: Vec<OrigamiInstallAddon>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiInstallAddonChoice {
+    pub name: String,
+    pub label: String,
+    pub note: Option<String>,
+    pub checked: bool,
+    pub locked: bool,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiMediaFolder {
+    pub found: u32,
+    pub total: u32,
+    pub missing: Vec<String>,
+    pub verdict: String,
+    pub complete: bool,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiGuideStep {
+    pub text: String,
+    pub command: Option<String>,
+    pub send: Option<String>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiInstallGuide {
+    pub server: String,
+    pub prepare: Vec<OrigamiGuideStep>,
+    pub installer: Vec<OrigamiGuideStep>,
+    pub packages: Vec<OrigamiGuideStep>,
+    pub restart: Vec<OrigamiGuideStep>,
+    pub finish: Vec<OrigamiGuideStep>,
+    pub package_note: String,
+}
+
+impl From<f::GuideStep> for OrigamiGuideStep {
+    fn from(s: f::GuideStep) -> Self {
+        Self {
+            text: s.text,
+            command: s.command,
+            send: s.send,
+        }
+    }
+}
+
+/// Where the PROM prints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum OrigamiBootConsole {
+    Serial,
+    Screen,
+}
+
+/// The IRIX releases the install assistant offers.
+#[uniffi::export]
+pub fn origami_install_releases() -> Vec<OrigamiInstallRelease> {
+    f::install_releases()
+        .into_iter()
+        .map(|r| OrigamiInstallRelease {
+            release: r.release,
+            label: r.label,
+            profiles: r
+                .profiles
+                .into_iter()
+                .map(|p| OrigamiInstallProfile {
+                    name: p.name,
+                    label: p.label,
+                    detail: p.detail,
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// What a folder holds of an install's discs. Reads directory entries only.
+#[uniffi::export]
+pub fn origami_install_media_folder(
+    path: String,
+    release: String,
+    profile: String,
+) -> Res<OrigamiMediaFolder> {
+    let m = f::install_media_folder(std::path::Path::new(&path), &release, &profile)?;
+    Ok(OrigamiMediaFolder {
+        found: m.found,
+        total: m.total,
+        missing: m.missing,
+        verdict: m.verdict,
+        complete: m.complete,
+    })
+}
+
 /// The core. Make one per process.
 #[derive(uniffi::Object)]
 pub struct OrigamiCore {
@@ -1032,7 +1176,9 @@ impl OrigamiCore {
     ) -> Res<Arc<OrigamiCore>> {
         let engines = engines::build()?;
         let observer = observer.map(|o| Arc::new(ObserverBridge(o)) as Arc<dyn f::Observer>);
-        let core = f::Core::new(f::Config::new(library_root), engines.list, observer)?;
+        let mut config = f::Config::new(library_root);
+        config.instigator = engines.instigator;
+        let core = f::Core::new(config, engines.list, observer)?;
         Ok(Arc::new(OrigamiCore {
             core,
             #[cfg(feature = "fake")]
@@ -1077,6 +1223,7 @@ impl OrigamiCore {
                 topology: o.topology,
                 topology_name: o.topology_name,
                 has_display: o.has_display,
+                runs_irix: o.runs_irix,
                 nodes: o.nodes,
                 cpus: o.cpus,
                 memory_default_mib: o.memory_default_mib,
@@ -1099,6 +1246,7 @@ impl OrigamiCore {
                 topology: m.topology,
                 topology_name: m.topology_name,
                 has_display: m.has_display,
+                runs_irix: m.runs_irix,
                 nodes: m.nodes,
                 memory_per_node_mib: m.memory_per_node_mib,
                 state: m.state.into(),
@@ -1244,6 +1392,110 @@ impl OrigamiCore {
 
     pub fn open_machine(&self, key: String) -> Res<Arc<OrigamiMachine>> {
         Ok(Arc::new(OrigamiMachine(self.core.open_machine(&key)?)))
+    }
+
+    /// The add-ons to offer for `profile` on the machine at `key`.
+    pub fn install_addon_choices(
+        &self,
+        key: String,
+        profile: String,
+    ) -> Res<Vec<OrigamiInstallAddonChoice>> {
+        Ok(self
+            .core
+            .install_addon_choices(&key, &profile)?
+            .into_iter()
+            .map(|c| OrigamiInstallAddonChoice {
+                name: c.name,
+                label: c.label,
+                note: c.note,
+                checked: c.checked,
+                locked: c.locked,
+            })
+            .collect())
+    }
+
+    /// What the machine's install setup configures; none before it is set up.
+    pub fn install_plan(&self, key: String) -> Res<Option<OrigamiInstallPlan>> {
+        Ok(self.core.install_plan(&key)?.map(|p| OrigamiInstallPlan {
+            summary: p.summary,
+            release: p.release,
+            profile: p.profile,
+            local_media: p.local_media,
+            addons: p.addons,
+        }))
+    }
+
+    /// Set a stopped machine up for an install, replacing any earlier setup,
+    /// and switch it to the installation network. Blocks: off the UI thread.
+    pub fn install_prepare(
+        &self,
+        key: String,
+        setup: OrigamiInstallSetup,
+    ) -> Res<Vec<OrigamiReportLine>> {
+        let setup = f::InstallSetup {
+            release: setup.release,
+            profile: setup.profile,
+            media_root: setup.media_root.map(PathBuf::from),
+            addons: setup
+                .addons
+                .into_iter()
+                .map(|a| f::InstallSetupAddon {
+                    name: a.name,
+                    source: a.source,
+                    install: a.install,
+                })
+                .collect(),
+        };
+        Ok(report_lines(self.core.install_prepare(&key, &setup)?))
+    }
+
+    /// The disk the install erases, or none when the machine has no disk.
+    pub fn install_disk(&self, key: String) -> Res<Option<crate::OrigamiInstallDisk>> {
+        Ok(self.core.install_disk(&key)?.map(Into::into))
+    }
+
+    /// Put the network back as it was before the setup. Blocks: off the UI thread.
+    pub fn install_restore_network(&self, key: String) -> Res<Vec<OrigamiReportLine>> {
+        Ok(report_lines(self.core.install_restore_network(&key)?))
+    }
+
+    /// Whether the machine still waits on the installation network, so the
+    /// assistant should offer to set it back (`set_prepared` on its flow).
+    pub fn install_restore_pending(&self, key: String) -> Res<bool> {
+        Ok(self.core.install_restore_pending(&key)?)
+    }
+
+    /// Forget the machine's install setup. Blocks: off the UI thread.
+    pub fn install_reset(&self, key: String) -> Res<()> {
+        Ok(self.core.install_reset(&key)?)
+    }
+
+    /// The steps to follow at the machine, from its install setup.
+    pub fn install_guide(&self, key: String) -> Res<OrigamiInstallGuide> {
+        let g = self.core.install_guide(&key)?;
+        let steps = |v: Vec<f::GuideStep>| v.into_iter().map(Into::into).collect();
+        Ok(OrigamiInstallGuide {
+            server: g.server,
+            prepare: steps(g.prepare),
+            installer: steps(g.installer),
+            packages: steps(g.packages),
+            restart: steps(g.restart),
+            finish: steps(g.finish),
+            package_note: g.package_note,
+        })
+    }
+
+    /// Check the install media. Cancel it to stop it.
+    pub fn install_check(&self, key: String, full: bool) -> Res<Arc<OrigamiOperation>> {
+        Ok(Arc::new(OrigamiOperation(
+            self.core.install_check(&key, full)?,
+        )))
+    }
+
+    /// Serve the install media until cancelled; `progress` says what it
+    /// serves. The server ends with the core.
+    pub fn install_serve(&self, key: String) -> Res<Arc<OrigamiOperation>> {
+        Ok(Arc::new(OrigamiOperation(self.core.install_serve(&key)?)))
     }
 
     /// Open and start, waiting until it runs. Blocks: use
@@ -1493,6 +1745,14 @@ impl OrigamiMachine {
     }
 
     /// The machine file's settings. Reads the disk: off the UI thread.
+    /// Where the PROM prints. Reads the machine's files: off the UI thread.
+    pub fn boot_console(&self) -> Res<OrigamiBootConsole> {
+        Ok(match self.0.boot_console()? {
+            f::BootConsole::Serial => OrigamiBootConsole::Serial,
+            f::BootConsole::Screen => OrigamiBootConsole::Screen,
+        })
+    }
+
     pub fn settings(&self) -> Res<OrigamiMachineSettings> {
         Ok(self.0.settings()?.into())
     }
