@@ -159,14 +159,17 @@ public static class Selftest
         Check("console line: Settings lists the machine's lines with the default marked", line != null && line.Items.Count == 2 && line.SelectedIndex == 0 && (string)line.Items[0] == "ttyS0 (default)", line == null ? "no combo" : string.Join(",", line.Items));
         if (line != null)
         {
-            line.SelectedIndex = 1;
+            // The dialog is rebuilt after an edit; the combo just set is stale until a new one replaces it.
+            var stale = line;
+            stale.SelectedIndex = 1;
             var chosen = await Until(() => core.SettingsAsync(made).Result.ConsolePort == "ttyS1", 3000);
             line = null;
-            await Until(() => (line = FindOpen<ComboBox>(w, "settings.console")) is { SelectedIndex: 1 }, 3000);
-            Check("console line: picking the second line is written and the dialog shows it", chosen && line is { SelectedIndex: 1 }, line?.SelectedIndex.ToString() ?? "no combo");
-            if (line != null) line.SelectedIndex = 0;
+            await Until(() => (line = FindOpen<ComboBox>(w, "settings.console")) is { SelectedIndex: 1 } c && !ReferenceEquals(c, stale), 3000);
+            var fresh = line is { SelectedIndex: 1 } && !ReferenceEquals(line, stale);
+            Check("console line: picking the second line is written and the dialog shows it", chosen && fresh, $"file {core.SettingsAsync(made).Result.ConsolePort}, rebuilt combo at {line?.SelectedIndex.ToString() ?? "none"}");
+            if (fresh) line!.SelectedIndex = 0;
             var back = await Until(() => core.SettingsAsync(made).Result.ConsolePort == "ttyS0", 3000);
-            Check("console line: picking the default line puts the choice back", back);
+            Check("console line: picking the default line puts the choice back", fresh && back, $"file {core.SettingsAsync(made).Result.ConsolePort}");
         }
         FindOpen<ContentDialog>(w, null)?.Hide();
         await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
