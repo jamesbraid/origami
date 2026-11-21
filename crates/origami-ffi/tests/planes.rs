@@ -343,3 +343,30 @@ fn a_create_may_name_an_engine() {
         }
     ));
 }
+
+#[test]
+fn a_create_with_an_unknown_ready_disk_fails_and_leaves_no_machine() {
+    let lab = Lab::new(None);
+    let prom = lab.root.path().join("prom.bin");
+    let state = lab
+        .core
+        .create_machine(OrigamiCreateRequest {
+            name: "ready".into(),
+            offering: "fake.1".into(),
+            memory_per_node_mib: None,
+            graphics: None,
+            boot_prom: Some(prom.to_str().unwrap().into()),
+            io_prom: None,
+            engine: None,
+            system_disk: Some(OrigamiSystemDisk::Ready {
+                name: "irix/none.chd".into(),
+            }),
+        })
+        .unwrap()
+        .wait(Some(10_000));
+    assert!(
+        matches!(state, OrigamiOperationState::Failed { .. }),
+        "{state:?}"
+    );
+    assert!(!lab.root.path().join("ready").exists());
+}

@@ -19,6 +19,7 @@ pub mod migrate;
 pub mod model;
 pub mod nvram;
 pub mod profiles;
+pub mod ready;
 pub mod serial;
 pub mod settings;
 pub mod shares;
@@ -471,8 +472,20 @@ pub fn sha256_hex(data: &[u8]) -> String {
         .collect()
 }
 
+/// The file's digest, read in pieces: disks are far larger than memory should hold.
 pub fn sha256_file(path: &Path) -> Result<String> {
-    Ok(sha256_hex(&fs::read(path)?))
+    use std::io::Read;
+    let mut file = fs::File::open(path)?;
+    let mut hash = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buf[..n]);
+    }
+    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

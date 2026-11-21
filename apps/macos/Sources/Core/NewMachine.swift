@@ -3,18 +3,20 @@
 import Combine
 import Foundation
 
-/// The system disk New Machine offers. Ready-made disks and Install from discs join this list later.
+/// The system disk New Machine offers. Install from discs joins this list later.
 enum DiskChoice: Int, CaseIterable, Identifiable {
     case noDisk, empty, image
+    /// Offered only while the server has a disk for the model.
+    case ready
     var id: Int { rawValue }
-    /// The core words the choices, in this order.
-    var title: String { origamiDiskLabels().choices[rawValue] }
+    /// The core words the choices, in this order, and the ready-made one after them.
+    var title: String { let l = origamiDiskLabels(); return self == .ready ? l.ready : l.choices[rawValue] }
 }
 
 @MainActor
 final class NewMachineModel: ObservableObject {
     @Published private(set) var offerings: [OrigamiOffering] = []
-    @Published var selected = 0
+    @Published var selected = 0 { didSet { loadReady() } }
     /// The engine the machine will run on. It is always explicit; the catalogue's first engine until the person picks.
     @Published var engine: String? {
         didSet {
@@ -28,6 +30,10 @@ final class NewMachineModel: ObservableObject {
     @Published var disk = DiskChoice.noDisk
     /// The empty disk's size in GB.
     @Published var sizeGB = Int(origamiDiskLabels().defaultGb)
+    /// The ready-made disks that fit the model, and the one picked.
+    @Published private(set) var readyDisks: [OrigamiReadyDisk] = []
+    @Published var readyPick = 0
+    private var asked = 0
     /// The copy's progress, while one runs.
     @Published private(set) var progress: (fraction: Double, text: String)?
     let image: ImageChoice
@@ -57,11 +63,32 @@ final class NewMachineModel: ObservableObject {
     /// More than one engine to choose between; with one the picker is shown but cannot be changed.
     var canPickEngine: Bool { engines.count > 1 }
 
-    var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var canCreate: Bool {
-        !trimmedName.isEmpty && !creating && offerings.indices.contains(selected) && (disk != .image || image.ready)
+    var choices: [DiskChoice] { readyDisks.isEmpty ? DiskChoice.allCases.filter { $0 != .ready } : DiskChoice.allCases }
+
+    /// Ask the server for the disks that fit the model, off the main thread; a later model choice wins.
+    private func loadReady() {
+        asked += 1
+        let turn = asked
+        guard let core = app.host?.core, offerings.indices.contains(selected) else { return }
+        let id = offerings[selected].id
+        DispatchQueue.global(qos: .userInitiated).async {
+            let found = (try? core.readyDisks(offering: id)) ?? []
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard turn == self.asked else { return }
+                    self.readyDisks = found; self.readyPick = 0
+                    if found.isEmpty && self.disk == .ready { self.disk = .noDisk }
+                }
+            }
+        }
     }
 
+    var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    var canCreate: Bool {
+        !trimmedName.isEmpty && !creating && offerings.indices.contains(selected) && (disk != .image || image.ready) && (disk != .ready || readyDisks.indices.contains(readyPick))
+    }
+
+    /// Stops a download or a copy.
     func cancelCopy() { operation?.cancel() }
 
     /// Show the operation's progress until it ends.
@@ -104,6 +131,7 @@ final class NewMachineModel: ObservableObject {
         case .noDisk: systemDisk = nil
         case .empty: systemDisk = .empty(gb: UInt32(max(1, sizeGB)))
         case .image: systemDisk = image.system
+        case .ready: systemDisk = .ready(name: readyDisks[readyPick].name)
         }
         let request = OrigamiCreateRequest(name: trimmedName, offering: offerings[selected].id, memoryPerNodeMib: nil,
                                            graphics: nil, bootProm: bootProm, ioProm: nil, engine: engine ?? offerings[selected].engine,
@@ -112,6 +140,7 @@ final class NewMachineModel: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async {
             var key: String?
             var failure: String?
+            var nothingMade = false
             do {
                 let op = try core.createMachine(request: request)
                 DispatchQueue.main.async { MainActor.assumeIsolated { self.watch(op) } }
@@ -120,8 +149,8 @@ final class NewMachineModel: ObservableObject {
                     key = op.resultMachine()
                     if key == nil { failure = "The machine was created but could not be opened. Look for it in the library." }
                 case .failed(_, let message): failure = message
-                // A cancelled copy leaves the machine without a disk.
-                case .cancelled: break
+                // A cancelled copy leaves the machine without a disk; a cancelled download made nothing.
+                case .cancelled: nothingMade = op.resultMachine() == nil
                 default: failure = "The machine was not created."
                 }
             } catch { failure = "\(error)" }
@@ -130,6 +159,7 @@ final class NewMachineModel: ObservableObject {
                     self.creating = false
                     self.ticker?.invalidate(); self.progress = nil; self.operation = nil
                     if let failure { self.error = failure; done(false); return }
+                    if nothingMade { done(false); return }
                     self.app.rescanNow()   // the new machine must be listed before its tab opens
                     if let key { self.app.openInNewTab(key) }
                     done(true)

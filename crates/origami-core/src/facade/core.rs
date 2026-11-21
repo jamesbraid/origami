@@ -121,6 +121,10 @@ pub enum SystemDisk {
         copy: bool,
         overlay: bool,
     },
+    /// A ready-made disk, by `ReadyDisk::name`: downloaded and checked first
+    /// when it is not cached, then copied into the machine's folder with its
+    /// changes kept apart. The cached file is never written.
+    Ready { name: String },
 }
 
 pub(crate) fn attach_request(file: &Path, target: u32, overlay: bool) -> crate::DriveRequest {
@@ -173,7 +177,7 @@ impl Drop for CoreInner {
 /// Clones share one core.
 #[derive(Clone)]
 pub struct Core {
-    inner: Arc<CoreInner>,
+    pub(super) inner: Arc<CoreInner>,
 }
 
 impl Core {
@@ -473,6 +477,26 @@ impl Core {
                         "creation was cancelled",
                     ));
                 }
+                // Before the machine exists, so a cancelled or failed download leaves nothing.
+                let mut _hold = None;
+                let system_disk = match &request.system_disk {
+                    Some(SystemDisk::Ready { name }) => {
+                        let (file, held) = super::ready::acquire(
+                            name,
+                            &offering.product,
+                            &offering.topology,
+                            &dir,
+                            control,
+                        )?;
+                        _hold = Some(held);
+                        Some(SystemDisk::Image {
+                            file,
+                            copy: true,
+                            overlay: true,
+                        })
+                    }
+                    other => other.clone(),
+                };
                 // The same create the CLI runs, so graphics, the serial
                 // console of a headless machine, identity and settings agree.
                 let machines = inner.catalogue(index)?;
@@ -487,7 +511,7 @@ impl Core {
                     file,
                     copy: false,
                     overlay,
-                }) = &request.system_disk
+                }) = &system_disk
                 {
                     spec.drives.push(attach_request(file, 1, *overlay));
                 }
@@ -497,7 +521,7 @@ impl Core {
                 // A machine whose disk could not be made is removed, so Create works again;
                 // a cancelled copy keeps it.
                 let disk = (|| -> CoreResult<()> {
-                    match &request.system_disk {
+                    match &system_disk {
                         Some(SystemDisk::Empty { gb }) => {
                             crate::apply_change(
                                 engine.as_ref(),
@@ -528,7 +552,14 @@ impl Core {
                     }
                 })();
                 if let Err(error) = disk {
-                    if error.kind != ErrorKind::Cancelled {
+                    if error.kind == ErrorKind::Cancelled {
+                        control.kept(
+                            dir.canonicalize()
+                                .unwrap_or_else(|_| dir.clone())
+                                .to_string_lossy()
+                                .into_owned(),
+                        );
+                    } else {
                         let _ = std::fs::remove_dir_all(&dir);
                     }
                     inner.slot.raise(&[EventKind::Library]);
@@ -710,7 +741,7 @@ impl CoreInner {
         Ok(cache[index].get_or_insert(loaded).clone())
     }
 
-    fn find_offering(
+    pub(super) fn find_offering(
         &self,
         id: &str,
         engine: Option<&str>,

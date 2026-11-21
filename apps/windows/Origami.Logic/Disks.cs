@@ -7,7 +7,13 @@ public sealed record DiskImageCheck(ulong Bytes, bool IsChd, ulong FreeBytes, st
 public sealed record ImageVerdict(string? Note, bool Warning, bool Ready);
 
 /// <summary>The New Machine disk choices and how an image is kept, as the core words them.</summary>
-public sealed record DiskLabels(IReadOnlyList<string> Choices, IReadOnlyList<string> Place, IReadOnlyList<string> Keep, string SameKind, uint DefaultGb);
+public sealed record DiskLabels(IReadOnlyList<string> Choices, IReadOnlyList<string> Place, IReadOnlyList<string> Keep, string SameKind, string Ready, string Release, uint DefaultGb);
+
+/// <summary>A ready-made disk the server offers for a machine; <c>Label</c> is what to show, such as "IRIX 6.5.22, 835 MB".</summary>
+public sealed record ReadyDisk(string Name, string Version, ulong Bytes, bool Cached, string Label);
+
+/// <summary>A downloaded disk, listed in Preferences.</summary>
+public sealed record CachedDisk(string Key, string Label, ulong Bytes);
 
 /// <summary>How far a copy has got, with the core's line for it.</summary>
 public sealed record CopyProgress(double Fraction, string Text);
@@ -18,12 +24,14 @@ public abstract record SystemDisk
     public sealed record Empty(uint Gb) : SystemDisk;
     /// <summary>The file used where it is, or copied into the machine's folder; <c>Overlay</c> keeps a CHD's changes apart.</summary>
     public sealed record Image(string Path, bool Copy, bool Overlay) : SystemDisk;
+    /// <summary>A <see cref="ReadyDisk.Name"/>: downloaded and checked first if needed, then copied in with its changes kept apart.</summary>
+    public sealed record Ready(string Name) : SystemDisk;
 }
 
-/// <summary>Positions in <see cref="DiskLabels.Choices"/>. Ready-made disks and Install from discs join them later.</summary>
+/// <summary>Positions in <see cref="DiskLabels.Choices"/>; the ready-made choice follows them while the server lists a disk. Install from discs joins later.</summary>
 public static class DiskChoices
 {
-    public const int None = 0, Empty = 1, Image = 2;
+    public const int None = 0, Empty = 1, Image = 2, Ready = 3;
 }
 
 /// <summary>The image a person chose and the questions about it; the macOS and GTK apps ask the same and say the same.</summary>

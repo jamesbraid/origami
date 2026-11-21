@@ -96,6 +96,7 @@ public sealed partial class MainWindow : Window
         UpgradeButton.Click += (_, _) => RunUpgrade();
         UpgradeShow.Click += (_, _) => { if (SelectedKey is { } k) ShowMachineInExplorer(k); };
 
+        Settings.Core = core;
         Settings.Saved += s => { _store.Save(s); ApplySettings(s); };
         Settings.Closed += () => { _prefsOpen = false; Refresh(); };
 

@@ -106,6 +106,22 @@ naming what is on it, such as "IRIX 6.5.30" or "OpenBSD 6.9", or "Unknown";
 the library row shows the system disk's badge. This is
 [`drive-create`](usage.md) and `drive-attach` from the command line.
 
+When the disk server lists a ready-made, boot-checked IRIX disk for the model
+you picked, **Ready-made disk** joins the choices, with a list of IRIX
+releases and their sizes. Create downloads the disk once, checks its SHA-256
+and copies it into the machine's folder with its changes kept apart; the
+download shows its progress and can be cancelled, and a stopped download
+resumes; one that gets no data for a minute stops with a message to try
+again. Cancelling the download makes no machine and keeps the part already
+fetched; cancelling the copy that follows leaves the machine without a disk.
+The disk must fit the model and both the download folder and the library need
+room before it starts. Downloads are kept in one shared folder in the cache directory, with
+no size limit and no automatic cleanup, so a second machine starts from the
+same file without downloading again. Preferences, Storage lists them with a
+Remove button, which is refused while a disk is being downloaded or copied.
+The machine gets its own copy because the CHD driver keeps its
+changes beside the image file and offers no way to put them elsewhere.
+
 ## Start it
 
 Select the machine and press Start (Ctrl+Shift+R; Cmd+R on macOS). The

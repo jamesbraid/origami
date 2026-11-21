@@ -241,6 +241,9 @@ public static class Selftest
         Check("disks: an image used in place stays where it is",
             placeDrives.Count == 1 && placeDrives[0].Image.EndsWith("disk-irix-6.5.30.img") && !File.Exists(Path.Combine(core.LibraryRoot, "Disk place", "drives", "disk-irix-6.5.30.img")), string.Join(",", placeDrives.Select(d => d.Image)));
         Check("disks: an image used in place warns that IRIX writes into it", placeNote.Contains("IRIX will write into this file"), placeNote);
+        // A ready-made disk is a choice after the others, and Preferences can list the downloads.
+        Check("disks: the ready-made choice is worded by the core and the downloads can be listed",
+            core.Labels().Ready.Length > 0 && DiskChoices.Ready == core.Labels().Choices.Count && core.CachedDisks() is not null, core.Labels().Ready);
         // The CD: attached in Settings while stopped, then swapped and ejected on the running machine, whose file keeps the first.
         var cdKey = await core.CreateMachineAsync("Disk cd", offers[NewMachine.DefaultIndex(offers)].Id);
         var (cdOne, cdTwo) = (Path.Combine(dir, "one.iso"), Path.Combine(dir, "two.iso"));

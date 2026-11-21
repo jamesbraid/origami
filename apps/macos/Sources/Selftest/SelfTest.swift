@@ -611,6 +611,12 @@ func runSelfTest(library: String, out: String) {
         nm.name = "  \t "; let blankOff = !nm.canCreate
         nm.name = " gamma "; let namedOn = nm.canCreate
         check("new-machine-create-needs-a-trimmed-name", emptyOff && blankOff && namedOn, [:])
+        // A ready-made disk is a choice only while one is listed, and Create waits for one.
+        nm.disk = .ready
+        let readyBlocked = !nm.readyDisks.isEmpty || !nm.canCreate
+        nm.disk = .noDisk
+        check("new-machine-ready-disk-needs-a-listed-disk", readyBlocked && nm.choices.contains(.ready) == !nm.readyDisks.isEmpty
+              && (try? host.core.cachedDisks()) != nil, [:])
         // Engines: always an explicit one, the catalogue's own; a change keeps the model when the new engine offers it.
         let engines = nm.engines
         let explicit = nm.engine != nil && engines.contains(nm.engine ?? "")

@@ -152,6 +152,7 @@ public sealed class UniffiCoreClient : ICoreClient
         {
             SystemDisk.Empty e => new OrigamiSystemDisk.Empty(e.Gb),
             SystemDisk.Image i => new OrigamiSystemDisk.Image(i.Path, i.Copy, i.Overlay),
+            SystemDisk.Ready r => new OrigamiSystemDisk.Ready(r.Name),
             _ => null,
         };
         var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null, engine, system));
@@ -162,8 +163,8 @@ public sealed class UniffiCoreClient : ICoreClient
             switch (op.Wait(null))
             {
                 case OrigamiOperationState.Failed f: throw new InvalidOperationException(f.Message);
-                // A cancelled copy leaves the machine without a disk, so the library still has it.
-                case OrigamiOperationState.Cancelled when disk is SystemDisk.Image { Copy: true }:
+                // A cancelled copy leaves the machine without a disk, so the library still has it; a cancelled download made nothing.
+                case OrigamiOperationState.Cancelled when op.ResultMachine() is not null:
                     ReadCore(true);
                     return "";
                 case OrigamiOperationState.Cancelled: throw new OperationCanceledException();
@@ -195,6 +196,14 @@ public sealed class UniffiCoreClient : ICoreClient
         return new DiskImageCheck(c.Bytes, c.IsChd, c.FreeBytes, c.UsedBy, c.Problem);
     });
 
+    public Task<IReadOnlyList<ReadyDisk>> ReadyDisksAsync(string offeringId) => Task.Run(() =>
+        (IReadOnlyList<ReadyDisk>)_core.ReadyDisks(offeringId).Select(d => new ReadyDisk(d.Name, d.Version, d.Bytes, d.Cached, d.Label)).ToList());
+
+    public IReadOnlyList<CachedDisk> CachedDisks() =>
+        _core.CachedDisks().Select(d => new CachedDisk(d.Key, d.Label, d.Bytes)).ToList();
+
+    public void RemoveCachedDisk(string key) => _core.RemoveCachedDisk(key);
+
     public Task<string> DiskInfoAsync(string path) => Task.Run(() => _core.DiskInfo(path));
     public Task<string> DriveInfoAsync(string key, string drive) => Task.Run(() => M(key).DriveInfo(drive));
     public ImageVerdict Verdict(DiskImageCheck c, bool copy)
@@ -206,7 +215,7 @@ public sealed class UniffiCoreClient : ICoreClient
     public DiskLabels Labels()
     {
         var l = OrigamiFfiMethods.OrigamiDiskLabels();
-        return new DiskLabels(l.Choices, l.Place, l.Keep, l.SameKind, l.DefaultGb);
+        return new DiskLabels(l.Choices, l.Place, l.Keep, l.SameKind, l.Ready, l.Release, l.DefaultGb);
     }
 
     public string SizeLabel(ulong bytes) => OrigamiFfiMethods.OrigamiSizeLabel(bytes);

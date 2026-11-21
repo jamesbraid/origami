@@ -1436,3 +1436,57 @@ fn a_create_whose_disk_fails_leaves_no_machine_and_a_file_that_is_not_one_is_ref
     assert!(!f.root.path().join("bad").exists());
     assert!(f.core.check_disk_image(&folder, None).is_err());
 }
+
+#[test]
+fn a_cached_ready_disk_is_copied_into_the_machine_and_the_cache_is_left_alone() {
+    let cache = tempfile::tempdir().unwrap();
+    // Nothing else in this test binary reads the cache directory.
+    std::env::set_var("ORIGAMI_CACHE_DIR", cache.path());
+    let image = irix_disk();
+    let sha = origami_machine::sha256_hex(&image);
+    let folder = cache.path().join("disks").join(&sha);
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("a.img"), &image).unwrap();
+    std::fs::write(
+        cache.path().join("disks/index.json"),
+        format!(
+            r#"{{"format":1,"disks":[{{"name":"irix/a.img","url":"https://origami-dist.irix.fans/irix/a.img",
+            "sha256":"{sha}","size":{},"version":"6.5.30","board":"ip30","machines":["fake"]}}]}}"#,
+            image.len()
+        ),
+    )
+    .unwrap();
+    let f = fixture();
+    // A disk for another product is refused, and the refusal leaves no machine.
+    let other = std::fs::read_to_string(cache.path().join("disks/index.json")).unwrap();
+    std::fs::write(
+        cache.path().join("disks/index.json"),
+        other.replace(r#""fake""#, r#""indy""#),
+    )
+    .unwrap();
+    let (_, state) = f.create_with(
+        "wrong",
+        SystemDisk::Ready {
+            name: "irix/a.img".into(),
+        },
+    );
+    assert!(matches!(state, OperationState::Failed(_)), "{state:?}");
+    assert!(!f.root.path().join("wrong").exists());
+    std::fs::write(cache.path().join("disks/index.json"), other).unwrap();
+    let (key, state) = f.create_with(
+        "ready",
+        SystemDisk::Ready {
+            name: "irix/a.img".into(),
+        },
+    );
+    assert_eq!(state, OperationState::Succeeded);
+    let s = f.core.open_machine(&key).unwrap().settings().unwrap();
+    assert_eq!(s.drives.len(), 1);
+    assert!(std::path::Path::new(&key).join("drives/a.img").is_file());
+    assert_eq!(std::fs::read(folder.join("a.img")).unwrap(), image);
+    let cached = f.core.cached_disks().unwrap();
+    assert_eq!(cached.len(), 1);
+    assert_eq!(cached[0].label, "IRIX 6.5.30 (a.img)");
+    f.core.remove_cached_disk(&sha).unwrap();
+    assert!(f.core.cached_disks().unwrap().is_empty());
+}

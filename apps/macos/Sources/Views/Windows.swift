@@ -315,7 +315,36 @@ struct PreferencesView: View {
             }
             .formStyle(.grouped).tabItem { Label("Input", systemImage: "cursorarrow") }
             .onChange(of: pointerMode) { _ in app.defaultPointerChanged() }
+
+            DownloadedDisksView().tabItem { Label("Storage", systemImage: "internaldrive") }
         }
         .frame(width: 480, height: 260)
     }
+}
+
+/// The ready-made disks downloaded so far, each with Remove.
+struct DownloadedDisksView: View {
+    @EnvironmentObject var app: AppModel
+    @State private var disks: [OrigamiCachedDisk] = []
+
+    var body: some View {
+        Form {
+            Section("Downloaded disks") {
+                if disks.isEmpty { Text("No downloaded disks").foregroundStyle(.secondary) }
+                ForEach(disks, id: \.key) { d in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(d.label)
+                            Text(origamiSizeLabel(bytes: d.bytes)).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Remove") { try? app.host?.core.removeCachedDisk(key: d.key); reload() }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped).onAppear(perform: reload)
+    }
+
+    private func reload() { disks = (try? app.host?.core.cachedDisks()) ?? [] }
 }

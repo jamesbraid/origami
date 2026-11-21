@@ -78,6 +78,10 @@ pub struct DiskLabels {
     pub place: Vec<String>,
     pub keep: Vec<String>,
     pub same_kind: String,
+    /// The choice that a ready-made disk adds after the others, and the title
+    /// of the list of releases under it.
+    pub ready: String,
+    pub release: String,
     /// The empty disk's size to start with, in GB.
     pub default_gb: u32,
 }
@@ -92,6 +96,8 @@ pub fn disk_labels() -> DiskLabels {
         ]),
         keep: list(&["Keep changes apart", "Save into the image"]),
         same_kind: "Use a disk made for the same kind of machine.".into(),
+        ready: "Ready-made disk".into(),
+        release: "IRIX release".into(),
         default_gb: 4,
     }
 }

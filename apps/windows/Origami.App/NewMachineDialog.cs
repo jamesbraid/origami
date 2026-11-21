@@ -28,8 +28,28 @@ public static class NewMachineDialog
             engine.IsEnabled = engines.Count > 1; // always shown, as on Linux and macOS; one choice is not changeable
         }
         var name = new TextBox { Header = "Name" };
-        // Ready-made disks and Install from discs join this list later.
-        var disk = new ComboBox { Header = "Disk", HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = core.Labels().Choices.ToList(), SelectedIndex = DiskChoices.None };
+        // Install from discs joins this list later; a ready-made disk is added while one fits the model.
+        var labels = core.Labels();
+        var disk = new ComboBox { Header = "Disk", HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = labels.Choices.ToList(), SelectedIndex = DiskChoices.None };
+        var release = new ComboBox { Header = labels.Release, HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
+        IReadOnlyList<ReadyDisk> ready = Array.Empty<ReadyDisk>();
+        var asked = 0;
+        async void SyncReady()
+        {
+            var turn = ++asked;
+            var id = model.SelectedIndex < 0 ? null : models[model.SelectedIndex].Id;
+            IReadOnlyList<ReadyDisk> found = Array.Empty<ReadyDisk>();
+            if (id is not null) { try { found = await core.ReadyDisksAsync(id); } catch (Exception) { } }
+            if (turn != asked) return; // a later model choice has asked again
+            ready = found;
+            var choices = labels.Choices.ToList();
+            if (found.Count > 0) choices.Add(labels.Ready);
+            var keep = disk.SelectedIndex >= choices.Count ? DiskChoices.None : disk.SelectedIndex;
+            disk.ItemsSource = choices; // setting the list clears the selection
+            disk.SelectedIndex = keep;
+            release.ItemsSource = found.Select(d => d.Label).ToList();
+            release.SelectedIndex = found.Count > 0 ? 0 : -1;
+        }
         var size = new NumberBox { Header = "Disk size (GB)", Value = core.Labels().DefaultGb, Minimum = 1, Maximum = 2048, Visibility = Visibility.Collapsed };
         var image = new ImagePanel(core, null);
         image.Root.Visibility = Visibility.Collapsed;
@@ -40,6 +60,7 @@ public static class NewMachineDialog
         stop.Click += (_, _) => copy.Cancel();
         AutomationProperties.SetAutomationId(disk, "new.disk");
         AutomationProperties.SetAutomationId(size, "new.size");
+        AutomationProperties.SetAutomationId(release, "new.release");
         AutomationProperties.SetAutomationId(stop, "new.cancel");
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed) };
         AutomationProperties.SetAutomationId(model, "new.model");
@@ -50,23 +71,26 @@ public static class NewMachineDialog
         {
             XamlRoot = root,
             Title = "New Machine",
-            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, disk, size, image.Root, bar, line, stop, error } },
+            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, disk, release, size, image.Root, bar, line, stop, error } },
             PrimaryButtonText = "Create",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
             IsPrimaryButtonEnabled = false,
         };
-        void Sync() => dlg.IsPrimaryButtonEnabled = NewMachine.CanCreate(name.Text, model.SelectedIndex) && (disk.SelectedIndex != DiskChoices.Image || image.Choice.Ready);
+        void Sync() => dlg.IsPrimaryButtonEnabled = NewMachine.CanCreate(name.Text, model.SelectedIndex) && (disk.SelectedIndex != DiskChoices.Image || image.Choice.Ready) && (disk.SelectedIndex != DiskChoices.Ready || release.SelectedIndex >= 0);
         name.TextChanged += (_, _) => Sync();
         image.Changed += Sync;
         disk.SelectionChanged += (_, _) =>
         {
+            release.Visibility = disk.SelectedIndex == DiskChoices.Ready ? Visibility.Visible : Visibility.Collapsed;
             size.Visibility = disk.SelectedIndex == DiskChoices.Empty ? Visibility.Visible : Visibility.Collapsed;
             image.Root.Visibility = disk.SelectedIndex == DiskChoices.Image ? Visibility.Visible : Visibility.Collapsed;
             Sync();
         };
-        model.SelectionChanged += (_, _) => { SyncEngines(); Sync(); };
+        model.SelectionChanged += (_, _) => { SyncEngines(); SyncReady(); Sync(); };
+        release.SelectionChanged += (_, _) => Sync();
         SyncEngines();
+        SyncReady();
 
         string? created = null;
         dlg.PrimaryButtonClick += async (_, e) =>
@@ -79,6 +103,7 @@ public static class NewMachineDialog
                 {
                     DiskChoices.Empty => new SystemDisk.Empty((uint)size.Value),
                     DiskChoices.Image => image.Choice.System,
+                    DiskChoices.Ready => new SystemDisk.Ready(ready[release.SelectedIndex].Name),
                     _ => null,
                 };
                 var progress = new Progress<CopyProgress>(p =>
@@ -88,6 +113,14 @@ public static class NewMachineDialog
                     line.Text = p.Text;
                 });
                 created = await core.CreateMachineAsync(name.Text.Trim(), models[model.SelectedIndex].Id, engines[engine.SelectedIndex], copy.Token, system, progress);
+            }
+            catch (OperationCanceledException)
+            {
+                // A cancelled download made nothing: stay on the sheet with a fresh token.
+                e.Cancel = true;
+                copy = new CancellationTokenSource();
+                bar.Visibility = line.Visibility = stop.Visibility = Visibility.Collapsed;
+                dlg.IsPrimaryButtonEnabled = true;
             }
             catch (Exception ex)
             {

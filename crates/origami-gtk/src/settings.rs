@@ -590,6 +590,44 @@ fn build_machine_dialog(
     dialog.present(Some(parent));
 }
 
+/// One row per downloaded disk, each with Remove; `rows` holds the rows shown now.
+fn list_downloaded(
+    core: &origami_core::facade::Core,
+    group: &adw::PreferencesGroup,
+    rows: Rc<RefCell<Vec<adw::ActionRow>>>,
+) {
+    for row in rows.borrow_mut().drain(..) {
+        group.remove(&row);
+    }
+    let found = core.cached_disks().unwrap_or_default();
+    if found.is_empty() {
+        let row = adw::ActionRow::builder()
+            .title("No downloaded disks")
+            .build();
+        group.add(&row);
+        rows.borrow_mut().push(row);
+    }
+    for disk in found {
+        let row = adw::ActionRow::builder()
+            .title(&disk.label)
+            .subtitle(origami_core::facade::size_label(disk.bytes))
+            .build();
+        let remove = gtk::Button::builder()
+            .label("Remove")
+            .valign(gtk::Align::Center)
+            .build();
+        row.add_suffix(&remove);
+        let (again, group_again, rows_again, key) =
+            (core.clone(), group.clone(), rows.clone(), disk.key);
+        remove.connect_clicked(move |_| {
+            let _ = again.remove_cached_disk(&key);
+            list_downloaded(&again, &group_again, rows_again.clone());
+        });
+        group.add(&row);
+        rows.borrow_mut().push(row);
+    }
+}
+
 /// Change and Eject for a CD-ROM row. They work while the machine runs, too.
 fn cd_buttons(
     app: &Rc<App>,
@@ -980,6 +1018,18 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         vec![value_row("Release captured input", "Ctrl+Alt")],
     ));
     dialog.add(&input_page);
+
+    let storage = adw::PreferencesPage::builder()
+        .title("Storage")
+        .icon_name("drive-harddisk-symbolic")
+        .build();
+    let downloaded = adw::PreferencesGroup::builder()
+        .title("Downloaded disks")
+        .build();
+    downloaded.set_widget_name("prefs.downloaded");
+    storage.add(&downloaded);
+    dialog.add(&storage);
+    list_downloaded(&app.core, &downloaded, Rc::new(RefCell::new(Vec::new())));
     dialog.present(Some(parent));
 }
 
@@ -1102,16 +1152,19 @@ fn new_machine_dialog(
     g.add(&engine);
     g.add(&combo);
     g.add(&name);
-    // Ready-made disks and Install from discs join this list later.
+    // Install from discs joins this list later; a ready-made disk is added while one fits.
+    let labels = origami_core::facade::disk_labels();
+    let disk_model = gtk::StringList::new(
+        &labels
+            .choices
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+    );
+    let base_choices = disk_model.n_items();
     let disk = adw::ComboRow::builder()
         .title("Disk")
-        .model(&gtk::StringList::new(
-            &origami_core::facade::disk_labels()
-                .choices
-                .iter()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-        ))
+        .model(&disk_model)
         .build();
     disk.set_widget_name("new.disk");
     let size = adw::SpinRow::with_range(1.0, 2048.0, 1.0);
@@ -1125,7 +1178,13 @@ fn new_machine_dialog(
         .visible(false)
         .build();
     choose.set_widget_name("new.image");
+    let release = adw::ComboRow::builder()
+        .title(&labels.release)
+        .visible(false)
+        .build();
+    release.set_widget_name("new.release");
     g.add(&disk);
+    g.add(&release);
     g.add(&size);
     g.add(&choose);
     let image_ok = Rc::new(std::cell::Cell::new(false));
@@ -1152,9 +1211,15 @@ fn new_machine_dialog(
     };
     form.group.set_visible(false);
     {
-        let (size, choose, form, ready) =
-            (size.clone(), choose.clone(), form.clone(), ready.clone());
+        let (size, choose, form, ready, release) = (
+            size.clone(),
+            choose.clone(),
+            form.clone(),
+            ready.clone(),
+            release.clone(),
+        );
         disk.connect_selected_notify(move |d| {
+            release.set_visible(d.selected() == base_choices);
             size.set_visible(d.selected() == 1);
             choose.set_visible(d.selected() == 2);
             form.group.set_visible(d.selected() == 2);
@@ -1165,6 +1230,68 @@ fn new_machine_dialog(
         let (form, parent) = (form.clone(), parent.clone());
         choose.connect_activated(move |_| form.choose(&parent));
     }
+    // The disks that fit the chosen model, asked of the server off the UI thread.
+    let ready_disks = Rc::new(RefCell::new(Vec::<origami_core::facade::ReadyDisk>::new()));
+    let asked = Rc::new(std::cell::Cell::new(0u32));
+    let refresh = {
+        let (app, offerings, ready_disks, asked) = (
+            app.clone(),
+            offerings.clone(),
+            ready_disks.clone(),
+            asked.clone(),
+        );
+        let (disk, disk_model, release, ready_label) = (
+            disk.clone(),
+            disk_model.clone(),
+            release.clone(),
+            labels.ready.clone(),
+        );
+        move |combo: &adw::ComboRow| {
+            let Some(id) = offerings
+                .borrow()
+                .get(combo.selected() as usize)
+                .map(|o| o.id.clone())
+            else {
+                return;
+            };
+            asked.set(asked.get() + 1);
+            let (turn, core) = (asked.get(), app.core.clone());
+            let (asked, ready_disks, disk, disk_model, release, ready_label) = (
+                asked.clone(),
+                ready_disks.clone(),
+                disk.clone(),
+                disk_model.clone(),
+                release.clone(),
+                ready_label.clone(),
+            );
+            glib::spawn_future_local(async move {
+                let found =
+                    gtk::gio::spawn_blocking(move || core.ready_disks(&id).unwrap_or_default())
+                        .await
+                        .unwrap_or_default();
+                // A later model choice has asked again.
+                if turn != asked.get() {
+                    return;
+                }
+                let extra = disk_model.n_items().saturating_sub(base_choices);
+                if disk.selected() >= base_choices {
+                    disk.set_selected(0);
+                }
+                let label: Vec<&str> = if found.is_empty() {
+                    vec![]
+                } else {
+                    vec![ready_label.as_str()]
+                };
+                disk_model.splice(base_choices, extra, &label);
+                release.set_model(Some(&gtk::StringList::new(
+                    &found.iter().map(|d| d.label.as_str()).collect::<Vec<_>>(),
+                )));
+                *ready_disks.borrow_mut() = found;
+            });
+        }
+    };
+    refresh(&combo);
+    combo.connect_selected_notify(refresh);
     let err = gtk::Label::builder()
         .wrap(true)
         .css_classes(["error"])
@@ -1212,11 +1339,23 @@ fn new_machine_dialog(
             err.clone(),
         );
         let (disk, size, form) = (disk.clone(), size.clone(), form.clone());
+        let (release, ready_disks) = (release.clone(), ready_disks.clone());
         let (bar, line, stop) = (bar.clone(), line.clone(), stop.clone());
         create.connect_clicked(move |b| {
             let Some(o) = offerings.borrow().get(combo.selected() as usize).cloned() else {
                 return;
             };
+            // The list loads in the background: a pick that no longer exists is refused, not made a bare machine.
+            if disk.selected() == base_choices
+                && ready_disks
+                    .borrow()
+                    .get(release.selected() as usize)
+                    .is_none()
+            {
+                err.set_label("Pick a ready-made disk again.");
+                err.set_visible(true);
+                return;
+            }
             let request = CreateRequest {
                 name: name.text().trim().to_string(),
                 offering: o.id.clone(),
@@ -1232,6 +1371,12 @@ fn new_machine_dialog(
                             copy,
                             overlay,
                         }),
+                    n if n == base_choices => ready_disks
+                        .borrow()
+                        .get(release.selected() as usize)
+                        .map(|d| SystemDisk::Ready {
+                            name: d.name.clone(),
+                        }),
                     _ => None,
                 },
                 ..Default::default()
@@ -1242,7 +1387,7 @@ fn new_machine_dialog(
                 Ok(op) => {
                     let finished = op.clone();
                     disks::follow(op, &bar, &line, &stop, move |state| match state {
-                        OperationState::Succeeded | OperationState::Cancelled => {
+                        OperationState::Succeeded => {
                             app::rescan(&app);
                             dialog.close();
                             let opened = finished.result_machine();
@@ -1250,6 +1395,12 @@ fn new_machine_dialog(
                                 let _ = app::open(&app, &entry);
                             }
                         }
+                        // A cancelled copy leaves the machine without a disk; a cancelled download made nothing.
+                        OperationState::Cancelled if finished.result_machine().is_some() => {
+                            app::rescan(&app);
+                            dialog.close();
+                        }
+                        OperationState::Cancelled => b.set_sensitive(true),
                         OperationState::Failed(e) => {
                             err.set_label(&e.to_string());
                             err.set_visible(true);

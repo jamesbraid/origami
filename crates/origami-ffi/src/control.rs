@@ -232,6 +232,32 @@ pub enum OrigamiSystemDisk {
         copy: bool,
         overlay: bool,
     },
+    /// An `OrigamiReadyDisk::name`: downloaded and checked first when it is
+    /// not cached, then copied in with its changes kept apart.
+    Ready {
+        name: String,
+    },
+}
+
+/// A ready-made disk the server offers for a machine.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiReadyDisk {
+    pub name: String,
+    /// The IRIX release.
+    pub version: String,
+    pub bytes: u64,
+    /// Already downloaded, so Create needs no download.
+    pub cached: bool,
+    /// What to show in the list, such as `IRIX 6.5.22, 835 MB`.
+    pub label: String,
+}
+
+/// A downloaded disk, listed in Preferences.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiCachedDisk {
+    pub key: String,
+    pub label: String,
+    pub bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
@@ -271,6 +297,10 @@ pub struct OrigamiDiskLabels {
     pub place: Vec<String>,
     pub keep: Vec<String>,
     pub same_kind: String,
+    /// The choice a ready-made disk adds after the others, and the title of
+    /// the list of releases under it.
+    pub ready: String,
+    pub release: String,
     /// The empty disk's size to start with, in GB.
     pub default_gb: u32,
 }
@@ -303,6 +333,8 @@ pub fn origami_disk_labels() -> OrigamiDiskLabels {
         place: l.place,
         keep: l.keep,
         same_kind: l.same_kind,
+        ready: l.ready,
+        release: l.release,
         default_gb: l.default_gb,
     }
 }
@@ -953,6 +985,40 @@ impl OrigamiCore {
         })
     }
 
+    /// The ready-made disks that fit an `OrigamiOffering::id`. Asks the
+    /// disk server, or uses the last list: off the UI thread.
+    pub fn ready_disks(&self, offering: String) -> Res<Vec<OrigamiReadyDisk>> {
+        Ok(self
+            .core
+            .ready_disks(&offering)?
+            .into_iter()
+            .map(|d| OrigamiReadyDisk {
+                name: d.name,
+                version: d.version,
+                bytes: d.bytes,
+                cached: d.cached,
+                label: d.label,
+            })
+            .collect())
+    }
+
+    pub fn cached_disks(&self) -> Res<Vec<OrigamiCachedDisk>> {
+        Ok(self
+            .core
+            .cached_disks()?
+            .into_iter()
+            .map(|d| OrigamiCachedDisk {
+                key: d.key,
+                label: d.label,
+                bytes: d.bytes,
+            })
+            .collect())
+    }
+
+    pub fn remove_cached_disk(&self, key: String) -> Res<()> {
+        Ok(self.core.remove_cached_disk(&key)?)
+    }
+
     /// The About egg's `hinv`-style host inventory. Reads the disk and may
     /// open the GPU: call off the UI thread. Nothing leaves the machine.
     pub fn hinv(&self) -> String {
@@ -990,6 +1056,7 @@ impl OrigamiCore {
                     copy,
                     overlay,
                 },
+                OrigamiSystemDisk::Ready { name } => f::SystemDisk::Ready { name },
             }),
         })?;
         Ok(Arc::new(OrigamiOperation(operation)))

@@ -83,7 +83,7 @@ fn validate_path(path: &str) -> Result<()> {
 
 /// Where downloads are kept: `ORIGAMI_CACHE_DIR` when set, which tests use
 /// to keep their downloads apart, and otherwise the user's cache directory.
-fn cache_dir() -> Result<PathBuf> {
+pub(crate) fn cache_dir() -> Result<PathBuf> {
     cache_dir_in(std::env::var_os("ORIGAMI_CACHE_DIR"), dirs::cache_dir())
 }
 
@@ -94,6 +94,19 @@ fn cache_dir_in(selected: Option<std::ffi::OsString>, user: Option<PathBuf>) -> 
     Ok(user
         .ok_or("cannot determine user cache directory; supply local PROM files")?
         .join("origami"))
+}
+
+/// The agent every download uses: HTTPS only, no redirects, bounded connect
+/// and response waits, and `global` as the limit for the whole call.
+pub(crate) fn https_agent(global: Option<std::time::Duration>) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .https_only(true)
+        .max_redirects(0)
+        .timeout_connect(Some(std::time::Duration::from_secs(15)))
+        .timeout_recv_response(Some(std::time::Duration::from_secs(30)))
+        .timeout_global(global)
+        .build()
+        .into()
 }
 
 /// Download the registry's image of kind `kind`, or reuse a
@@ -117,13 +130,7 @@ pub fn acquire(kind: &str) -> Result<PathBuf> {
             "Downloading PROM {name} (version {}, {} bytes)",
             prom.version, prom.size
         );
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .https_only(true)
-            .max_redirects(0)
-            .timeout_connect(Some(std::time::Duration::from_secs(15)))
-            .timeout_global(Some(std::time::Duration::from_secs(120)))
-            .build()
-            .into();
+        let agent = https_agent(Some(std::time::Duration::from_secs(120)));
         let mut response = agent
             .get(&format!("{}{}", manifest.base_url, prom.path))
             .call()?;

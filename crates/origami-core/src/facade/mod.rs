@@ -19,6 +19,7 @@ mod lease;
 mod machine;
 mod operation;
 mod osview;
+mod ready;
 mod settings;
 
 pub use commands::{Command, EnabledWhen, Platform, Shortcut};
@@ -37,6 +38,7 @@ pub use machine::{
 };
 pub use operation::{Operation, OperationState};
 pub use osview::{Osview, OsviewBar, OsviewKey, OsviewSegment, CAPTION as OSVIEW_CAPTION};
+pub use ready::{CachedDisk, ReadyDisk};
 pub use settings::{ConsolePortSetting, DriveSetting, MachineSettings, PipeSetting, ShareSetting};
 
 pub use origami_engine::{

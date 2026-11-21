@@ -31,6 +31,8 @@ struct Inner {
     state: Mutex<(OperationState, Option<String>)>,
     progress: Mutex<String>,
     fraction: Mutex<Option<f32>>,
+    /// The machine a cancelled create left behind, for `result_machine`.
+    kept: Mutex<Option<String>>,
     changed: Condvar,
     slot: Arc<Slot>,
 }
@@ -59,6 +61,11 @@ impl Control {
     /// How far along the work is, 0 to 1.
     pub(crate) fn fraction(&self, done: f32) {
         *self.0.fraction.lock().unwrap() = Some(done.clamp(0.0, 1.0));
+    }
+
+    /// Say that the machine at `key` exists although the operation ends cancelled.
+    pub(crate) fn kept(&self, key: String) {
+        *self.0.kept.lock().unwrap() = Some(key);
     }
 
     /// The cancel flag as a function, for a helper that outlives the borrow.
@@ -96,7 +103,9 @@ impl Operation {
         *self.inner.fraction.lock().unwrap()
     }
 
-    /// The machine a finished create or start operation produced.
+    /// The machine a finished create or start operation produced. A cancelled
+    /// create has one only when the machine was made before the cancel (the
+    /// copy of its disk stopped); none means nothing was made.
     pub fn result_machine(&self) -> Option<String> {
         self.inner.state.lock().unwrap().1.clone()
     }
@@ -149,6 +158,7 @@ where
         state: Mutex::new((OperationState::Running, None)),
         progress: Mutex::new(String::new()),
         fraction: Mutex::new(None),
+        kept: Mutex::new(None),
         changed: Condvar::new(),
         slot,
     });
@@ -167,7 +177,7 @@ where
             let (state, output) = match result {
                 Ok(output) => (OperationState::Succeeded, output),
                 Err(error) if error.kind == ErrorKind::Cancelled => {
-                    (OperationState::Cancelled, None)
+                    (OperationState::Cancelled, task.kept.lock().unwrap().take())
                 }
                 Err(error) => (OperationState::Failed(error), None),
             };

@@ -26,6 +26,11 @@ public interface ICoreClient : IDisposable
 
     /// <summary>Whether a file can be attached and what a copy needs. <paramref name="machineKey"/> is the machine it is for; without it the library folder stands in.</summary>
     Task<DiskImageCheck> CheckDiskImageAsync(string path, string? machineKey);
+    /// <summary>The ready-made disks that fit an offering. Asks the disk server, or uses its last list: off the UI thread.</summary>
+    Task<IReadOnlyList<ReadyDisk>> ReadyDisksAsync(string offeringId);
+    /// <summary>The disks downloaded so far.</summary>
+    IReadOnlyList<CachedDisk> CachedDisks();
+    void RemoveCachedDisk(string key);
     /// <summary>The OS and release on a disk image, such as "IRIX 6.5.30", or "Unknown".</summary>
     Task<string> DiskInfoAsync(string path);
     /// <summary>The same for the disk in a machine's drive; the core refuses a running machine it has not read before.</summary>
