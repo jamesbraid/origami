@@ -29,6 +29,10 @@ struct NewMachineSheet: View {
                         .accessibilityHidden(true).id(product.name + o.topology)
                 }
                 TextField("Name", text: $model.name).onSubmit { create() }
+                Picker("Disk", selection: $model.disk) { ForEach(DiskChoice.allCases) { Text($0.title).tag($0) } }
+                if model.disk == .empty { Stepper("Disk size: \(model.sizeGB) GB", value: $model.sizeGB, in: 1...2048) }
+                if model.disk == .image { ImageChoiceView(choice: model.image) }
+                if let p = model.progress { OperationProgress(progress: p) { model.cancelCopy() } }
                 if let e = model.error {
                     Text(e).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true)
                 }

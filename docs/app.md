@@ -93,6 +93,18 @@ the first time downloads its PROM and checks it. It is the same step as
 `origami create NAME --preset PRESET`; [Create a machine](usage.md#create-a-machine)
 lists the presets.
 
+**Disk** is the machine's system disk: no disk, an empty disk of the size you
+give (4 GB to start with), or an image you already have (CHD, qcow2 or raw).
+Use a disk made for the same kind of machine. An image is copied into the
+machine's folder, which keeps your original safe and the machine in one
+place, or used where it is. A CHD keeps its changes apart from your file
+unless you choose to save into the image. A copy shows its progress and can be
+cancelled; a cancelled copy leaves the machine without a disk. The sheet
+warns when another machine already uses the file. Each disk shows a badge
+naming what is on it, such as "IRIX 6.5.30", or "Unknown"; the library row
+shows the system disk's badge. This is
+[`drive-create`](usage.md) and `drive-attach` from the command line.
+
 ## Start it
 
 Select the machine and press Start (Ctrl+Shift+R; Cmd+R on macOS). The
@@ -197,7 +209,9 @@ its name, memory and processor, graphics, drives, network, startup and input.
 The Network page includes port forwards from the host to the guest. Startup
 and firmware picks the console serial line, the same choice as
 [`origami console-set`](usage.md#which-serial-line-is-the-console). A running
-machine refuses edits; stop it first.
+machine refuses edits; stop it first, except for the CD-ROM. The Drives page
+adds a disk image and inserts a CD-ROM image. Change CD and Eject work while
+the machine runs.
 
 ## About
 

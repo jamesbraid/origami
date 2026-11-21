@@ -45,7 +45,7 @@ expect(core.engines().first?.id == "fake", "the fake engine")
 expect(core.commands().contains { $0.id == "machine.start" }, "a Start command")
 
 let create = try core.createMachine(request: OrigamiCreateRequest(
-    name: "alpha", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil))
+    name: "alpha", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: prom, ioProm: nil, engine: nil, systemDisk: .empty(gb: 1)))
 expect(create.wait(timeoutMs: 10_000) == .succeeded, "the machine is created")
 let machines = try core.listMachines()
 print("machines:", machines.map { $0.name })
@@ -55,6 +55,8 @@ let key = machines[0].key
 let stopped = try core.openMachine(key: key)
 try stopped.applyChange(change: .setConsole(port: "ttyS1"))
 expect(try stopped.settings().consolePort == "ttyS1", "the console line chosen")
+expect(try stopped.settings().diskTarget == 2, "an empty system disk at target 1")
+expect(try stopped.driveInfo(drive: "system") == "Unknown", "a blank disk is Unknown")
 let machine = try core.startMachine(key: key)
 expect(machine.view().state == .running, "a running machine")
 expect(recorder.wait { $0.machine == key && $0.kinds.contains(.state) }, "a state event")

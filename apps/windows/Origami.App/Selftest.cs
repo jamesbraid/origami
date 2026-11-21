@@ -57,6 +57,24 @@ public static class Selftest
         return null;
     }
 
+    static T? FindWhere<T>(MainWindow w, Func<T, bool> match) where T : FrameworkElement
+    {
+        T? In(DependencyObject o)
+        {
+            if (o is T t && match(t)) return t;
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(o); i++) if (In(VisualTreeHelper.GetChild(o, i)) is { } hit) return hit;
+            return null;
+        }
+        foreach (var p in VisualTreeHelper.GetOpenPopupsForXamlRoot(w.XamlRootForTest)) if (p.Child is { } c && In(c) is { } hit) return hit;
+        return null;
+    }
+
+    /// <summary>The open dialog's button with this label, such as the primary "Create".</summary>
+    static Button? FindButton(MainWindow w, string label) => FindWhere<Button>(w, b => b.Content as string == label);
+
+    /// <summary>A click, as the automation tree would give it.</summary>
+    static void Press(Button? b) { if (b != null) new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(b).Invoke(); }
+
     static async Task<bool> Until(Func<bool> cond, int ms)
     {
         var t = Environment.TickCount64 + ms;
@@ -69,7 +87,7 @@ public static class Selftest
         _out = outFile;
         var dir = Path.GetDirectoryName(Path.GetFullPath(outFile))!;
         // Hard stop so a hung step cannot hold the runner.
-        _ = Task.Run(async () => { await Task.Delay(120_000); w.DispatcherQueue.TryEnqueue(() => Fail("watchdog: 120 s")); });
+        _ = Task.Run(async () => { await Task.Delay(300_000); w.DispatcherQueue.TryEnqueue(() => Fail("watchdog: 300 s")); });
         try { await Scenario(w, core, dir); }
         catch (Exception e) { Check("exception", false, e.ToString()); }
         Finish();
@@ -173,6 +191,101 @@ public static class Selftest
         }
         FindOpen<ContentDialog>(w, null)?.Hide();
         await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
+        if (selected != null) w.SelectForTest(selected);
+
+        // --- disks: the real New Machine dialog with an empty disk, an image copied in and one used in place; the badge; the CD ---
+        var irix = Path.Combine(Environment.GetEnvironmentVariable("ORIGAMI_FIXTURES") ?? "", "disk-irix-6.5.30.img");
+        Check("disks: the IRIX fixture is found", File.Exists(irix), irix);
+        string DiskKey(string n) => core.Machines().FirstOrDefault(m => m.Name == n)?.Key ?? "";
+        async Task<(bool Made, string Note, string Badge)> NewWithDisk(string machineName, int kind, string? file, bool wantCopy)
+        {
+            TextBox? nameBox = null;
+            // The command is ignored while an earlier dialog is still closing, so ask again.
+            for (var tries = 0; tries < 4 && nameBox == null; tries++)
+            {
+                w.Invoke("machine.new");
+                await Until(() => (nameBox = FindOpen<TextBox>(w, "new.name")) != null, 2000);
+            }
+            if (nameBox == null) return (false, "no dialog", "");
+            FindOpen<ComboBox>(w, "new.disk")!.SelectedIndex = kind;
+            if (kind == DiskChoices.Empty) FindOpen<NumberBox>(w, "new.size")!.Value = 1;
+            if (file != null)
+            {
+                PathPicker.Answers.Enqueue(file);
+                Press(FindOpen<Button>(w, "disk.choose"));
+                await Until(() => FindOpen<TextBlock>(w, "disk.note")?.Visibility == Visibility.Visible, 5000);
+                if (!wantCopy) FindOpen<ComboBox>(w, "disk.place")!.SelectedIndex = 1;
+            }
+            var noteText = FindOpen<TextBlock>(w, "disk.note")?.Text ?? "";
+            var badgeText = FindOpen<TextBlock>(w, "disk.badge")?.Text ?? "";
+            nameBox.Text = machineName;
+            await Until(() => FindButton(w, "Create") is { IsEnabled: true }, 3000);
+            Press(FindButton(w, "Create"));
+            var listed = await Until(() => core.Machines().Any(m => m.Name == machineName), 60_000); // a 1 GB raw disk is slow to make on NTFS
+            await Until(() => FindOpen<ContentDialog>(w, null) == null, 10_000);
+            return (listed, noteText, badgeText);
+        }
+        var (emptyMade, _, _) = await NewWithDisk("Disk empty", DiskChoices.Empty, null, true);
+        var emptyDrives = emptyMade ? (await core.SettingsAsync(DiskKey("Disk empty"))).Drives : new List<Drive>();
+        Check("disks: an empty disk is made with the machine at target 1", emptyDrives.Count == 1 && emptyDrives[0].Target == 1, string.Join(",", emptyDrives.Select(d => d.Image)));
+        var (copyMade, copyNote, copyBadge) = await NewWithDisk("Disk copy", DiskChoices.Image, irix, true);
+        var copyDrives = copyMade ? (await core.SettingsAsync(DiskKey("Disk copy"))).Drives : new List<Drive>();
+        Check("disks: a copied image is kept in the machine's folder",
+            copyDrives.Count == 1 && copyDrives[0].Image == "drives/disk-irix-6.5.30.img" && File.Exists(Path.Combine(core.LibraryRoot, "Disk copy", "drives", "disk-irix-6.5.30.img")), string.Join(",", copyDrives.Select(d => d.Image)));
+        Check("disks: copying says the original is safe", copyNote.Contains("keeps your original safe"), copyNote);
+        Check("disks: the sheet names the OS on the disk", copyBadge == "IRIX 6.5.30", copyBadge);
+        core.Relist();
+        Check("disks: the library row names the OS on the disk", await Until(() => { core.Relist(); return w.BadgeForTest(DiskKey("Disk copy")) == "IRIX 6.5.30"; }, 15_000), w.BadgeForTest(DiskKey("Disk copy")) ?? "none");
+        var (placeMade, placeNote, _) = await NewWithDisk("Disk place", DiskChoices.Image, irix, false);
+        var placeDrives = placeMade ? (await core.SettingsAsync(DiskKey("Disk place"))).Drives : new List<Drive>();
+        Check("disks: an image used in place stays where it is",
+            placeDrives.Count == 1 && placeDrives[0].Image.EndsWith("disk-irix-6.5.30.img") && !File.Exists(Path.Combine(core.LibraryRoot, "Disk place", "drives", "disk-irix-6.5.30.img")), string.Join(",", placeDrives.Select(d => d.Image)));
+        Check("disks: an image used in place warns that IRIX writes into it", placeNote.Contains("IRIX will write into this file"), placeNote);
+        // The CD: attached in Settings while stopped, then swapped and ejected on the running machine, whose file keeps the first.
+        var cdKey = await core.CreateMachineAsync("Disk cd", offers[NewMachine.DefaultIndex(offers)].Id);
+        var (cdOne, cdTwo) = (Path.Combine(dir, "one.iso"), Path.Combine(dir, "two.iso"));
+        foreach (var cdFile in new[] { cdOne, cdTwo }) File.WriteAllBytes(cdFile, new byte[2048]);
+        w.Reload();
+        w.SelectForTest(cdKey);
+        async Task<bool> OpenSettings(string button)
+        {
+            for (var tries = 0; tries < 4; tries++)
+            {
+                w.Invoke("machine.settings");
+                if (await Until(() => FindOpen<Button>(w, button) != null, 2000)) return true;
+            }
+            return false;
+        }
+        var settingsOpen = await OpenSettings("settings.insertcd");
+        var insertEnabled = await Until(() => FindOpen<Button>(w, "settings.insertcd") is { IsEnabled: true }, 3000);
+        Check("disks: Settings offers a CD-ROM when the machine has none", settingsOpen && insertEnabled, $"opened {settingsOpen}, enabled {insertEnabled}");
+        FindOpen<ContentDialog>(w, null)?.Hide();
+        await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
+        var cdTarget = (await core.SettingsAsync(cdKey)).CdTarget ?? 4;
+        await core.ApplyChangeAsync(cdKey, new MachineChange.AttachCd(cdOne, cdTarget));
+        Check("disks: a CD image is attached while stopped", (await core.SettingsAsync(cdKey)).Drives.Any(d => d.Kind == "cdrom"));
+        var cdDrive = (await core.SettingsAsync(cdKey)).Drives.FirstOrDefault(d => d.Kind == "cdrom")?.Name ?? "cdrom4";
+        var cdRunning = false;
+        for (var tries = 0; tries < 3 && !cdRunning; tries++)
+        {
+            w.SelectForTest(cdKey);
+            w.Invoke("machine.start");
+            cdRunning = await Until(() => core.Status(cdKey).State == MachineState.Running, 15_000);
+        }
+        Check("disks: the machine with the CD starts", cdRunning, $"{core.Status(cdKey).State}: {core.Status(cdKey).Reason}");
+        PathPicker.Answers.Enqueue(cdTwo);
+        var opened = await OpenSettings("settings.cd.change." + cdDrive);
+        Press(FindOpen<Button>(w, "settings.cd.change." + cdDrive));
+        Check("disks: the CD is swapped while the machine runs", await Until(() => core.FakeMedia(cdKey).SequenceEqual(new[] { $"{cdDrive} {cdTwo}" }), 3000),
+            $"settings opened {opened}, machine {core.Status(cdKey).State}, media {string.Join("|", core.FakeMedia(cdKey))}");
+        await Until(() => FindOpen<Button>(w, "settings.cd.eject." + cdDrive) != null, 3000);
+        Press(FindOpen<Button>(w, "settings.cd.eject." + cdDrive));
+        Check("disks: the CD is ejected from Settings while the machine runs", await Until(() => core.FakeMedia(cdKey).LastOrDefault() == $"{cdDrive} eject", 3000), string.Join("|", core.FakeMedia(cdKey)));
+        FindOpen<ContentDialog>(w, null)?.Hide();
+        await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
+        Check("disks: swapping the CD leaves the machine's file alone", (await core.SettingsAsync(cdKey)).Drives.First(d => d.Kind == "cdrom").Image.EndsWith("one.iso"));
+        w.Invoke("machine.stop");
+        await Until(() => core.Status(cdKey).State == MachineState.Stopped, 8000);
         if (selected != null) w.SelectForTest(selected);
 
         // --- tabs ---

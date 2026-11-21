@@ -28,6 +28,19 @@ public static class NewMachineDialog
             engine.IsEnabled = engines.Count > 1; // always shown, as on Linux and macOS; one choice is not changeable
         }
         var name = new TextBox { Header = "Name" };
+        // Ready-made disks and Install from discs join this list later.
+        var disk = new ComboBox { Header = "Disk", HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = core.Labels().Choices.ToList(), SelectedIndex = DiskChoices.None };
+        var size = new NumberBox { Header = "Disk size (GB)", Value = core.Labels().DefaultGb, Minimum = 1, Maximum = 2048, Visibility = Visibility.Collapsed };
+        var image = new ImagePanel(core, null);
+        image.Root.Visibility = Visibility.Collapsed;
+        var bar = new ProgressBar { Minimum = 0, Maximum = 1, Visibility = Visibility.Collapsed };
+        var line = new TextBlock { Visibility = Visibility.Collapsed };
+        var stop = new Button { Content = "Cancel", Visibility = Visibility.Collapsed };
+        var copy = new CancellationTokenSource();
+        stop.Click += (_, _) => copy.Cancel();
+        AutomationProperties.SetAutomationId(disk, "new.disk");
+        AutomationProperties.SetAutomationId(size, "new.size");
+        AutomationProperties.SetAutomationId(stop, "new.cancel");
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed) };
         AutomationProperties.SetAutomationId(model, "new.model");
         AutomationProperties.SetAutomationId(engine, "new.engine");
@@ -37,14 +50,21 @@ public static class NewMachineDialog
         {
             XamlRoot = root,
             Title = "New Machine",
-            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, error } },
+            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, disk, size, image.Root, bar, line, stop, error } },
             PrimaryButtonText = "Create",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
             IsPrimaryButtonEnabled = false,
         };
-        void Sync() => dlg.IsPrimaryButtonEnabled = NewMachine.CanCreate(name.Text, model.SelectedIndex);
+        void Sync() => dlg.IsPrimaryButtonEnabled = NewMachine.CanCreate(name.Text, model.SelectedIndex) && (disk.SelectedIndex != DiskChoices.Image || image.Choice.Ready);
         name.TextChanged += (_, _) => Sync();
+        image.Changed += Sync;
+        disk.SelectionChanged += (_, _) =>
+        {
+            size.Visibility = disk.SelectedIndex == DiskChoices.Empty ? Visibility.Visible : Visibility.Collapsed;
+            image.Root.Visibility = disk.SelectedIndex == DiskChoices.Image ? Visibility.Visible : Visibility.Collapsed;
+            Sync();
+        };
         model.SelectionChanged += (_, _) => { SyncEngines(); Sync(); };
         SyncEngines();
 
@@ -55,11 +75,24 @@ public static class NewMachineDialog
             dlg.IsPrimaryButtonEnabled = false; // a second click would create the same name twice
             try
             {
-                created = await core.CreateMachineAsync(name.Text.Trim(), models[model.SelectedIndex].Id, engines[engine.SelectedIndex]);
+                SystemDisk? system = disk.SelectedIndex switch
+                {
+                    DiskChoices.Empty => new SystemDisk.Empty((uint)size.Value),
+                    DiskChoices.Image => image.Choice.System,
+                    _ => null,
+                };
+                var progress = new Progress<CopyProgress>(p =>
+                {
+                    bar.Visibility = line.Visibility = stop.Visibility = Visibility.Visible;
+                    bar.Value = p.Fraction;
+                    line.Text = p.Text;
+                });
+                created = await core.CreateMachineAsync(name.Text.Trim(), models[model.SelectedIndex].Id, engines[engine.SelectedIndex], copy.Token, system, progress);
             }
             catch (Exception ex)
             {
                 e.Cancel = true;
+                bar.Visibility = line.Visibility = stop.Visibility = Visibility.Collapsed;
                 dlg.IsPrimaryButtonEnabled = true;
                 error.Text = ex.Message;
                 error.Visibility = Visibility.Visible;

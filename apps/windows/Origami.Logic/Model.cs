@@ -15,7 +15,9 @@ public sealed record MachineSummary(
     MachineState State,
     string? Problem,
     bool HasDisplay = true,
-    bool NeedsUpgrade = false);
+    bool NeedsUpgrade = false,
+    /// <summary>What the system disk holds, such as "IRIX 6.5.30", once the core has read it.</summary>
+    string? SystemDisk = null);
 
 public sealed record MachineStatus(MachineState State, string Reason, string? LastError);
 

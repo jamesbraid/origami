@@ -14,6 +14,13 @@ public static class MachineSettingsDialog
         var dlg = new ContentDialog { XamlRoot = root, Title = name + " Settings", Content = new ScrollViewer { Content = body, MaxHeight = 520 }, CloseButtonText = "Close" };
         var note = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed), Visibility = Visibility.Collapsed };
         AutomationProperties.SetAutomationId(note, "settings.error");
+        ImagePanel? adding = null; // an image being added, shown inline: a ContentDialog cannot open another
+
+        async void ReadBadge(string drive, TextBlock badge)
+        {
+            try { badge.Text = await core.DriveInfoAsync(key, drive); }
+            catch { badge.Visibility = Visibility.Collapsed; } // a running machine's disk that was not read before
+        }
 
         async Task Rebuild()
         {
@@ -49,8 +56,71 @@ public static class MachineSettingsDialog
 
             body.Children.Add(Heading("Drives"));
             if (s.Drives.Count == 0) body.Children.Add(Text("None"));
+            async void Media(string drive, string? image)
+            {
+                try { await core.ChangeMediaAsync(key, drive, image); await Rebuild(); }
+                catch (Exception e) { note.Text = e.Message; note.Visibility = Visibility.Visible; }
+            }
             foreach (var d in s.Drives)
-                body.Children.Add(Row($"{d.Name} ({d.Kind}, bus {d.Bus} target {d.Target}): {d.Image}{(d.ReadOnly ? " (read-only)" : "")}", "Detach", "settings.detach." + d.Name, ok, () => Apply(new MachineChange.DetachDrive(d.Name))));
+            {
+                body.Children.Add(Text($"{d.Name} ({d.Kind}, bus {d.Bus} target {d.Target}): {d.Image}{(d.ReadOnly ? " (read-only)" : "")}"));
+                var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                if (d.Kind == "disk")
+                {
+                    var badge = new TextBlock { Text = "Reading…", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
+                    AutomationProperties.SetAutomationId(badge, "settings.badge." + d.Name);
+                    tools.Children.Add(badge);
+                    ReadBadge(d.Name, badge);
+                }
+                if (d.Kind == "cdrom")
+                {
+                    // A CD changes while the machine runs, unlike the rest of the sheet.
+                    tools.Children.Add(Btn("Change CD…", "settings.cd.change." + d.Name, true, async () =>
+                    {
+                        if (await PathPicker.PickFileAsync() is { } p) Media(d.Name, p);
+                    }));
+                    tools.Children.Add(Btn("Eject", "settings.cd.eject." + d.Name, true, () => { Media(d.Name, null); return Task.CompletedTask; }));
+                }
+                tools.Children.Add(Btn("Detach", "settings.detach." + d.Name, ok, () => { Apply(new MachineChange.DetachDrive(d.Name)); return Task.CompletedTask; }));
+                body.Children.Add(tools);
+            }
+            int? diskTarget = ok ? s.DiskTarget : null, cdTarget = ok ? s.CdTarget : null;
+            var adds = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            adds.Children.Add(Btn("Add a disk image…", "settings.addimage", diskTarget is not null, async () =>
+            {
+                adding = new ImagePanel(core, key);
+                await adding.ChooseAsync();
+                if (adding.Choice.Path is null) adding = null;
+                await Rebuild();
+            }));
+            if (!s.Drives.Any(d => d.Kind == "cdrom"))
+                adds.Children.Add(Btn("Insert a CD-ROM image…", "settings.insertcd", cdTarget is not null, async () =>
+                {
+                    if (await PathPicker.PickFileAsync() is { } p) Apply(new MachineChange.AttachCd(p, cdTarget!.Value));
+                }));
+            body.Children.Add(adds);
+            if (adding is { } panel)
+            {
+                var bar = new ProgressBar { Minimum = 0, Maximum = 1, Visibility = Visibility.Collapsed };
+                var line = new TextBlock { Visibility = Visibility.Collapsed };
+                var copy = new CancellationTokenSource();
+                var stop = new Button { Content = "Cancel", Visibility = Visibility.Collapsed };
+                stop.Click += (_, _) => copy.Cancel();
+                AutomationProperties.SetAutomationId(stop, "settings.copycancel");
+                var go = Btn("Add Disk", "settings.adddisk", panel.Choice.Ready && diskTarget is not null, async () =>
+                {
+                    var progress = new Progress<CopyProgress>(p => { bar.Visibility = line.Visibility = stop.Visibility = Visibility.Visible; bar.Value = p.Fraction; line.Text = p.Text; });
+                    try { await core.ImportDriveAsync(key, panel.Choice.Path!, diskTarget!.Value, panel.Choice.Overlay, panel.Choice.Copy, progress, copy.Token); adding = null; }
+                    catch (OperationCanceledException) { adding = null; }
+                    catch (Exception e) { note.Text = e.Message; note.Visibility = Visibility.Visible; }
+                    await Rebuild();
+                });
+                panel.Changed += () => go.IsEnabled = panel.Choice.Ready && diskTarget is not null;
+                body.Children.Add(Heading("Add a disk image"));
+                body.Children.Add(panel.Root);
+                body.Children.Add(bar); body.Children.Add(line); body.Children.Add(stop);
+                body.Children.Add(go);
+            }
 
             body.Children.Add(Heading("Network"));
             var modes = MachineSettingsRules.NetworkModes;
@@ -94,6 +164,14 @@ public static class MachineSettingsDialog
 
         await Rebuild();
         await dlg.ShowAsync();
+    }
+
+    static Button Btn(string text, string id, bool enabled, Func<Task> click)
+    {
+        var b = new Button { Content = text, IsEnabled = enabled };
+        AutomationProperties.SetAutomationId(b, id);
+        b.Click += async (_, _) => await click();
+        return b;
     }
 
     static TextBlock Text(string t) => new() { Text = t, TextWrapping = TextWrapping.Wrap };

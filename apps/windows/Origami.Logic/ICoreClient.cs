@@ -21,7 +21,25 @@ public interface ICoreClient : IDisposable
     /// <summary>What can be created. The first call may start an engine's program: call it off the UI thread.</summary>
     IReadOnlyList<Offering> Catalogue();
     /// <summary>Creates a machine from an offering and returns its key; the core fetches any firmware. <paramref name="engine"/> null takes the first engine that offers it.</summary>
-    Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default);
+    /// <param name="disk">The system disk to start with; a copy reports <paramref name="progress"/> and stops when <paramref name="ct"/> is cancelled, leaving a machine with no disk.</param>
+    Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default, SystemDisk? disk = null, IProgress<CopyProgress>? progress = null);
+
+    /// <summary>Whether a file can be attached and what a copy needs. <paramref name="machineKey"/> is the machine it is for; without it the library folder stands in.</summary>
+    Task<DiskImageCheck> CheckDiskImageAsync(string path, string? machineKey);
+    /// <summary>The OS and release on a disk image, such as "IRIX 6.5.30", or "Unknown".</summary>
+    Task<string> DiskInfoAsync(string path);
+    /// <summary>The same for the disk in a machine's drive; the core refuses a running machine it has not read before.</summary>
+    Task<string> DriveInfoAsync(string key, string drive);
+    /// <summary>What to say about a checked image and whether it can be added, given whether it is copied in.</summary>
+    ImageVerdict Verdict(DiskImageCheck check, bool copy);
+    /// <summary>The disk choices and how an image is kept, in the core's words.</summary>
+    DiskLabels Labels();
+    /// <summary>A byte count as every app shows it, such as "3.3 GB".</summary>
+    string SizeLabel(ulong bytes);
+    /// <summary>Adds a disk image to a stopped machine, used where it is or copied into its folder.</summary>
+    Task ImportDriveAsync(string key, string path, int target, bool overlay, bool copy, IProgress<CopyProgress>? progress = null, CancellationToken ct = default);
+    /// <summary>Puts <paramref name="image"/> in a CD-ROM drive, or ejects with null. A running machine changes at once; a stopped one's file changes.</summary>
+    Task ChangeMediaAsync(string key, string drive, string? image);
 
     /// <summary>Reads the machine file.</summary>
     Task<MachineSettings> SettingsAsync(string key);

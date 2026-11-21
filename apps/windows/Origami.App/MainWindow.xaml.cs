@@ -255,6 +255,8 @@ public sealed partial class MainWindow : Window
 
 
     readonly Dictionary<string, (Border Pill, TextBlock Text)> _pills = new();
+    readonly Dictionary<string, TextBlock> _badges = new();
+    public string? BadgeForTest(string key) => _badges.GetValueOrDefault(key) is { Visibility: Visibility.Visible } b ? b.Text : null;
 
     static string Detail(MachineSummary m) =>
         $"{m.ProductLabel}, {m.Nodes} node{(m.Nodes == 1 ? "" : "s")}, {m.MemoryPerNodeMiB} MB";
@@ -266,7 +268,7 @@ public sealed partial class MainWindow : Window
     public void Reload()
     {
         _rebuilding = true;
-        try { Library.Items.Clear(); _pills.Clear(); _rowStills.Clear(); BuildLibrary(); Library.SelectedIndex = 0; }
+        try { Library.Items.Clear(); _pills.Clear(); _badges.Clear(); _rowStills.Clear(); BuildLibrary(); Library.SelectedIndex = 0; }
         finally { _rebuilding = false; }
         Refresh();
     }
@@ -281,7 +283,7 @@ public sealed partial class MainWindow : Window
         _rebuilding = true;
         try
         {
-            Library.Items.Clear(); _pills.Clear(); _rowStills.Clear();
+            Library.Items.Clear(); _pills.Clear(); _badges.Clear(); _rowStills.Clear();
             BuildLibrary();
             Library.SelectedIndex = sel is not null && keys.IndexOf(sel) is var at and >= 0 ? at : (keys.Count > 0 ? 0 : -1);
         }
@@ -306,7 +308,10 @@ public sealed partial class MainWindow : Window
             var detail = new TextBlock { Text = Detail(m), FontSize = 12, Opacity = 0.7 };
             var ptext = new TextBlock { Foreground = new SolidColorBrush(Colors.White), FontSize = 11 };
             var pill = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 1, 7, 1), Child = ptext, HorizontalAlignment = HorizontalAlignment.Left };
-            var text = new StackPanel { Spacing = 2, Children = { name, detail, pill } };
+            var badge = new TextBlock { FontSize = 11, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(badge, "library.badge." + m.Key);
+            _badges[m.Key] = badge;
+            var text = new StackPanel { Spacing = 2, Children = { name, detail, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Children = { pill, badge } } } };
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { glyph, text } };
             var item = new ListViewItem { Content = row, Tag = m.Key };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(item, "library." + m.Key);
@@ -588,6 +593,7 @@ public sealed partial class MainWindow : Window
 
     async Task MachineSettingsAsync(string key)
     {
+        PathPicker.Hwnd = Hwnd;
         _dialogOpen = true;
         try { await MachineSettingsDialog.ShowAsync(Root.XamlRoot, _core, key, _core.Machines().First(m => m.Key == key).Name, () => Hwnd); }
         finally { _dialogOpen = false; Refresh(); }
@@ -595,6 +601,7 @@ public sealed partial class MainWindow : Window
 
     async Task NewMachineAsync()
     {
+        PathPicker.Hwnd = Hwnd;
         _dialogOpen = true;
         string? made;
         try { made = await NewMachineDialog.ShowAsync(Root.XamlRoot, _core); }
@@ -829,6 +836,11 @@ public sealed partial class MainWindow : Window
             if (!_pills.TryGetValue(m.Key, out var p)) continue;
             p.Text.Text = Pill.Text(m.State, !m.HasDisplay);
             p.Pill.Background = new SolidColorBrush(Tones.For(Pill.Tone(m.State)));
+            if (_badges.TryGetValue(m.Key, out var badge))
+            {
+                badge.Text = m.SystemDisk ?? "";
+                badge.Visibility = m.SystemDisk is null ? Visibility.Collapsed : Visibility.Visible;
+            }
         }
 
         var key = SelectedKey;

@@ -60,7 +60,7 @@ internal static class Program
         Expect(core.Engines().First().id == "fake", "the fake engine");
         Expect(core.Commands().Any(c => c.Id == "machine.start"), "a Start command");
 
-        var create = core.CreateMachine(new OrigamiCreateRequest("alpha", "fake.1", null, null, prom, null, null));
+        var create = core.CreateMachine(new OrigamiCreateRequest("alpha", "fake.1", null, null, prom, null, null, new OrigamiSystemDisk.Empty(1)));
         Expect(create.Wait(10_000) is OrigamiOperationState.Succeeded, "the machine is created");
         var machines = core.ListMachines();
         Console.WriteLine("machines: " + string.Join(", ", machines.Select(m => m.Name)));
@@ -70,6 +70,8 @@ internal static class Program
         var stopped = core.OpenMachine(key);
         stopped.ApplyChange(new OrigamiChange.SetConsole("ttyS1"));
         Expect(stopped.Settings().ConsolePort == "ttyS1", "the console line chosen");
+        Expect(stopped.Settings().DiskTarget == 2, "an empty system disk at target 1");
+        Expect(stopped.DriveInfo("system") == "Unknown", "a blank disk is Unknown");
         var machine = core.StartMachine(key);
         Expect(machine.View().State == OrigamiMachineState.Running, "a running machine");
         Expect(recorder.Wait(e => e.Machine == key && e.Kinds.Contains(OrigamiEventKind.State)), "a state event");

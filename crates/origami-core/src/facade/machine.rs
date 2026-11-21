@@ -385,12 +385,92 @@ impl Machine {
         Ok(())
     }
 
-    /// Put `image` in the removable drive `drive`, or eject with None.
+    /// Put `image` in the CD drive `drive`, or eject with None. A running
+    /// machine changes at once; a stopped one's file changes.
     pub fn change_media(&self, drive: &str, image: Option<&Path>) -> CoreResult<()> {
-        self.inner
-            .session()?
-            .media(drive, image)
-            .map_err(CoreError::engine)
+        let live = {
+            let run = self.inner.run.lock().unwrap();
+            self.inner.live(&run)
+        };
+        if live {
+            return self
+                .inner
+                .session()?
+                .media(drive, image)
+                .map_err(CoreError::engine);
+        }
+        let file =
+            origami_machine::read_machine(self.inner.dir.path()).map_err(CoreError::machine)?;
+        let found = file
+            .drive
+            .iter()
+            .find(|d| d.name == drive && d.kind == "cdrom");
+        let found = found.ok_or_else(|| {
+            CoreError::new(
+                ErrorKind::NotFound,
+                format!("there is no CD-ROM drive {drive}"),
+            )
+        })?;
+        let mut changes = vec![Change::DetachDrive(drive.into())];
+        if let Some(image) = image {
+            changes.push(Change::AttachDrive(crate::DriveRequest {
+                file: image.to_path_buf(),
+                kind: crate::DriveKind::Cdrom,
+                target: found.target,
+                overlay: false,
+            }));
+        }
+        self.edit(&changes)
+    }
+
+    /// Copy or use the disk image in `request` as a new drive of the stopped
+    /// machine. A copy is cancellable and leaves no partial file.
+    pub fn import_drive(&self, request: crate::DriveRequest, copy: bool) -> CoreResult<Operation> {
+        self.inner.claim_edit()?;
+        let machine = self.inner.clone();
+        Ok(self.spawn("Add disk", true, move |control| {
+            let _editing = Editing(&machine.run);
+            let result = (|| {
+                let mut request = request;
+                let mut copied = None;
+                if copy {
+                    let file = super::disks::copy_into(&request.file, machine.dir.path(), control)?;
+                    request.file = file.clone();
+                    copied = Some(file);
+                }
+                machine
+                    .apply_locked(&[Change::AttachDrive(request)])
+                    .inspect_err(|_| {
+                        if let Some(file) = &copied {
+                            let _ = std::fs::remove_file(file);
+                        }
+                    })
+            })();
+            machine.finish_operation();
+            result.map(|()| None)
+        }))
+    }
+
+    /// What the disk in `drive` holds, such as `IRIX 6.5.30`; off the UI thread.
+    /// A running machine is not read, since its guest writes the disk.
+    pub fn drive_info(&self, drive: &str) -> CoreResult<String> {
+        let file =
+            origami_machine::read_machine(self.inner.dir.path()).map_err(CoreError::machine)?;
+        let found = file.drive.iter().find(|d| d.name == drive).ok_or_else(|| {
+            CoreError::new(ErrorKind::NotFound, format!("there is no drive {drive}"))
+        })?;
+        let image = origami_machine::resolve(self.inner.dir.path(), &found.image);
+        if let Some(label) = super::disks::cached_label(&image) {
+            return Ok(label);
+        }
+        let live = self.inner.live(&self.inner.run.lock().unwrap());
+        if live {
+            return Err(CoreError::new(
+                ErrorKind::Busy,
+                "Power off the machine to read its disks",
+            ));
+        }
+        super::disks::label(&image)
     }
 
     #[cfg(test)]
@@ -409,33 +489,14 @@ impl Machine {
     /// Edit the machine's file: `Busy` unless it is stopped and no other edit
     /// runs, and a start waits out an edit. Off the UI thread.
     pub fn apply_change(&self, change: &Change) -> CoreResult<()> {
-        let inner = &self.inner;
-        {
-            let mut run = inner.run.lock().unwrap();
-            if run.phase != Phase::Idle || inner.live(&run) {
-                return Err(CoreError::new(
-                    ErrorKind::Busy,
-                    "stop the machine before changing its settings",
-                ));
-            }
-            run.phase = Phase::Editing;
-        }
-        let _editing = Editing(&inner.run);
-        let (engine, dir) = (inner.engine.as_ref(), inner.dir.path());
-        crate::apply_change(engine, dir, change).map_err(CoreError::machine)?;
-        inner.shared.slot.raise(&[EventKind::Library]);
-        let stale = |error: Box<dyn std::error::Error + Send + Sync>| {
-            CoreError::new(
-                ErrorKind::Internal,
-                format!("the change was saved, but the machine could not be reloaded ({error}); open it again"),
-            )
-        };
-        let loaded = crate::open(engine, dir).map_err(stale)?;
-        let mut model =
-            model::Machine::from_file(&loaded.catalogue, &loaded.file).map_err(stale)?;
-        model.engine.id = engine.info().id;
-        *inner.model.lock().unwrap() = model;
-        Ok(())
+        self.edit(std::slice::from_ref(change))
+    }
+
+    /// The changes in order, all or none, under the same guard.
+    fn edit(&self, changes: &[Change]) -> CoreResult<()> {
+        self.inner.claim_edit()?;
+        let _editing = Editing(&self.inner.run);
+        self.inner.apply_locked(changes)
     }
 
     pub fn screendump(&self, head: usize, path: &Path) -> CoreResult<()> {
@@ -620,6 +681,38 @@ fn stop_within(session: Arc<dyn Session>, patience: Duration) -> CoreResult<()> 
 }
 
 impl MachineInner {
+    /// Takes the edit phase, or says why not. `Editing` gives it back.
+    fn claim_edit(&self) -> CoreResult<()> {
+        let mut run = self.run.lock().unwrap();
+        if run.phase != Phase::Idle || self.live(&run) {
+            return Err(CoreError::new(
+                ErrorKind::Busy,
+                "stop the machine before changing its settings",
+            ));
+        }
+        run.phase = Phase::Editing;
+        Ok(())
+    }
+
+    /// Writes the changes and reloads the model, with the edit phase held.
+    fn apply_locked(&self, changes: &[Change]) -> CoreResult<()> {
+        let (engine, dir) = (self.engine.as_ref(), self.dir.path());
+        crate::apply_changes(engine, dir, changes).map_err(CoreError::machine)?;
+        self.shared.slot.raise(&[EventKind::Library]);
+        let stale = |error: Box<dyn std::error::Error + Send + Sync>| {
+            CoreError::new(
+                ErrorKind::Internal,
+                format!("the change was saved, but the machine could not be reloaded ({error}); open it again"),
+            )
+        };
+        let loaded = crate::open(engine, dir).map_err(stale)?;
+        let mut model =
+            model::Machine::from_file(&loaded.catalogue, &loaded.file).map_err(stale)?;
+        model.engine.id = engine.info().id;
+        *self.model.lock().unwrap() = model;
+        Ok(())
+    }
+
     fn live(&self, run: &Run) -> bool {
         run.session
             .as_ref()

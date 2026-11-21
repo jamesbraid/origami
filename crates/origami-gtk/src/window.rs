@@ -21,6 +21,7 @@ pub struct Row {
     pub dir: PathBuf,
     pub row: gtk::ListBoxRow,
     pub pill: gtk::Label,
+    pub badge: gtk::Label,
 }
 
 pub struct Win {
@@ -984,7 +985,7 @@ pub fn enabled(app: &App, w: &Win, id: &str) -> bool {
     {
         return false;
     }
-    // Not built yet: CD changes and the shortcuts sheet.
+    // Not built yet: the Eject CD command and the shortcuts sheet.
     if matches!(id, "machine.eject-cd" | "app.shortcuts") {
         return false;
     }
@@ -1195,9 +1196,18 @@ pub fn rebuild_library(app: &Rc<App>) {
                 .css_classes(["pill", "pill-grey"])
                 .halign(gtk::Align::Start)
                 .build();
+            let badge = gtk::Label::builder()
+                .label(e.system_disk.as_deref().unwrap_or_default())
+                .css_classes(["pill", "pill-grey"])
+                .visible(e.system_disk.is_some())
+                .build();
+            badge.set_widget_name("library.badge");
+            let states = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            states.append(&pill);
+            states.append(&badge);
             let text = gtk::Box::new(gtk::Orientation::Vertical, 3);
             text.append(&title);
-            text.append(&pill);
+            text.append(&states);
             let row_box = gtk::Box::builder()
                 .spacing(10)
                 .margin_top(6)
@@ -1217,6 +1227,7 @@ pub fn rebuild_library(app: &Rc<App>) {
                 dir: e.dir.clone(),
                 row,
                 pill,
+                badge,
             });
         }
     }

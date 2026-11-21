@@ -11,6 +11,7 @@ mod commands;
 mod console;
 mod core;
 mod cpu;
+mod disks;
 mod error;
 mod event;
 mod install;
@@ -21,8 +22,11 @@ mod osview;
 mod settings;
 
 pub use commands::{Command, EnabledWhen, Platform, Shortcut};
-pub use core::{Config, Core, CreateRequest, EngineSummary, MachineSummary, OfferingSummary};
+pub use core::{
+    Config, Core, CreateRequest, EngineSummary, MachineSummary, OfferingSummary, SystemDisk,
+};
 pub use cpu::{CpuLoadReport, CpuLoadSource};
+pub use disks::{disk_labels, image_verdict, size_label, DiskImageCheck, DiskLabels, ImageVerdict};
 pub use error::{CoreError, CoreResult, ErrorKind};
 pub use event::{Event, EventKind, Observer};
 pub use lease::{connect as connect_install_console, Cancel, InstallStart, Starter};

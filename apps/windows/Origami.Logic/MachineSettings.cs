@@ -13,7 +13,11 @@ public sealed record MachineSettings(
     int MemoryMiB, IReadOnlyList<int> MemoryAllowed,
     IReadOnlyList<Pipe> Pipes, IReadOnlyList<Drive> Drives,
     string NetworkMode, IReadOnlyList<Forward> Forwards, IReadOnlyList<Share> Shares,
-    string ConsolePort, IReadOnlyList<ConsoleLine> ConsoleLines);
+    string ConsolePort, IReadOnlyList<ConsoleLine> ConsoleLines,
+    /// <summary>The first free target on the first SCSI bus, for a disk added in Settings.</summary>
+    int? DiskTarget = null,
+    /// <summary>The last free target there, for a CD-ROM.</summary>
+    int? CdTarget = null);
 
 /// <summary>One edit to a stopped machine; the core refuses it with Busy while the machine runs.</summary>
 public abstract record MachineChange
@@ -29,6 +33,8 @@ public abstract record MachineChange
     public sealed record DetachDrive(string Name) : MachineChange;
     /// <summary>A null port returns to the machine's default line.</summary>
     public sealed record SetConsole(string? Port) : MachineChange;
+    /// <summary>A CD-ROM image in a new drive at <c>Target</c>.</summary>
+    public sealed record AttachCd(string Path, int Target) : MachineChange;
 }
 
 /// <summary>What the settings sheet decides itself, matching the Linux app.</summary>

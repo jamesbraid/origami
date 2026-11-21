@@ -682,6 +682,91 @@ def first_light(quick=False):
         a.stop()
 
 
+def qmp(machine_dir, command, **arguments):
+    """One QMP command to a running machine; the reply."""
+    import socket
+    port = json.load(open(os.path.join(machine_dir, "state", "run.json")))["qmp_port"]
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as c:
+        f = c.makefile("rw")
+        f.readline()
+        for cmd in ({"execute": "qmp_capabilities"}, {"execute": command, "arguments": arguments}):
+            f.write(json.dumps(cmd) + "\n")
+            f.flush()
+            reply = json.loads(f.readline())
+        return reply
+
+
+def qmp_inserted(machine_dir):
+    """The file in each drive of a running machine, as QEMU's query-block says."""
+    return [(b.get("inserted") or {}).get("file", "") for b in qmp(machine_dir, "query-block")["return"]]
+
+
+def new_machine(a, name, disk, picks=(), place=None):
+    """New Machine through its real controls; returns once the machine is listed."""
+    a.req("invoke machine.new")
+    ok = lambda r: r.get("ok")
+    a.wait("the dialog", lambda: ok(a.req("activate new.disk " + disk)), 30, 0.5)
+    for path in picks:
+        a.req("pick " + path)
+        a.req("activate new.image")
+    if place:
+        a.wait("the choices", lambda: ok(a.req("activate disk.place " + place)), 30, 0.5)
+    note = a.wait("the note", lambda: a.req("activate disk.note").get("text") or None, 90, 0.5) or "" if picks else ""
+    a.req("activate new.name " + name)
+    a.wait("Create", lambda: ok(a.req("activate new.create")), 30, 0.5)
+    listed = a.wait("created", lambda: name in a.state()["library"], 120, 0.5)
+    # The machine is listed before its disk is made; the dialog closes when that is done.
+    a.wait("the dialog to close", lambda: "no widget" in str(a.req("activate disk.note")), 180, 0.5)
+    return listed, note
+
+
+def disks(a):
+    """Disks in New Machine and Settings, through the real controls."""
+    fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "fixtures", "machines", "disk-irix-6.5.30.img")
+    fixture = os.path.abspath(fixture)
+    toml = lambda n: open(os.path.join(lib, n, "machine.toml")).read()
+    made, _ = new_machine(a, "emptybox", "Empty disk")
+    check("an empty disk is made with the machine", made is not None and "drives/system" in toml("emptybox"), toml("emptybox")[-300:])
+    kept, note = new_machine(a, "copybox", "Your own image", [fixture])
+    check("copying says the original is safe", "keeps your original safe" in note, note)
+    check("a copied image is kept in the machine's folder", kept is not None and "drives/disk-irix-6.5.30.img" in toml("copybox") and os.path.exists(os.path.join(lib, "copybox", "drives", "disk-irix-6.5.30.img")), toml("copybox")[-300:])
+    check("the library row names the OS on the disk", a.wait("the badge", lambda: "IRIX 6.5.30" in a.state()["library_badges"], 60, 0.5) is not None, a.state()["library_badges"])
+    _, note = new_machine(a, "placebox", "Your own image", [fixture], "Use it where it is")
+    text = toml("placebox")
+    check("an image used in place warns that IRIX writes into the file", "IRIX will write into this file" in note, note)
+    check("an image used in place stays where it is", fixture in text and not os.path.exists(os.path.join(lib, "placebox", "drives", os.path.basename(fixture))), text[-300:])
+    # The CD: attach one while stopped, swap it while the machine runs.
+    cds = [os.path.join(work, n) for n in ("one.iso", "two.iso")]
+    for c in cds:
+        open(c, "wb").write(bytes(2048))
+    a.req("invoke machine.settings octane2")
+    a.req("pick " + cds[0])
+    a.wait("the CD row", lambda: a.req("activate drive.insert-cd").get("ok"), 30, 0.5)
+    check("a CD image is attached in Settings", a.wait("the file", lambda: "one.iso" in toml("octane2"), 30, 0.5), toml("octane2")[-300:])
+    closed = []
+    def none_left():
+        if a.req("activate settings.dialog").get("ok"):
+            closed.append(1)
+            return False
+        return bool(closed)
+    a.wait("the dialog to close", none_left, 30, 0.5)
+    a.req("invoke machine.start octane2")
+    a.wait("up", lambda: (a.machine("octane2") or {}).get("state") in ("Starting", "Running"), 60, 0.5)
+    time.sleep(5)
+    a.req("invoke machine.settings octane2")
+    a.req("pick " + cds[1])
+    a.wait("Change CD", lambda: a.req("activate drive.cd.change").get("ok"), 30, 0.5)
+    swapped = a.wait("QEMU", lambda: any(f.endswith("two.iso") for f in qmp_inserted(os.path.join(lib, "octane2"))), 30, 1)
+    check("the CD is swapped while the machine runs", swapped, qmp_inserted(os.path.join(lib, "octane2")))
+    a.wait("Eject", lambda: a.req("activate drive.cd.eject").get("ok"), 30, 0.5)
+    ejected = a.wait("QEMU", lambda: not any(f.endswith(".iso") for f in qmp_inserted(os.path.join(lib, "octane2"))), 30, 1)
+    check("the CD is ejected while the machine runs", ejected, qmp_inserted(os.path.join(lib, "octane2")))
+    closed.clear()
+    a.wait("the dialog to close", none_left, 30, 0.5)
+    a.req("invoke machine.force-quit octane2")
+    a.wait("down", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+
+
 def settings():
     """Edits go through the core: a stopped machine takes them and its file
     changes; a running one refuses."""
@@ -717,6 +802,7 @@ def settings():
         a.wait("the dialog to close", none_left, 30, 0.5)
         r = a.req("change memory 99999")
         check("a memory size the machine does not take is refused", "error" in r, r)
+        disks(a)
         a.req("invoke machine.new")
         time.sleep(2)
         png = shot("new-machine")

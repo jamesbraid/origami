@@ -328,6 +328,7 @@ fn a_create_may_name_an_engine() {
                 boot_prom: Some(prom.to_str().unwrap().into()),
                 io_prom: None,
                 engine: engine.map(Into::into),
+                system_disk: None,
             })
             .unwrap()
             .wait(Some(10_000))

@@ -48,6 +48,10 @@ pub struct MachineSettings {
     pub memory_allowed_mib: Vec<u32>,
     pub pipes: Vec<PipeSetting>,
     pub drives: Vec<DriveSetting>,
+    /// The first free target on the first SCSI bus, for a disk added in Settings.
+    pub disk_target: Option<u32>,
+    /// The last free target there, for a CD-ROM, so disks keep the low numbers.
+    pub cd_target: Option<u32>,
     /// `user`, `private`, `none`, `tap` or `vmnet`.
     pub network_mode: String,
     pub forwards: Vec<PortForward>,
@@ -65,6 +69,16 @@ fn port_label(name: &str) -> String {
         other => other,
     }
     .into()
+}
+
+fn free_targets(
+    file: &origami_machine::MachineFile,
+    offer: &origami_machine::Offering,
+) -> Vec<u32> {
+    let used = |t: &u32| file.drive.iter().any(|d| d.bus == 0 && d.target == *t);
+    offer.scsi_bus(0).map_or_else(Vec::new, |b| {
+        b.targets.iter().copied().filter(|t| !used(t)).collect()
+    })
 }
 
 pub(crate) fn read(loaded: &Loaded) -> Result<MachineSettings> {
@@ -103,6 +117,8 @@ pub(crate) fn read(loaded: &Loaded) -> Result<MachineSettings> {
                 read_only: d.read_only,
             })
             .collect(),
+        disk_target: free_targets(file, offer).first().copied(),
+        cd_target: free_targets(file, offer).last().copied(),
         network_mode: file.network.mode.clone(),
         forwards: file.network.forward.clone(),
         shares: file

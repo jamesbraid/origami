@@ -52,6 +52,8 @@ struct MachineRecord: Identifiable, Hashable {
     let nodes: Int
     let memoryPerNodeMiB: Int
     let needsUpgrade: Bool
+    /// What the system disk holds, such as "IRIX 6.5.30", once the core has read it.
+    let systemDisk: String?
 
     var id: String { key }
 
@@ -82,6 +84,7 @@ struct MachineRecord: Identifiable, Hashable {
         nodes = Int(s.nodes)
         memoryPerNodeMiB = Int(s.memoryPerNodeMib)
         needsUpgrade = s.needsUpgrade
+        systemDisk = s.systemDisk
     }
 }
 

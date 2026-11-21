@@ -254,12 +254,24 @@ impl Staged<'_> {
             Change::AttachDrive(request) => {
                 let path = dunce::canonicalize(&request.file)?;
                 let kind = request.kind.as_str();
+                // A file inside the machine's folder stays valid when the folder moves.
+                let inside = dunce::canonicalize(self.dir)
+                    .ok()
+                    .and_then(|dir| path.strip_prefix(dir).ok().map(Path::to_path_buf));
+                let image = match inside {
+                    Some(rel) => rel
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy())
+                        .collect::<Vec<_>>()
+                        .join("/"),
+                    None => path.display().to_string(),
+                };
                 self.file.drive.push(Drive {
                     name: format!("{kind}{}", request.target),
                     kind: kind.into(),
                     bus: 0,
                     target: request.target,
-                    image: path.display().to_string(),
+                    image,
                     read_only: request.kind == crate::DriveKind::Cdrom,
                     overlay: request.overlay,
                 });

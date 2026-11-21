@@ -29,6 +29,7 @@ impl Lab {
                 boot_prom: Some(prom.to_str().unwrap().into()),
                 io_prom: None,
                 engine: None,
+                system_disk: None,
             })
             .unwrap();
         assert_eq!(op.wait(Some(10_000)), OrigamiOperationState::Succeeded);

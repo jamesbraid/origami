@@ -181,6 +181,9 @@ pub struct OrigamiMachineSummary {
     pub problem: Option<String>,
     /// Made by an older Origami: `upgrade_machine` first, then it opens.
     pub needs_upgrade: bool,
+    /// What the system disk holds, such as `IRIX 6.5.30`, once read; a first
+    /// listing starts the read and a library event follows.
+    pub system_disk: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
@@ -213,6 +216,95 @@ pub struct OrigamiCreateRequest {
     /// An `OrigamiEngineInfo::id` that lists the offering; without it the
     /// first engine that does. The machine keeps it for life.
     pub engine: Option<String>,
+    pub system_disk: Option<OrigamiSystemDisk>,
+}
+
+/// The system disk a new machine starts with.
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum OrigamiSystemDisk {
+    Empty {
+        gb: u32,
+    },
+    /// `copy` puts the file in the machine's folder; `overlay` keeps a CHD's
+    /// changes apart from the image.
+    Image {
+        path: String,
+        copy: bool,
+        overlay: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum OrigamiDriveKind {
+    Disk,
+    Cdrom,
+    Tape,
+}
+
+/// What `check_disk_image` says about a file.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiDiskImageCheck {
+    pub bytes: u64,
+    pub is_chd: bool,
+    /// Bytes free where a copy would go.
+    pub free_bytes: u64,
+    /// The name of another machine that already uses the file.
+    pub used_by: Option<String>,
+    /// Why the file cannot be attached, in the core's words.
+    pub problem: Option<String>,
+}
+
+/// What to say under the choices for an image, and whether it can be added.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiImageVerdict {
+    pub note: Option<String>,
+    /// The note is a warning rather than reassurance.
+    pub warning: bool,
+    pub ready: bool,
+}
+
+/// The New Machine disk choices and how an image is kept. Index 0 of `place` copies
+/// the image and index 0 of `keep` keeps a CHD's changes apart.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiDiskLabels {
+    pub choices: Vec<String>,
+    pub place: Vec<String>,
+    pub keep: Vec<String>,
+    pub same_kind: String,
+    /// The empty disk's size to start with, in GB.
+    pub default_gb: u32,
+}
+
+/// The note and readiness for a checked image, given whether it is copied in.
+#[uniffi::export]
+pub fn origami_image_verdict(check: OrigamiDiskImageCheck, copy: bool) -> OrigamiImageVerdict {
+    let v = f::image_verdict(
+        &f::DiskImageCheck {
+            bytes: check.bytes,
+            is_chd: check.is_chd,
+            free_bytes: check.free_bytes,
+            used_by: check.used_by,
+            problem: check.problem,
+        },
+        copy,
+    );
+    OrigamiImageVerdict {
+        note: v.note,
+        warning: v.warning,
+        ready: v.ready,
+    }
+}
+
+#[uniffi::export]
+pub fn origami_disk_labels() -> OrigamiDiskLabels {
+    let l = f::disk_labels();
+    OrigamiDiskLabels {
+        choices: l.choices,
+        place: l.place,
+        keep: l.keep,
+        same_kind: l.same_kind,
+        default_gb: l.default_gb,
+    }
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -270,6 +362,10 @@ pub struct OrigamiMachineSettings {
     pub memory_allowed_mib: Vec<u32>,
     pub pipes: Vec<OrigamiPipeSetting>,
     pub drives: Vec<OrigamiDriveSetting>,
+    /// The first free target on the first SCSI bus, for a disk added in Settings.
+    pub disk_target: Option<u32>,
+    /// The last free target there, for a CD-ROM.
+    pub cd_target: Option<u32>,
     /// `user`, `private`, `none`, `tap` or `vmnet`.
     pub network_mode: String,
     pub forwards: Vec<OrigamiForward>,
@@ -311,6 +407,8 @@ impl From<f::MachineSettings> for OrigamiMachineSettings {
                     read_only: d.read_only,
                 })
                 .collect(),
+            disk_target: s.disk_target,
+            cd_target: s.cd_target,
             network_mode: s.network_mode,
             forwards: s
                 .forwards
@@ -355,15 +453,40 @@ pub enum OrigamiNetworkMode {
 /// One edit to a stopped machine's settings.
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum OrigamiChange {
-    SetProcessor { cpus_per_node: u32 },
-    SetMemory { mib: u32 },
-    SetNetwork { mode: OrigamiNetworkMode },
-    AddForward { forward: OrigamiForward },
-    RemoveForward { name: String },
-    AddShare { name: String, host_dir: String },
-    RemoveShare { name: String },
-    DetachDrive { name: String },
-    SetConsole { port: Option<String> },
+    SetProcessor {
+        cpus_per_node: u32,
+    },
+    SetMemory {
+        mib: u32,
+    },
+    SetNetwork {
+        mode: OrigamiNetworkMode,
+    },
+    AddForward {
+        forward: OrigamiForward,
+    },
+    RemoveForward {
+        name: String,
+    },
+    AddShare {
+        name: String,
+        host_dir: String,
+    },
+    RemoveShare {
+        name: String,
+    },
+    DetachDrive {
+        name: String,
+    },
+    AttachDrive {
+        path: String,
+        kind: OrigamiDriveKind,
+        target: u32,
+        overlay: bool,
+    },
+    SetConsole {
+        port: Option<String>,
+    },
 }
 
 impl From<OrigamiChange> for origami_core::Change {
@@ -402,8 +525,32 @@ impl From<OrigamiChange> for origami_core::Change {
             },
             OrigamiChange::RemoveShare { name } => Self::RemoveShare(name),
             OrigamiChange::DetachDrive { name } => Self::DetachDrive(name),
+            OrigamiChange::AttachDrive {
+                path,
+                kind,
+                target,
+                overlay,
+            } => Self::AttachDrive(drive_request(path, kind, target, overlay)),
             OrigamiChange::SetConsole { port } => Self::SetConsole(port),
         }
+    }
+}
+
+fn drive_request(
+    path: String,
+    kind: OrigamiDriveKind,
+    target: u32,
+    overlay: bool,
+) -> origami_core::DriveRequest {
+    origami_core::DriveRequest {
+        file: PathBuf::from(path),
+        kind: match kind {
+            OrigamiDriveKind::Disk => origami_core::DriveKind::Disk,
+            OrigamiDriveKind::Cdrom => origami_core::DriveKind::Cdrom,
+            OrigamiDriveKind::Tape => origami_core::DriveKind::Tape,
+        },
+        target,
+        overlay,
     }
 }
 
@@ -647,6 +794,12 @@ pub fn origami_command_enabled(
     f::EnabledWhen::from(when).holds(state.map(Into::into))
 }
 
+/// A byte count as the apps show it, such as `3.3 GB`.
+#[uniffi::export]
+pub fn origami_size_label(bytes: u64) -> String {
+    f::size_label(bytes)
+}
+
 /// The ABI version of the frame plane (`origami_frame.h`).
 #[uniffi::export]
 pub fn origami_frame_plane_version() -> u32 {
@@ -749,6 +902,7 @@ impl OrigamiCore {
                 state: m.state.into(),
                 problem: m.problem,
                 needs_upgrade: m.needs_upgrade,
+                system_disk: m.system_disk,
             })
             .collect())
     }
@@ -772,6 +926,31 @@ impl OrigamiCore {
                 text: l.text,
             })
             .collect())
+    }
+
+    /// The OS and release on a disk image, such as `IRIX 6.5.30`, or
+    /// `Unknown`. Reads the file, once per size and change time: off the UI thread.
+    pub fn disk_info(&self, path: String) -> Res<String> {
+        Ok(self.core.disk_info(std::path::Path::new(&path))?)
+    }
+
+    /// Whether a file can be attached and what a copy needs. `machine` is the
+    /// one it is for; without it the library folder stands in. Off the UI thread.
+    pub fn check_disk_image(
+        &self,
+        path: String,
+        machine: Option<String>,
+    ) -> Res<OrigamiDiskImageCheck> {
+        let c = self
+            .core
+            .check_disk_image(std::path::Path::new(&path), machine.as_deref())?;
+        Ok(OrigamiDiskImageCheck {
+            bytes: c.bytes,
+            is_chd: c.is_chd,
+            free_bytes: c.free_bytes,
+            used_by: c.used_by,
+            problem: c.problem,
+        })
     }
 
     /// The About egg's `hinv`-style host inventory. Reads the disk and may
@@ -800,6 +979,18 @@ impl OrigamiCore {
             boot_prom: request.boot_prom.map(PathBuf::from),
             io_prom: request.io_prom.map(PathBuf::from),
             engine: request.engine,
+            system_disk: request.system_disk.map(|d| match d {
+                OrigamiSystemDisk::Empty { gb } => f::SystemDisk::Empty { gb },
+                OrigamiSystemDisk::Image {
+                    path,
+                    copy,
+                    overlay,
+                } => f::SystemDisk::Image {
+                    file: PathBuf::from(path),
+                    copy,
+                    overlay,
+                },
+            }),
         })?;
         Ok(Arc::new(OrigamiOperation(operation)))
     }
@@ -872,6 +1063,26 @@ impl OrigamiCore {
                 f::CoreError::new(f::ErrorKind::NotRunning, "the machine was never started")
             })?;
         Ok(session.input().iter().map(|e| format!("{e:?}")).collect())
+    }
+
+    /// The CD changes that reached the engine for the started machine `key`,
+    /// in order, as `drive image` with `eject` for no image.
+    pub fn fake_media(&self, key: String) -> Res<Vec<String>> {
+        let machine = self.core.open_machine(&key)?;
+        let session = self
+            .fake
+            .session_in(std::path::Path::new(machine.key()))
+            .ok_or_else(|| {
+                f::CoreError::new(f::ErrorKind::NotRunning, "the machine was never started")
+            })?;
+        Ok(session
+            .media_changes()
+            .into_iter()
+            .map(|(drive, image)| match image {
+                Some(image) => format!("{drive} {}", image.display()),
+                None => format!("{drive} eject"),
+            })
+            .collect())
     }
 
     /// Make the guest print `text` on its console.
@@ -1004,11 +1215,34 @@ impl OrigamiMachine {
         Ok(())
     }
 
-    /// Put `image` in a removable drive, or eject with None.
+    /// Put `image` in a removable drive, or eject with None. A running machine
+    /// changes at once; a stopped one's file changes.
     pub fn change_media(&self, drive: String, image: Option<String>) -> Res<()> {
         Ok(self
             .0
             .change_media(&drive, image.as_deref().map(std::path::Path::new))?)
+    }
+
+    /// Add a disk image to the stopped machine, using the file or copying it
+    /// into the machine's folder. Long: a copy reports `fraction` and can be cancelled.
+    pub fn import_drive(
+        &self,
+        path: String,
+        kind: OrigamiDriveKind,
+        target: u32,
+        overlay: bool,
+        copy: bool,
+    ) -> Res<Arc<OrigamiOperation>> {
+        let request = drive_request(path, kind, target, overlay);
+        Ok(Arc::new(OrigamiOperation(
+            self.0.import_drive(request, copy)?,
+        )))
+    }
+
+    /// What the disk in `drive` holds, such as `IRIX 6.5.30`. Off the UI
+    /// thread; `Busy` for a running machine that was not read before.
+    pub fn drive_info(&self, drive: String) -> Res<String> {
+        Ok(self.0.drive_info(&drive)?)
     }
 
     /// The machine file's settings. Reads the disk: off the UI thread.
@@ -1113,6 +1347,16 @@ impl OrigamiOperation {
     /// False when the operation cannot be cancelled or has finished.
     pub fn cancel(&self) -> bool {
         self.0.cancel()
+    }
+
+    /// The latest line the work reported, such as `1.8 GB of 3.3 GB`.
+    pub fn progress(&self) -> String {
+        self.0.progress()
+    }
+
+    /// How far along it is, 0 to 1, when it says.
+    pub fn fraction(&self) -> Option<f32> {
+        self.0.fraction()
     }
 
     /// The machine a finished create or start produced.

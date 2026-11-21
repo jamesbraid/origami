@@ -30,6 +30,7 @@ struct Inner {
     cancelled: AtomicBool,
     state: Mutex<(OperationState, Option<String>)>,
     progress: Mutex<String>,
+    fraction: Mutex<Option<f32>>,
     changed: Condvar,
     slot: Arc<Slot>,
 }
@@ -53,6 +54,11 @@ impl Control {
     pub(crate) fn progress(&self, text: impl Into<String>) {
         *self.0.progress.lock().unwrap() = text.into();
         self.0.slot.raise(&[EventKind::Operation]);
+    }
+
+    /// How far along the work is, 0 to 1.
+    pub(crate) fn fraction(&self, done: f32) {
+        *self.0.fraction.lock().unwrap() = Some(done.clamp(0.0, 1.0));
     }
 
     /// The cancel flag as a function, for a helper that outlives the borrow.
@@ -83,6 +89,11 @@ impl Operation {
     /// The latest line of progress the work reported; empty before any.
     pub fn progress(&self) -> String {
         self.inner.progress.lock().unwrap().clone()
+    }
+
+    /// How far along the work is, 0 to 1, when it says.
+    pub fn fraction(&self) -> Option<f32> {
+        *self.inner.fraction.lock().unwrap()
     }
 
     /// The machine a finished create or start operation produced.
@@ -137,6 +148,7 @@ where
         cancelled: AtomicBool::new(false),
         state: Mutex::new((OperationState::Running, None)),
         progress: Mutex::new(String::new()),
+        fraction: Mutex::new(None),
         changed: Condvar::new(),
         slot,
     });

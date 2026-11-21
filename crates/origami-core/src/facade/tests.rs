@@ -1114,3 +1114,318 @@ fn a_forced_stop_reads_as_ours_whatever_status_the_kill_leaves() {
     let (reason, _) = classify_exit(Some(1), None, None, None);
     assert_eq!(reason, ExitReason::Crashed);
 }
+
+fn irix_disk() -> Vec<u8> {
+    std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/machines/disk-irix-6.5.30.img"
+    ))
+    .unwrap()
+}
+
+impl Fixture {
+    fn create_with(&self, name: &str, system_disk: SystemDisk) -> (String, OperationState) {
+        let prom = self.root.path().join("prom.bin");
+        std::fs::write(&prom, [0u8; 16]).unwrap();
+        let op = self
+            .core
+            .create_machine(CreateRequest {
+                name: name.into(),
+                offering: "fake.1".into(),
+                boot_prom: Some(prom),
+                system_disk: Some(system_disk),
+                ..Default::default()
+            })
+            .unwrap();
+        let state = op.wait(Some(WAIT));
+        (self.root.path().join(name).to_string_lossy().into(), state)
+    }
+}
+
+#[test]
+fn a_new_machine_gets_an_empty_disk_at_target_one() {
+    let f = fixture();
+    let (key, state) = f.create_with("empty", SystemDisk::Empty { gb: 1 });
+    assert_eq!(state, OperationState::Succeeded);
+    let s = f.core.open_machine(&key).unwrap().settings().unwrap();
+    assert_eq!((s.drives.len(), s.drives[0].target), (1, 1));
+    assert_eq!((s.disk_target, s.cd_target), (Some(2), Some(4)));
+}
+
+#[test]
+fn an_image_is_used_in_place_or_copied_into_the_machines_folder() {
+    let f = fixture();
+    let image = f.root.path().join("irix.img");
+    std::fs::write(&image, irix_disk()).unwrap();
+    let image_text = image.to_string_lossy().into_owned();
+    let place = |copy| SystemDisk::Image {
+        file: image.clone(),
+        copy,
+        overlay: false,
+    };
+    let (key, state) = f.create_with("in-place", place(false));
+    assert_eq!(state, OperationState::Succeeded);
+    let drives = f
+        .core
+        .open_machine(&key)
+        .unwrap()
+        .settings()
+        .unwrap()
+        .drives;
+    assert_eq!(drives[0].image, image_text);
+    let (key, state) = f.create_with("copied", place(true));
+    assert_eq!(state, OperationState::Succeeded);
+    let drives = f
+        .core
+        .open_machine(&key)
+        .unwrap()
+        .settings()
+        .unwrap()
+        .drives;
+    assert_eq!(drives[0].image, "drives/irix.img");
+    assert_eq!(
+        std::fs::read(f.root.path().join("copied/drives/irix.img")).unwrap(),
+        irix_disk()
+    );
+}
+
+#[test]
+fn a_cancelled_copy_leaves_no_file_and_a_machine_with_no_disk() {
+    let f = fixture();
+    let dir = f.root.path().join("half");
+    let (go, wait) = channel::<()>();
+    let slot = super::event::Dispatcher::new(None).slot(None);
+    let src = f.root.path().join("src.img");
+    std::fs::write(&src, irix_disk()).unwrap();
+    let to = dir.clone();
+    let op = super::operation::spawn(1, "copy", None, true, slot, move |control| {
+        wait.recv().unwrap();
+        super::disks::copy_into(&src, &to, control).map(|_| None)
+    });
+    op.cancel();
+    go.send(()).unwrap();
+    assert_eq!(op.wait(Some(WAIT)), OperationState::Cancelled);
+    assert_eq!(std::fs::read_dir(dir.join("drives")).unwrap().count(), 0);
+}
+
+#[test]
+fn an_image_is_attached_with_progress_and_refused_while_running() {
+    let f = fixture();
+    let key = f.create("add", "fake.1");
+    let machine = f.core.open_machine(&key).unwrap();
+    let image = f.root.path().join("scratch.img");
+    std::fs::write(&image, irix_disk()).unwrap();
+    let request = crate::DriveRequest {
+        file: image,
+        kind: crate::DriveKind::Disk,
+        target: 2,
+        overlay: false,
+    };
+    let op = machine.import_drive(request.clone(), true).unwrap();
+    assert_eq!(op.wait(Some(WAIT)), OperationState::Succeeded);
+    assert_eq!(op.fraction(), Some(1.0));
+    assert!(op.progress().contains("of"));
+    let drives = machine.settings().unwrap().drives;
+    assert_eq!(
+        (drives[0].target, drives[0].image.as_str()),
+        (2, "drives/scratch.img")
+    );
+    machine.start().unwrap().wait(Some(WAIT));
+    assert_eq!(
+        machine.import_drive(request, true).err().unwrap().kind,
+        ErrorKind::Busy
+    );
+}
+
+#[test]
+fn the_cd_is_swapped_and_ejected_on_a_stopped_machine() {
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("cd", "fake.1")).unwrap();
+    let (a, b) = (f.root.path().join("a.iso"), f.root.path().join("b.iso"));
+    std::fs::write(&a, [1u8; 512]).unwrap();
+    std::fs::write(&b, [2u8; 512]).unwrap();
+    let cd = |image: &Path| crate::DriveRequest {
+        file: image.into(),
+        kind: crate::DriveKind::Cdrom,
+        target: 4,
+        overlay: false,
+    };
+    machine.apply_change(&Change::AttachDrive(cd(&a))).unwrap();
+    machine.change_media("cdrom4", Some(&b)).unwrap();
+    let drives = machine.settings().unwrap().drives;
+    assert_eq!(drives.len(), 1);
+    assert!(drives[0].image.ends_with("b.iso"));
+    machine.change_media("cdrom4", None).unwrap();
+    assert!(machine.settings().unwrap().drives.is_empty());
+    assert_eq!(
+        machine.change_media("cdrom4", None).unwrap_err().kind,
+        ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn a_disk_is_named_by_its_operating_system_and_read_again_when_it_changes() {
+    let f = fixture();
+    let image = f.root.path().join("irix.img");
+    std::fs::write(&image, irix_disk()).unwrap();
+    assert_eq!(f.core.disk_info(&image).unwrap(), "IRIX 6.5.30");
+    std::fs::write(&image, vec![0u8; 1 << 16]).unwrap();
+    assert_eq!(f.core.disk_info(&image).unwrap(), "Unknown");
+    assert_eq!(
+        f.core
+            .disk_info(&f.root.path().join("none"))
+            .unwrap_err()
+            .kind,
+        ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn the_library_row_learns_the_system_disk_in_the_background() {
+    let f = fixture();
+    let image = f.root.path().join("irix.img");
+    std::fs::write(&image, irix_disk()).unwrap();
+    let (key, _) = f.create_with(
+        "row",
+        SystemDisk::Image {
+            file: image,
+            copy: false,
+            overlay: false,
+        },
+    );
+    let machine = f.core.open_machine(&key).unwrap();
+    let deadline = std::time::Instant::now() + WAIT;
+    let label = loop {
+        let row = f.core.list_machines().unwrap().remove(0);
+        if row.system_disk.is_some() || std::time::Instant::now() > deadline {
+            break row.system_disk;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(label.as_deref(), Some("IRIX 6.5.30"));
+    assert_eq!(machine.drive_info("disk1").unwrap(), "IRIX 6.5.30");
+}
+
+#[test]
+fn an_image_check_reports_size_room_and_a_machine_that_already_uses_it() {
+    let f = fixture();
+    let image = f.root.path().join("irix.img");
+    std::fs::write(&image, irix_disk()).unwrap();
+    let check = f.core.check_disk_image(&image, None).unwrap();
+    assert_eq!(
+        (check.bytes, check.is_chd, check.used_by.clone()),
+        (irix_disk().len() as u64, false, None)
+    );
+    assert!(check.free_bytes > 0 && check.problem.is_none());
+    f.create_with(
+        "user",
+        SystemDisk::Image {
+            file: image.clone(),
+            copy: false,
+            overlay: false,
+        },
+    );
+    assert_eq!(
+        f.core
+            .check_disk_image(&image, None)
+            .unwrap()
+            .used_by
+            .as_deref(),
+        Some("user")
+    );
+    let key = f.root.path().join("user").to_string_lossy().into_owned();
+    assert_eq!(
+        f.core.check_disk_image(&image, Some(&key)).unwrap().used_by,
+        None
+    );
+    let chd = f.root.path().join("bad.chd");
+    std::fs::write(&chd, b"not a chd").unwrap();
+    assert!(f
+        .core
+        .check_disk_image(&chd, None)
+        .unwrap()
+        .problem
+        .unwrap()
+        .contains("not a CHD"));
+}
+
+#[test]
+fn an_image_verdict_says_the_same_words_for_every_app() {
+    let check = |used_by: Option<&str>, problem: Option<&str>| DiskImageCheck {
+        bytes: 9_000_000_000,
+        is_chd: false,
+        free_bytes: 1_200_000_000,
+        used_by: used_by.map(Into::into),
+        problem: problem.map(Into::into),
+    };
+    let v = image_verdict(&check(None, None), true);
+    assert!(!v.ready && v.warning);
+    assert_eq!(
+        v.note.unwrap(),
+        "A copy needs 9.0 GB and 1.2 GB is free. Use the disk where it is."
+    );
+    let v = image_verdict(&check(None, None), false);
+    assert!(
+        v.ready
+            && v.warning
+            && v.note
+                .unwrap()
+                .starts_with("IRIX will write into this file")
+    );
+    let v = image_verdict(&check(Some("Fuel"), None), false);
+    assert_eq!(
+        v.note.unwrap(),
+        "Fuel already uses this file. Two machines writing to one disk will corrupt it."
+    );
+    assert!(!image_verdict(&check(None, Some("not a CHD")), false).ready);
+    let roomy = DiskImageCheck {
+        free_bytes: u64::MAX,
+        is_chd: true,
+        ..check(None, None)
+    };
+    assert!(image_verdict(&roomy, true)
+        .note
+        .unwrap()
+        .ends_with("keeps your original safe."));
+    assert_eq!(image_verdict(&roomy, false).note, None);
+}
+
+#[test]
+fn a_missing_system_disk_starts_no_read_and_raises_no_event() {
+    let recorder = Arc::new(Recorder::default());
+    let f = fixture_with(Some(recorder.clone()), 1 << 20);
+    let image = f.root.path().join("gone.img");
+    std::fs::write(&image, irix_disk()).unwrap();
+    f.create_with(
+        "row",
+        SystemDisk::Image {
+            file: image.clone(),
+            copy: false,
+            overlay: false,
+        },
+    );
+    std::fs::remove_file(&image).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    let before = recorder.events.lock().unwrap().len();
+    assert_eq!(f.core.list_machines().unwrap()[0].system_disk, None);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(recorder.events.lock().unwrap().len(), before);
+}
+
+#[test]
+fn a_create_whose_disk_fails_leaves_no_machine_and_a_file_that_is_not_one_is_refused() {
+    let f = fixture();
+    let folder = f.root.path().join("not-a-file");
+    std::fs::create_dir(&folder).unwrap();
+    let (_, state) = f.create_with(
+        "bad",
+        SystemDisk::Image {
+            file: folder.clone(),
+            copy: true,
+            overlay: false,
+        },
+    );
+    assert!(matches!(state, OperationState::Failed(_)), "{state:?}");
+    assert!(!f.root.path().join("bad").exists());
+    assert!(f.core.check_disk_image(&folder, None).is_err());
+}

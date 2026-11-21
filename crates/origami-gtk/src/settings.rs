@@ -5,13 +5,14 @@
 //! Pointer mode is ours and is editable.
 
 use crate::app::{self, App};
+use crate::disks;
 use crate::library;
 use crate::machine::MachineUi;
 use crate::prefs::PointerMode;
 use crate::{input, window};
 use adw::prelude::*;
 use gtk::glib;
-use origami_core::facade::CreateRequest;
+use origami_core::facade::{CreateRequest, OperationState, SystemDisk};
 use origami_core::{Change, NetworkChange, NetworkMode};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -41,6 +42,8 @@ struct Loaded {
     cpus: Vec<u32>,
     console_port: String,
     console_ports: Vec<origami_core::facade::ConsolePortSetting>,
+    disk_target: Option<u32>,
+    cd_target: Option<u32>,
 }
 
 /// Through the machine's own engine, so an iris machine is read by iris.
@@ -52,6 +55,8 @@ fn load(machine: &origami_core::facade::Machine, dir: &std::path::Path) -> Resul
         cpus: settings.cpus_per_node_allowed,
         console_port: settings.console_port,
         console_ports: settings.console_ports,
+        disk_target: settings.disk_target,
+        cd_target: settings.cd_target,
         file,
     })
 }
@@ -87,17 +92,25 @@ fn apply(
         })
         .await;
         match r {
-            Ok(Ok(_)) => {
-                *m.entry.borrow_mut() = library::read(&m.dir);
-                crate::window::rebuild_hero(&m);
-                crate::window::refresh(&app);
-                dialog.close();
-                present_machine(&app, &parent, &m);
-            }
+            Ok(Ok(_)) => reopen(&app, &parent, &m, &dialog),
             Ok(Err(e)) => dialog.add_toast(adw::Toast::new(&e)),
             Err(_) => dialog.add_toast(adw::Toast::new("the change could not be applied")),
         }
     });
+}
+
+/// Show the machine's settings again from its file after an edit.
+fn reopen(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    dialog: &adw::PreferencesDialog,
+) {
+    *m.entry.borrow_mut() = library::read(&m.dir);
+    crate::window::rebuild_hero(m);
+    crate::window::refresh(app);
+    dialog.close();
+    present_machine(app, parent, m);
 }
 
 fn build_machine_dialog(
@@ -257,6 +270,17 @@ fn build_machine_dialog(
                         if d.read_only { " (read-only)" } else { "" }
                     ),
                 );
+                if d.kind == "disk" {
+                    let badge = disks::badge(&format!("disk.badge.{}", d.name));
+                    let (machine, name) = (m.machine.clone(), d.name.clone());
+                    disks::fill_badge(&badge, move || {
+                        machine.drive_info(&name).map_err(|e| e.to_string())
+                    });
+                    r.add_suffix(&badge);
+                }
+                if d.kind == "cdrom" {
+                    cd_buttons(app, parent, m, &dialog, &r, &d.name);
+                }
                 let b = gtk::Button::builder()
                     .icon_name("list-remove-symbolic")
                     .tooltip_text("Detach")
@@ -280,6 +304,49 @@ fn build_machine_dialog(
                 });
                 r.add_suffix(&b);
                 g.add(&r);
+            }
+            let mut adds = vec![(
+                "drive.add-image",
+                "Add a disk image…",
+                l.disk_target.filter(|_| !running),
+            )];
+            if !f.drive.iter().any(|d| d.kind == "cdrom") {
+                adds.push((
+                    "drive.insert-cd",
+                    "Insert a CD-ROM image…",
+                    l.cd_target.filter(|_| !running),
+                ));
+            }
+            for (id, title, target) in adds {
+                let row = adw::ActionRow::builder()
+                    .title(title)
+                    .activatable(target.is_some())
+                    .sensitive(target.is_some())
+                    .build();
+                row.set_widget_name(id);
+                row.add_prefix(&gtk::Image::from_icon_name("list-add-symbolic"));
+                let (app, parent, m, dlg) =
+                    (app.clone(), parent.clone(), m.clone(), dialog.clone());
+                row.connect_activated(move |_| match (id, target) {
+                    ("drive.add-image", Some(t)) => add_image(&app, &parent, &m, &dlg, t),
+                    (_, Some(t)) => {
+                        let (app, parent, m, dlg) =
+                            (app.clone(), parent.clone(), m.clone(), dlg.clone());
+                        disks::pick_path(&parent.clone(), "Choose a CD-ROM Image", move |path| {
+                            let file = path;
+                            let kind = origami_core::DriveKind::Cdrom;
+                            let request = origami_core::DriveRequest {
+                                file,
+                                kind,
+                                target: t,
+                                overlay: false,
+                            };
+                            apply(&app, &parent, &m, &dlg, Change::AttachDrive(request));
+                        });
+                    }
+                    _ => {}
+                });
+                g.add(&row);
             }
             drives.add(&g);
             dialog.add(&drives);
@@ -521,6 +588,213 @@ fn build_machine_dialog(
     input_page.add(&g);
     dialog.add(&input_page);
     dialog.present(Some(parent));
+}
+
+/// Change and Eject for a CD-ROM row. They work while the machine runs, too.
+fn cd_buttons(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    dialog: &adw::PreferencesDialog,
+    row: &adw::ActionRow,
+    drive: &str,
+) {
+    for (icon, tip, change) in [
+        ("media-optical-symbolic", "Change CD", true),
+        ("media-eject-symbolic", "Eject CD", false),
+    ] {
+        let b = gtk::Button::builder()
+            .icon_name(icon)
+            .tooltip_text(tip)
+            .valign(gtk::Align::Center)
+            .css_classes(["flat"])
+            .build();
+        b.set_widget_name(&format!(
+            "drive.cd.{}",
+            if change { "change" } else { "eject" }
+        ));
+        b.update_property(&[gtk::accessible::Property::Label(&format!("{tip} {drive}"))]);
+        let (app, parent, m, dlg, drive) = (
+            app.clone(),
+            parent.clone(),
+            m.clone(),
+            dialog.clone(),
+            drive.to_string(),
+        );
+        b.connect_clicked(move |_| {
+            let (app, parent, m, dlg, drive) = (
+                app.clone(),
+                parent.clone(),
+                m.clone(),
+                dlg.clone(),
+                drive.clone(),
+            );
+            if change {
+                disks::pick_path(&parent.clone(), "Choose a CD-ROM Image", move |path| {
+                    media(&app, &parent, &m, &dlg, &drive, Some(path))
+                });
+            } else {
+                media(&app, &parent, &m, &dlg, &drive, None);
+            }
+        });
+        row.add_suffix(&b);
+    }
+}
+
+fn media(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    dialog: &adw::PreferencesDialog,
+    drive: &str,
+    image: Option<std::path::PathBuf>,
+) {
+    let (machine, name) = (m.machine.clone(), drive.to_string());
+    let (app, parent, m, dialog) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
+    glib::spawn_future_local(async move {
+        let r = gtk::gio::spawn_blocking(move || {
+            machine
+                .change_media(&name, image.as_deref())
+                .map_err(|e| e.to_string())
+        })
+        .await;
+        match r {
+            Ok(Ok(())) => reopen(&app, &parent, &m, &dialog),
+            Ok(Err(e)) => {
+                eprintln!("origami-gtk: CD change refused: {e}");
+                dialog.add_toast(adw::Toast::new(&e))
+            }
+            Err(_) => dialog.add_toast(adw::Toast::new("the CD could not be changed")),
+        }
+    });
+}
+
+/// A small dialog with `content`, a header button and the progress of a long edit.
+fn edit_dialog(
+    title: &str,
+    action: &str,
+    content: &[&adw::PreferencesGroup],
+) -> (
+    adw::Dialog,
+    gtk::Button,
+    gtk::ProgressBar,
+    gtk::Label,
+    gtk::Button,
+    gtk::Label,
+) {
+    let dialog = adw::Dialog::builder()
+        .title(title)
+        .content_width(460)
+        .build();
+    let page = adw::PreferencesPage::new();
+    for g in content {
+        page.add(*g);
+    }
+    let progress = adw::PreferencesGroup::new();
+    let bar = gtk::ProgressBar::builder().visible(false).build();
+    let line = gtk::Label::builder().visible(false).build();
+    let stop = gtk::Button::builder()
+        .label("Cancel")
+        .halign(gtk::Align::End)
+        .visible(false)
+        .build();
+    let err = gtk::Label::builder()
+        .wrap(true)
+        .css_classes(["error"])
+        .visible(false)
+        .xalign(0.0)
+        .build();
+    for w in [
+        bar.upcast_ref::<gtk::Widget>(),
+        line.upcast_ref(),
+        stop.upcast_ref(),
+        err.upcast_ref(),
+    ] {
+        progress.add(w);
+    }
+    page.add(&progress);
+    let go = gtk::Button::builder()
+        .label(action)
+        .css_classes(["suggested-action"])
+        .sensitive(false)
+        .build();
+    let header = adw::HeaderBar::new();
+    header.pack_end(&go);
+    let view = adw::ToolbarView::new();
+    view.add_top_bar(&header);
+    view.set_content(Some(&page));
+    dialog.set_child(Some(&view));
+    (dialog, go, bar, line, stop, err)
+}
+
+/// Add a disk image to the machine, copied into its folder or used in place.
+fn add_image(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    settings: &adw::PreferencesDialog,
+    target: u32,
+) {
+    let go_ok = Rc::new(std::cell::RefCell::new(None::<gtk::Button>));
+    let form = {
+        let go_ok = go_ok.clone();
+        disks::ImageForm::new(app, Some(m.machine.key().to_string()), move |ok| {
+            if let Some(go) = go_ok.borrow().as_ref() {
+                go.set_sensitive(ok);
+            }
+        })
+    };
+    let (dialog, go, bar, line, stop, err) =
+        edit_dialog("Add a Disk Image", "Add Disk", &[&form.group]);
+    *go_ok.borrow_mut() = Some(go.clone());
+    form.choose(parent);
+    let present_on = settings.clone();
+    let (app, parent, m, settings) = (app.clone(), parent.clone(), m.clone(), settings.clone());
+    go.connect_clicked({
+        let (dialog, go) = (dialog.clone(), go.clone());
+        move |_| {
+            let Some((file, copy, overlay)) = form.request() else {
+                return;
+            };
+            go.set_sensitive(false);
+            let request = origami_core::DriveRequest {
+                file,
+                kind: origami_core::DriveKind::Disk,
+                target,
+                overlay,
+            };
+            match m.machine.import_drive(request, copy) {
+                Ok(op) => {
+                    let (app, parent, m, settings, dialog, err, go) = (
+                        app.clone(),
+                        parent.clone(),
+                        m.clone(),
+                        settings.clone(),
+                        dialog.clone(),
+                        err.clone(),
+                        go.clone(),
+                    );
+                    disks::follow(op, &bar, &line, &stop, move |state| match state {
+                        OperationState::Failed(e) => {
+                            err.set_label(&e.to_string());
+                            err.set_visible(true);
+                            go.set_sensitive(true);
+                        }
+                        _ => {
+                            dialog.close();
+                            reopen(&app, &parent, &m, &settings);
+                        }
+                    });
+                }
+                Err(e) => {
+                    err.set_label(&e.to_string());
+                    err.set_visible(true);
+                    go.set_sensitive(true);
+                }
+            }
+        }
+    });
+    dialog.present(Some(&present_on));
 }
 
 fn add_forward(
@@ -798,6 +1072,7 @@ fn new_machine_dialog(
         .title("Name")
         .activates_default(true)
         .build();
+    name.set_widget_name("new.name");
     let preview = gtk::Box::builder().halign(gtk::Align::Center).build();
     let show = {
         let (preview, offerings) = (preview.clone(), offerings.clone());
@@ -827,6 +1102,69 @@ fn new_machine_dialog(
     g.add(&engine);
     g.add(&combo);
     g.add(&name);
+    // Ready-made disks and Install from discs join this list later.
+    let disk = adw::ComboRow::builder()
+        .title("Disk")
+        .model(&gtk::StringList::new(
+            &origami_core::facade::disk_labels()
+                .choices
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+        ))
+        .build();
+    disk.set_widget_name("new.disk");
+    let size = adw::SpinRow::with_range(1.0, 2048.0, 1.0);
+    size.set_title("Disk size (GB)");
+    size.set_value(f64::from(origami_core::facade::disk_labels().default_gb));
+    size.set_widget_name("new.size");
+    size.set_visible(false);
+    let choose = adw::ActionRow::builder()
+        .title("Choose an image…")
+        .activatable(true)
+        .visible(false)
+        .build();
+    choose.set_widget_name("new.image");
+    g.add(&disk);
+    g.add(&size);
+    g.add(&choose);
+    let image_ok = Rc::new(std::cell::Cell::new(false));
+    let create = gtk::Button::builder()
+        .label("Create")
+        .css_classes(["suggested-action"])
+        .sensitive(false)
+        .build();
+    create.set_widget_name("new.create");
+    let ready = {
+        let (create, name, disk, image_ok) =
+            (create.clone(), name.clone(), disk.clone(), image_ok.clone());
+        Rc::new(move || {
+            let named = !name.text().trim().is_empty();
+            create.set_sensitive(named && (disk.selected() != 2 || image_ok.get()));
+        })
+    };
+    let form = {
+        let (image_ok, ready) = (image_ok.clone(), ready.clone());
+        disks::ImageForm::new(app, None, move |ok| {
+            image_ok.set(ok);
+            ready();
+        })
+    };
+    form.group.set_visible(false);
+    {
+        let (size, choose, form, ready) =
+            (size.clone(), choose.clone(), form.clone(), ready.clone());
+        disk.connect_selected_notify(move |d| {
+            size.set_visible(d.selected() == 1);
+            choose.set_visible(d.selected() == 2);
+            form.group.set_visible(d.selected() == 2);
+            ready();
+        });
+    }
+    {
+        let (form, parent) = (form.clone(), parent.clone());
+        choose.connect_activated(move |_| form.choose(&parent));
+    }
     let err = gtk::Label::builder()
         .wrap(true)
         .css_classes(["error"])
@@ -835,14 +1173,26 @@ fn new_machine_dialog(
         .build();
     g.add(&err);
     page.add(&g);
-    let create = gtk::Button::builder()
-        .label("Create")
-        .css_classes(["suggested-action"])
-        .sensitive(false)
+    page.add(&form.group);
+    let progress = adw::PreferencesGroup::new();
+    let bar = gtk::ProgressBar::builder().visible(false).build();
+    let line = gtk::Label::builder().visible(false).build();
+    let stop = gtk::Button::builder()
+        .label("Cancel")
+        .halign(gtk::Align::End)
+        .visible(false)
         .build();
+    for w in [
+        bar.upcast_ref::<gtk::Widget>(),
+        line.upcast_ref(),
+        stop.upcast_ref(),
+    ] {
+        progress.add(w);
+    }
+    page.add(&progress);
     {
-        let create = create.clone();
-        name.connect_changed(move |e| create.set_sensitive(!e.text().trim().is_empty()));
+        let ready = ready.clone();
+        name.connect_changed(move |_| ready());
     }
     let header = adw::HeaderBar::new();
     header.pack_end(&create);
@@ -861,6 +1211,8 @@ fn new_machine_dialog(
             name.clone(),
             err.clone(),
         );
+        let (disk, size, form) = (disk.clone(), size.clone(), form.clone());
+        let (bar, line, stop) = (bar.clone(), line.clone(), stop.clone());
         create.connect_clicked(move |b| {
             let Some(o) = offerings.borrow().get(combo.selected() as usize).cloned() else {
                 return;
@@ -869,37 +1221,49 @@ fn new_machine_dialog(
                 name: name.text().trim().to_string(),
                 offering: o.id.clone(),
                 engine: engines.get(engine.selected() as usize).cloned(),
+                system_disk: match disk.selected() {
+                    1 => Some(SystemDisk::Empty {
+                        gb: size.value() as u32,
+                    }),
+                    2 => form
+                        .request()
+                        .map(|(file, copy, overlay)| SystemDisk::Image {
+                            file,
+                            copy,
+                            overlay,
+                        }),
+                    _ => None,
+                },
                 ..Default::default()
             };
             b.set_sensitive(false);
             let (app, dialog, err, b) = (app.clone(), dialog.clone(), err.clone(), b.clone());
-            let op = app.core.create_machine(request);
-            glib::spawn_future_local(async move {
-                let r = match op {
-                    Ok(op) => gtk::gio::spawn_blocking(move || match op.wait(None) {
-                        origami_core::facade::OperationState::Succeeded => Ok(op.result_machine()),
-                        origami_core::facade::OperationState::Failed(e) => Err(e.to_string()),
-                        _ => Err("cancelled".into()),
-                    })
-                    .await
-                    .unwrap_or_else(|_| Err("creation failed".into())),
-                    Err(e) => Err(e.to_string()),
-                };
-                match r {
-                    Ok(key) => {
-                        app::rescan(&app);
-                        dialog.close();
-                        if let Some(entry) = key.and_then(|k| app::find_entry(&app, &k)) {
-                            let _ = app::open(&app, &entry);
+            match app.core.create_machine(request) {
+                Ok(op) => {
+                    let finished = op.clone();
+                    disks::follow(op, &bar, &line, &stop, move |state| match state {
+                        OperationState::Succeeded | OperationState::Cancelled => {
+                            app::rescan(&app);
+                            dialog.close();
+                            let opened = finished.result_machine();
+                            if let Some(entry) = opened.and_then(|k| app::find_entry(&app, &k)) {
+                                let _ = app::open(&app, &entry);
+                            }
                         }
-                    }
-                    Err(e) => {
-                        err.set_label(&e);
-                        err.set_visible(true);
-                        b.set_sensitive(true);
-                    }
+                        OperationState::Failed(e) => {
+                            err.set_label(&e.to_string());
+                            err.set_visible(true);
+                            b.set_sensitive(true);
+                        }
+                        OperationState::Running => {}
+                    });
                 }
-            });
+                Err(e) => {
+                    err.set_label(&e.to_string());
+                    err.set_visible(true);
+                    b.set_sensitive(true);
+                }
+            }
         });
     }
     dialog.present(Some(parent));

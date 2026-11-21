@@ -113,7 +113,7 @@ public sealed class UniffiCoreClient : ICoreClient
         if (_core.ListMachines().Length > 0) return;
         foreach (var name in new[] { "Octane2 (fake)", "O2 (fake)" })
         {
-            var op = _core.CreateMachine(new OrigamiCreateRequest(name, "fake.1", null, null, prom, null, null));
+            var op = _core.CreateMachine(new OrigamiCreateRequest(name, "fake.1", null, null, prom, null, null, null));
             if (op.Wait(30_000) is not OrigamiOperationState.Succeeded) throw new InvalidOperationException("could not create " + name);
         }
         ReadCore(true);
@@ -123,12 +123,14 @@ public sealed class UniffiCoreClient : ICoreClient
     public void FakeSay(string key, string text) => _core.FakeSay(key, text);
     /// <summary>What reached the fake engine, in order, as the core's Debug text.</summary>
     public string[] FakeInput(string key) => _core.FakeInput(key);
+    /// <summary>The CD changes that reached the fake engine, in order, as "drive image" or "drive eject".</summary>
+    public string[] FakeMedia(string key) => _core.FakeMedia(key);
 #else
     /// <summary>Creates a machine from the first catalogue offering whose product contains <paramref name="product"/>; the core fetches its firmware.</summary>
     public string CreateFrom(string name, string product, string? graphics = null)
     {
         var o = _core.Catalogue().First(x => x.Product.Contains(product, StringComparison.OrdinalIgnoreCase));
-        var op = _core.CreateMachine(new OrigamiCreateRequest(name, o.Id, null, graphics, null, null, null));
+        var op = _core.CreateMachine(new OrigamiCreateRequest(name, o.Id, null, graphics, null, null, null, null));
         if (op.Wait(300_000) is not OrigamiOperationState.Succeeded) throw new InvalidOperationException("create failed: " + op.State());
         var made = op.ResultMachine() ?? "";
         ReadCore(true);
@@ -139,20 +141,31 @@ public sealed class UniffiCoreClient : ICoreClient
     public IReadOnlyList<Offering> Catalogue() => _core.Catalogue()
         .Select(o => new Offering(o.Id, o.Engine, o.Product, o.Topology, (int)o.Nodes, (int)o.Cpus)).ToList();
 
-    public Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default) => Task.Run(() =>
+    public Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default, SystemDisk? disk = null, IProgress<CopyProgress>? progress = null) => Task.Run(() =>
     {
 #if ORIGAMI_FAKE
         var prom = _fakeProm;
 #else
         string? prom = null;
 #endif
-        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null, engine));
+        OrigamiSystemDisk? system = disk switch
+        {
+            SystemDisk.Empty e => new OrigamiSystemDisk.Empty(e.Gb),
+            SystemDisk.Image i => new OrigamiSystemDisk.Image(i.Path, i.Copy, i.Overlay),
+            _ => null,
+        };
+        var op = _core.CreateMachine(new OrigamiCreateRequest(name, offeringId, null, null, prom, null, engine, system));
         var reg = ct.Register(() => op.Cancel());
         try
         {
+            Watch(op, progress);
             switch (op.Wait(null))
             {
                 case OrigamiOperationState.Failed f: throw new InvalidOperationException(f.Message);
+                // A cancelled copy leaves the machine without a disk, so the library still has it.
+                case OrigamiOperationState.Cancelled when disk is SystemDisk.Image { Copy: true }:
+                    ReadCore(true);
+                    return "";
                 case OrigamiOperationState.Cancelled: throw new OperationCanceledException();
             }
             var made = op.ResultMachine() ?? throw new InvalidOperationException("the core created the machine but gave no key");
@@ -161,6 +174,56 @@ public sealed class UniffiCoreClient : ICoreClient
         }
         finally { reg.Dispose(); }
     }, ct);
+
+    /// <summary>Reports a long operation's progress about five times a second until it ends.</summary>
+    static void Watch(OrigamiOperation op, IProgress<CopyProgress>? progress)
+    {
+        if (progress is null) return;
+        _ = Task.Run(async () =>
+        {
+            while (op.State() is OrigamiOperationState.Running)
+            {
+                if (op.Fraction() is { } f) progress.Report(new CopyProgress(f, op.Progress()));
+                await Task.Delay(200);
+            }
+        });
+    }
+
+    public Task<DiskImageCheck> CheckDiskImageAsync(string path, string? machineKey) => Task.Run(() =>
+    {
+        var c = _core.CheckDiskImage(path, machineKey);
+        return new DiskImageCheck(c.Bytes, c.IsChd, c.FreeBytes, c.UsedBy, c.Problem);
+    });
+
+    public Task<string> DiskInfoAsync(string path) => Task.Run(() => _core.DiskInfo(path));
+    public Task<string> DriveInfoAsync(string key, string drive) => Task.Run(() => M(key).DriveInfo(drive));
+    public ImageVerdict Verdict(DiskImageCheck c, bool copy)
+    {
+        var v = OrigamiFfiMethods.OrigamiImageVerdict(new OrigamiDiskImageCheck(c.Bytes, c.IsChd, c.FreeBytes, c.UsedBy, c.Problem), copy);
+        return new ImageVerdict(v.Note, v.Warning, v.Ready);
+    }
+
+    public DiskLabels Labels()
+    {
+        var l = OrigamiFfiMethods.OrigamiDiskLabels();
+        return new DiskLabels(l.Choices, l.Place, l.Keep, l.SameKind, l.DefaultGb);
+    }
+
+    public string SizeLabel(ulong bytes) => OrigamiFfiMethods.OrigamiSizeLabel(bytes);
+
+    public Task ImportDriveAsync(string key, string path, int target, bool overlay, bool copy, IProgress<CopyProgress>? progress = null, CancellationToken ct = default) =>
+        Run(() =>
+        {
+            var op = M(key).ImportDrive(path, OrigamiDriveKind.Disk, (uint)target, overlay, copy);
+            Watch(op, progress);
+            return op;
+        }, ct);
+
+    public Task ChangeMediaAsync(string key, string drive, string? image) => Task.Run(() =>
+    {
+        M(key).ChangeMedia(drive, image);
+        ReadCore(true); // a stopped machine's file changed
+    });
 
     public Task<MachineSettings> SettingsAsync(string key) => Task.Run(() =>
     {
@@ -173,7 +236,8 @@ public sealed class UniffiCoreClient : ICoreClient
             s.NetworkMode,
             s.Forwards.Select(f => new Forward(f.Name, f.Protocol, f.HostPort, f.GuestPort)).ToList(),
             s.Shares.Select(x => new Share(x.Name, x.HostDir)).ToList(),
-            s.ConsolePort, s.ConsolePorts.Select(c => new ConsoleLine(c.Name, c.Label, c.IsDefault)).ToList());
+            s.ConsolePort, s.ConsolePorts.Select(c => new ConsoleLine(c.Name, c.Label, c.IsDefault)).ToList(),
+            (int?)s.DiskTarget, (int?)s.CdTarget);
     });
 
     public Task ApplyChangeAsync(string key, MachineChange change) => Task.Run(() => M(key).ApplyChange(change switch
@@ -193,6 +257,7 @@ public sealed class UniffiCoreClient : ICoreClient
         MachineChange.RemoveShare c => new OrigamiChange.RemoveShare(c.Name),
         MachineChange.DetachDrive c => new OrigamiChange.DetachDrive(c.Name),
         MachineChange.SetConsole c => new OrigamiChange.SetConsole(c.Port),
+        MachineChange.AttachCd c => new OrigamiChange.AttachDrive(c.Path, OrigamiDriveKind.Cdrom, (uint)c.Target, false),
         _ => throw new ArgumentException("unknown change"),
     }));
 
@@ -243,7 +308,7 @@ public sealed class UniffiCoreClient : ICoreClient
             // The file says whether it has a graphics head; a head the engine reports counts too.
             var display = m.HasDisplay || (has && v!.Heads.Length > 0);
             return new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes, (int)m.MemoryPerNodeMib,
-                m.NeedsUpgrade ? MachineState.NeedsUpgrade : Settle(m.Key, state), m.Problem, display, m.NeedsUpgrade);
+                m.NeedsUpgrade ? MachineState.NeedsUpgrade : Settle(m.Key, state), m.Problem, display, m.NeedsUpgrade, m.SystemDisk);
         }).ToList();
     }
 

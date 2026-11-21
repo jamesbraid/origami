@@ -133,3 +133,35 @@ fn another_library_root_lists_at_once_and_the_old_one_comes_back() {
         .set_library_root(lab.root.path().to_str().unwrap().into());
     assert_eq!(names(&lab), ["m"]);
 }
+
+#[test]
+fn disks_are_imported_swapped_and_named() {
+    let lab = Lab::new(None);
+    let machine = lab.core.open_machine(lab.key.clone()).unwrap();
+    let image = lab.root.path().join("disc.iso");
+    std::fs::write(&image, [0u8; 512]).unwrap();
+    let path = image.to_str().unwrap().to_string();
+    let check = lab.core.check_disk_image(path.clone(), None).unwrap();
+    assert_eq!((check.bytes, check.used_by), (512, None));
+    let op = machine
+        .import_drive(path.clone(), OrigamiDriveKind::Disk, 2, false, true)
+        .unwrap();
+    assert_eq!(op.wait(Some(10_000)), OrigamiOperationState::Succeeded);
+    assert_eq!(op.fraction(), Some(1.0));
+    let s = machine.settings().unwrap();
+    assert_eq!(
+        (s.drives.len(), s.disk_target, s.cd_target),
+        (1, Some(1), Some(4))
+    );
+    assert_eq!(machine.drive_info("disk2".into()).unwrap(), "Unknown");
+    machine
+        .apply_change(OrigamiChange::AttachDrive {
+            path,
+            kind: OrigamiDriveKind::Cdrom,
+            target: 4,
+            overlay: false,
+        })
+        .unwrap();
+    machine.change_media("cdrom4".into(), None).unwrap();
+    assert_eq!(machine.settings().unwrap().drives.len(), 1);
+}

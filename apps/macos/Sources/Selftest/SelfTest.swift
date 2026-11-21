@@ -132,7 +132,7 @@ func runSelfTest(library: String, out: String) {
     if fake {
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "beta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil))
+                name: "beta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil))
             check("create-second-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
             app.rescanNow()
         } catch { check("create-second-machine", false, ["error": "\(error)"]) }
@@ -157,7 +157,7 @@ func runSelfTest(library: String, out: String) {
     if fake {
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "settingsvic", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil))
+                name: "settingsvic", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil))
             _ = op.wait(timeoutMs: 10_000)
             app.rescanNow()
         } catch { check("create-settings-machine", false, ["error": "\(error)"]) }
@@ -330,7 +330,7 @@ func runSelfTest(library: String, out: String) {
     // An O2's summary pane in dark and light, at 2x, for looking at the tint fade by eye.
     if let tint = ProcessInfo.processInfo.environment["ORIGAMI_TINT_PNG"] {
         let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", hasDisplay: true, nodes: 1,
-                                                             memoryPerNodeMib: 512, state: .notRunning, problem: nil, needsUpgrade: false),
+                                                             memoryPerNodeMib: 512, state: .notRunning, problem: nil, needsUpgrade: false, systemDisk: nil),
                               host: host, defaultPointer: .follow)
         let size = CGSize(width: 800, height: 600)
         let dark = snapshotRetina(Hero(model: o2).environmentObject(app), size: size, dark: true, to: tint)
@@ -1201,7 +1201,7 @@ func runSelfTest(library: String, out: String) {
     do {
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "wide", offering: "fakebig.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil))
+                name: "wide", offering: "fakebig.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil))
             check("create-wide-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
             app.rescanNow()
         } catch { check("create-wide-machine", false, ["error": "\(error)"]) }
@@ -1382,7 +1382,7 @@ func runSelfTest(library: String, out: String) {
         // A machine nothing has opened, so a stale state on it can only be corrected by the listing.
         do {
             let op = try host.core.createMachine(request: OrigamiCreateRequest(
-                name: "delta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil))
+                name: "delta", offering: "fake.1", memoryPerNodeMib: nil, graphics: nil, bootProm: library + "/prom.bin", ioProm: nil, engine: nil, systemDisk: nil))
             check("create-quit-test-machine", op.wait(timeoutMs: 10_000) == .succeeded, [:])
             app.rescanNow()
         } catch { check("create-quit-test-machine", false, ["error": "\(error)"]) }
@@ -1442,6 +1442,69 @@ func runSelfTest(library: String, out: String) {
             old.stop()
             _ = waitFor(60) { old.state == .stopped }
         } else { check("upgrade-pill-and-no-start", false, ["error": "the older machine is not listed"]) }
+    }
+    // Disks, through the models the sheets and panes call: an empty disk, an image copied in and one used in place,
+    // the OS badge on the library row, and a CD swapped and ejected while the machine runs.
+    do {
+        let fixtures = ProcessInfo.processInfo.environment["ORIGAMI_FIXTURES"] ?? ""
+        let image = URL(fileURLWithPath: fixtures + "/disk-irix-6.5.30.img")
+        func made(_ name: String, _ setup: (NewMachineModel) -> Void) -> String? {
+            let nm = NewMachineModel(app: app)
+            nm.load(); _ = waitFor(30) { !nm.loading }
+            nm.bootProm = library + "/prom.bin"; nm.name = name
+            setup(nm)
+            var result: Bool?
+            nm.create { result = $0 }
+            _ = waitFor(60) { result != nil }
+            app.rescanNow()
+            return app.model(named: name)?.id
+        }
+        func chosen(_ nm: NewMachineModel) { nm.disk = .image; nm.image.choose(); _ = waitFor(30) { nm.image.check != nil } }
+        let drives = { (key: String?) in key.flatMap { try? host.core.openMachine(key: $0).settings().drives } ?? [] }
+        let empty = drives(made("emptybox") { $0.disk = .empty; $0.sizeGB = 1 })
+        check("disk-empty-made-with-the-machine", empty.count == 1 && empty.first?.target == 1, ["drives": empty.map(\.image)])
+        var copyNote = "", copyBadge = "", placeNote = ""
+        PathPicker.answers = [image]
+        let copyKey = made("copybox") { nm in chosen(nm); copyNote = nm.image.note?.text ?? ""; copyBadge = nm.image.badge }
+        let copied = drives(copyKey)
+        check("disk-copy-keeps-the-image-in-the-machine-folder",
+              copied.first?.image == "drives/disk-irix-6.5.30.img" && FileManager.default.fileExists(atPath: library + "/copybox/drives/disk-irix-6.5.30.img"),
+              ["drives": copied.map(\.image)])
+        check("disk-copy-says-the-original-is-safe", copyNote.contains("keeps your original safe"), ["note": copyNote])
+        check("disk-badge-names-the-os-in-the-sheet", copyBadge == "IRIX 6.5.30", ["badge": copyBadge])
+        check("disk-badge-names-the-os-on-the-library-row",
+              waitFor(60) { app.rescanNow(); return app.model(named: "copybox")?.record.systemDisk == "IRIX 6.5.30" },
+              ["badge": app.model(named: "copybox")?.record.systemDisk ?? "none"])
+        PathPicker.answers = [image]
+        let placeKey = made("placebox") { nm in chosen(nm); nm.image.copy = false; placeNote = nm.image.note?.text ?? "" }
+        let placed = drives(placeKey)
+        check("disk-in-place-stays-where-it-is",
+              placed.first?.image.hasSuffix("/disk-irix-6.5.30.img") == true && !FileManager.default.fileExists(atPath: library + "/placebox/drives/disk-irix-6.5.30.img"),
+              ["drives": placed.map(\.image)])
+        check("disk-in-place-warns-that-irix-writes-into-it", placeNote.contains("IRIX will write into this file"), ["note": placeNote])
+        // The CD: attached while stopped, then swapped and ejected on the running machine, whose file keeps the first.
+        if makeFakeMachine(host, library: library, name: "cdvic") == nil {
+            app.rescanNow()
+            if let vic = app.model(named: "cdvic") {
+                let sm = SettingsModel(machine: vic)
+                sm.load(); _ = waitFor(30) { sm.settings != nil }
+                let (one, two) = (library + "/one.iso", library + "/two.iso")
+                for c in [one, two] { FileManager.default.createFile(atPath: c, contents: Data(count: 2048)) }
+                sm.attachCD(URL(fileURLWithPath: one), target: sm.settings?.cdTarget ?? 4)
+                let cd = { sm.settings?.drives.first { $0.kind == "cdrom" } }
+                check("disk-cd-attached-while-stopped", waitFor(30) { cd() != nil && !sm.working }, ["error": sm.error ?? "none"])
+                let drive = cd()?.name ?? ""
+                _ = try? host.core.startMachine(key: vic.record.key)
+                sm.changeMedia(drive, to: URL(fileURLWithPath: two))
+                _ = waitFor(30) { !sm.working }
+                check("disk-cd-swapped-while-running", ((try? host.core.fakeMedia(key: vic.record.key)) ?? []) == ["\(drive) \(two)"], ["error": sm.error ?? "none"])
+                sm.changeMedia(drive, to: nil)
+                _ = waitFor(30) { !sm.working }
+                check("disk-cd-ejected-while-running", ((try? host.core.fakeMedia(key: vic.record.key)) ?? []).last == "\(drive) eject", ["error": sm.error ?? "none"])
+                check("disk-cd-swap-leaves-the-file-alone", cd()?.image.hasSuffix("one.iso") == true, ["image": cd()?.image ?? "none"])
+                _ = try? host.core.openMachine(key: vic.record.key).stop(how: .force).wait(timeoutMs: 30_000)
+            } else { check("disk-cd-attached-while-stopped", false, ["error": "the machine is not listed"]) }
+        } else { check("disk-cd-attached-while-stopped", false, ["error": "the machine was not made"]) }
     }
     #else
     check("fake-build", false, ["error": "the core reports the fake engine but this app was built without -D FAKE"])

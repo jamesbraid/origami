@@ -17,6 +17,8 @@ pub struct Entry {
     pub error: Option<String>,
     /// Made by an older Origami: it opens as the upgrade dialog until upgraded.
     pub needs_upgrade: bool,
+    /// What the system disk holds, such as `IRIX 6.5.30`, once read.
+    pub system_disk: Option<String>,
     pub summary: Summary,
 }
 
@@ -49,6 +51,7 @@ pub fn entries(core: &origami_core::facade::Core) -> Vec<Entry> {
             let mut e = read(Path::new(&m.key));
             e.name = m.name;
             e.needs_upgrade = m.needs_upgrade;
+            e.system_disk = m.system_disk;
             if let Some(p) = m.problem {
                 e.error = Some(p);
             }
@@ -75,6 +78,7 @@ pub fn read(dir: &Path) -> Entry {
                 art: crate::art::of(&m.model, m.topology.as_deref()),
                 error: None,
                 needs_upgrade: false,
+                system_disk: None,
                 summary: Summary {
                     nodes: m.nodes,
                     topology: m.topology.clone(),
@@ -90,6 +94,7 @@ pub fn read(dir: &Path) -> Entry {
             art: None,
             error: Some(e.to_string()),
             needs_upgrade: false,
+            system_disk: None,
             summary: Summary::default(),
         },
     }

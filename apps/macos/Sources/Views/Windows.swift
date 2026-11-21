@@ -66,6 +66,7 @@ struct MachineSettings: View {
     @State private var forwardHost = ""
     @State private var forwardGuest = ""
     @State private var forwardUDP = false
+    @State private var adding: ImageChoice?
 
     init(model: MachineModel) {
         _model = ObservedObject(wrappedValue: model)
@@ -169,6 +170,46 @@ struct MachineSettings: View {
         }
     }
 
+    @ViewBuilder private func drivesPane(_ s: OrigamiMachineSettings) -> some View {
+        if s.drives.isEmpty { LabeledContent("Drives", value: "None") }
+        ForEach(s.drives, id: \.name) { d in
+            HStack {
+                VStack(alignment: .leading) {
+                    Text("\(d.name) (\(d.kind), bus \(d.bus) target \(d.target))")
+                    Text(d.image + (d.readOnly ? " (read-only)" : "")).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+                if d.kind == "disk", edit.badges[d.name] != "" { DiskBadge(text: edit.badges[d.name] ?? "Reading…") }
+                Spacer()
+                if d.kind == "cdrom" {
+                    // A CD changes while the machine runs, unlike the rest of the pane.
+                    Button("Change CD…") { if let u = PathPicker.choose("Choose a CD-ROM Image") { edit.changeMedia(d.name, to: u) } }
+                        .disabled(edit.working).accessibilityLabel("Change CD \(d.name)")
+                    Button("Eject") { edit.changeMedia(d.name, to: nil) }.disabled(edit.working).accessibilityLabel("Eject \(d.name)")
+                }
+                Button { edit.apply(.detachDrive(name: d.name)) } label: { Image(systemName: "minus.circle") }
+                    .buttonStyle(.borderless).help("Detach").accessibilityLabel("Detach \(d.name)")
+                    .disabled(locked || edit.working)
+            }
+        }
+        let diskTarget = locked ? nil : s.diskTarget
+        let cdTarget = locked ? nil : s.cdTarget
+        HStack {
+            Button("Add Disk Image…") {
+                let choice = ImageChoice(core: { [model] in model.coreHost.core }, machine: model.record.key)
+                choice.choose()
+                if choice.path != nil { adding = choice }
+            }.disabled(diskTarget == nil || edit.working)
+            if !s.drives.contains(where: { $0.kind == "cdrom" }) {
+                Button("Insert CD-ROM Image…") {
+                    if let u = PathPicker.choose("Choose a CD-ROM Image"), let t = cdTarget { edit.attachCD(u, target: t) }
+                }.disabled(cdTarget == nil || edit.working)
+            }
+        }
+        .sheet(isPresented: Binding(get: { adding != nil }, set: { if !$0 { adding = nil } })) {
+            if let choice = adding, let target = diskTarget { AddDiskSheet(choice: choice, edit: edit, target: target) }
+        }
+    }
+
     @ViewBuilder private var detail: some View {
         let r = model.record
         switch pane {
@@ -198,21 +239,7 @@ struct MachineSettings: View {
                 ForEach(s.pipes, id: \.slot) { LabeledContent("Pipe in slot \($0.slot)", value: "\($0.product) (\($0.family))") }
             } else { loadingRow }
         case .drives:
-            if let s = edit.settings {
-                if s.drives.isEmpty { LabeledContent("Drives", value: "None") }
-                ForEach(s.drives, id: \.name) { d in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("\(d.name) (\(d.kind), bus \(d.bus) target \(d.target))")
-                            Text(d.image + (d.readOnly ? " (read-only)" : "")).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        }
-                        Spacer()
-                        Button { edit.apply(.detachDrive(name: d.name)) } label: { Image(systemName: "minus.circle") }
-                            .buttonStyle(.borderless).help("Detach").accessibilityLabel("Detach \(d.name)")
-                            .disabled(locked || edit.working)
-                    }
-                }
-            } else { loadingRow }
+            if let s = edit.settings { drivesPane(s) } else { loadingRow }
         case .network:
             if let s = edit.settings { network(s) } else { loadingRow }
         case .startup:
@@ -233,6 +260,30 @@ struct MachineSettings: View {
             .pickerStyle(.radioGroup)
             Text("Press ⌃⌥ to give the mouse back after a capture.").foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Add a chosen disk image to the machine, copied into its folder or used in place.
+struct AddDiskSheet: View {
+    @ObservedObject var choice: ImageChoice
+    @ObservedObject var edit: SettingsModel
+    let target: UInt32
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Add a Disk Image").font(.headline)
+            ImageChoiceView(choice: choice)
+            if let p = edit.progress { OperationProgress(progress: p) { edit.cancelCopy() } }
+            if let e = edit.error { Text(e).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true) }
+            HStack {
+                Spacer()
+                Button("Cancel") { if edit.working { edit.cancelCopy() } else { dismiss() } }.keyboardShortcut(.cancelAction)
+                Button("Add Disk") { edit.addDisk(choice, target: target) { ok in if ok { dismiss() } } }
+                    .keyboardShortcut(.defaultAction).disabled(!choice.ready || edit.working)
+            }
+        }
+        .padding(20).frame(width: 460)
     }
 }
 

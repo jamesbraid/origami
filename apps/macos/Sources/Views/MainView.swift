@@ -130,6 +130,7 @@ struct LibraryRow: View {
                 Text(model.record.product.name).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
+            if let disk = model.record.systemDisk { DiskBadge(text: disk) }
             StatusPill(state: model.state)
         }
         .contentShape(Rectangle())

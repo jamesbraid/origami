@@ -17,6 +17,7 @@ mod credits;
 mod crisp;
 mod cube;
 mod diagnostics;
+mod disks;
 mod display;
 mod granite;
 mod input;

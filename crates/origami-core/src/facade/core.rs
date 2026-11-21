@@ -2,6 +2,7 @@
 //! dispatcher and the machines opened through it.
 
 use super::commands::{self, Command};
+use super::disks::DiskImageCheck;
 use super::error::{CoreError, CoreResult, ErrorKind};
 use super::event::{Dispatcher, EventKind, Observer, Slot};
 use super::machine::{Machine, MachineState, Shared};
@@ -86,6 +87,9 @@ pub struct MachineSummary {
     pub problem: Option<String>,
     /// Made by an older Origami: [`Core::upgrade_machine`] first, then it opens.
     pub needs_upgrade: bool,
+    /// What the system disk holds, such as `IRIX 6.5.30`, once read. A first
+    /// listing starts the read and a library event follows it.
+    pub system_disk: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -102,6 +106,30 @@ pub struct CreateRequest {
     pub graphics: Option<String>,
     pub boot_prom: Option<PathBuf>,
     pub io_prom: Option<PathBuf>,
+    pub system_disk: Option<SystemDisk>,
+}
+
+/// The system disk a new machine starts with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SystemDisk {
+    /// A new empty disk of this many GB.
+    Empty { gb: u32 },
+    /// A disk image the user has: used where it is, or copied into the
+    /// machine's folder first. `overlay` keeps a CHD's changes apart.
+    Image {
+        file: PathBuf,
+        copy: bool,
+        overlay: bool,
+    },
+}
+
+pub(crate) fn attach_request(file: &Path, target: u32, overlay: bool) -> crate::DriveRequest {
+    crate::DriveRequest {
+        file: file.to_path_buf(),
+        kind: crate::DriveKind::Disk,
+        target,
+        overlay: overlay && origami_machine::is_chd(file),
+    }
 }
 
 /// The preset `offering` is the only one of, or none: with several presets
@@ -288,6 +316,7 @@ impl Core {
             let legacy = is_legacy(&path);
             out.push(match origami_machine::read_machine(&path) {
                 Ok(file) => MachineSummary {
+                    system_disk: self.system_disk_label(&path, &file, state),
                     key,
                     name,
                     product_label: origami_machine::product_label(
@@ -327,6 +356,7 @@ impl Core {
                         memory_per_node_mib: 0,
                         state,
                         needs_upgrade: error.kind == ErrorKind::NeedsUpgrade,
+                        system_disk: None,
                         problem: Some(error.message),
                     }
                 }
@@ -334,6 +364,86 @@ impl Core {
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
+    }
+
+    /// The label of the system disk if it is known. Otherwise a read of it
+    /// starts, unless the machine runs, and a library event follows it.
+    fn system_disk_label(
+        &self,
+        dir: &Path,
+        file: &origami_machine::MachineFile,
+        state: MachineState,
+    ) -> Option<String> {
+        let drive = system_drive(file)?;
+        let image = origami_machine::resolve(dir, &drive.image);
+        if let Some(label) = super::disks::cached_label(&image) {
+            return Some(label);
+        }
+        let idle = matches!(state, MachineState::NotRunning | MachineState::Exited);
+        // A running guest changes its disk, so keep the last label while it runs.
+        if !idle {
+            return super::disks::last_label(&image);
+        }
+        if let Some(reading) = super::disks::begin_read(&image) {
+            let slot = self.inner.slot.clone();
+            std::thread::spawn(move || {
+                // Only a stored label is news; a failed read would make the apps relist forever.
+                if super::disks::label(&image).is_ok() {
+                    slot.raise(&[EventKind::Library]);
+                }
+                drop(reading);
+            });
+        }
+        None
+    }
+
+    /// The OS and release on a disk image, such as `IRIX 6.5.30`, or `Unknown`.
+    /// Read once per size and change time: off the UI thread.
+    pub fn disk_info(&self, path: &Path) -> CoreResult<String> {
+        super::disks::label(path)
+    }
+
+    /// Whether `path` can be attached, and what a copy of it would need.
+    /// `machine` is the one it is for; without it the library folder stands in.
+    pub fn check_disk_image(
+        &self,
+        path: &Path,
+        machine: Option<&str>,
+    ) -> CoreResult<DiskImageCheck> {
+        let bytes = super::disks::regular_size(path)?;
+        let is_chd = origami_machine::is_chd(path);
+        let mine = machine.map(|key| self.resolve(key)).transpose()?;
+        let mut room = mine.clone().unwrap_or_else(|| self.inner.root());
+        while !room.exists() && room.pop() {}
+        let target = dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let used_by = std::fs::read_dir(self.inner.root())
+            .into_iter()
+            .flatten()
+            .filter_map(|e| Some(e.ok()?.path()))
+            .filter(|dir| mine.as_deref() != dir.canonicalize().ok().as_deref())
+            .find(|dir| {
+                origami_machine::read_machine(dir).is_ok_and(|file| {
+                    file.drive.iter().any(|d| {
+                        dunce::canonicalize(origami_machine::resolve(dir, &d.image))
+                            .is_ok_and(|image| image == target)
+                    })
+                })
+            })
+            .map(|dir| entry_name(&dir));
+        let free_bytes = super::disks::free_space(&room);
+        Ok(DiskImageCheck {
+            bytes,
+            is_chd,
+            free_bytes,
+            used_by,
+            problem: is_chd
+                .then(|| {
+                    origami_machine::check_chd(path)
+                        .err()
+                        .map(|e| e.to_string())
+                })
+                .flatten(),
+        })
     }
 
     /// Make a machine in the library. Returns at once; the finished
@@ -373,8 +483,57 @@ impl Core {
                     boot_prom: request.boot_prom.clone(),
                     io_prom: request.io_prom.clone(),
                 };
+                if let Some(SystemDisk::Image {
+                    file,
+                    copy: false,
+                    overlay,
+                }) = &request.system_disk
+                {
+                    spec.drives.push(attach_request(file, 1, *overlay));
+                }
                 crate::create::create_from(engine.as_ref(), &machines, &spec, &offering)
                     .map_err(CoreError::machine)?;
+                inner.slot.raise(&[EventKind::Library]);
+                // A machine whose disk could not be made is removed, so Create works again;
+                // a cancelled copy keeps it.
+                let disk = (|| -> CoreResult<()> {
+                    match &request.system_disk {
+                        Some(SystemDisk::Empty { gb }) => {
+                            crate::apply_change(
+                                engine.as_ref(),
+                                &dir,
+                                &crate::Change::CreateDisk {
+                                    size_mib: u64::from(*gb) * 1024,
+                                },
+                            )
+                            .map_err(CoreError::machine)?;
+                            Ok(())
+                        }
+                        // A cancelled copy leaves the machine without a disk.
+                        Some(SystemDisk::Image {
+                            file,
+                            copy: true,
+                            overlay,
+                        }) => {
+                            let copied = super::disks::copy_into(file, &dir, control)?;
+                            crate::apply_change(
+                                engine.as_ref(),
+                                &dir,
+                                &crate::Change::AttachDrive(attach_request(&copied, 1, *overlay)),
+                            )
+                            .map_err(CoreError::machine)?;
+                            Ok(())
+                        }
+                        _ => Ok(()),
+                    }
+                })();
+                if let Err(error) = disk {
+                    if error.kind != ErrorKind::Cancelled {
+                        let _ = std::fs::remove_dir_all(&dir);
+                    }
+                    inner.slot.raise(&[EventKind::Library]);
+                    return Err(error);
+                }
                 inner.slot.raise(&[EventKind::Library]);
                 let key = dir.canonicalize().unwrap_or(dir);
                 Ok(Some(key.to_string_lossy().into_owned()))
@@ -519,6 +678,14 @@ fn is_legacy(dir: &Path) -> bool {
         .ok()
         .and_then(|text| origami_machine::migrate::format(&text))
         == Some(i64::from(origami_machine::FORMAT_WITH_QEMU_TABLE))
+}
+
+/// The disk a machine boots from: the one on target 1, else the first disk.
+pub(crate) fn system_drive(file: &origami_machine::MachineFile) -> Option<&origami_machine::Drive> {
+    let disks = || file.drive.iter().filter(|d| d.kind == "disk");
+    disks()
+        .find(|d| d.bus == 0 && d.target == 1)
+        .or_else(|| disks().next())
 }
 
 fn entry_name(path: &Path) -> String {

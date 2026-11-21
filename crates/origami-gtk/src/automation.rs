@@ -10,6 +10,7 @@
 //!   invoke COMMAND [MACHINE]      run a command as a menu item would
 //!   open MACHINE | select MACHINE
 //!   clipboard | clipboard-set JSON_STRING   read or set the clipboard text
+//!   pick PATH                     answer the next file chooser with PATH
 //!   activate WIDGET [VALUE]       use a control by its widget name, as a click, a
 //!                                 pick of the combo item labelled VALUE, or a
 //!                                 dialog's close would
@@ -284,7 +285,20 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                         .collect::<Vec<_>>()
                 })
                 .collect();
-            json!({"machines": ms, "library": lib, "library_pills": pills, "cpu_btn": cpu_btn, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
+            let badges: Vec<String> = app
+                .windows
+                .borrow()
+                .iter()
+                .filter(|w| w.has_library)
+                .flat_map(|w| {
+                    w.rows
+                        .borrow()
+                        .iter()
+                        .map(|r| r.badge.label().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            json!({"machines": ms, "library": lib, "library_pills": pills, "library_badges": badges, "cpu_btn": cpu_btn, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
                    "enabled": enabled, "cpu_s": cpu_seconds(),
                    "toolbar_tips": window::active(app).map(|w| w.toolbar.iter().map(|b| b.tooltip_text().map(|t| t.to_string())).collect::<Vec<_>>()),
                    "pause_tip": window::active(app).and_then(|w| w.pause_btn.tooltip_text()).map(|t| t.to_string()),
@@ -453,6 +467,14 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 Err(e) => json!({"error": e.to_string()}),
             }
         }
+        "pick" => match a1 {
+            // The answer for the next file chooser, which a test cannot open.
+            Some(path) => {
+                crate::disks::queue_pick(path.into());
+                json!({"ok": true})
+            }
+            None => json!({"error": "pick PATH"}),
+        },
         "activate" => {
             // Through the widget, so the dialog's own handler does the work.
             let Some(name) = a1 else {
@@ -474,6 +496,14 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 alert.emit_by_name::<()>("response", &[&id]);
                 return json!({"ok": true});
             }
+            if let (Some(row), Some(value)) = (widget.downcast_ref::<adw::EntryRow>(), value) {
+                row.set_text(value);
+                return json!({"ok": true});
+            }
+            if let (Some(row), Some(value)) = (widget.downcast_ref::<adw::SpinRow>(), value) {
+                row.set_value(value.parse().unwrap_or_default());
+                return json!({"ok": true});
+            }
             match (widget.downcast_ref::<adw::ComboRow>(), value) {
                 (Some(row), Some(value)) => {
                     let list = row.model().and_downcast::<gtk::StringList>();
@@ -493,7 +523,14 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                         dialog.close();
                         json!({"ok": true})
                     }
-                    None => json!({"ok": widget.activate()}),
+                    None => match widget.downcast_ref::<gtk::Button>() {
+                        // A button's own handler, now: GTK's activate waits out a press animation.
+                        Some(button) => {
+                            button.emit_clicked();
+                            json!({"ok": true})
+                        }
+                        None => json!({"ok": widget.activate()}),
+                    },
                 },
             }
         }
