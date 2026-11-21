@@ -167,12 +167,12 @@ jobs:
       - name: Logic tests (keys, pointer modes, settings, fake core)
         working-directory: apps/windows
         run: |
-          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          export DOTNET_CLI_TELEMETRY_OPTOUT=1
           dotnet run -c Release --project Origami.Logic.Tests
       - name: Build the app (unpackaged, self-contained)
         working-directory: apps/windows
         run: |
-          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          export DOTNET_CLI_TELEMETRY_OPTOUT=1
           set -o pipefail
           time dotnet build Origami.App/Origami.App.csproj -c Release -p:Platform=x64 2>&1 | tail -60
       - name: Self-test with a desktop screenshot while the picture is up

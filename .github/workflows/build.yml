@@ -254,7 +254,7 @@ jobs:
       - uses: ./.github/actions/windows-dotnet
       - name: Package
         run: |
-          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          export DOTNET_CLI_TELEMETRY_OPTOUT=1
           prebuilt/xtask.exe dist --app --platform windows-x86_64 --prebuilt prebuilt --out dist
           ls -la dist
       - name: The packaged runner has iris linked
@@ -324,7 +324,7 @@ jobs:
       - uses: ./.github/actions/windows-dotnet
       - name: Package
         run: |
-          export PATH="$HOME/.dotnet-ci:$PATH" DOTNET_ROOT="$HOME/.dotnet-ci" DOTNET_CLI_TELEMETRY_OPTOUT=1
+          export DOTNET_CLI_TELEMETRY_OPTOUT=1
           cargo xtask dist --app --out dist
           ls -la dist
       - name: Start the extracted package

@@ -1,16 +1,20 @@
 name: Windows .NET SDK
-description: Install the .NET 8 SDK under the user profile, from the runner cache when it has one.
+description: Install the .NET 8 SDK under the job's temp dir, from the runner cache when it has one.
 runs:
   using: composite
   steps:
     - id: sdk
       uses: actions/cache@v4
       with:
-        # A fixed path: the cache version hashes it, and RUNNER_TEMP changes every job.
-        path: ~/.dotnet-ci
+        # Per job: jobs run side by side on one runner, and a shared dir gets extracted over.
+        path: ${{ runner.temp }}/dotnet
         key: dotnet-sdk-8.0-${{ runner.os }}-${{ runner.arch }}
     - if: steps.sdk.outputs.cache-hit != 'true'
       shell: powershell
       run: |
         Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
-        ./dotnet-install.ps1 -Channel 8.0 -InstallDir "$env:USERPROFILE\.dotnet-ci"
+        ./dotnet-install.ps1 -Channel 8.0 -InstallDir "${{ runner.temp }}\dotnet"
+    - shell: powershell
+      run: |
+        "DOTNET_ROOT=${{ runner.temp }}\dotnet" >> $env:GITHUB_ENV
+        "${{ runner.temp }}\dotnet" >> $env:GITHUB_PATH
