@@ -11,10 +11,249 @@ use super::core::Core;
 use super::error::{CoreError, CoreResult, ErrorKind};
 use super::lease::{self, InstallStart};
 use super::operation::{Control as OpControl, Operation};
-use origami_machine::install;
+use crate::Report;
+use origami_machine::addressing::Addresses;
+use origami_machine::{install, MachineFile};
 use std::cell::Cell;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// A profile of an IRIX release: `name` is what the install takes, `label`
+/// and `detail` are for showing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallProfile {
+    pub name: String,
+    pub label: String,
+    pub detail: String,
+}
+
+/// An IRIX release the assistant installs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallRelease {
+    pub release: String,
+    pub label: String,
+    pub profiles: Vec<InstallProfile>,
+}
+
+/// What `install/media.toml` configures.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallPlan {
+    /// What it sets up, for the footer: "IRIX 6.5.30, Standard + MIPSpro".
+    pub summary: String,
+    pub release: String,
+    pub profile: String,
+    pub local_media: bool,
+    pub addons: Vec<String>,
+}
+
+/// A package to install after IRIX: one Origami knows by name, or a file
+/// or HTTPS address with the selections to install from it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallSetupAddon {
+    /// Empty for a package from `source`: the core names it after the file.
+    pub name: String,
+    pub source: Option<String>,
+    pub install: Vec<String>,
+}
+
+/// Everything the assistant asks before it prepares the machine.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallSetup {
+    pub release: String,
+    pub profile: String,
+    /// A folder of disc images; without it the discs download.
+    pub media_root: Option<PathBuf>,
+    pub addons: Vec<InstallSetupAddon>,
+}
+
+/// An add-on the assistant lists, with whether the user can change it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallAddonChoice {
+    pub name: String,
+    pub label: String,
+    pub note: Option<String>,
+    pub checked: bool,
+    /// The choice is made for the user: needed, or not offered here.
+    pub locked: bool,
+}
+
+/// What a folder holds of an install's discs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MediaFolder {
+    pub found: u32,
+    pub total: u32,
+    pub missing: Vec<String>,
+    /// The sentence to show under the chooser.
+    pub verdict: String,
+    pub complete: bool,
+}
+
+/// One thing to do at the machine while the install runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GuideStep {
+    pub text: String,
+    /// What to type or paste, for a Copy button.
+    pub command: Option<String>,
+    /// The exact bytes a serial console takes for it, line ends included;
+    /// None for a step with nothing to send.
+    pub send: Option<String>,
+}
+
+/// The steps that follow the machine's start, with this machine's release
+/// and addresses in them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InstallGuide {
+    /// The media server's address.
+    pub server: String,
+    pub prepare: Vec<GuideStep>,
+    pub installer: Vec<GuideStep>,
+    pub packages: Vec<GuideStep>,
+    /// Quit and restart: the end of the package steps, and all that is left
+    /// when the person fixed an install by hand at `Inst>`.
+    pub restart: Vec<GuideStep>,
+    pub finish: Vec<GuideStep>,
+    /// Said under the package steps.
+    pub package_note: String,
+}
+
+fn step(text: &str, command: Option<&str>, send: Option<&str>) -> GuideStep {
+    GuideStep {
+        text: text.into(),
+        command: command.map(Into::into),
+        send: send.map(Into::into),
+    }
+}
+
+/// An add-on's full name and the short one the server line uses.
+fn addon_names(name: &str) -> (&str, &str) {
+    match name {
+        "mipspro" => ("MIPSpro 7.4.4 compiler", "MIPSpro"),
+        "rad4" => ("RAD4 driver", "RAD4"),
+        other => (other, other),
+    }
+}
+
+fn profile_label(profile: &str) -> &'static str {
+    match profile {
+        "minimal" => "Minimal",
+        _ => "Standard",
+    }
+}
+
+/// The releases the assistant offers, newest first.
+pub fn install_releases() -> Vec<InstallRelease> {
+    install::RELEASES
+        .iter()
+        .map(|(release, profiles)| InstallRelease {
+            release: (*release).into(),
+            label: format!("IRIX {release}"),
+            profiles: profiles
+                .iter()
+                .map(|profile| {
+                    let discs = install::local_media_paths(release, profile).map_or(0, |p| p.len());
+                    let detail = if *profile == "minimal" {
+                        format!("{discs} discs: overlay, foundation and NFS only")
+                    } else {
+                        format!("All {discs} discs")
+                    };
+                    InstallProfile {
+                        name: (*profile).into(),
+                        label: profile_label(profile).into(),
+                        detail,
+                    }
+                })
+                .collect(),
+        })
+        .collect()
+}
+
+/// What `folder` holds of the discs the release and profile install, as one
+/// sentence and a count. Reads only directory entries.
+pub fn install_media_folder(
+    folder: &Path,
+    release: &str,
+    profile: &str,
+) -> CoreResult<MediaFolder> {
+    let paths = install::local_media_paths(release, profile).map_err(CoreError::machine)?;
+    let mut roots: Vec<&str> = Vec::new();
+    for root in paths.iter().filter_map(|path| path.split('/').next()) {
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    let total = paths.len() as u32;
+    let missing: Vec<String> = paths
+        .iter()
+        .filter(|path| !folder.join(path).is_file())
+        .cloned()
+        .collect();
+    let found = total - missing.len() as u32;
+    let (verdict, complete) = if roots.iter().all(|root| !folder.join(root).is_dir()) {
+        (
+            format!("That folder has no {} folder.", roots.join(" or ")),
+            false,
+        )
+    } else if missing.is_empty() {
+        (format!("Found all {total} discs."), true)
+    } else {
+        (
+            format!(
+                "Found {found} of {total} discs. Missing: {}.",
+                missing.join(", ")
+            ),
+            false,
+        )
+    };
+    Ok(MediaFolder {
+        found,
+        total,
+        missing,
+        verdict,
+        complete,
+    })
+}
+
+/// A name for a package from `source`: the file's name without its
+/// extensions, cut to what an add-on name allows.
+fn addon_name_from(source: &str) -> String {
+    let file = source
+        .trim_end_matches('/')
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("addon");
+    let stem = file.split('.').next().unwrap_or(file);
+    let name: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if name.is_empty() {
+        "addon".into()
+    } else {
+        name
+    }
+}
+
+/// The footer line of the media server: who serves what.
+fn serving_line(dir: &Path, file: &MachineFile) -> origami_machine::Result<String> {
+    let media = install::read_media(dir)?;
+    let mut line = format!(
+        "{} serving {}, {}",
+        Addresses::of(file)?.host(),
+        media.release,
+        profile_label(&media.profile)
+    );
+    for addon in &media.addons {
+        line.push_str(" + ");
+        line.push_str(addon_names(&addon.name).1);
+    }
+    Ok(line)
+}
 
 fn cancelled(what: &str) -> CoreError {
     CoreError::new(ErrorKind::Cancelled, format!("{what} was cancelled"))
@@ -50,62 +289,403 @@ impl Write for ProgressSink<'_> {
 }
 
 impl Core {
-    /// Check the install media of the machine at `key` with the Instigator
-    /// at `instigator`. Cancelling ends the check and its child.
-    pub fn install_check(
+    /// The add-ons to offer for an install of `profile` on the machine at
+    /// `key`, with those the machine needs already ticked.
+    pub fn install_addon_choices(
         &self,
         key: &str,
-        full: bool,
-        instigator: PathBuf,
-    ) -> CoreResult<Operation> {
+        profile: &str,
+    ) -> CoreResult<Vec<InstallAddonChoice>> {
         let machine = self.open_machine(key)?;
-        let (dir, engine) = (PathBuf::from(machine.key()), machine.engine());
-        Ok(
-            self.install_operation(&machine, "Check install media", move |control| {
-                let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
-                control.progress("Checking the install media");
-                let (mut command, document) =
-                    install::check_command(|| Ok(instigator), &dir, &loaded.file, full)
-                        .map_err(CoreError::machine)?;
-                match child::run(&mut command, Some(document), control)? {
-                    None => Err(cancelled("the check")),
-                    Some(done) if done.status.success() => Ok(None),
-                    Some(done) => Err(CoreError::new(
-                        ErrorKind::Invalid,
-                        install::check_rejected(&done.stderr),
-                    )),
-                }
-            }),
-        )
+        let file =
+            origami_machine::read_machine(Path::new(machine.key())).map_err(CoreError::machine)?;
+        let mut choices = Vec::new();
+        if install::needs_rad4_driver(&file) {
+            choices.push(InstallAddonChoice {
+                name: "rad4".into(),
+                label: addon_names("rad4").0.into(),
+                note: Some("Needed by this machine. Downloaded.".into()),
+                checked: true,
+                locked: true,
+            });
+        }
+        let standard = profile != "minimal";
+        choices.push(InstallAddonChoice {
+            name: "mipspro".into(),
+            label: addon_names("mipspro").0.into(),
+            note: (!standard).then(|| "Not in the Minimal install.".into()),
+            checked: false,
+            locked: !standard,
+        });
+        Ok(choices)
     }
 
-    /// Serve the install media of the machine at `key` with the Instigator
-    /// at `instigator`, until the operation is cancelled or the server
-    /// exits. The server is the operation's child; cancelling ends it and
-    /// anything it started.
-    pub fn install_serve(&self, key: &str, instigator: PathBuf) -> CoreResult<Operation> {
+    /// What the machine's `install/media.toml` configures; None before the
+    /// machine is prepared.
+    pub fn install_plan(&self, key: &str) -> CoreResult<Option<InstallPlan>> {
+        let machine = self.open_machine(key)?;
+        let dir = Path::new(machine.key());
+        if !dir.join("install/media.toml").is_file() {
+            return Ok(None);
+        }
+        let media = install::read_media(dir).map_err(CoreError::machine)?;
+        let releases = install_releases();
+        let release = releases.iter().find(|r| r.release == media.release);
+        let profile = release
+            .and_then(|r| r.profiles.iter().find(|p| p.name == media.profile))
+            .map_or(media.profile.clone(), |p| p.label.clone());
+        let summary = std::iter::once(format!(
+            "{}, {profile}",
+            release.map_or(format!("IRIX {}", media.release), |r| r.label.clone())
+        ))
+        .chain(
+            media
+                .addons
+                .iter()
+                .map(|a| addon_names(&a.name).0.to_string()),
+        )
+        .collect::<Vec<_>>()
+        .join(" + ");
+        Ok(Some(InstallPlan {
+            summary,
+            release: media.release,
+            profile: media.profile,
+            local_media: media.media.values().any(|source| !source.contains("://")),
+            addons: media.addons.into_iter().map(|addon| addon.name).collect(),
+        }))
+    }
+
+    /// Set the stopped machine up for an install: write its media list and
+    /// add-ons and switch it to the installation network, replacing any
+    /// earlier setup. Blocking, off the UI thread; `Busy` unless stopped.
+    pub fn install_prepare(&self, key: &str, setup: &InstallSetup) -> CoreResult<Report> {
+        let machine = self.open_machine(key)?;
+        self.while_no_install(machine.key(), || {
+            machine.edit_files(|engine, dir| {
+                let before = origami_machine::read_machine(dir)?;
+                if !install::runs_irix(
+                    &before.machine.model,
+                    before.machine.topology.as_deref().unwrap_or_default(),
+                ) {
+                    return Err("this machine does not run IRIX".into());
+                }
+                let saved = Saved::of(dir);
+                let made = (|| -> origami_machine::Result<Report> {
+                    remember_network(dir, &before)?;
+                    remove_setup(dir)?;
+                    let mut report = crate::install_init(
+                        engine,
+                        dir,
+                        &crate::InstallInit {
+                            media_root: setup.media_root.clone(),
+                            mac: None,
+                            release: setup.release.clone(),
+                            profile: setup.profile.clone(),
+                        },
+                    )?;
+                    for addon in &setup.addons {
+                        let name = if addon.name.is_empty() {
+                            addon_name_from(addon.source.as_deref().unwrap_or_default())
+                        } else {
+                            addon.name.clone()
+                        };
+                        // A named add-on the machine needs is configured by the init.
+                        let have = install::read_media(dir)?
+                            .addons
+                            .iter()
+                            .any(|a| a.name == name);
+                        if have && addon.source.is_none() {
+                            report.push(
+                                crate::Kind::Note,
+                                format!("add-on {name} was already set up"),
+                            );
+                            continue;
+                        }
+                        let request = crate::InstallAddon {
+                            name,
+                            source: addon.source.clone(),
+                            install: addon.install.clone(),
+                            base: None,
+                            dist: None,
+                            media_root: setup.media_root.clone(),
+                        };
+                        for line in crate::install_addon(engine, dir, &request)?.lines {
+                            report.lines.push(line);
+                        }
+                    }
+                    Ok(report)
+                })();
+                if made.is_err() {
+                    saved.restore(dir);
+                }
+                made
+            })
+        })
+    }
+
+    /// Put the network back as it was before the setup moved the machine to
+    /// the installation network: its mode, shared-network address, endpoint
+    /// and interface. A machine with no record goes back to Shared (NAT).
+    pub fn install_restore_network(&self, key: &str) -> CoreResult<Report> {
+        let machine = self.open_machine(key)?;
+        let dir = Path::new(machine.key());
+        let saved = std::fs::read_to_string(dir.join(NETWORK_BEFORE))
+            .ok()
+            .and_then(|text| serde_json::from_str::<crate::NetworkChange>(&text).ok());
+        let _ = std::fs::remove_file(dir.join(NETWORK_BEFORE));
+        // Only the installation network is put back: a change the person
+        // made meanwhile stays.
+        let file = origami_machine::read_machine(dir).map_err(CoreError::machine)?;
+        if file.network.mode != "private" {
+            return Ok(Report::default());
+        }
+        let change = saved.unwrap_or(crate::NetworkChange {
+            mode: crate::NetworkMode::User,
+            endpoint: None,
+            interface: None,
+            share_address: None,
+            subnet: None,
+            mac: None,
+        });
+        machine.apply_change(&crate::Change::SetNetwork(change))
+    }
+
+    /// Whether a setup moved this machine to the installation network and
+    /// has not been put back, so the assistant offers to set it back.
+    pub fn install_restore_pending(&self, key: &str) -> CoreResult<bool> {
+        let machine = self.open_machine(key)?;
+        Ok(Path::new(machine.key()).join(NETWORK_BEFORE).is_file())
+    }
+
+    /// Forget the machine's install setup so it can be prepared again. The
+    /// network stays as the setup left it.
+    pub fn install_reset(&self, key: &str) -> CoreResult<()> {
+        let machine = self.open_machine(key)?;
+        machine.edit_files(|_, dir| remove_setup(dir))
+    }
+
+    /// The system disk the install erases: the machine's first disk, named
+    /// the same in every app. None when it has no disk.
+    pub fn install_disk(&self, key: &str) -> CoreResult<Option<crate::facade::InstallDisk>> {
+        let machine = self.open_machine(key)?;
+        let dir = Path::new(machine.key());
+        let file = origami_machine::read_machine(dir).map_err(CoreError::machine)?;
+        Ok(super::core::system_drive(&file).map(|d| {
+            let image = origami_machine::resolve(dir, &d.image);
+            let size = (!origami_machine::is_chd(&image))
+                .then(|| std::fs::metadata(&image).ok())
+                .flatten()
+                .map(|m| format!(" ({})", super::size_label(m.len())))
+                .unwrap_or_default();
+            let file_name = image
+                .file_name()
+                .map_or(d.name.clone(), |n| n.to_string_lossy().into_owned());
+            let others = file.drive.iter().filter(|o| o.kind == "disk").count() - 1;
+            let more = if others > 0 {
+                format!(" The machine has {others} more disk, which the formatter lists too: choose only this one.")
+            } else {
+                String::new()
+            };
+            crate::facade::InstallDisk {
+                name: file_name.clone(),
+                bus: d.bus,
+                target: d.target,
+                text: format!(
+                    "{file_name}{size} on SCSI bus {}, target {}. The disk formatter erases everything on it.{more}",
+                    d.bus, d.target
+                ),
+            }
+        }))
+    }
+
+    /// The steps to follow at the machine, from its install setup.
+    pub fn install_guide(&self, key: &str) -> CoreResult<InstallGuide> {
+        let machine = self.open_machine(key)?;
+        let dir = Path::new(machine.key());
+        let file = origami_machine::read_machine(dir).map_err(CoreError::machine)?;
+        let media = install::read_media(dir).map_err(CoreError::machine)?;
+        let addresses = Addresses::of(&file).map_err(CoreError::machine)?;
+        let disk = self.install_disk(key)?.ok_or_else(|| {
+            CoreError::new(
+                ErrorKind::Invalid,
+                "the machine has no disk to install onto",
+            )
+        })?;
+        let loaded = crate::open(machine.engine().as_ref(), dir).map_err(CoreError::machine)?;
+        let offering = loaded.offering().map_err(CoreError::machine)?;
+        let (fx_name, source_choice) =
+            install::installer_for(&offering.product, &offering.topology);
+        let (host, guest, release) = (addresses.host(), addresses.guest(), media.release);
+        let fx = format!("boot -f bootp():/{release}/stand/{fx_name}");
+        let dist = format!("/{release}/dist");
+        let source = format!("admin source {host}:/irix.cmds");
+        let host = host.to_string();
+        let size = super::core::system_drive(&file).and_then(|d| {
+            let image = origami_machine::resolve(dir, &d.image);
+            (!origami_machine::is_chd(&image))
+                .then(|| std::fs::metadata(&image).ok())
+                .flatten()
+                .map(|m| super::size_label(m.len()))
+        });
+        // IRIX numbers controllers by probe order; only bus 0 is known to be 0.
+        let drive = if disk.bus == 0 {
+            step(
+                &format!(
+                    "At ctlr# type 0, then at drive# type {}. This is {}.",
+                    disk.target, disk.name
+                ),
+                None,
+                Some(&format!("0\r{}\r", disk.target)),
+            )
+        } else {
+            step(
+                &format!(
+                    "At ctlr# press Return (fx then looks at controller 0, which may not be this disk), and at drive# type {}. Compare the size fx reports with {} for {}. If they differ, stop: this is the wrong disk.",
+                    disk.target,
+                    size.as_deref().unwrap_or("this disk's size"),
+                    disk.name
+                ),
+                None,
+                Some(&format!("\r{}\r", disk.target)),
+            )
+        };
+        let serial = machine.boot_console()? == super::BootConsole::Serial;
+        let name = origami_machine::addressing::dhcp_hostname(dir).unwrap_or("irix");
+        let guest = guest.to_string();
+        let say = |text: &str, value: &str| {
+            step(
+                text,
+                Some(value),
+                serial.then(|| format!("{value}\r")).as_deref(),
+            )
+        };
+        let mut installer = vec![
+            step(
+                "At the menu choose 2, Install System Software.",
+                None,
+                Some("2\r"),
+            ),
+            step(
+                &format!("Choose {source_choice}, Remote Directory."),
+                None,
+                Some(&format!("{source_choice}\r")),
+            ),
+        ];
+        if serial {
+            installer.extend([
+                say(
+                    "At \"Enter the name of the remote host\", type the server's address.",
+                    &host,
+                ),
+                say("At \"Enter the remote directory\", type this.", &dist),
+                step("Press Enter to start.", None, Some("\r")),
+            ]);
+        } else {
+            installer.extend([
+                step("Enter the host.", Some(&host), None),
+                step("Enter the directory.", Some(&dist), None),
+                step("Press Enter on Install.", None, None),
+            ]);
+        }
+        installer.extend([
+            say("At \"Make new file system\" type yes.", "yes"),
+            say("At \"Are you sure?\" type y.", "y"),
+            say("At the block size question type 4096.", "4096"),
+            say("At the hostname question type this.", name),
+            say("At the network address question type this.", &guest),
+            say(
+                "At the netmask question type this: the default is wrong for this network.",
+                "255.255.255.0",
+            ),
+            step("Wait for Inst>.", None, None),
+        ]);
+        Ok(InstallGuide {
+            prepare: vec![
+                step("If the PROM says \"Unable to boot\", press any key. Otherwise go on.", None, Some("\r")),
+                step("Choose 5, Enter Command Monitor.", None, Some("5\r")),
+                step("Type this.", Some(&fx), Some(&format!("{fx}\r"))),
+                step("At the extended mode question type yes, and at the device name press Return.", None, Some("yes\r\r")),
+                drive,
+                step("At the fx prompt type /l/sy to label the disk.", Some("/l/sy"), Some("/l/sy\r")),
+                step("At \"writing label info\" type /exi to leave fx. This erases the disk.", Some("/exi"), Some("/exi\r")),
+            ],
+            installer,
+            packages: vec![
+                step("At Inst>, type this.", Some(&source), Some(&format!("{source}\r"))),
+                step(
+                    "When the numbered menu ends with \"Install software from:\", type done.",
+                    None,
+                    Some("done\r"),
+                ),
+                step(
+                    "Wait for this line.",
+                    Some("instigator: post-install commands finished"),
+                    None,
+                ),
+            ],
+            restart: vec![
+                step("Type quit. Relinking the kernel takes a few minutes.", None, Some("quit\r")),
+                step("At Restart? answer y.", None, Some("y\r")),
+            ],
+            finish: vec![
+                step(
+                    "At the login prompt, log in as root and type this. A new install has no password.",
+                    Some("halt -p"),
+                    None,
+                ),
+                step("Wait for the machine to power off.", None, None),
+            ],
+            package_note: "If a conflict or a failed command stops it, the line above never appears. Read the console and fix it at Inst>.".into(),
+            server: host,
+        })
+    }
+
+    /// Check the install media of the machine at `key`. Cancelling ends the
+    /// check and its child.
+    pub fn install_check(&self, key: &str, full: bool) -> CoreResult<Operation> {
+        let instigator = self.instigator()?;
         let machine = self.open_machine(key)?;
         let (dir, engine) = (PathBuf::from(machine.key()), machine.engine());
-        Ok(
-            self.install_operation(&machine, "Serve install media", move |control| {
-                let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
-                let install::ServeSetup {
-                    mut command,
-                    log_path,
-                    ..
-                } = install::serve_setup(|| Ok(instigator), &dir, &loaded.file)
+        self.install_operation(&machine, CHECK_TITLE, move |control| {
+            let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
+            control.progress("Checking the install media");
+            let (mut command, document) =
+                install::check_command(|| Ok(instigator), &dir, &loaded.file, full)
                     .map_err(CoreError::machine)?;
-                control.progress(format!("Instigator log: {}", log_path.display()));
-                match child::run(&mut command, None, control)? {
-                    None => Err(cancelled("the media server")),
-                    Some(done) if done.status.success() => Ok(None),
-                    Some(done) => Err(CoreError::new(
-                        ErrorKind::Io,
-                        format!("Instigator exited with {}", done.status),
-                    )),
-                }
-            }),
-        )
+            match child::run(&mut command, Some(document), control)? {
+                None => Err(cancelled("the check")),
+                Some(done) if done.status.success() => Ok(None),
+                Some(done) => Err(CoreError::new(
+                    ErrorKind::Invalid,
+                    install::check_rejected(&done.stderr),
+                )),
+            }
+        })
+    }
+
+    /// Serve the install media of the machine at `key` until the operation
+    /// is cancelled or the server exits. The server is the operation's
+    /// child; cancelling ends it and anything it started.
+    pub fn install_serve(&self, key: &str) -> CoreResult<Operation> {
+        let instigator = self.instigator()?;
+        let machine = self.open_machine(key)?;
+        let (dir, engine) = (PathBuf::from(machine.key()), machine.engine());
+        self.install_operation(&machine, SERVE_TITLE, move |control| {
+            let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
+            let line = serving_line(&dir, &loaded.file).map_err(CoreError::machine)?;
+            let install::ServeSetup { mut command, .. } =
+                install::serve_setup(|| Ok(instigator), &dir, &loaded.file)
+                    .map_err(CoreError::machine)?;
+            control.progress(line);
+            match child::run(&mut command, None, control)? {
+                None => Err(cancelled("the media server")),
+                Some(done) if done.status.success() => Ok(None),
+                Some(done) => Err(CoreError::new(
+                    ErrorKind::Io,
+                    format!("Instigator exited with {}", done.status),
+                )),
+            }
+        })
     }
 
     /// Drive the installer on the console of the machine at `key` from
@@ -115,30 +695,121 @@ impl Core {
     pub fn install_apply(&self, key: &str, start: InstallStart) -> CoreResult<Operation> {
         let machine = self.open_machine(key)?;
         let (dir, engine) = (PathBuf::from(machine.key()), machine.engine());
-        Ok(
-            self.install_operation(&machine, "Install IRIX", move |control| {
-                let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
-                let start = Cell::new(Some(start));
-                let cancel = control.canceller();
-                let mut sink = ProgressSink {
-                    control,
-                    line: Vec::new(),
-                };
-                let result = install::apply(
-                    &dir,
-                    &loaded.file,
-                    &|dir| {
-                        let start = start.take().expect("the installer connects once");
-                        lease::connect(dir, start, cancel.clone())
-                    },
-                    &mut sink,
-                );
-                match result {
-                    Ok(()) => Ok(None),
-                    Err(_) if control.is_cancelled() => Err(cancelled("the install")),
-                    Err(error) => Err(CoreError::machine(error)),
-                }
-            }),
-        )
+        self.install_operation(&machine, "Install IRIX", move |control| {
+            let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
+            let start = Cell::new(Some(start));
+            let cancel = control.canceller();
+            let mut sink = ProgressSink {
+                control,
+                line: Vec::new(),
+            };
+            let result = install::apply(
+                &dir,
+                &loaded.file,
+                &|dir| {
+                    let start = start.take().expect("the installer connects once");
+                    lease::connect(dir, start, cancel.clone())
+                },
+                &mut sink,
+            );
+            match result {
+                Ok(()) => Ok(None),
+                Err(_) if control.is_cancelled() => Err(cancelled("the install")),
+                Err(error) => Err(CoreError::machine(error)),
+            }
+        })
     }
+}
+
+const NETWORK_BEFORE: &str = "install/network-before.json";
+
+/// Keep the network the machine had before its first setup, so Finish and
+/// the close question can put exactly that back.
+fn remember_network(dir: &Path, file: &MachineFile) -> origami_machine::Result<()> {
+    let path = dir.join(NETWORK_BEFORE);
+    // Whatever the person set since the last setup is the new "before".
+    if file.network.mode == "private" {
+        return Ok(());
+    }
+    let mode = match file.network.mode.as_str() {
+        "none" => crate::NetworkMode::None,
+        "tap" => crate::NetworkMode::Tap,
+        "vmnet" => crate::NetworkMode::Vmnet,
+        _ => crate::NetworkMode::User,
+    };
+    let before = crate::NetworkChange {
+        mode,
+        endpoint: file.network.endpoint.clone(),
+        interface: file.network.interface.clone(),
+        share_address: file.network.share_address.clone(),
+        subnet: None,
+        mac: None,
+    };
+    std::fs::create_dir_all(dir.join("install"))?;
+    std::fs::write(path, serde_json::to_vec(&before)?)?;
+    Ok(())
+}
+
+/// The files `install_prepare` rewrites, so a failed setup puts them back.
+struct Saved {
+    network: Option<String>,
+    machine: Option<String>,
+    media: Option<String>,
+    addons: Vec<(PathBuf, String)>,
+}
+
+impl Saved {
+    fn of(dir: &Path) -> Self {
+        let addons = std::fs::read_dir(dir.join("install/addons"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| Some((e.path(), std::fs::read_to_string(e.path()).ok()?)))
+            .collect();
+        Self {
+            network: std::fs::read_to_string(dir.join(NETWORK_BEFORE)).ok(),
+            machine: std::fs::read_to_string(dir.join("machine.toml")).ok(),
+            media: std::fs::read_to_string(dir.join("install/media.toml")).ok(),
+            addons,
+        }
+    }
+
+    fn restore(self, dir: &Path) {
+        let _ = remove_setup(dir);
+        match self.network {
+            Some(text) => {
+                let _ = std::fs::write(dir.join(NETWORK_BEFORE), text);
+            }
+            None => {
+                let _ = std::fs::remove_file(dir.join(NETWORK_BEFORE));
+            }
+        }
+        if let Some(text) = self.machine {
+            let _ = std::fs::write(dir.join("machine.toml"), text);
+        }
+        if let Some(text) = self.media {
+            let _ = std::fs::create_dir_all(dir.join("install"));
+            let _ = std::fs::write(dir.join("install/media.toml"), text);
+        }
+        for (path, text) in self.addons {
+            let _ = std::fs::create_dir_all(path.parent().unwrap_or(dir));
+            let _ = std::fs::write(path, text);
+        }
+    }
+}
+
+const SERVE_TITLE: &str = "Serve install media";
+const CHECK_TITLE: &str = "Check install media";
+
+/// Removes the media list and the add-on files `install_prepare` wrote.
+fn remove_setup(dir: &Path) -> origami_machine::Result<()> {
+    let install = dir.join("install");
+    for path in [install.join("media.toml"), install.join("addons")] {
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)?;
+        } else if path.exists() {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
 }

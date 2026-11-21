@@ -162,6 +162,13 @@ enum Phase {
 /// the answer to it.
 const POWER_BUTTON_PATIENCE: Duration = Duration::from_secs(300);
 
+/// Which output the PROM's console uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BootConsole {
+    Serial,
+    Screen,
+}
+
 /// Puts the phase back to `Idle` when an edit ends, however it ends.
 struct Editing<'a>(&'a Mutex<Run>);
 
@@ -533,6 +540,36 @@ impl Machine {
         self.inner.apply_locked(changes)
     }
 
+    /// Where the PROM prints: the NVRAM's console variable, else the screen
+    /// when the machine has graphics. A RAD4 has no PROM console.
+    pub fn boot_console(&self) -> CoreResult<BootConsole> {
+        let dir = self.inner.dir.path();
+        let loaded = crate::open(self.inner.engine.as_ref(), dir).map_err(CoreError::machine)?;
+        let offering = loaded.offering().map_err(CoreError::machine)?;
+        Ok(
+            match origami_machine::nvram::console_choice(dir, offering, &loaded.file).as_deref() {
+                Some("g") => BootConsole::Screen,
+                Some(_) => BootConsole::Serial,
+                None if loaded.file.pipe.iter().any(|p| p.product != "rad4") => BootConsole::Screen,
+                None => BootConsole::Serial,
+            },
+        )
+    }
+
+    /// Run `work` on the stopped machine's directory under the edit guard,
+    /// then reload the machine from its file.
+    pub(crate) fn edit_files<T>(
+        &self,
+        work: impl FnOnce(&dyn Engine, &Path) -> origami_machine::Result<T>,
+    ) -> CoreResult<T> {
+        self.inner.claim_edit()?;
+        let _editing = Editing(&self.inner.run);
+        let inner = &self.inner;
+        let out = work(inner.engine.as_ref(), inner.dir.path()).map_err(CoreError::machine)?;
+        inner.reload()?;
+        Ok(out)
+    }
+
     pub fn screendump(&self, head: usize, path: &Path) -> CoreResult<()> {
         self.inner
             .session()?
@@ -774,6 +811,13 @@ impl MachineInner {
     fn apply_locked(&self, changes: &[Change]) -> CoreResult<crate::Report> {
         let (engine, dir) = (self.engine.as_ref(), self.dir.path());
         let report = crate::apply_changes(engine, dir, changes).map_err(CoreError::machine)?;
+        self.reload()?;
+        Ok(report)
+    }
+
+    /// Reads the file again after it changed, and tells the library.
+    fn reload(&self) -> CoreResult<()> {
+        let (engine, dir) = (self.engine.as_ref(), self.dir.path());
         self.shared.slot.raise(&[EventKind::Library]);
         let stale = |error: Box<dyn std::error::Error + Send + Sync>| {
             CoreError::new(
@@ -786,7 +830,7 @@ impl MachineInner {
             model::Machine::from_file(&loaded.catalogue, &loaded.file).map_err(stale)?;
         model.engine.id = engine.info().id;
         *self.model.lock().unwrap() = model;
-        Ok(report)
+        Ok(())
     }
 
     fn live(&self, run: &Run) -> bool {

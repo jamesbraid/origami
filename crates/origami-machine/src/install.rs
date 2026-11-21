@@ -136,6 +136,42 @@ fn addon_file(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether an offering runs IRIX. Only the Linux machines are left out.
+pub fn runs_irix(product: &str, topology: &str) -> bool {
+    !(product.starts_with("altix") || topology.starts_with("altix"))
+}
+
+/// The disk formatter and the PROM's "Remote Directory" choice for a
+/// machine. The O2, Indy and Indigo2 PROMs list Remote Tape first and
+/// boot the ARCS formatter (as tools/origami_lib/drivers/irix_installer.py
+/// records); every other machine boots fx.64 and lists Remote Directory first.
+pub fn installer_for(product: &str, topology: &str) -> (&'static str, &'static str) {
+    let arcs = ["o2", "indy", "indigo2"]
+        .iter()
+        .any(|f| product.starts_with(f) || topology.starts_with(f));
+    if arcs {
+        ("fx.ARCS", "2")
+    } else {
+        ("fx.64", "1")
+    }
+}
+
+/// The releases `install-init` takes, newest first, each with its profiles.
+pub const RELEASES: &[(&str, &[&str])] = &[
+    ("6.5.30", &["standard", "minimal"]),
+    ("6.5.22", &["standard"]),
+];
+
+/// Where a local media folder holds each disc image of a release and
+/// profile, relative to the folder.
+pub fn local_media_paths(release: &str, profile: &str) -> Result<Vec<String>> {
+    recipe(release, profile)?
+        .layers
+        .iter()
+        .map(Layer::local_path)
+        .collect()
+}
+
 fn recipe(release: &str, profile: &str) -> Result<InstallRecipe> {
     // A media.toml from an earlier release can still name base or desktop.
     let selection_profile = match profile {

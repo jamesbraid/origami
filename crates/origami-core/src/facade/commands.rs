@@ -135,6 +135,12 @@ pub(crate) fn table() -> Vec<Command> {
             ["Cmd+I", "Ctrl+Shift+I", "Ctrl+Shift+I"],
         ),
         command(
+            "machine.install-irix",
+            "Install IRIX…",
+            MachineStopped,
+            ["", "", ""],
+        ),
+        command(
             "machine.pause",
             "Pause",
             MachineRunning,

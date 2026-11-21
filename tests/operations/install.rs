@@ -17,12 +17,14 @@ use support::{create, fake_argv, ok, wait_until, KillOnDrop, Running};
 const TIMEOUT: Duration = Duration::from_secs(15);
 
 fn core() -> Core {
-    Core::new(
-        Config::new(root()),
-        vec![std::sync::Arc::new(engine())],
-        None,
-    )
-    .unwrap()
+    core_with(None)
+}
+
+/// A core whose install server is the program at `instigator`.
+fn core_with(instigator: Option<PathBuf>) -> Core {
+    let mut config = Config::new(root());
+    config.instigator = instigator;
+    Core::new(config, vec![std::sync::Arc::new(engine())], None).unwrap()
 }
 
 /// A configured Origin 200 under a fresh folder, not yet running.
@@ -363,10 +365,8 @@ fn grandchild(pids: &Path) -> u32 {
 fn cancelling_the_media_server_ends_its_whole_process_group() {
     let machine = machine("serve-cancel");
     let (script, pids) = forking_instigator(machine.parent().unwrap());
-    let core = core();
-    let serve = core
-        .install_serve(machine.to_str().unwrap(), script)
-        .unwrap();
+    let core = core_with(Some(script));
+    let serve = core.install_serve(machine.to_str().unwrap()).unwrap();
     let helper = grandchild(&pids);
     assert!(!gone(helper));
     assert!(serve.cancel());
@@ -379,10 +379,8 @@ fn cancelling_the_media_server_ends_its_whole_process_group() {
 fn dropping_the_core_ends_the_media_server() {
     let machine = machine("serve-drop");
     let (script, pids) = forking_instigator(machine.parent().unwrap());
-    let core = core();
-    let serve = core
-        .install_serve(machine.to_str().unwrap(), script)
-        .unwrap();
+    let core = core_with(Some(script));
+    let serve = core.install_serve(machine.to_str().unwrap()).unwrap();
     let helper = grandchild(&pids);
     drop(core);
     assert_eq!(serve.state(), OperationState::Cancelled);
@@ -400,9 +398,9 @@ fn the_media_server_and_the_check_report_how_instigator_ended() {
         "instigator"
     });
     // `check` against the fake passes; the check operation says so.
-    let core = core();
+    let core = core_with(Some(instigator));
     let check = core
-        .install_check(machine.to_str().unwrap(), false, instigator.clone())
+        .install_check(machine.to_str().unwrap(), false)
         .unwrap();
     assert_eq!(check.wait(Some(TIMEOUT)), OperationState::Succeeded);
     assert!(
@@ -412,13 +410,40 @@ fn the_media_server_and_the_check_report_how_instigator_ended() {
     );
     // A server that exits with an error is a failed operation.
     std::env::set_var("ORIGAMI_FAKE", "serve-fails");
-    let serve = core
-        .install_serve(machine.to_str().unwrap(), instigator)
-        .unwrap();
+    let serve = core.install_serve(machine.to_str().unwrap()).unwrap();
     let state = serve.wait(Some(TIMEOUT));
     std::env::remove_var("ORIGAMI_FAKE");
+    assert!(
+        serve.progress().ends_with("serving 6.5.30, Minimal"),
+        "{}",
+        serve.progress()
+    );
     let OperationState::Failed(error) = state else {
         panic!("{state:?}")
     };
     assert!(error.message.contains("Instigator exited with"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_second_server_and_a_setup_under_a_live_server_are_refused() {
+    let machine = machine("serve-twice");
+    let (script, _pids) = forking_instigator(machine.parent().unwrap());
+    let core = core_with(Some(script));
+    let key = machine.to_str().unwrap();
+    let serve = core.install_serve(key).unwrap();
+    let error = core.install_serve(key).err().unwrap();
+    assert_eq!(error.kind, ErrorKind::Busy);
+    let setup = origami_core::facade::InstallSetup {
+        release: "6.5.30".into(),
+        profile: "minimal".into(),
+        media_root: None,
+        addons: vec![],
+    };
+    assert_eq!(
+        core.install_prepare(key, &setup).unwrap_err().kind,
+        ErrorKind::Busy
+    );
+    serve.cancel();
+    assert_eq!(serve.wait(Some(TIMEOUT)), OperationState::Cancelled);
 }

@@ -27,6 +27,9 @@ pub struct Config {
     /// How long a clean stop waits for the machine to end before its
     /// operation fails. The machine is not killed; Force Quit ends it.
     pub stop_patience: Duration,
+    /// The install media server's program. Without it the install calls
+    /// that run it fail.
+    pub instigator: Option<PathBuf>,
 }
 
 impl Config {
@@ -35,6 +38,7 @@ impl Config {
             root: root.into(),
             console_ring_bytes: 1 << 20,
             stop_patience: Duration::from_secs(30),
+            instigator: None,
         }
     }
 }
@@ -58,6 +62,8 @@ pub struct OfferingSummary {
     /// Whether a machine made with the defaults has a graphics head, as
     /// against a serial console only.
     pub has_display: bool,
+    /// Whether the machine runs IRIX, so Install IRIX applies.
+    pub runs_irix: bool,
     pub nodes: u32,
     pub cpus: u32,
     pub memory_default_mib: u32,
@@ -79,6 +85,8 @@ pub struct MachineSummary {
     pub topology_name: Option<String>,
     /// Whether the machine has a graphics head, from its file.
     pub has_display: bool,
+    /// Whether the machine runs IRIX, so Install IRIX applies.
+    pub runs_irix: bool,
     pub nodes: u32,
     pub memory_per_node_mib: u32,
     /// Known only for a machine opened through this core.
@@ -301,6 +309,7 @@ impl Core {
                     topology: o.topology.clone(),
                     topology_name: origami_machine::listing::machine_name(&o.topology).into(),
                     has_display,
+                    runs_irix: origami_machine::install::runs_irix(&o.product, &o.topology),
                     nodes: o.nodes,
                     cpus: o.cpus,
                     memory_default_mib: origami_machine::profiles::default_memory(o),
@@ -344,6 +353,10 @@ impl Core {
             out.push(match origami_machine::read_machine(&path) {
                 Ok(file) => MachineSummary {
                     system_disk: self.system_disk_label(&path, &file, state),
+                    runs_irix: origami_machine::install::runs_irix(
+                        &file.machine.model,
+                        file.machine.topology.as_deref().unwrap_or_default(),
+                    ),
                     key,
                     name,
                     product_label: origami_machine::product_label(
@@ -379,6 +392,7 @@ impl Core {
                         topology: None,
                         topology_name: None,
                         has_display: false,
+                        runs_irix: false,
                         nodes: 0,
                         memory_per_node_mib: 0,
                         state,
@@ -708,12 +722,56 @@ impl Core {
         }
     }
 
-    /// Start an install operation on `machine`, and remember it so
-    /// dropping the core cancels it.
-    pub(crate) fn install_operation<F>(&self, machine: &Machine, title: &str, work: F) -> Operation
+    pub(crate) fn instigator(&self) -> CoreResult<PathBuf> {
+        self.inner.config.instigator.clone().ok_or_else(|| {
+            CoreError::new(ErrorKind::Unsupported, "this build has no install server")
+        })
+    }
+
+    /// Run `work` with no install operation live on `key`, and none able to
+    /// start meanwhile.
+    pub(crate) fn while_no_install<T>(
+        &self,
+        key: &str,
+        work: impl FnOnce() -> CoreResult<T>,
+    ) -> CoreResult<T> {
+        let mut installs = self.inner.installs.lock().unwrap();
+        installs.retain(|install| !install.state().is_finished());
+        if installs.iter().any(|op| op.machine() == Some(key)) {
+            return Err(CoreError::new(
+                ErrorKind::Busy,
+                "stop the install server before changing the install setup",
+            ));
+        }
+        work()
+    }
+
+    /// Start an install operation on `machine` and remember it so dropping
+    /// the core cancels it; refused while another of the kind runs there.
+    /// The check and the registration share one lock.
+    pub(crate) fn install_operation<F>(
+        &self,
+        machine: &Machine,
+        title: &str,
+        work: F,
+    ) -> CoreResult<Operation>
     where
         F: FnOnce(&operation::Control) -> CoreResult<Option<String>> + Send + 'static,
     {
+        let mut installs = self.inner.installs.lock().unwrap();
+        installs.retain(|install| !install.state().is_finished());
+        if installs
+            .iter()
+            .any(|op| op.title() == title && op.machine() == Some(machine.key()))
+        {
+            return Err(CoreError::new(
+                ErrorKind::Busy,
+                format!(
+                    "{} is already running on this machine",
+                    title.to_lowercase()
+                ),
+            ));
+        }
         let operation = self.inner.operation(
             title,
             Some(machine.key().to_owned()),
@@ -721,10 +779,8 @@ impl Core {
             machine.slot(),
             work,
         );
-        let mut installs = self.inner.installs.lock().unwrap();
-        installs.retain(|install| !install.state().is_finished());
         installs.push(operation.clone());
-        operation
+        Ok(operation)
     }
 
     /// The menu and toolbar commands.

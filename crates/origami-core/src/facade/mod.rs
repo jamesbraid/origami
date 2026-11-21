@@ -14,6 +14,7 @@ mod cpu;
 mod disks;
 mod error;
 mod event;
+mod flow;
 mod install;
 mod lease;
 mod machine;
@@ -31,11 +32,18 @@ pub use cpu::{CpuLoadReport, CpuLoadSource};
 pub use disks::{disk_labels, image_verdict, size_label, DiskImageCheck, DiskLabels, ImageVerdict};
 pub use error::{CoreError, CoreResult, ErrorKind};
 pub use event::{Event, EventKind, Observer};
+pub use flow::{
+    texts, CheckState, CloseAction, CloseQuestion, DiskState, InstallDisk, InstallFlow, InstallStep,
+};
+pub use install::{
+    install_media_folder, install_releases, GuideStep, InstallAddonChoice, InstallGuide,
+    InstallPlan, InstallProfile, InstallRelease, InstallSetup, InstallSetupAddon, MediaFolder,
+};
 pub use lease::{connect as connect_install_console, Cancel, InstallStart, Starter};
 pub(crate) use machine::classify_exit;
 pub use machine::{
-    ConsoleChunk, ConsoleView, ExitReason, FrameHook, HeadView, HookId, Machine, MachineState,
-    MachineView, StopKind,
+    BootConsole, ConsoleChunk, ConsoleView, ExitReason, FrameHook, HeadView, HookId, Machine,
+    MachineState, MachineView, StopKind,
 };
 pub use network::{
     bridged_setup, host_network_modes, BridgedSetup, IdentityPreview, NetworkChoice, NetworkSetting,

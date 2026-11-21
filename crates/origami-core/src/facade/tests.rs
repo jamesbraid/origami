@@ -1,5 +1,5 @@
 use super::*;
-use crate::Change;
+use crate::{Change, NetworkMode};
 use origami_engine::fake::{FakeEngine, FakeSession};
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -592,6 +592,7 @@ fn the_command_table_names_each_command_and_when_it_applies() {
         "window.console",
         "window.diagnostics",
         "machine.settings",
+        "machine.install-irix",
         "machine.pause",
         "machine.resume",
         "machine.release-keys",
@@ -1721,4 +1722,289 @@ fn a_cached_ready_disk_is_copied_into_the_machine_and_the_cache_is_left_alone() 
     assert_eq!(cached[0].label, "IRIX 6.5.30 (a.img)");
     f.core.remove_cached_disk(&sha).unwrap();
     assert!(f.core.cached_disks().unwrap().is_empty());
+}
+
+fn setup(release: &str, profile: &str, addons: &[&str]) -> InstallSetup {
+    InstallSetup {
+        release: release.into(),
+        profile: profile.into(),
+        media_root: None,
+        addons: addons
+            .iter()
+            .map(|name| InstallSetupAddon {
+                name: (*name).into(),
+                source: None,
+                install: vec![],
+            })
+            .collect(),
+    }
+}
+
+#[test]
+fn the_install_setup_is_prepared_read_back_and_reset() {
+    let f = fixture();
+    let key = f.create("irix", "origin200.1");
+    assert_eq!(f.core.install_plan(&key).unwrap(), None);
+    f.core
+        .install_prepare(&key, &setup("6.5.30", "standard", &["mipspro"]))
+        .unwrap();
+    let plan = f.core.install_plan(&key).unwrap().unwrap();
+    assert_eq!(
+        (
+            plan.release.as_str(),
+            plan.profile.as_str(),
+            plan.local_media
+        ),
+        ("6.5.30", "standard", false)
+    );
+    assert_eq!(plan.addons, ["mipspro"]);
+    // A second setup replaces the first, as the assistant's Back does.
+    f.core
+        .install_prepare(&key, &setup("6.5.22", "standard", &[]))
+        .unwrap();
+    let plan = f.core.install_plan(&key).unwrap().unwrap();
+    assert_eq!((plan.release.as_str(), plan.addons.len()), ("6.5.22", 0));
+    f.core
+        .open_machine(&key)
+        .unwrap()
+        .apply_change(&Change::CreateDisk { size_mib: 64 })
+        .unwrap();
+    let guide = f.core.install_guide(&key).unwrap();
+    assert_eq!(guide.server, "10.98.0.2");
+    assert_eq!(
+        guide.prepare[2].command.as_deref(),
+        Some("boot -f bootp():/6.5.22/stand/fx.64")
+    );
+    assert_eq!(
+        guide.packages[0].command.as_deref(),
+        Some("admin source 10.98.0.2:/irix.cmds")
+    );
+    f.core.install_reset(&key).unwrap();
+    assert_eq!(f.core.install_plan(&key).unwrap(), None);
+}
+
+#[test]
+fn a_running_machine_is_not_prepared_for_an_install() {
+    let f = fixture();
+    let (machine, _session) = f.started("busy");
+    let error = f
+        .core
+        .install_prepare(machine.key(), &setup("6.5.30", "minimal", &[]))
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Busy);
+}
+
+#[test]
+fn the_install_choices_follow_the_profile_and_the_media_folder() {
+    let f = fixture();
+    let key = f.create("irix", "origin200.1");
+    let choices = |profile| f.core.install_addon_choices(&key, profile).unwrap();
+    assert!(!choices("standard")[0].locked);
+    let minimal = &choices("minimal")[0];
+    assert!(minimal.locked && !minimal.checked);
+    assert_eq!(minimal.note.as_deref(), Some("Not in the Minimal install."));
+    let releases = install_releases();
+    assert_eq!(releases[0].release, "6.5.30");
+    assert_eq!(releases[0].profiles.len(), 2);
+    assert_eq!(releases[1].profiles.len(), 1);
+
+    let folder = tempfile::tempdir().unwrap();
+    let check = |profile| install_media_folder(folder.path(), "6.5.30", profile).unwrap();
+    for profile in ["minimal", "standard"] {
+        assert_eq!(
+            check(profile).verdict,
+            "That folder has no 6.5.30 or 6.5-base folder."
+        );
+    }
+    let paths = origami_machine::install::local_media_paths("6.5.30", "minimal").unwrap();
+    for path in &paths[1..] {
+        let file = folder.path().join(path);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, b"x").unwrap();
+    }
+    let partial = check("minimal");
+    assert_eq!((partial.found, partial.total), (5, 6));
+    assert!(partial.verdict.starts_with("Found 5 of 6 discs. Missing: "));
+    let file = folder.path().join(&paths[0]);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, b"x").unwrap();
+    assert!(check("minimal").complete);
+}
+
+#[test]
+fn the_install_server_needs_the_program_the_config_names() {
+    let f = fixture();
+    let key = f.create("irix", "origin200.1");
+    let error = f.core.install_serve(&key).err().unwrap();
+    assert_eq!(error.kind, ErrorKind::Unsupported);
+}
+
+#[test]
+fn a_failed_setup_keeps_the_old_one() {
+    let f = fixture();
+    let key = f.create("irix", "origin200.1");
+    f.core
+        .install_prepare(&key, &setup("6.5.30", "standard", &["mipspro"]))
+        .unwrap();
+    let error = f
+        .core
+        .install_prepare(&key, &setup("6.5.30", "no-such-profile", &[]))
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Invalid);
+    let plan = f.core.install_plan(&key).unwrap().unwrap();
+    assert_eq!(
+        (plan.profile.as_str(), plan.addons.as_slice()),
+        ("standard", ["mipspro".to_string()].as_slice())
+    );
+    assert!(
+        std::fs::read_to_string(Path::new(&key).join("machine.toml"))
+            .unwrap()
+            .contains("private")
+    );
+}
+
+#[test]
+fn the_install_disk_names_the_one_to_erase_with_its_bus_and_target() {
+    let f = fixture();
+    let key = f.create("irix", "origin200.1");
+    assert_eq!(f.core.install_disk(&key).unwrap(), None);
+    f.core
+        .open_machine(&key)
+        .unwrap()
+        .apply_change(&Change::CreateDisk { size_mib: 64 })
+        .unwrap();
+    let disk = f.core.install_disk(&key).unwrap().unwrap();
+    assert!(
+        disk.text
+            .contains(&format!("SCSI bus {}, target {}", disk.bus, disk.target)),
+        "{}",
+        disk.text
+    );
+    f.core
+        .install_prepare(&key, &setup("6.5.30", "standard", &[]))
+        .unwrap();
+    let guide = f.core.install_guide(&key).unwrap();
+    assert_eq!(disk.bus, 0);
+    let want = format!("ctlr# type 0, then at drive# type {}", disk.target);
+    assert!(
+        guide.prepare.iter().any(|s| s.text.contains(&want)),
+        "{:?}",
+        guide.prepare
+    );
+    // The recorded run answers yes to extended mode, labels with /l/sy and leaves with /exi.
+    let sends: Vec<_> = guide
+        .prepare
+        .iter()
+        .filter_map(|s| s.send.as_deref())
+        .collect();
+    assert!(sends.contains(&"yes\r\r") && sends.contains(&"/l/sy\r") && sends.contains(&"/exi\r"));
+    assert!(!guide
+        .prepare
+        .iter()
+        .any(|s| s.text.contains("write out changes")));
+    // On a serial console every miniroot answer can be typed for the person.
+    let typed: Vec<_> = guide
+        .installer
+        .iter()
+        .filter_map(|s| s.send.as_deref())
+        .collect();
+    for want in [
+        "10.98.0.2\r",
+        "/6.5.30/dist\r",
+        "yes\r",
+        "y\r",
+        "4096\r",
+        "10.98.0.65\r",
+        "255.255.255.0\r",
+    ] {
+        assert!(typed.contains(&want), "{want}: {typed:?}");
+    }
+}
+
+#[test]
+fn the_network_is_put_back_as_it_was_before_the_setup() {
+    let f = fixture();
+    let key = f.create("irix", "origin200.1");
+    let machine = f.core.open_machine(&key).unwrap();
+    let mode = || machine.settings().unwrap().network.mode;
+    let prepare = |release: &str| f.core.install_prepare(&key, &setup("6.5.30", release, &[]));
+    machine
+        .set_network(NetworkMode::None, "", None, None)
+        .unwrap();
+    prepare("standard").unwrap();
+    assert_eq!(mode(), "private");
+    assert!(f.core.install_restore_pending(&key).unwrap());
+    // A second setup must not remember the installation network as the old one.
+    prepare("minimal").unwrap();
+    f.core.install_restore_network(&key).unwrap();
+    assert_eq!(
+        (
+            mode().as_str(),
+            f.core.install_restore_pending(&key).unwrap()
+        ),
+        ("none", false)
+    );
+    // A change made after the person left the network private is the next "before".
+    prepare("standard").unwrap();
+    f.core.install_reset(&key).unwrap();
+    machine
+        .set_network(NetworkMode::User, "", None, None)
+        .unwrap();
+    prepare("standard").unwrap();
+    f.core.install_restore_network(&key).unwrap();
+    assert_eq!(mode(), "user");
+    // A network changed during the install stays; the snapshot goes.
+    prepare("standard").unwrap();
+    machine
+        .set_network(NetworkMode::None, "", None, None)
+        .unwrap();
+    f.core.install_restore_network(&key).unwrap();
+    assert_eq!(
+        (
+            mode().as_str(),
+            f.core.install_restore_pending(&key).unwrap()
+        ),
+        ("none", false)
+    );
+    // A failed setup leaves no snapshot of its own.
+    prepare("no-such-profile").unwrap_err();
+    assert!(!f.core.install_restore_pending(&key).unwrap());
+    // With nothing remembered the machine goes to Shared (NAT).
+    prepare("standard").unwrap();
+    std::fs::remove_file(Path::new(&key).join("install/network-before.json")).unwrap();
+    f.core.install_restore_network(&key).unwrap();
+    assert_eq!(mode(), "user");
+}
+
+#[test]
+fn only_machines_that_run_irix_are_set_up_and_the_o2_family_uses_fx_arcs() {
+    use origami_machine::install::{installer_for, runs_irix};
+    assert!(runs_irix("origin200", "origin200") && !runs_irix("altix350", "altix350"));
+    assert_eq!(installer_for("o2", "o2"), ("fx.ARCS", "2"));
+    assert_eq!(installer_for("indy", "indy"), ("fx.ARCS", "2"));
+    assert_eq!(installer_for("indigo2", "indigo2"), ("fx.ARCS", "2"));
+    assert_eq!(installer_for("octane2", "octane2"), ("fx.64", "1"));
+}
+
+#[test]
+fn the_boot_console_is_serial_for_a_headless_machine_and_screen_for_one_with_graphics() {
+    let f = fixture();
+    let headless = f
+        .core
+        .open_machine(&f.create("o200", "origin200.1"))
+        .unwrap();
+    assert_eq!(headless.boot_console().unwrap(), BootConsole::Serial);
+    let key = f.create("view", "origin200.1");
+    let toml = Path::new(&key).join("machine.toml");
+    let text = std::fs::read_to_string(&toml).unwrap();
+    let pipe = |product| {
+        format!("\n[[pipe]]\nslot = \"widget-13\"\nfamily = \"odyssey\"\nproduct = \"{product}\"\n")
+    };
+    std::fs::write(&toml, format!("{text}{}", pipe("v12"))).unwrap();
+    let graphics = fixture_in(f.root.path()).core.open_machine(&key).unwrap();
+    assert_eq!(graphics.boot_console().unwrap(), BootConsole::Screen);
+    // A RAD4 has no PROM console of its own.
+    std::fs::write(&toml, format!("{text}{}", pipe("rad4"))).unwrap();
+    let rad4 = fixture_in(f.root.path()).core.open_machine(&key).unwrap();
+    assert_eq!(rad4.boot_console().unwrap(), BootConsole::Serial);
 }

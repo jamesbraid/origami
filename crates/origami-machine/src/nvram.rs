@@ -426,6 +426,25 @@ pub fn open(dir: &Path, offering: &Offering) -> Result<Store> {
     Ok(store)
 }
 
+/// The PROM's console variable for `dir`: `d` for the serial line, `g` for
+/// graphics. A first-boot setting still waiting for the PROM counts; None
+/// when the PROM has not set one or keeps its environment out of reach.
+pub fn console_choice(
+    dir: &Path,
+    offering: &Offering,
+    file: &crate::MachineFile,
+) -> Option<String> {
+    if let Some(pending) = file.firstboot.as_ref().and_then(|f| f.nvram.get("console")) {
+        return Some(pending.clone());
+    }
+    let layout = Layout::for_offering(offering).ok()?;
+    let data = fs::read(store_path(dir)).ok()?;
+    let store = Store::new(layout, data).ok()?;
+    layout
+        .initialised(store.bytes())
+        .then(|| store.get("console").ok().map(|(_, value)| value))?
+}
+
 /// What [`prefer_serial_console`] did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Console {
