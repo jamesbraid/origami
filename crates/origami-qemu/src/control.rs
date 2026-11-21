@@ -176,7 +176,7 @@ pub fn force_stop(dir: &Path) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn process_alive(pid: u32) -> bool {
+pub(crate) fn process_alive(pid: u32) -> bool {
     // SAFETY: signal 0 only checks that the process exists.
     let r = unsafe { libc::kill(pid as libc::pid_t, 0) };
     (r == 0 || io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)) && !zombie(pid)
@@ -195,9 +195,23 @@ fn zombie(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
+/// A pid reused by another process reads as alive; the record has no start time to tell them apart.
 #[cfg(windows)]
-fn process_alive(_pid: u32) -> bool {
-    true
+pub(crate) fn process_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+    // SAFETY: the handle is checked, waited on without blocking and closed.
+    unsafe {
+        let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let alive = WaitForSingleObject(handle, 0) == WAIT_TIMEOUT;
+        CloseHandle(handle);
+        alive
+    }
 }
 
 #[cfg(unix)]

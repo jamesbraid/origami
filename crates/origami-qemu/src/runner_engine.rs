@@ -943,10 +943,7 @@ fn runner_alive(dir: &Path) -> bool {
         r == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
     #[cfg(not(unix))]
-    {
-        let _ = record;
-        true
-    }
+    qemu_control::process_alive(record.pid)
 }
 
 /// The last `len` bytes of a log from offset `since` on, starting at a line.
@@ -1255,6 +1252,24 @@ mod tests {
         std::fs::remove_file(machine_control::path(dir.path())).unwrap();
         watch.join().unwrap();
         assert!(m.gone.load(Ordering::Acquire));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_runner_that_crashed_leaving_its_record_reads_as_gone() {
+        let mut child = std::process::Command::new("cmd")
+            .args(["/C", "exit"])
+            .spawn()
+            .unwrap();
+        let record = machine_control::Record {
+            pid: child.id(),
+            ..Default::default()
+        };
+        child.wait().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        machine_control::write(dir.path(), &record).unwrap();
+        assert!(!runner_alive(dir.path()));
     }
 
     #[test]

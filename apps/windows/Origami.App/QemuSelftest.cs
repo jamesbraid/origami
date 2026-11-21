@@ -238,6 +238,16 @@ public static class Selftest
         // A clean stop waits for the guest (and a PROM menu never answers); force-quit ends QEMU at once.
         w.Invoke("machine.force-quit");
         Add("force quit settles as Stopped, not stopped unexpectedly", await Until(() => core.Status(key).State == MachineState.Stopped, 60_000), core.Status(key).State + " " + core.Status(key).Reason);
+        // A runner that dies without a word must not leave the machine Running.
+        w.Invoke("machine.start");
+        if (await Until(() => core.Status(key).State == MachineState.Running, 180_000))
+        {
+            var run = System.Text.Json.JsonDocument.Parse(File.ReadAllText(Directory.EnumerateFiles(App.ArgValue("--library") ?? ".", "run.json", SearchOption.AllDirectories).First())).RootElement;
+            System.Diagnostics.Process.GetProcessById(run.GetProperty("pid").GetInt32()).Kill();
+            Add("a killed runner settles the machine, not Running", await Until(() => core.Status(key).State != MachineState.Running, 30_000), core.Status(key).State + " " + core.Status(key).Reason);
+            try { System.Diagnostics.Process.GetProcessById(run.GetProperty("qemu_pid").GetInt32()).Kill(); } catch { }
+        }
+        else Add("a killed runner settles the machine, not Running", false, "the machine did not start again");
     }
 }
 #endif
