@@ -132,3 +132,8 @@ impl Harness for QemuHarness {
 fn the_qemu_adapter_meets_the_contract() {
     contract::run(&QemuHarness::new());
 }
+
+#[test]
+fn a_taken_port_does_not_fail_the_launch() {
+    contract::launch_survives_a_taken_port(&QemuHarness::new());
+}

@@ -391,6 +391,20 @@ pub fn lifecycle(h: &dyn Harness) {
     wait_until("the forced exit wake", || woken.load(Ordering::SeqCst) >= 2);
 }
 
+/// A launch whose console port is already taken still starts, on another.
+pub fn launch_survives_a_taken_port(h: &dyn Harness) {
+    let fixture = fixture(h, "taken-port", true);
+    let wiring = h.wiring("taken-port");
+    let _held = std::net::TcpListener::bind(("127.0.0.1", wiring.console_port)).expect("hold");
+    let plan = h
+        .engine()
+        .plan(&fixture.machine, &fixture.dir, &wiring)
+        .expect("plan");
+    let (wake, _) = counter();
+    let session = h.engine().launch(plan, wake).expect("launch");
+    session.stop(Stop::Force).expect("force stop");
+}
+
 fn launch(h: &dyn Harness, fixture: &Fixture, name: &str) -> Arc<dyn Session> {
     let (wake, _) = counter();
     h.engine()

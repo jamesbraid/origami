@@ -251,7 +251,7 @@ impl Engine for QemuEngine {
         if plan.engine() != ENGINE {
             return Err(format!("a {} plan is not a QEMU plan", plan.engine()).into());
         }
-        let spec: QemuPlan = serde_json::from_value(plan.payload().clone())?;
+        let mut spec: QemuPlan = serde_json::from_value(plan.payload().clone())?;
         if !spec.program.is_file() {
             return Err(format!("packaged QEMU missing: {}", spec.program.display()).into());
         }
@@ -259,69 +259,87 @@ impl Engine for QemuEngine {
             return Err(format!("packaged QEMU keymap missing: {}", spec.keymap.display()).into());
         }
         std::fs::create_dir_all(plan.dir().join("logs"))?;
-        let mut child = Command::new(&spec.program)
-            .args(&spec.args)
-            .current_dir(plan.dir())
-            .stdin(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        let last_error = Arc::new(Mutex::new(None));
-        let pump = child.stderr.take().map(|stderr| {
-            let last_error = last_error.clone();
-            std::thread::spawn(move || {
-                let mut collapse = crate::quiet::Collapse::default();
-                let mut out = |line: &str| eprintln!("{line}");
-                crate::quiet::lines_lossy(stderr, |line| {
-                    collapse.line(&line, &mut out);
-                    if !line.trim().is_empty() {
-                        *last_error.lock().unwrap() = Some(line);
-                    }
-                });
-                collapse.flush(&mut out);
-            })
-        });
-        let record = Record {
-            pid: std::process::id(),
-            qmp_port: spec.qmp_port,
-            console_port: spec.console_port,
-            name: spec.name.clone(),
-            qemu_pid: child.id(),
-            ..Default::default()
-        };
-        let deadline = Instant::now() + runtime::qmp_ready_timeout();
-        loop {
-            if verified_qmp(&record).is_ok() {
-                break;
-            }
-            if let Some(status) = child.try_wait()? {
-                if let Some(pump) = pump {
-                    let _ = pump.join();
+        let mut attempts = 1;
+        'launch: loop {
+            let mut child = Command::new(&spec.program)
+                .args(&spec.args)
+                .current_dir(plan.dir())
+                .stdin(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            let last_error = Arc::new(Mutex::new(None));
+            let pump = child.stderr.take().map(|stderr| {
+                let last_error = last_error.clone();
+                std::thread::spawn(move || {
+                    let mut collapse = crate::quiet::Collapse::default();
+                    let mut out = |line: &str| eprintln!("{line}");
+                    crate::quiet::lines_lossy(stderr, |line| {
+                        collapse.line(&line, &mut out);
+                        if !line.trim().is_empty() {
+                            *last_error.lock().unwrap() = Some(line);
+                        }
+                    });
+                    collapse.flush(&mut out);
+                })
+            });
+            let record = Record {
+                pid: std::process::id(),
+                qmp_port: spec.qmp_port,
+                console_port: spec.console_port,
+                name: spec.name.clone(),
+                qemu_pid: child.id(),
+                ..Default::default()
+            };
+            let deadline = Instant::now() + runtime::qmp_ready_timeout();
+            loop {
+                if verified_qmp(&record).is_ok() {
+                    break;
                 }
-                let detail = last_error
-                    .lock()
-                    .unwrap()
-                    .as_deref()
-                    .map_or(String::new(), |line| format!(": {line}"));
-                return Err(format!("QEMU exited before QMP was ready ({status}){detail}").into());
+                if let Some(status) = child.try_wait()? {
+                    if let Some(pump) = pump {
+                        let _ = pump.join();
+                    }
+                    let last = last_error.lock().unwrap().clone().unwrap_or_default();
+                    // Another process can take a port between free_port and QEMU's bind.
+                    if runtime::port_was_taken(&last) && attempts < runtime::PORT_ATTEMPTS {
+                        attempts += 1;
+                        let new = runtime::fresh_ports()?;
+                        runtime::retarget_ports(
+                            &mut spec.args,
+                            (spec.console_port, spec.qmp_port),
+                            new,
+                        );
+                        (spec.console_port, spec.qmp_port) = new;
+                        continue 'launch;
+                    }
+                    let detail = if last.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {last}")
+                    };
+                    return Err(
+                        format!("QEMU exited before QMP was ready ({status}){detail}").into(),
+                    );
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err("QEMU did not open its QMP control endpoint".into());
+                }
+                std::thread::sleep(Duration::from_millis(100));
             }
-            if Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("QEMU did not open its QMP control endpoint".into());
-            }
-            std::thread::sleep(Duration::from_millis(100));
+            return Ok(self.start_session(
+                child,
+                pump,
+                last_error,
+                record,
+                spec.display,
+                spec.removable,
+                spec.heads,
+                wake,
+                None,
+            ));
         }
-        Ok(self.start_session(
-            child,
-            pump,
-            last_error,
-            record,
-            spec.display,
-            spec.removable,
-            spec.heads,
-            wake,
-            None,
-        ))
     }
 }
 

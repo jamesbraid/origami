@@ -1135,11 +1135,7 @@ pub fn launch(
         eprintln!("origami: {note}");
     }
     args.extend(audio);
-    let qmp_port = run_record::free_port()?;
-    let mut engine_console = run_record::free_port()?;
-    while engine_console == qmp_port {
-        engine_console = run_record::free_port()?;
-    }
+    let (mut engine_console, mut qmp_port) = fresh_ports()?;
     let name = format!(
         "sgi-{}-{}",
         std::process::id(),
@@ -1162,72 +1158,87 @@ pub fn launch(
         .map(|(index, drive)| (drive.name.clone(), format!("drive{index}")))
         .collect();
     let heads = head_devices(machines, offering, file);
-    let mut command = Command::new(qemu);
-    // QEMU's error output goes through `quiet::relay`, which collapses repeats.
-    command
-        .args(args)
-        .current_dir(dir)
-        .stdin(Stdio::null())
-        .stderr(Stdio::piped());
-    // The listening socket is made close-on-exec; QEMU is told its number.
-    #[cfg(unix)]
-    if let Display::ShmV4 { fd: Some(fd) } = display {
-        use std::os::unix::process::CommandExt;
-        // SAFETY: only async-signal-safe fcntl runs between fork and exec.
-        unsafe {
-            command.pre_exec(move || {
-                if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
-                    return Err(std::io::Error::last_os_error());
+    let mut attempts = 1;
+    'launch: loop {
+        let mut command = Command::new(&qemu);
+        // QEMU's error output goes through `quiet::relay`, which collapses repeats.
+        command
+            .args(&args)
+            .current_dir(dir)
+            .stdin(Stdio::null())
+            .stderr(Stdio::piped());
+        // The listening socket is made close-on-exec; QEMU is told its number.
+        #[cfg(unix)]
+        if let Display::ShmV4 { fd: Some(fd) } = display {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: only async-signal-safe fcntl runs between fork and exec.
+            unsafe {
+                command.pre_exec(move || {
+                    if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
+        let mut child = command.spawn()?;
+        let relay = child
+            .stderr
+            .take()
+            .map(|stderr| std::thread::spawn(move || crate::quiet::relay(stderr)));
+        let probe = run_record::Record {
+            pid: std::process::id(),
+            qmp_port,
+            console_port: engine_console,
+            name: name.clone(),
+            qemu_pid: child.id(),
+            ..Default::default()
+        };
+        let deadline = Instant::now() + qmp_ready_timeout();
+        while Instant::now() < deadline {
+            if control::verified_qmp(&probe).is_ok() {
+                return Ok(Launched {
+                    pid: child.id(),
+                    child: Some(child),
+                    qmp_port,
+                    engine_console,
+                    name,
+                    removable,
+                    heads,
+                    display: matches!(display, Display::Shm { .. } | Display::ShmV4 { .. })
+                        .then(|| display_socket(dir)),
+                    display_protocol: match display {
+                        Display::Shm { .. } => 3,
+                        Display::ShmV4 { .. } => 4,
+                        _ => 0,
+                    },
+                    #[cfg(unix)]
+                    display_listener,
+                    _lock: lock,
+                    _share_net: share_net,
+                });
+            }
+            if let Some(status) = child.try_wait()? {
+                // Another process can take a port between free_port and QEMU's bind.
+                let last = relay
+                    .and_then(|r| r.join().ok().flatten())
+                    .unwrap_or_default();
+                if port_was_taken(&last) && attempts < PORT_ATTEMPTS {
+                    attempts += 1;
+                    let new = fresh_ports()?;
+                    retarget_ports(&mut args, (engine_console, qmp_port), new);
+                    (engine_console, qmp_port) = new;
+                    continue 'launch;
                 }
-                Ok(())
-            });
+                let hint = network_hint(file).map_or(String::new(), |hint| format!("\n{hint}"));
+                return Err(format!("QEMU exited before QMP was ready ({status}){hint}").into());
+            }
+            std::thread::sleep(Duration::from_millis(100));
         }
+        child.kill()?;
+        child.wait()?;
+        return Err("QEMU did not open its QMP control endpoint".into());
     }
-    let mut child = command.spawn()?;
-    if let Some(stderr) = child.stderr.take() {
-        std::thread::spawn(move || crate::quiet::relay(stderr));
-    }
-    let probe = run_record::Record {
-        pid: std::process::id(),
-        qmp_port,
-        console_port: engine_console,
-        name: name.clone(),
-        qemu_pid: child.id(),
-        ..Default::default()
-    };
-    let deadline = Instant::now() + qmp_ready_timeout();
-    while Instant::now() < deadline {
-        if control::verified_qmp(&probe).is_ok() {
-            return Ok(Launched {
-                pid: child.id(),
-                child: Some(child),
-                qmp_port,
-                engine_console,
-                name,
-                removable,
-                heads,
-                display: matches!(display, Display::Shm { .. } | Display::ShmV4 { .. })
-                    .then(|| display_socket(dir)),
-                display_protocol: match display {
-                    Display::Shm { .. } => 3,
-                    Display::ShmV4 { .. } => 4,
-                    _ => 0,
-                },
-                #[cfg(unix)]
-                display_listener,
-                _lock: lock,
-                _share_net: share_net,
-            });
-        }
-        if let Some(status) = child.try_wait()? {
-            let hint = network_hint(file).map_or(String::new(), |hint| format!("\n{hint}"));
-            return Err(format!("QEMU exited before QMP was ready ({status}){hint}").into());
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    child.kill()?;
-    child.wait()?;
-    Err("QEMU did not open its QMP control endpoint".into())
 }
 
 /// The options a background run adds to [`arguments_with`]: the console and
@@ -1242,13 +1253,10 @@ pub(crate) fn background_arguments(
     name: &str,
     paused: bool,
 ) -> Result<()> {
-    log_primary_serial(
-        args,
-        format!("socket,id=origami-console,host=127.0.0.1,port={console_port},server=on,wait=off,logfile=logs/serial.log,logappend=on"),
-    )?;
+    log_primary_serial(args, console_chardev(console_port))?;
     args.extend([
         "-qmp".into(),
-        format!("tcp:127.0.0.1:{qmp_port},server=on,wait=off"),
+        qmp_endpoint(qmp_port),
         "-name".into(),
         // Names the vCPU threads ("CPU 0/TCG"); macOS reports no usable ids.
         format!("{name},debug-threads=on"),
@@ -1257,6 +1265,42 @@ pub(crate) fn background_arguments(
         args.push("-S".into());
     }
     append_extra_args(args, file, once)
+}
+
+pub(crate) const PORT_ATTEMPTS: u32 = 4;
+
+fn console_chardev(port: u16) -> String {
+    format!("socket,id=origami-console,host=127.0.0.1,port={port},server=on,wait=off,logfile=logs/serial.log,logappend=on")
+}
+
+fn qmp_endpoint(port: u16) -> String {
+    format!("tcp:127.0.0.1:{port},server=on,wait=off")
+}
+
+/// Fresh loopback ports for a launch that lost the race for its first pair.
+pub(crate) fn fresh_ports() -> Result<(u16, u16)> {
+    let console = run_record::free_port()?;
+    let mut qmp = run_record::free_port()?;
+    while qmp == console {
+        qmp = run_record::free_port()?;
+    }
+    Ok((console, qmp))
+}
+
+/// Whether QEMU's last error says a port it was told to listen on was taken.
+pub(crate) fn port_was_taken(last_error: &str) -> bool {
+    last_error.contains("Address already in use")
+}
+
+/// Swap the ports [`background_arguments`] wrote for new ones.
+pub(crate) fn retarget_ports(args: &mut [String], old: (u16, u16), new: (u16, u16)) {
+    for arg in args {
+        if *arg == console_chardev(old.0) {
+            *arg = console_chardev(new.0);
+        } else if *arg == qmp_endpoint(old.1) {
+            *arg = qmp_endpoint(new.1);
+        }
+    }
 }
 
 /// The last few lines written to the runner log since `start`, which hold

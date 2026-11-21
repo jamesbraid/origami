@@ -73,11 +73,19 @@ pub(crate) fn lines_lossy(stream: impl Read, mut each: impl FnMut(String)) {
 }
 
 /// Copy QEMU's error output to this process's, collapsed, until it closes.
-pub(crate) fn relay(stream: impl Read) {
+/// Returns the last non-blank line.
+pub(crate) fn relay(stream: impl Read) -> Option<String> {
     let mut collapse = Collapse::default();
     let mut out = |line: &str| eprintln!("{line}");
-    lines_lossy(stream, |line| collapse.line(&line, &mut out));
+    let mut last = None;
+    lines_lossy(stream, |line| {
+        collapse.line(&line, &mut out);
+        if !line.trim().is_empty() {
+            last = Some(line);
+        }
+    });
     collapse.flush(&mut out);
+    last
 }
 
 #[cfg(test)]
