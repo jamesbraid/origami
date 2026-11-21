@@ -730,6 +730,59 @@ fn moving_the_subnet_or_the_network_returns_the_lease_advice() {
 }
 
 #[test]
+fn a_share_says_how_the_guest_mounts_it_or_why_it_cannot() {
+    use crate::NetworkMode::{None as Off, Tap, User};
+    let f = fixture();
+    let machine = f.core.open_machine(&f.create("s", "fake.1")).unwrap();
+    let dir = f.root.path().to_path_buf();
+    machine
+        .apply_change(&Change::AddShare {
+            name: "src".into(),
+            host_dir: dir,
+        })
+        .unwrap();
+    let share = || machine.settings().unwrap().shares.remove(0);
+    assert_eq!(
+        share().mount_lines,
+        ["mkdir -p /mnt/src", "mount 10.98.0.4:/src /mnt/src"]
+    );
+    machine
+        .set_network(User, "", None, Some("10.42.0.0/24"))
+        .unwrap();
+    assert_eq!(share().mount_lines[1], "mount 10.42.0.4:/src /mnt/src");
+    machine
+        .set_network(Tap, "tap0", Some("192.168.1.50/24"), None)
+        .unwrap();
+    assert_eq!(share().mount_lines[1], "mount 192.168.1.50:/src /mnt/src");
+    machine.set_network(Tap, "tap0", None, None).unwrap();
+    let s = share();
+    assert!(s.mount_lines.is_empty() && s.needs_address);
+    assert_eq!(
+        s.mount_problem.as_deref(),
+        Some("Set an address for shared folders in Network.")
+    );
+    machine.set_network(Off, "", None, None).unwrap();
+    assert_eq!(
+        share().mount_problem.as_deref(),
+        Some("Turn the network on to use shared folders.")
+    );
+}
+
+#[test]
+fn a_share_name_is_checked_and_suggested_from_the_folder() {
+    assert!(check_share_name("src-1.x").is_ok());
+    assert!(
+        check_share_name("a/b").is_err()
+            && check_share_name(".hidden").is_err()
+            && check_share_name("").is_err()
+    );
+    assert_eq!(suggest_share_name("/home/me/My Code/"), "My-Code");
+    assert_eq!(suggest_share_name(r"C:\Users\me\.cache"), "cache");
+    assert_eq!(suggest_share_name("/"), "share");
+    assert!(check_share_name(&suggest_share_name("/x/\u{e9}t\u{e9}")).is_ok());
+}
+
+#[test]
 fn a_new_machine_previews_its_id_and_address_and_refuses_ones_taken() {
     let f = fixture();
     let key = f.create("first", "fake.1");

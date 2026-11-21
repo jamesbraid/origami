@@ -20,6 +20,9 @@ final class SettingsModel: ObservableObject {
     @Published var bridgeDevice = ""
     @Published var bridgeShare = ""
     @Published var subnetText = ""
+    /// A folder picked to share, waiting for the name IRIX will call it.
+    struct ShareDraft: Identifiable { let dir: URL; var name: String; var id: String { dir.path } }
+    @Published var draft: ShareDraft?
     let networkChoices = origamiHostNetworkModes()
     private var operation: OrigamiOperation?
     private var ticker: Timer?
@@ -157,6 +160,20 @@ final class SettingsModel: ObservableObject {
             let lines = try m.setNetwork(mode: mode, device: device, shareAddress: share, subnet: subnet)
             return (try m.settings(), lines)
         }
+    }
+
+    func chooseShareFolder(_ dir: URL) { draft = ShareDraft(dir: dir, name: origamiSuggestShareName(dir: dir.path)) }
+
+    /// Why the name in the sheet cannot be used, in the core's words.
+    var draftProblem: String? {
+        guard let d = draft else { return nil }
+        do { try origamiCheckShareName(name: d.name); return nil } catch { return Self.say(error) }
+    }
+
+    func addDraft() {
+        guard let d = draft, draftProblem == nil else { return }
+        draft = nil
+        apply(.addShare(name: d.name, hostDir: d.dir.path))
     }
 
     /// The default line is chosen by sending none, as the CLI's console-set without --port does.

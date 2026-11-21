@@ -244,7 +244,7 @@ public sealed class UniffiCoreClient : ICoreClient
             s.Drives.Select(d => new Drive(d.Name, d.Kind, (int)d.Bus, (int)d.Target, d.Image, d.ReadOnly)).ToList(),
             new NetworkSetting(s.Network.Mode, s.Network.Device, s.Network.ShareAddress, s.Network.Subnet, s.Network.Mac, s.Network.MacNote, s.Network.Warnings.ToList()),
             s.Forwards.Select(f => new Forward(f.Name, f.Protocol, f.HostPort, f.GuestPort)).ToList(),
-            s.Shares.Select(x => new Share(x.Name, x.HostDir)).ToList(),
+            s.Shares.Select(x => new Share(x.Name, x.HostDir, x.MountLines.ToList(), x.MountProblem, x.NeedsAddress)).ToList(),
             s.ConsolePort, s.ConsolePorts.Select(c => new ConsoleLine(c.Name, c.Label, c.IsDefault)).ToList(),
             (int?)s.DiskTarget, (int?)s.CdTarget);
     });
@@ -268,6 +268,14 @@ public sealed class UniffiCoreClient : ICoreClient
     {
         var b = OrigamiFfiMethods.OrigamiBridgedSetup();
         return new BridgedSetup(b.Field, b.Example, b.Steps, b.Commands);
+    }
+
+    public string SuggestShareName(string dir) => OrigamiFfiMethods.OrigamiSuggestShareName(dir);
+
+    public string? CheckShareName(string name)
+    {
+        try { OrigamiFfiMethods.OrigamiCheckShareName(name); return null; }
+        catch (Exception e) { return e.Message; }
     }
 
     public Task<IdentityPreview> PreviewIdentityAsync(string offeringId, string? engine, string emuId, string? mac) => Task.Run(() =>

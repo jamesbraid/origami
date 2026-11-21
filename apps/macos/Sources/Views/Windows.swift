@@ -75,7 +75,7 @@ struct MachineSettings: View {
 
     enum Pane: String, CaseIterable, Identifiable {
         case general = "General", system = "System Information", processor = "Processor & Memory", graphics = "Graphics",
-             drives = "Drives", network = "Network", startup = "Startup & Firmware", input = "Input"
+             drives = "Drives", network = "Network", shares = "Shared Folders", startup = "Startup & Firmware", input = "Input"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -85,6 +85,7 @@ struct MachineSettings: View {
             case .graphics: return "display"
             case .drives: return "internaldrive"
             case .network: return "network"
+            case .shares: return "folder"
             case .startup: return "power"
             case .input: return "cursorarrow"
             }
@@ -109,6 +110,7 @@ struct MachineSettings: View {
         }
         .frame(width: 700, height: 460)
         .onAppear { edit.load() }
+        .sheet(item: $edit.draft) { _ in ShareNameSheet(edit: edit) }
     }
 
     private var locked: Bool { model.isRunning }
@@ -192,21 +194,33 @@ struct MachineSettings: View {
                           || forwardName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
-        Section("Shared folders") {
-            ForEach(s.shares, id: \.name) { sh in
+    }
+
+    @ViewBuilder private func sharesPane(_ s: OrigamiMachineSettings) -> some View {
+        ForEach(s.shares, id: \.name) { sh in
+            VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     VStack(alignment: .leading) { Text(sh.name); Text(sh.hostDir).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
                     Spacer()
                     Button { edit.apply(.removeShare(name: sh.name)) } label: { Image(systemName: "minus.circle") }
                         .buttonStyle(.borderless).accessibilityLabel("Stop sharing \(sh.name)").disabled(locked || edit.working)
                 }
+                if let problem = sh.mountProblem {
+                    Text(problem).font(.caption).foregroundStyle(.orange)
+                    if sh.needsAddress { Button("Set the address in Network") { pane = .network }.buttonStyle(.link) }
+                } else {
+                    HStack(alignment: .top) {
+                        Text(sh.mountLines.joined(separator: "\n")).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                        Spacer()
+                        Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(sh.mountLines.joined(separator: "\n"), forType: .string) }
+                            .accessibilityLabel("Copy mount commands for \(sh.name)")
+                    }
+                }
             }
-            Button("Share a Folder…") {
-                let p = NSOpenPanel()
-                p.canChooseDirectories = true; p.canChooseFiles = false; p.prompt = "Share"
-                if p.runModal() == .OK, let url = p.url { edit.apply(.addShare(name: url.lastPathComponent, hostDir: url.path)) }
-            }.disabled(locked || edit.working)
         }
+        Button("Share a Folder…") { if let dir = PathPicker.chooseFolder("Share") { edit.chooseShareFolder(dir) } }.disabled(locked || edit.working)
+        Text("Run these as root in IRIX once it is up with nfs.sw.nfs installed. Files you write land on this computer as you.")
+            .font(.caption).foregroundStyle(.secondary)
     }
 
     @ViewBuilder private func drivesPane(_ s: OrigamiMachineSettings) -> some View {
@@ -281,6 +295,8 @@ struct MachineSettings: View {
             if let s = edit.settings { drivesPane(s) } else { loadingRow }
         case .network:
             if let s = edit.settings { network(s) } else { loadingRow }
+        case .shares:
+            if let s = edit.settings { sharesPane(s) } else { loadingRow }
         case .startup:
             if let s = edit.settings {
                 Section("Startup and firmware") {
@@ -299,6 +315,27 @@ struct MachineSettings: View {
             .pickerStyle(.radioGroup)
             Text("Press ⌃⌥ to give the mouse back after a capture.").foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Name a folder before it is shared: what IRIX will call it.
+struct ShareNameSheet: View {
+    @ObservedObject var edit: SettingsModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Share a Folder").font(.headline)
+            TextField("Name in IRIX", text: Binding(get: { edit.draft?.name ?? "" }, set: { edit.draft?.name = $0 }))
+            LabeledContent("Folder", value: edit.draft?.dir.path ?? "")
+            if let p = edit.draftProblem { Text(p).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true) }
+            HStack {
+                Spacer()
+                Button("Cancel") { edit.draft = nil }.keyboardShortcut(.cancelAction)
+                Button("Add") { edit.addDraft() }.keyboardShortcut(.defaultAction).disabled(edit.draftProblem != nil || edit.working)
+            }
+        }
+        .padding(20).frame(width: 440)
     }
 }
 

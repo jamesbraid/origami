@@ -228,8 +228,6 @@ Test("settings: editable only when stopped, add rules, share name", () =>
     Eq(false, MachineSettingsRules.CanAddForward(" ", 2222, 22), "no name");
     Eq(false, MachineSettingsRules.CanAddForward("x", 0, 22), "port 0");
     Eq(false, MachineSettingsRules.CanAddForward("x", 1, 65536), "port too big");
-    Eq("src", MachineSettingsRules.ShareNameFor(@"C:\work\src\"), "trailing slash");
-    Eq("share", MachineSettingsRules.ShareNameFor(@"C:\"), "drive root");
 });
 
 Test("new machine: one model per id, engines that offer it", () =>

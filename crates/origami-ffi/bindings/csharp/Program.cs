@@ -72,6 +72,7 @@ internal static class Program
         stopped.SetNetwork(OrigamiNetworkMode.Tap, "tap0", null, null);
         Expect(stopped.Settings().Network.Device == "tap0", "the tap device kept");
         Expect(OrigamiFfiMethods.OrigamiHostNetworkModes().Count() == 4, "four network modes");
+        Expect(OrigamiFfiMethods.OrigamiSuggestShareName("/x/My Code") == "My-Code", "a share name from a folder");
         Expect(stopped.Settings().ConsolePort == "ttyS1", "the console line chosen");
         Expect(stopped.Settings().DiskTarget == 2, "an empty system disk at target 1");
         Expect(stopped.DriveInfo("system") == "Unknown", "a blank disk is Unknown");

@@ -15,6 +15,7 @@ public static class MachineSettingsDialog
         var note = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed), Visibility = Visibility.Collapsed };
         AutomationProperties.SetAutomationId(note, "settings.error");
         List<(string Text, string? Copy)> notes = new(); // advice an edit returned, shown once on the next rebuild
+        (string Dir, string Name)? sharing = null; // a folder picked and waiting for its name
         bool bridgedOpen = false; // Bridged chosen but not applied: the core needs its device with the mode
         ImagePanel? adding = null; // an image being added, shown inline: a ContentDialog cannot open another
 
@@ -130,7 +131,8 @@ public static class MachineSettingsDialog
                 body.Children.Add(go);
             }
 
-            body.Children.Add(Heading("Network"));
+            var netHeading = Heading("Network");
+            body.Children.Add(netHeading);
             var choices = core.NetworkModes();
             var setup = core.HostBridgedSetup();
             static bool IsHost(string mode) => mode is "tap" or "vmnet";
@@ -198,7 +200,22 @@ public static class MachineSettingsDialog
 
             body.Children.Add(Heading("Shared folders"));
             foreach (var sh in s.Shares)
+            {
                 body.Children.Add(Row($"{sh.Name}: {sh.HostDir}", "Stop sharing", "settings.unshare." + sh.Name, ok, () => Apply(new MachineChange.RemoveShare(sh.Name))));
+                if (sh.MountProblem is { } reason)
+                {
+                    body.Children.Add(Text(reason));
+                    if (sh.NeedsAddress) body.Children.Add(Btn("Set the address in Network", "settings.share.network", true, () => { netHeading.StartBringIntoView(); return Task.CompletedTask; }));
+                }
+                else if (sh.MountLines is { Count: > 0 } lines)
+                {
+                    var mount = string.Join("\n", lines);
+                    var code = new TextBlock { Text = mount, FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas"), IsTextSelectionEnabled = true };
+                    AutomationProperties.SetAutomationId(code, "settings.mount." + sh.Name);
+                    body.Children.Add(code);
+                    body.Children.Add(Btn("Copy", "settings.mount.copy." + sh.Name, true, () => { CopyText(mount); return Task.CompletedTask; }));
+                }
+            }
             var pick = new Button { Content = "Share a folder…", IsEnabled = ok };
             AutomationProperties.SetAutomationId(pick, "settings.share");
             pick.Click += async (_, _) =>
@@ -206,10 +223,33 @@ public static class MachineSettingsDialog
                 var picker = new Windows.Storage.Pickers.FolderPicker();
                 picker.FileTypeFilter.Add("*");
                 WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd());
-                if (await picker.PickSingleFolderAsync() is { } folder)
-                    Apply(new MachineChange.AddShare(new Share(MachineSettingsRules.ShareNameFor(folder.Path), folder.Path)));
+                if (await picker.PickSingleFolderAsync() is { } folder) { sharing = (folder.Path, core.SuggestShareName(folder.Path)); await Rebuild(); }
             };
             body.Children.Add(pick);
+            body.Children.Add(Text("Run these as root in IRIX once it is up with nfs.sw.nfs installed. Files you write land on this computer as you."));
+            if (sharing is { } draft)
+            {
+                // The name is asked inline: a ContentDialog cannot open another.
+                var nameBox = new TextBox { Header = "Name in IRIX", Text = draft.Name };
+                var why = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed) };
+                var addShare = Btn("Add", "settings.share.add", ok, () =>
+                {
+                    sharing = null;
+                    Apply(new MachineChange.AddShare(new Share(nameBox.Text, draft.Dir)));
+                    return Task.CompletedTask;
+                });
+                void Check() { var p = core.CheckShareName(nameBox.Text); why.Text = p ?? ""; why.Visibility = p is null ? Visibility.Collapsed : Visibility.Visible; addShare.IsEnabled = ok && p is null; }
+                AutomationProperties.SetAutomationId(nameBox, "settings.share.name");
+                AutomationProperties.SetAutomationId(why, "settings.share.problem");
+                nameBox.TextChanged += (_, _) => Check();
+                Check();
+                body.Children.Add(Heading("Share a folder"));
+                body.Children.Add(nameBox);
+                body.Children.Add(Text(draft.Dir));
+                body.Children.Add(why);
+                body.Children.Add(addShare);
+                body.Children.Add(Btn("Cancel", "settings.share.cancel", true, async () => { sharing = null; await Rebuild(); }));
+            }
         }
 
         await Rebuild();

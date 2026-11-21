@@ -163,6 +163,9 @@ public static class Selftest
         await core.ApplyChangeAsync(made, new MachineChange.AddShare(new Share("shared", dir)));
         var st3 = await core.SettingsAsync(made);
         Check("settings: a forward is removed and a folder shared", st3.Forwards.Count == 0 && st3.Shares.Any(x => x.Name == "shared"), string.Join(",", st3.Shares));
+        var shareRow = st3.Shares.First(x => x.Name == "shared");
+        Check("shares: the row carries the core's mount commands", shareRow.MountLines is { Count: 2 } ml && ml[0] == "mkdir -p /mnt/shared" && ml[1] == "mount 10.98.0.4:/shared /mnt/shared", string.Join("|", shareRow.MountLines ?? new List<string>()));
+        Check("shares: a name is suggested from the folder and a bad one is refused", core.SuggestShareName(@"C:\work\My Code\") == "My-Code" && core.CheckShareName("a/b") != null && core.CheckShareName("src") == null, core.CheckShareName("a/b") ?? "no refusal");
         await core.ApplyChangeAsync(made, new MachineChange.RemoveShare("shared"));
         await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("none"));
         var st4 = await core.SettingsAsync(made);

@@ -2,7 +2,7 @@
 
 use super::network::NetworkSetting;
 use crate::Loaded;
-use origami_machine::{serial, PortForward, Result};
+use origami_machine::{serial, shares, PortForward, Result};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PipeSetting {
@@ -26,6 +26,11 @@ pub struct DriveSetting {
 pub struct ShareSetting {
     pub name: String,
     pub host_dir: String,
+    /// What to run as root in IRIX to mount it; empty when `mount_problem` says why not.
+    pub mount_lines: Vec<String>,
+    pub mount_problem: Option<String>,
+    /// Whether the problem is fixed by an address for shared folders in the Network settings.
+    pub needs_address: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,6 +86,61 @@ fn free_targets(
     })
 }
 
+fn share_setting(
+    file: &origami_machine::MachineFile,
+    share: &origami_machine::Share,
+) -> ShareSetting {
+    let bridged = matches!(file.network.mode.as_str(), "tap" | "vmnet");
+    let needs_address = bridged && file.network.share_address.is_none();
+    let problem = |text: &str| (vec![], Some(text.to_string()));
+    let (mount_lines, mount_problem) = match shares::mount_lines(file, share) {
+        Ok(lines) => (lines.to_vec(), None),
+        Err(_) if file.network.mode == "none" => {
+            problem("Turn the network on to use shared folders.")
+        }
+        Err(_) if needs_address => problem("Set an address for shared folders in Network."),
+        Err(error) => problem(&error.to_string()),
+    };
+    ShareSetting {
+        name: share.name.clone(),
+        host_dir: share.path.to_string_lossy().into_owned(),
+        mount_lines,
+        mount_problem,
+        needs_address,
+    }
+}
+
+/// Refuses a share name the guest cannot type, in the core's words.
+pub fn check_share_name(name: &str) -> super::CoreResult<()> {
+    shares::check_name(name).map_err(super::CoreError::machine)
+}
+
+/// The share name the guest would see for the host folder `dir`: its own
+/// name with what a share name refuses turned into hyphens.
+pub fn suggest_share_name(dir: &str) -> String {
+    let leaf = dir
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("");
+    let clean: String = leaf
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let clean: String = clean.trim_start_matches('.').chars().take(64).collect();
+    if clean.is_empty() {
+        "share".into()
+    } else {
+        clean
+    }
+}
+
 pub(crate) fn read(loaded: &Loaded) -> Result<MachineSettings> {
     let (file, offer) = (&loaded.file, loaded.offering()?);
     Ok(MachineSettings {
@@ -121,14 +181,7 @@ pub(crate) fn read(loaded: &Loaded) -> Result<MachineSettings> {
         cd_target: free_targets(file, offer).last().copied(),
         network: NetworkSetting::read(file, offer),
         forwards: file.network.forward.clone(),
-        shares: file
-            .share
-            .iter()
-            .map(|s| ShareSetting {
-                name: s.name.clone(),
-                host_dir: s.path.to_string_lossy().into_owned(),
-            })
-            .collect(),
+        shares: file.share.iter().map(|s| share_setting(file, s)).collect(),
         console_port: match &file.machine.console {
             Some(port) => port.clone(),
             None => serial::default_console(offer)?.into(),

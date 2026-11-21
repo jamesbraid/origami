@@ -17,6 +17,13 @@ enum PathPicker {
         panel.prompt = prompt
         return panel.runModal() == .OK ? panel.url : nil
     }
+
+    static func chooseFolder(_ prompt: String) -> URL? {
+        if !answers.isEmpty { return answers.removeFirst() }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.prompt = prompt
+        return panel.runModal() == .OK ? panel.url : nil
+    }
 }
 
 /// One image the person chose and the questions about it.

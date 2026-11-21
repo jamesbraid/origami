@@ -43,7 +43,10 @@ pub use network::{
 pub use operation::{Operation, OperationState};
 pub use osview::{Osview, OsviewBar, OsviewKey, OsviewSegment, CAPTION as OSVIEW_CAPTION};
 pub use ready::{CachedDisk, ReadyDisk};
-pub use settings::{ConsolePortSetting, DriveSetting, MachineSettings, PipeSetting, ShareSetting};
+pub use settings::{
+    check_share_name, suggest_share_name, ConsolePortSetting, DriveSetting, MachineSettings,
+    PipeSetting, ShareSetting,
+};
 
 pub use origami_engine::{
     Control, CpuLoad, CursorInfo, Frame, FrameStats, FrameUpdate, InputEvent, Key, PointerButton,

@@ -208,6 +208,20 @@ func runSelfTest(library: String, out: String) {
                 _ = waitFor(30) { !sm.working && sm.error != nil }
                 check("network-public-subnet-is-refused", sm.error != nil && sm.settings?.network.subnet == "10.42.0.0/24", ["error": sm.error ?? "none"])
             } else { check("network-bridged-opens-its-fields-first", false, ["error": "no Bridged choice"]) }
+            // Shared folders: the sheet's draft is named from the folder, a bad name is refused, and the row carries
+            // the core's mount commands for the machine's network.
+            let folder = URL(fileURLWithPath: out)
+            sm.chooseShareFolder(folder)
+            check("share-name-is-suggested-from-the-folder", sm.draft?.name == origamiSuggestShareName(dir: folder.path) && sm.draftProblem == nil, ["name": sm.draft?.name ?? ""])
+            sm.draft?.name = "a/b"
+            check("share-bad-name-is-refused-with-the-core-sentence", sm.draftProblem != nil, ["problem": sm.draftProblem ?? "none"])
+            sm.draft?.name = "src"; sm.addDraft()
+            let shared = waitFor(30) { sm.settings?.shares.first?.name == "src" && !sm.working }
+            let ip = (sm.settings?.network.subnet ?? "").replacingOccurrences(of: ".0/24", with: ".4")
+            check("share-row-has-the-mount-commands", shared && sm.settings?.shares.first?.mountLines == ["mkdir -p /mnt/src", "mount \(ip):/src /mnt/src"],
+                  ["lines": sm.settings?.shares.first?.mountLines ?? [], "error": sm.error ?? "none"])
+            sm.apply(.removeShare(name: "src"))
+            check("share-removed-keeps-the-host-folder", waitFor(30) { sm.settings?.shares.isEmpty == true && !sm.working } && FileManager.default.fileExists(atPath: folder.path), [:])
             // While the machine runs an edit is refused before it reaches the core.
             let wasLocked = sm.locked
             check("settings-locked-follows-the-machine", !wasLocked && victim.state == .stopped, ["locked_at_rest": wasLocked])

@@ -229,7 +229,7 @@ hidden.
 ![A machine's Settings window](images/app/linux-settings.png)
 
 Settings (Ctrl+Shift+I; Cmd+I on macOS) edits the selected machine's file:
-its name, memory and processor, graphics, drives, network, startup and input.
+its name, memory and processor, graphics, drives, network, shared folders, startup and input.
 The Network page picks how the machine connects: Shared (NAT), Private,
 Bridged or Off. Bridged gives the machine its own address on your network
 through a tap device on Linux and Windows, or socket_vmnet on macOS; the page
@@ -238,7 +238,10 @@ machine's Ethernet address, which you can copy but not change, and the private
 subnet under Advanced. After a change that moves the machine to a different
 network, the page shows the command that makes the guest forget its old
 address. This is [`origami network-set`](usage.md#join-a-real-network). The
-page also holds port forwards from the host to the guest. Startup
+page also holds port forwards from the host to the guest. Shared Folders
+shares a folder of this computer with the guest over NFS: pick the folder, give it a
+name, and the page shows the two commands to run as root in IRIX to mount it,
+with Copy. This is [`origami share`](usage.md#share-a-host-folder). Startup
 and firmware picks the console serial line, the same choice as
 [`origami console-set`](usage.md#which-serial-line-is-the-console). A running
 machine refuses edits; stop it first, except for the CD-ROM. The Drives page

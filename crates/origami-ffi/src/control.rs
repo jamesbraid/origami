@@ -414,6 +414,11 @@ pub struct OrigamiForward {
 pub struct OrigamiShare {
     pub name: String,
     pub host_dir: String,
+    /// What to run as root in IRIX to mount it; empty when `mount_problem` says why not.
+    pub mount_lines: Vec<String>,
+    pub mount_problem: Option<String>,
+    /// Whether an address for shared folders in the Network settings fixes the problem.
+    pub needs_address: bool,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -501,6 +506,9 @@ impl From<f::MachineSettings> for OrigamiMachineSettings {
                 .map(|s| OrigamiShare {
                     name: s.name,
                     host_dir: s.host_dir,
+                    mount_lines: s.mount_lines,
+                    mount_problem: s.mount_problem,
+                    needs_address: s.needs_address,
                 })
                 .collect(),
             console_port: s.console_port,
@@ -606,6 +614,18 @@ pub struct OrigamiBridgedSetup {
     pub steps: String,
     /// The commands in `steps`, for a Copy button.
     pub commands: Option<String>,
+}
+
+/// Refuses a share name the guest cannot type, in the core's words.
+#[uniffi::export]
+pub fn origami_check_share_name(name: String) -> Res<()> {
+    Ok(f::check_share_name(&name)?)
+}
+
+/// The share name to offer for a host folder: its own name, made valid.
+#[uniffi::export]
+pub fn origami_suggest_share_name(dir: String) -> String {
+    f::suggest_share_name(&dir)
 }
 
 /// The modes this computer can run, in picker order.

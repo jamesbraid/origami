@@ -825,6 +825,18 @@ def settings():
         r = act("network.subnet 8.8.8.0/24")
         check("a public subnet is refused and the file keeps the old one",
               r.get("ok") and "8.8.8.0" not in read() and "10.42.0.0/24" in read() and a.state()["settings_builds"] == builds, [r, read()[-300:]])
+        # A folder is shared through the Shared Folders page and its name sheet; a bad name is refused.
+        a.req("pick " + lib)
+        act("share.add-folder")
+        act("share.name src")
+        act("share.add")
+        check("a folder is shared through Settings", 'name = "src"' in read(), read()[-300:])
+        check("the shared folder's row carries its mount commands", a.req("activate share.mount.src").get("ok"), read()[-300:])
+        a.req("pick " + lib)
+        act("share.add-folder")
+        act("share.name a/b")
+        act("share.add")
+        check("a bad share name is refused", 'name = "a/b"' not in read(), read()[-300:])
         # The dialog is rebuilt after each edit: close until none is left.
         closed = []
         def none_left():

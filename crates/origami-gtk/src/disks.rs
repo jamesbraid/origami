@@ -34,6 +34,19 @@ pub fn pick_path(parent: &impl IsA<gtk::Window>, title: &str, then: impl Fn(Path
     });
 }
 
+/// The one place a folder is chosen.
+pub fn pick_folder(parent: &impl IsA<gtk::Window>, title: &str, then: impl Fn(PathBuf) + 'static) {
+    if let Some(path) = PICKS.with(|p| p.borrow_mut().pop()) {
+        return then(path);
+    }
+    let chooser = gtk::FileDialog::builder().title(title).build();
+    chooser.select_folder(Some(parent), gtk::gio::Cancellable::NONE, move |r| {
+        if let Some(path) = r.ok().and_then(|f| f.path()) {
+            then(path);
+        }
+    });
+}
+
 /// A small grey label naming the OS on a disk.
 pub fn badge(name: &str) -> gtk::Label {
     let b = gtk::Label::builder()

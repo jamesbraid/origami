@@ -1,7 +1,8 @@
 namespace Origami.Logic;
 
 public sealed record Forward(string Name, string Protocol, int HostPort, int GuestPort);
-public sealed record Share(string Name, string HostDir);
+/// <summary>A shared folder; <c>MountLines</c> are what to run as root in IRIX, empty when <c>MountProblem</c> says why not.</summary>
+public sealed record Share(string Name, string HostDir, IReadOnlyList<string>? MountLines = null, string? MountProblem = null, bool NeedsAddress = false);
 public sealed record Drive(string Name, string Kind, int Bus, int Target, string Image, bool ReadOnly);
 public sealed record Pipe(string Slot, string Product, string Family);
 public sealed record ConsoleLine(string Name, string Label, bool IsDefault);
@@ -69,7 +70,4 @@ public static class MachineSettingsRules
         name.Trim().Length > 0 && hostPort is >= 1 and <= 65535 && guestPort is >= 1 and <= 65535;
 
     public static bool CanAddShare(string name, string dir) => name.Trim().Length > 0 && dir.Trim().Length > 0;
-
-    /// <summary>The folder's own name, as the default share name.</summary>
-    public static string ShareNameFor(string dir) => Path.GetFileName(dir.TrimEnd('\\', '/')) is { Length: > 0 } n ? n : "share";
 }

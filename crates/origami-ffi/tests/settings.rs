@@ -191,3 +191,29 @@ fn a_bridged_network_is_set_by_the_core_and_returns_advice_to_copy() {
         Some("Choose a number from 1 to 2999.")
     );
 }
+
+#[test]
+fn a_share_carries_its_mount_commands_and_names_are_checked() {
+    let lab = Lab::new(None);
+    let machine = lab.core.open_machine(lab.key.clone()).unwrap();
+    let dir = lab.root.path().join("shared");
+    std::fs::create_dir(&dir).unwrap();
+    let name = origami_suggest_share_name(dir.to_str().unwrap().into());
+    assert_eq!(name, "shared");
+    machine
+        .apply_change(OrigamiChange::AddShare {
+            name,
+            host_dir: dir.to_str().unwrap().into(),
+        })
+        .unwrap();
+    let share = machine.settings().unwrap().shares.remove(0);
+    assert_eq!(
+        share.mount_lines,
+        [
+            "mkdir -p /mnt/shared",
+            "mount 10.98.0.4:/shared /mnt/shared"
+        ]
+    );
+    assert!(share.mount_problem.is_none() && !share.needs_address);
+    assert!(origami_check_share_name("a/b".into()).is_err());
+}

@@ -53,6 +53,7 @@ struct Loaded {
     disk_target: Option<u32>,
     cd_target: Option<u32>,
     network: NetworkSetting,
+    shares: Vec<origami_core::facade::ShareSetting>,
 }
 
 /// Through the machine's own engine, so an iris machine is read by iris.
@@ -67,6 +68,7 @@ fn load(machine: &origami_core::facade::Machine, dir: &std::path::Path) -> Resul
         disk_target: settings.disk_target,
         cd_target: settings.cd_target,
         network: settings.network,
+        shares: settings.shares,
         file,
     })
 }
@@ -463,52 +465,16 @@ fn build_machine_dialog(
             }
             fg.add(&add);
             net.add(&fg);
-            let sg = adw::PreferencesGroup::builder()
-                .title("Shared folders")
-                .build();
-            for sh in &f.share {
-                let r = value_row(&sh.name, &sh.path.display().to_string());
-                let b = gtk::Button::builder()
-                    .icon_name("list-remove-symbolic")
-                    .tooltip_text("Stop sharing")
-                    .valign(gtk::Align::Center)
-                    .sensitive(!running)
-                    .css_classes(["flat"])
-                    .build();
-                b.update_property(&[gtk::accessible::Property::Label(&format!(
-                    "Stop sharing {}",
-                    sh.name
-                ))]);
-                let (app, parent, m, dlg, name) = (
-                    app.clone(),
-                    parent.clone(),
-                    m.clone(),
-                    dialog.clone(),
-                    sh.name.clone(),
-                );
-                b.connect_clicked(move |_| {
-                    apply(&app, &parent, &m, &dlg, Change::RemoveShare(name.clone()))
-                });
-                r.add_suffix(&b);
-                sg.add(&r);
-            }
-            let add = adw::ActionRow::builder()
-                .title("Share a folder…")
-                .activatable(!running)
-                .sensitive(!running)
-                .build();
-            add.add_prefix(&gtk::Image::from_icon_name("list-add-symbolic"));
-            {
-                let (app, parent, m, dlg) =
-                    (app.clone(), parent.clone(), m.clone(), dialog.clone());
-                add.connect_activated(move |_| share_folder(&app, &parent, &m, &dlg));
-            }
-            sg.add(&add);
-            net.add(&sg);
             dialog.add(&net);
             if !notes.is_empty() {
                 dialog.set_visible_page(&net);
             }
+            let folders = adw::PreferencesPage::builder()
+                .title("Shared Folders")
+                .icon_name("folder-symbolic")
+                .build();
+            shares_group(app, parent, m, &dialog, &folders, &net, &l.shares, running);
+            dialog.add(&folders);
             let startup = adw::PreferencesPage::builder()
                 .title("Startup & Firmware")
                 .icon_name("system-shutdown-symbolic")
@@ -689,6 +655,86 @@ fn entry(title: &str, id: &str, text: &str, running: bool) -> adw::EntryRow {
     row.set_widget_name(id);
     row.set_text(text);
     row
+}
+
+/// The shared folders, each with the commands that mount it in IRIX, and the button that adds one.
+#[allow(clippy::too_many_arguments)]
+fn shares_group(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    dialog: &adw::PreferencesDialog,
+    page: &adw::PreferencesPage,
+    network: &adw::PreferencesPage,
+    shares: &[origami_core::facade::ShareSetting],
+    running: bool,
+) {
+    let g = adw::PreferencesGroup::builder()
+        .title("Shared folders")
+        .description("Run these as root in IRIX once it is up with nfs.sw.nfs installed. Files you write land on this computer as you.")
+        .build();
+    for sh in shares {
+        let r = value_row(&sh.name, &sh.host_dir);
+        let b = gtk::Button::builder()
+            .icon_name("list-remove-symbolic")
+            .tooltip_text("Stop sharing")
+            .valign(gtk::Align::Center)
+            .sensitive(!running)
+            .css_classes(["flat"])
+            .build();
+        b.update_property(&[gtk::accessible::Property::Label(&format!(
+            "Stop sharing {}",
+            sh.name
+        ))]);
+        let (app, parent, m, dlg, name) = (
+            app.clone(),
+            parent.clone(),
+            m.clone(),
+            dialog.clone(),
+            sh.name.clone(),
+        );
+        b.connect_clicked(move |_| {
+            apply(&app, &parent, &m, &dlg, Change::RemoveShare(name.clone()))
+        });
+        r.add_suffix(&b);
+        g.add(&r);
+        let mount = adw::ActionRow::builder().title_lines(0).build();
+        mount.set_widget_name(&format!("share.mount.{}", sh.name));
+        match &sh.mount_problem {
+            Some(problem) => {
+                mount.set_title(problem);
+                if sh.needs_address {
+                    let go = gtk::Button::builder()
+                        .label("Set the address in Network")
+                        .valign(gtk::Align::Center)
+                        .build();
+                    let (dialog, network) = (dialog.clone(), network.clone());
+                    go.connect_clicked(move |_| dialog.set_visible_page(&network));
+                    mount.add_suffix(&go);
+                }
+            }
+            None => {
+                let lines = sh.mount_lines.join("\n");
+                mount.set_title(&lines);
+                mount.add_css_class("monospace");
+                mount.add_suffix(&copy_button(dialog, lines));
+            }
+        }
+        g.add(&mount);
+    }
+    let add = adw::ActionRow::builder()
+        .title("Share a folder…")
+        .activatable(!running)
+        .sensitive(!running)
+        .build();
+    add.set_widget_name("share.add-folder");
+    add.add_prefix(&gtk::Image::from_icon_name("list-add-symbolic"));
+    {
+        let (app, parent, m, dlg) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
+        add.connect_activated(move |_| share_folder(&app, &parent, &m, &dlg));
+    }
+    g.add(&add);
+    page.add(&g);
 }
 
 /// Mode, the Bridged fields, the Ethernet address and the private subnet.
@@ -1138,32 +1184,55 @@ fn share_folder(
     m: &Rc<MachineUi>,
     settings: &adw::PreferencesDialog,
 ) {
-    let chooser = gtk::FileDialog::builder().title("Share a Folder").build();
-    let (app, parent, m, settings2) = (app.clone(), parent.clone(), m.clone(), settings.clone());
-    chooser.select_folder(
-        Some(&parent.clone()),
-        gtk::gio::Cancellable::NONE,
-        move |r| {
-            if let Ok(file) = r {
-                if let Some(path) = file.path() {
-                    let name = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "share".into());
-                    apply(
-                        &app,
-                        &parent,
-                        &m,
-                        &settings2,
-                        Change::AddShare {
-                            name,
-                            host_dir: path,
-                        },
-                    );
-                }
-            }
-        },
-    );
+    let (app, parent2, m, settings) = (app.clone(), parent.clone(), m.clone(), settings.clone());
+    disks::pick_folder(parent, "Share a Folder", move |path| {
+        name_share(&app, &parent2, &m, &settings, path)
+    });
+}
+
+/// Ask what IRIX will call a folder, checking the name as it is typed.
+fn name_share(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    m: &Rc<MachineUi>,
+    settings: &adw::PreferencesDialog,
+    dir: std::path::PathBuf,
+) {
+    let name = adw::EntryRow::builder().title("Name in IRIX").build();
+    name.set_widget_name("share.name");
+    name.set_text(&origami_core::facade::suggest_share_name(
+        &dir.display().to_string(),
+    ));
+    let folder = value_row("Folder", &dir.display().to_string());
+    let group = adw::PreferencesGroup::new();
+    group.add(&name);
+    group.add(&folder);
+    let (dialog, go, _bar, _line, _stop, err) = edit_dialog("Share a Folder", "Add", &[&group]);
+    go.set_widget_name("share.add");
+    let check = {
+        let (name, go, err) = (name.clone(), go.clone(), err.clone());
+        move || {
+            let problem = origami_core::facade::check_share_name(&name.text()).err();
+            err.set_label(&problem.as_ref().map(|e| e.to_string()).unwrap_or_default());
+            err.set_visible(problem.is_some());
+            go.set_sensitive(problem.is_none());
+        }
+    };
+    check();
+    name.connect_changed(move |_| check());
+    let (app, window, m, settings) = (app.clone(), parent.clone(), m.clone(), settings.clone());
+    go.connect_clicked({
+        let dialog = dialog.clone();
+        move |_| {
+            dialog.close();
+            let change = Change::AddShare {
+                name: name.text().to_string(),
+                host_dir: dir.clone(),
+            };
+            apply(&app, &window, &m, &settings, change);
+        }
+    });
+    dialog.present(Some(parent));
 }
 
 pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
