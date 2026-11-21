@@ -1294,7 +1294,9 @@ pub(crate) fn fresh_ports() -> Result<(u16, u16)> {
 
 /// Whether QEMU's last error says a port it was told to listen on was taken.
 pub(crate) fn port_was_taken(last_error: &str) -> bool {
+    // Windows words the same failure differently (WSAEADDRINUSE, 10048).
     last_error.contains("Address already in use")
+        || last_error.contains("Only one usage of each socket address")
 }
 
 /// Swap the ports [`background_arguments`] wrote for new ones.
