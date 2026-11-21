@@ -101,8 +101,8 @@ place, or used where it is. A CHD keeps its changes apart from your file
 unless you choose to save into the image. A copy shows its progress and can be
 cancelled; a cancelled copy leaves the machine without a disk. The sheet
 warns when another machine already uses the file. Each disk shows a badge
-naming what is on it, such as "IRIX 6.5.30", or "Unknown"; the library row
-shows the system disk's badge. This is
+naming what is on it, such as "IRIX 6.5.30" or "OpenBSD 6.9", or "Unknown";
+the library row shows the system disk's badge. This is
 [`drive-create`](usage.md) and `drive-attach` from the command line.
 
 ## Start it

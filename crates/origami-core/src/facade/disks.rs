@@ -139,6 +139,8 @@ fn label_of(detected: &disk_detect::Detected) -> String {
             name,
             version: None,
         } => format!("Linux ({})", name.trim_end_matches(" GNU/Linux")),
+        OpenBsd { version } => format!("OpenBSD {version}"),
+        NetBsd { version } => format!("NetBSD {version}"),
         Unknown => "Unknown".into(),
     }
 }

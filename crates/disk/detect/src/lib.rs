@@ -94,6 +94,12 @@ pub enum Detected {
         name: String,
         version: Option<String>,
     },
+    OpenBsd {
+        version: String,
+    },
+    NetBsd {
+        version: String,
+    },
     Unknown,
 }
 
@@ -109,6 +115,8 @@ impl std::fmt::Display for Detected {
                 name,
                 version: None,
             } => write!(f, "{name}"),
+            Detected::OpenBsd { version } => write!(f, "OpenBSD {version}"),
+            Detected::NetBsd { version } => write!(f, "NetBSD {version}"),
             Detected::Unknown => write!(f, "unknown"),
         }
     }
@@ -194,10 +202,51 @@ fn identify(vols: &Volumes) -> Option<Detected> {
     if let Some(version) = irix_version(vols) {
         return Some(Detected::Irix { version });
     }
-    ["/etc/os-release", "/usr/lib/os-release"]
+    if let Some(found) = ["/etc/os-release", "/usr/lib/os-release"]
         .iter()
         .find_map(|f| vols.read_file(f, 64 << 10).ok())
         .and_then(|text| parse_os_release(&String::from_utf8_lossy(&text)))
+    {
+        return Some(found);
+    }
+    bsd_release(vols)
+}
+
+/// The release is the kernel's version banner ("OpenBSD 6.9 (GENERIC) #1"), in
+/// /bsd or /netbsd: every install has it there and it cannot be edited like /etc/motd.
+fn bsd_release(vols: &Volumes) -> Option<Detected> {
+    let (os, kernel) = [("OpenBSD", "/bsd"), ("NetBSD", "/netbsd")]
+        .into_iter()
+        .find(|(_, k)| {
+            vols.stat(k)
+                .is_ok_and(|st| st.file_type == disk_rofs::FileType::File)
+        })?;
+    let version = banner_version(&vols.read_file(kernel, 32 << 20).ok()?, os)?;
+    Some(if os == "OpenBSD" {
+        Detected::OpenBsd { version }
+    } else {
+        Detected::NetBsd { version }
+    })
+}
+
+/// The release in the first "<os> X.Y... (" banner of a kernel image.
+fn banner_version(kernel: &[u8], os: &str) -> Option<String> {
+    let tag = format!("{os} ");
+    kernel.windows(tag.len()).enumerate().find_map(|(i, w)| {
+        if w != tag.as_bytes() {
+            return None;
+        }
+        let rest = &kernel[i + tag.len()..];
+        let end = rest
+            .iter()
+            .position(|c| !(c.is_ascii_alphanumeric() || b"._-".contains(c)))?;
+        let token = std::str::from_utf8(&rest[..end]).ok()?;
+        (rest[end..].starts_with(b" (")
+            && token.len() <= 24
+            && token.starts_with(|c: char| c.is_ascii_digit())
+            && token.contains('.'))
+        .then(|| token.to_string())
+    })
 }
 
 /// The release the kernel carries. IRIX keeps its installed-product history in

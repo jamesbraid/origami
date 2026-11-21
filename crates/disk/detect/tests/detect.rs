@@ -56,6 +56,37 @@ fn bare_ext_file_system_is_detected() {
 }
 
 #[test]
+fn openbsd_on_an_sgi_volume_header_with_a_disklabel() {
+    let disk = include_bytes!("../../../../tests/fixtures/machines/disk-openbsd-6.9.img");
+    assert_eq!(detect_bytes(disk.to_vec()), "OpenBSD 6.9");
+}
+
+#[test]
+fn netbsd_ufs2_found_through_a_disklabel_with_no_other_table() {
+    assert_eq!(
+        detect_bytes(gunzip(include_bytes!("data/netbsd-9.3.img.gz"))),
+        "NetBSD 9.3"
+    );
+}
+
+#[test]
+fn bare_ffs_with_no_table_is_detected() {
+    assert_eq!(
+        detect_bytes(gunzip(include_bytes!("data/bare-openbsd.img.gz"))),
+        "OpenBSD 6.9"
+    );
+}
+
+#[test]
+fn a_kernel_without_a_banner_is_unknown() {
+    let mut disk = gunzip(include_bytes!("data/bare-openbsd.img.gz"));
+    while let Some(at) = disk.windows(7).position(|w| w == b"OpenBSD") {
+        disk[at..at + 7].copy_from_slice(b"Openbsd");
+    }
+    assert_eq!(detect_bytes(disk), "unknown");
+}
+
+#[test]
 fn a_panicking_reader_is_unknown() {
     struct Boom;
     impl disk_rofs::ReadAt for Boom {
@@ -93,6 +124,12 @@ fn irix_53_chd() {
 #[ignore = "needs DISK_DETECT_IRIX65 pointing at a published IRIX 6.5.22 CHD"]
 fn irix_65_chd() {
     real("DISK_DETECT_IRIX65", "IRIX 6.5.22m");
+}
+
+#[test]
+#[ignore = "needs DISK_DETECT_OPENBSD pointing at an OpenBSD sgi disk"]
+fn openbsd_disk() {
+    real("DISK_DETECT_OPENBSD", "OpenBSD 6.9");
 }
 
 #[test]

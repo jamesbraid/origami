@@ -1269,6 +1269,12 @@ fn a_disk_is_named_by_its_operating_system_and_read_again_when_it_changes() {
     let image = f.root.path().join("irix.img");
     std::fs::write(&image, irix_disk()).unwrap();
     assert_eq!(f.core.disk_info(&image).unwrap(), "IRIX 6.5.30");
+    std::fs::write(
+        &image,
+        include_bytes!("../../../../tests/fixtures/machines/disk-openbsd-6.9.img"),
+    )
+    .unwrap();
+    assert_eq!(f.core.disk_info(&image).unwrap(), "OpenBSD 6.9");
     std::fs::write(&image, vec![0u8; 1 << 16]).unwrap();
     assert_eq!(f.core.disk_info(&image).unwrap(), "Unknown");
     assert_eq!(
