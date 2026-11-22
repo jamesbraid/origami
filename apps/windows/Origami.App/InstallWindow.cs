@@ -28,15 +28,18 @@ public sealed class InstallWindow : Window
 
     OrigamiInstallFlow? _flow;
     OrigamiInstallGuide? _guide;
-    OrigamiOperation? _serve, _check;
+    OrigamiOperation? _serve, _check, _apply;
     OrigamiMediaFolder? _found;
-    string _planLine = "", _checkFailure = "", _checkInfo = "", _mediaError = "";
+    string _planLine = "", _checkFailure = "", _checkInfo = "", _mediaError = "", _applyError = "";
     bool _serial, _noDisk, _busy, _closed, _closeApproved, _asking, _runStarted, _starting, _full;
     // Controls of the step on show that change after it was built.
     TextBlock? _mediaFile, _mediaVerdict, _checkStatus, _checkNote;
     ProgressBar? _checkBar;
     Button? _checkRun, _checkStop, _mediaChoose;
     CheckBox? _checkFull;
+    TextBlock? _applyHint, _applyLine, _applyFail;
+    ProgressBar? _applyBar;
+    Button? _applyRun, _applyStop, _applyFixed;
 
     /// <summary>The question on show, for the self-test.</summary>
     public ContentDialog? OpenDialog { get; private set; }
@@ -91,7 +94,7 @@ public sealed class InstallWindow : Window
 
     internal OrigamiInstallStep? StepForTest => _flow?.Step();
     public string ServerLineForTest => _server.Text;
-    public bool Serving => _serve?.State() is OrigamiOperationState.Running;
+    public bool Serving => _serve?.State() is OrigamiOperationState.Running || _apply is not null;
 
     public T? Find<T>(string id) where T : FrameworkElement => FindWhere<T>(t => AutomationProperties.GetAutomationId(t) == id);
 
@@ -109,7 +112,7 @@ public sealed class InstallWindow : Window
     /// <summary>Quit or tab close after the person chose to stop: end the server, force the machine down, close without asking.</summary>
     public async Task StopAndCloseAsync()
     {
-        _serve?.Cancel();
+        _serve?.Cancel(); _apply?.Cancel();
         try { await _core.ForceQuitAsync(_key); } catch (Exception e) { App.Log("install stop: " + e.Message); }
         _closeApproved = true;
         Close();
@@ -126,6 +129,7 @@ public sealed class InstallWindow : Window
             _flow = new OrigamiInstallFlow(plan);
             // A machine left on the installation network offers to set it back on close.
             if (pending) _flow.SetPrepared();
+            _flow.SetSerial(serial);
             if (plan is not null)
                 _planLine = plan.Summary;
         }
@@ -177,12 +181,14 @@ public sealed class InstallWindow : Window
         }
         _body.Children.Clear();
         _typeIts.Clear();
+        _applyHint = _applyLine = _applyFail = null; _applyBar = null; _applyRun = _applyStop = _applyFixed = null;
         _mediaFile = _mediaVerdict = _checkStatus = _checkNote = null; _checkBar = null; _checkRun = _checkStop = _mediaChoose = null; _checkFull = null;
         switch (step)
         {
             case OrigamiInstallStep.Release: BuildRelease(); break;
             case OrigamiInstallStep.Media: BuildMedia(); break;
             case OrigamiInstallStep.Software: _ = BuildSoftwareAsync(); break;
+            case OrigamiInstallStep.Method: BuildMethod(); break;
             case OrigamiInstallStep.Disk: _ = BuildDiskAsync(); break;
             case OrigamiInstallStep.Check: BuildCheck(); break;
             default: BuildGuide(); break;
@@ -198,7 +204,7 @@ public sealed class InstallWindow : Window
         var st = _core.Status(_key).State;
         var step = flow.Step();
         var inRun = step is >= OrigamiInstallStep.Prepare and <= OrigamiInstallStep.Packages;
-        _stopped.Visibility = inRun && _runStarted && !_starting && !Up() ? Visibility.Visible : Visibility.Collapsed;
+        _stopped.Visibility = inRun && _runStarted && !_starting && !Up() && !(flow.Automatic() && flow.Apply() is OrigamiApplyState.Done) ? Visibility.Visible : Visibility.Collapsed;
         foreach (var b in _typeIts) b.Visibility = _serial && st == MachineState.Running ? Visibility.Visible : Visibility.Collapsed;
 
         var failed = _serve?.State() as OrigamiOperationState.Failed;
@@ -213,6 +219,7 @@ public sealed class InstallWindow : Window
         _continue.Content = flow.ContinueLabel();
         _continue.IsEnabled = !_busy && flow.CanContinue(Up());
         if (step == OrigamiInstallStep.Check) UpdateCheck();
+        if (step == OrigamiInstallStep.Packages) UpdateApply();
     }
 
     async Task<bool> BusyAsync(Func<Task> work)
@@ -543,12 +550,98 @@ public sealed class InstallWindow : Window
         Poll();
     }
 
+    // ---- Method, and the automatic Install packages -------------------------------------------------
+
+    void BuildMethod()
+    {
+        var flow = _flow!;
+        _body.Children.Add(Heading("Method"));
+        _body.Children.Add(Text("How should the install run?"));
+        foreach (var (m, id, name, note) in new[]
+        {
+            (OrigamiInstallMethod.Automatic, "automatic", "Automatic", "Origami types the package commands for you, logs in when they finish and shuts IRIX down."),
+            (OrigamiInstallMethod.Guided, "guided", "Guided", "You type each command in the console. Origami shows each step."),
+        })
+        {
+            var radio = new RadioButton { GroupName = "method", IsChecked = flow.Method() == m, Content = new StackPanel { Children = { Text(name), Text(note, dim: true) } } };
+            AutomationProperties.SetAutomationId(radio, "install.method." + id);
+            radio.Checked += (_, _) => flow.SetMethod(m);
+            _body.Children.Add(radio);
+        }
+    }
+
+    void BuildApply()
+    {
+        _applyHint = Text("");
+        _applyLine = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        _applyFail = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Tones.For("red")) };
+        _applyBar = new ProgressBar { IsIndeterminate = true };
+        AutomationProperties.SetAutomationId(_applyHint, "install.apply.hint");
+        AutomationProperties.SetAutomationId(_applyFail, "install.apply.error");
+        _applyRun = Btn("Install", "install.apply.run", () => _ = RunApplyAsync());
+        _applyStop = Btn("Cancel Install", "install.apply.cancel", () => _apply?.Cancel());
+        _applyFixed = Btn("I fixed it at Inst>", "install.apply.fixed", () => { _flow!.Fixed(); ShowStep(); });
+        _body.Children.Add(_applyHint); _body.Children.Add(_applyFail);
+        _body.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _applyRun, _applyStop, _applyFixed, Btn("Open Console", "install.apply.console", _openConsole) } });
+        _body.Children.Add(_applyBar); _body.Children.Add(_applyLine);
+        UpdateApply();
+    }
+
+    void UpdateApply()
+    {
+        if (_flow is not { } flow || _applyHint is null || _applyLine is null || _applyFail is null || _applyBar is null || _applyRun is null || _applyStop is null || _applyFixed is null) return;
+        var apply = flow.Apply();
+        var running = apply is OrigamiApplyState.Running;
+        _applyHint.Text = flow.ApplyHint();
+        _applyRun.IsEnabled = flow.CanInstall(Up());
+        _applyFixed.Visibility = flow.CanFixed() ? Visibility.Visible : Visibility.Collapsed;
+        _applyStop.Visibility = _applyBar.Visibility = _applyLine.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
+        _applyFail.Text = apply is OrigamiApplyState.Failed ? _applyError : "";
+        _applyFail.Visibility = _applyFail.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var line = running ? _apply?.Progress() ?? "" : "";
+        _applyLine.Text = line;
+        var pct = System.Text.RegularExpressions.Regex.Matches(line, @"(\d{1,3})%");
+        _applyBar.IsIndeterminate = pct.Count == 0;
+        if (pct.Count > 0) { _applyBar.Maximum = 100; _applyBar.Value = int.Parse(pct[^1].Groups[1].Value); }
+    }
+
+    async Task RunApplyAsync()
+    {
+        if (_flow is not { } flow) return;
+        flow.SetApply(new OrigamiApplyState.Running());
+        _applyError = "";
+        Poll();
+        var kind = OrigamiInstallFailure.Setup; // a refusal typed nothing, so Install stays on offer
+        try
+        {
+            var op = _apply = await Task.Run(() => _core.Raw.InstallApply(_key));
+            switch (await Task.Run(() => op.Wait(null)))
+            {
+                case OrigamiOperationState.Succeeded: flow.SetApply(new OrigamiApplyState.Done()); break;
+                case OrigamiOperationState.Failed f:
+                    _applyError = f.Message;
+                    flow.SetApply(new OrigamiApplyState.Failed(op.InstallFailure() ?? kind));
+                    break;
+                default: flow.SetApply(new OrigamiApplyState.Failed(op.InstallFailure() ?? OrigamiInstallFailure.Cancelled)); break;
+            }
+        }
+        catch (Exception e)
+        {
+            _applyError = e.Message;
+            flow.SetApply(new OrigamiApplyState.Failed(kind));
+        }
+        _apply = null;
+        if (!_closed) Poll();
+    }
+
     void BuildGuide()
     {
         var step = _flow!.Step();
         _body.Children.Add(Heading(OrigamiFfiMethods.OrigamiInstallStepTitle(step)));
         if (_guide is not { } guide) { _body.Children.Add(Text("Reading the steps…", dim: true)); return; }
-        var steps = step switch { OrigamiInstallStep.Prepare => guide.Prepare, OrigamiInstallStep.Installer => guide.Installer, OrigamiInstallStep.Packages => guide.Packages.Concat(guide.Restart).ToArray(), _ => guide.Finish };
+        if (step == OrigamiInstallStep.Finish && _flow.Automatic()) { _body.Children.Add(Text("IRIX is installed and the machine is stopped.")); return; }
+        if (step == OrigamiInstallStep.Packages && _flow.Automatic()) { BuildApply(); return; }
+        var steps = step switch { OrigamiInstallStep.Prepare => guide.Prepare, OrigamiInstallStep.Installer => guide.Installer, OrigamiInstallStep.Packages => _flow.ByHand() ? guide.Restart : guide.Packages.Concat(guide.Restart).ToArray(), _ => guide.Finish };
         var n = 0;
         foreach (var g in steps)
         {
@@ -639,7 +732,7 @@ public sealed class InstallWindow : Window
         var flow = _flow!;
         var action = flow.CloseMachineQuestion(Up()) is { } q ? await Ask(q) : OrigamiCloseAction.LeaveRunning;
         if (action == OrigamiCloseAction.Stay) return false;
-        _serve?.Cancel();
+        _serve?.Cancel(); _apply?.Cancel();
         try
         {
             if (action == OrigamiCloseAction.StopMachine)

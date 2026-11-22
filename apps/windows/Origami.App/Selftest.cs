@@ -358,6 +358,13 @@ public static class Selftest
             await Until(() => iw.Find<CheckBox>("install.addon.mipspro") != null, 8000);
             iw.Find<CheckBox>("install.addon.mipspro")!.IsChecked = true;
             await Go();
+            if (core.Open(instKey).BootConsole() == uniffi.origami_ffi.OrigamiBootConsole.Serial)
+            {
+                await OnStep(OStep.Method);
+                Check("install: a serial machine has a Method step with Automatic chosen", await Until(() => iw.Find<RadioButton>("install.method.automatic")?.IsChecked == true, 5000));
+                iw.Find<RadioButton>("install.method.guided")!.IsChecked = true;
+                await Go();
+            }
             await OnStep(OStep.Disk);
             Check("install: a machine with no disk offers one at the default size",
                 await Until(() => iw.Find<NumberBox>("install.disk.size")?.Value == core.Labels().DefaultGb, 8000));
@@ -409,6 +416,42 @@ public static class Selftest
             FindOpen<ContentDialog>(w, null)?.Hide();
             await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
         }
+        // Automatic: the fake engine has no console runner, so Install fails with the core's sentence and Continue stays off.
+        var autoKey = await core.CreateMachineAsync("Install auto", "origin200.1");
+        w.Reload();
+        w.SelectForTest(autoKey);
+        InstallWindow? aw = null;
+        for (var tries = 0; tries < 4 && aw == null; tries++)
+        {
+            w.Invoke("machine.install-irix");
+            await Until(() => (aw = w.InstallForTest(autoKey)) != null, 2000);
+        }
+        if (aw != null)
+        {
+            async Task Walk(InstallWindow win, params OStep[] steps)
+            {
+                foreach (var stepWant in steps)
+                    // A press while the window is busy (making the disk, starting the machine) is refused, so press again.
+                    for (var tries = 0; tries < 6 && win.StepForTest != stepWant; tries++)
+                    {
+                        await Until(() => win.Find<Button>("install.continue") is { IsEnabled: true }, 20_000);
+                        try { Press(win.Find<Button>("install.continue")); } catch (System.Runtime.InteropServices.COMException) { await Task.Delay(500); }
+                        await Until(() => win.StepForTest == stepWant, 4000);
+                    }
+            }
+            await Walk(aw, OStep.Media, OStep.Software, OStep.Method, OStep.Disk, OStep.Check);
+            await Until(() => aw.Find<Button>("install.check.run") != null, 5000);
+            Press(aw.Find<Button>("install.check.run"));
+            await Until(() => aw.Find<TextBlock>("install.check.status")?.Text == "All sources answered.", 30_000);
+            await Walk(aw, OStep.Prepare, OStep.Installer, OStep.Packages);
+            Check("install: Automatic offers Install and keeps Continue off", await Until(() => aw.Find<Button>("install.apply.run") is { IsEnabled: true }, 8000) && aw.Find<Button>("install.continue") is { IsEnabled: false });
+            Press(aw.Find<Button>("install.apply.run"));
+            Check("install: a failed Install shows the core's sentence and Continue stays off",
+                await Until(() => aw.Find<TextBlock>("install.apply.error") is { Text.Length: > 0 }, 20_000) && aw.Find<Button>("install.continue") is { IsEnabled: false }, aw.Find<TextBlock>("install.apply.error")?.Text ?? "none");
+            await aw.StopAndCloseAsync();
+        }
+        // A screen console having no Method step is covered by the core's flow test: fake machines have no graphics pipe.
+        if (selected != null) w.SelectForTest(selected);
         // New Machine offers the assistant only with an empty disk.
         for (var tries = 0; tries < 4 && FindOpen<TextBox>(w, "new.name") == null; tries++)
         {
