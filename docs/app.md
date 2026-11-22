@@ -33,6 +33,13 @@ it. Extract it, keep the extracted files together, and start `bin/origami-gtk`
 The first time a machine needs
 firmware, the app downloads and checks it, as `origami create` does.
 
+On Windows you can instead run `origami-<version>-windows-x86_64-setup.exe` or
+`origami-<version>-windows-arm64-setup.exe`. It installs for you alone under
+`%LocalAppData%\Programs\Origami` without asking for administrator rights (the
+first page offers all users), adds Origami to the Start menu and the `origami`
+command to PATH (untick the box to skip that), and replaces an older install in
+place. Uninstall it from Settings, Apps; your machine library is never touched.
+
 Builds that are not signed, such as one from a fork or a development build,
 are blocked by macOS Gatekeeper and flagged by Windows SmartScreen. On macOS,
 run `xattr -dr com.apple.quarantine Origami.app` once after extracting. On

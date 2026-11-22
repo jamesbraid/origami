@@ -1,7 +1,7 @@
 name: Release
 
-# A v* tag builds the CLI and app packages and publishes them with SHA256SUMS
-# and the CHANGELOG.md section. The tag is made on the canonical repository.
+# A v* tag builds the CLI and app packages and the Windows installers and publishes them
+# with SHA256SUMS and the CHANGELOG.md section. The tag is made on the canonical repository.
 # A manual run builds every package unsigned and checks the archives as a
 # release would, then stops: nothing is uploaded, signed or notarized.
 on:
@@ -101,9 +101,20 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # Built from the signed zips; a manual run has unsigned zips and gets unsigned installers.
+  installer-windows:
+    needs: [build, sign-windows]
+    if: ${{ !cancelled() && github.server_url == 'https://github.com' && needs.build.result == 'success' && (needs.sign-windows.result == 'success' || needs.sign-windows.result == 'skipped') }}
+    uses: ./.github/workflows/installer-windows.yml
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+
   dry-run:
-    needs: build
-    if: github.server_url == 'https://github.com' && github.event_name == 'workflow_dispatch'
+    needs: [build, installer-windows]
+    # A manual run skips sign-windows, and a skipped job upstream would skip this one without the status check.
+    if: ${{ !cancelled() && github.server_url == 'https://github.com' && github.event_name == 'workflow_dispatch' && needs.build.result == 'success' && needs.installer-windows.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -122,7 +133,7 @@ jobs:
           .github/scripts/release-assets.sh "${v#v}" assets
 
   publish:
-    needs: [build, sign-windows]
+    needs: [build, sign-windows, installer-windows]
     if: github.server_url == 'https://github.com' && github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -153,6 +164,7 @@ jobs:
           fi
           # GPL: the corresponding source of the bundled QEMU, next to the binaries.
           qemu=$(sed -n 's/^tag = "\(sgi-origami-[^"]*\)"/\1/p' runtime.lock)
+          printf '\nOn Windows, the -setup.exe installers add the Start menu entry and the origami command to PATH. The zips need no install.\n' >> notes.md
           printf '\nQEMU source: https://github.com/jamesbraid/qemu-sgi-origami/tree/%s\n' "$qemu" >> notes.md
       - name: Publish
         env:

@@ -1,0 +1,152 @@
+name: Windows installer
+
+# Builds the Windows setups from the app zips and installs, upgrades and uninstalls each on its own
+# architecture. Release calls it (a v* tag signs); by hand, give the run whose zips to use.
+on:
+  workflow_call:
+    inputs:
+      run-id:
+        description: Run whose app zip artifacts to use; this run when empty
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      run-id:
+        description: Run whose app zip artifacts to use
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    if: github.server_url == 'https://github.com'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      signed: ${{ steps.sign-win.outputs.sign }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: origami-app-windows-*
+          path: dist
+          merge-multiple: true
+          run-id: ${{ inputs.run-id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Signing plan
+        id: sign-win
+        uses: ./.github/actions/signing-plan
+        with:
+          platform: windows
+          required: |
+            AZURE_TENANT_ID=${{ vars.AZURE_TENANT_ID != '' }}
+            AZURE_CLIENT_ID=${{ vars.AZURE_CLIENT_ID != '' }}
+            AZURE_SUBSCRIPTION_ID=${{ vars.AZURE_SUBSCRIPTION_ID != '' }}
+            AZURE_SIGNING_ENDPOINT=${{ vars.AZURE_SIGNING_ENDPOINT != '' }}
+            AZURE_SIGNING_ACCOUNT=${{ vars.AZURE_SIGNING_ACCOUNT != '' }}
+            AZURE_SIGNING_PROFILE=${{ vars.AZURE_SIGNING_PROFILE != '' }}
+      - name: Azure login
+        if: steps.sign-win.outputs.sign == 'true'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: SignTool with the Artifact Signing dlib
+        id: tools
+        if: steps.sign-win.outputs.sign == 'true'
+        shell: pwsh
+        run: >
+          build/installer/signing-tools.ps1
+          -Endpoint '${{ vars.AZURE_SIGNING_ENDPOINT }}'
+          -Account '${{ vars.AZURE_SIGNING_ACCOUNT }}'
+          -Profile '${{ vars.AZURE_SIGNING_PROFILE }}'
+          -Dir "$env:RUNNER_TEMP\signing"
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --version=6.7.1 --no-progress -y
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { throw 'ISCC.exe is not where choco puts it' }
+      - name: Build the installers
+        shell: pwsh
+        env:
+          SIGN_COMMAND: ${{ steps.tools.outputs.command }}
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $work = "$env:RUNNER_TEMP\installer"
+          foreach ($zip in Get-ChildItem dist\origami-*-windows-*.zip) {
+            build/installer/build.ps1 -Archive $zip.FullName -Out out -Work $work -Iscc $iscc -SignCommand $env:SIGN_COMMAND
+            # The older build the upgrade test installs first; it is never published.
+            build/installer/build.ps1 -Archive $zip.FullName -Out old -Work $work -Iscc $iscc -Version 0.0.1-old -Stale
+          }
+          Get-ChildItem out, old | Select-Object FullName, Length
+      - name: The setups and their uninstallers are signed
+        if: steps.sign-win.outputs.sign == 'true'
+        shell: pwsh
+        run: |
+          foreach ($f in Get-ChildItem out\origami-*-setup.exe) {
+            $s = Get-AuthenticodeSignature $f.FullName
+            if ($s.Status -ne 'Valid' -or -not $s.TimeStamperCertificate) { throw "$f is not validly signed: $($s.Status)" }
+            "$($s.Status) $f | $($s.SignerCertificate.Subject)"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: origami-installer-windows-x86_64
+          path: out/origami-*-windows-x86_64-setup.exe
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: origami-installer-windows-arm64
+          path: out/origami-*-windows-arm64-setup.exe
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-old-windows
+          path: old/origami-*-setup.exe
+          if-no-files-found: error
+          retention-days: 3
+
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-latest, arch: x86_64 }
+          - { runner: windows-11-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: origami-installer-windows-${{ matrix.arch }}
+          path: setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer-old-windows
+          path: old
+      - name: Install, upgrade and uninstall
+        shell: pwsh
+        env:
+          SIGNED: ${{ needs.build.outputs.signed }}
+        run: |
+          $setup = (Get-ChildItem setup\origami-*-setup.exe).FullName
+          $old = (Get-ChildItem "old\origami-*-windows-${{ matrix.arch }}-setup.exe").FullName
+          $a = @{ Setup = $setup; Old = $old; Work = "$env:RUNNER_TEMP\installer-test" }
+          if ($env:SIGNED -eq 'true' -or '${{ startsWith(github.ref, 'refs/tags/v') }}' -eq 'true') { $a.ExpectSigned = $true }
+          if ('${{ matrix.arch }}' -eq 'arm64') { $a.NoFocus = $true }
+          build/installer/test.ps1 @a

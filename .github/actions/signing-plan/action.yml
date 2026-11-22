@@ -1,8 +1,7 @@
 name: Signing plan
 description: >
   Decide whether this job signs. It does when every secret and variable for the platform
-  is set. A tag build with none set skips with a notice on windows and fails on macos;
-  with only some set it fails on both.
+  is set. A tag build with none or only some set fails: a release is never unsigned.
 inputs:
   platform:
     description: Name for messages, macos or windows
@@ -36,8 +35,6 @@ runs:
           echo "::notice title=$PLATFORM signing skipped::Not a v* tag build, so it is unsigned."
         elif [ -z "$missing" ]; then
           sign=true
-        elif [ "$set" -eq 0 ] && [ "$PLATFORM" = windows ]; then
-          echo "::notice title=$PLATFORM signing skipped::$PLATFORM signing is not configured, so this build is unsigned."
         elif [ "$set" -eq 0 ]; then
           echo "::error title=$PLATFORM signing is not configured::A v* tag must not publish unsigned archives. Missing:$missing"
           exit 1
