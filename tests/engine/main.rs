@@ -11,7 +11,7 @@ use origami_machine::dir::MachineDir;
 use origami_machine::stores::FirmwareSet;
 use origami_qemu::{QemuEngine, Runtime};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 struct QemuHarness {
     engine: QemuEngine,
@@ -22,7 +22,15 @@ struct QemuHarness {
 impl QemuHarness {
     fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        std::env::set_var("ORIGAMI_RUNTIME_DIR", support::fake_runtime(root.path()));
+        // One runtime for every test: a test that sets the variable and
+        // locates after another's drop would point at a removed directory.
+        static RUNTIME: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
+        let (_, runtime) = RUNTIME.get_or_init(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let runtime = support::fake_runtime(dir.path());
+            (dir, runtime)
+        });
+        std::env::set_var("ORIGAMI_RUNTIME_DIR", runtime);
         let engine = QemuEngine::new(Runtime::locate().unwrap());
         let catalogue = engine.catalogue().unwrap();
         let offering = origami_machine::preset(&catalogue, "origin200-1")
