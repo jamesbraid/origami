@@ -370,12 +370,13 @@ impl MachineUi {
         self.size_window(
             Rc::new(move |mon, chrome, g, f| view_scale::scale_window(scale, mon, chrome, g, f)),
             (0, 0),
+            false,
         );
     }
 
     /// Ask for the window `want` gives. `slack` is how far a default size has
     /// overshot the window's real size (X11 frames); measured once, then corrected.
-    fn size_window(self: &Rc<Self>, want: Rc<WindowFor>, slack: (i32, i32)) {
+    fn size_window(self: &Rc<Self>, want: Rc<WindowFor>, slack: (i32, i32), retried: bool) {
         let Some(win) = self.screen.root().and_downcast::<gtk::Window>() else {
             return;
         };
@@ -400,7 +401,7 @@ impl MachineUi {
         };
         let ask = (w + slack.0, h + slack.1);
         win.set_default_size(ask.0, ask.1);
-        if slack == (0, 0) {
+        if slack == (0, 0) && !retried {
             let weak = Rc::downgrade(self);
             glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
                 let Some(m) = weak.upgrade() else { return };
@@ -410,7 +411,20 @@ impl MachineUi {
                 let slack = (ask.0 - win.width(), ask.1 - win.height());
                 // Correct a frame-sized shortfall (libadwaita on X11), not a tiling compositor.
                 if (1..=16).contains(&slack.0) && (1..=16).contains(&slack.1) {
-                    m.size_window(want, slack);
+                    m.size_window(want, slack, true);
+                    return;
+                }
+                // The sidebar grows with the window, so the picture's area came out smaller than asked
+                // for: ask once more with the chrome as it is now.
+                let short = (
+                    w - chrome.0 - m.screen.width(),
+                    h - chrome.1 - m.screen.height(),
+                );
+                if short.0.max(short.1) > 1
+                    && short.0.min(short.1) >= 0
+                    && short.0.max(short.1) <= 200
+                {
+                    m.size_window(want, (0, 0), true);
                 }
             });
         }
@@ -446,6 +460,7 @@ impl MachineUi {
                             view_scale::grow_only(now, view_scale::first_window(mon, chrome, g))
                         }),
                         (0, 0),
+                        false,
                     );
                 });
             }
