@@ -18,6 +18,7 @@ fn a_machine_is_prepared_checked_served_and_reset() {
         .unwrap();
     assert_eq!(machine.settings().unwrap().drives.len(), 1);
     let setup = OrigamiInstallSetup {
+        method: None,
         release: "6.5.30".into(),
         profile: "minimal".into(),
         media_root: None,
@@ -76,4 +77,16 @@ fn the_boot_console_of_a_headless_machine_is_serial() {
     let lab = Lab::new(None);
     let machine = lab.core.open_machine(lab.key.clone()).unwrap();
     assert_eq!(machine.boot_console().unwrap(), OrigamiBootConsole::Serial);
+}
+
+#[test]
+fn the_flow_offers_method_only_on_a_serial_console_and_gates_the_apply() {
+    let flow = OrigamiInstallFlow::new(None);
+    assert!(!flow.steps().contains(&OrigamiInstallStep::Method) && !flow.automatic());
+    flow.set_serial(true);
+    assert!(flow.steps().contains(&OrigamiInstallStep::Method) && flow.automatic());
+    flow.set_apply(OrigamiApplyState::Failed {
+        kind: OrigamiInstallFailure::Conflict,
+    });
+    assert!(flow.can_fixed() && !flow.can_install(true));
 }

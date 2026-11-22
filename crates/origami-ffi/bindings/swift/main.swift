@@ -64,6 +64,7 @@ expect(try stopped.driveInfo(drive: "system") == "Unknown", "a blank disk is Unk
 expect(try core.installPlan(key: key) == nil, "no install setup yet")
 expect(origamiInstallReleases().first?.release == "6.5.30", "the newest release first")
 expect(OrigamiInstallFlow(plan: nil).step() == .release, "a new assistant starts at Release")
+expect(!OrigamiInstallFlow(plan: nil).automatic(), "a screen console is guided")
 expect(try stopped.bootConsole() == .serial, "a headless machine prints on serial")
 let machine = try core.startMachine(key: key)
 expect(machine.view().state == .running, "a running machine")

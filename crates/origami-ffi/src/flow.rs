@@ -25,12 +25,24 @@ mirror!(
     Release,
     Media,
     Software,
+    Method,
     Disk,
     Check,
     Prepare,
     Installer,
     Packages,
     Finish
+);
+mirror!(OrigamiInstallMethod, f::InstallMethod, Automatic, Guided);
+mirror!(
+    OrigamiInstallFailure,
+    f::InstallFailure,
+    Setup,
+    Conflict,
+    Lost,
+    Login,
+    Shutdown,
+    Cancelled
 );
 mirror!(
     OrigamiCheckState,
@@ -75,6 +87,37 @@ pub enum OrigamiDiskState {
     Unknown,
     None,
     Present { disk: OrigamiInstallDisk },
+}
+
+/// Where the automated install is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum OrigamiApplyState {
+    Idle,
+    Running,
+    Done,
+    Failed { kind: OrigamiInstallFailure },
+}
+
+impl From<OrigamiApplyState> for f::ApplyState {
+    fn from(s: OrigamiApplyState) -> Self {
+        match s {
+            OrigamiApplyState::Idle => Self::Idle,
+            OrigamiApplyState::Running => Self::Running,
+            OrigamiApplyState::Done => Self::Done,
+            OrigamiApplyState::Failed { kind } => Self::Failed(kind.into()),
+        }
+    }
+}
+
+impl From<f::ApplyState> for OrigamiApplyState {
+    fn from(s: f::ApplyState) -> Self {
+        match s {
+            f::ApplyState::Idle => Self::Idle,
+            f::ApplyState::Running => Self::Running,
+            f::ApplyState::Done => Self::Done,
+            f::ApplyState::Failed(kind) => Self::Failed { kind: kind.into() },
+        }
+    }
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -194,6 +237,7 @@ fn choice_out(c: &f::InstallAddonChoice) -> OrigamiInstallAddonChoice {
 fn plan_in(p: OrigamiInstallPlan) -> f::InstallPlan {
     f::InstallPlan {
         summary: p.summary,
+        method: p.method.into(),
         release: p.release,
         profile: p.profile,
         local_media: p.local_media,
@@ -228,6 +272,46 @@ impl OrigamiInstallFlow {
             .into_iter()
             .map(Into::into)
             .collect()
+    }
+    /// Whether the PROM prints on the serial line: set once from `boot_console`.
+    pub fn set_serial(&self, serial: bool) {
+        self.0.lock().unwrap().set_serial(serial);
+    }
+    pub fn serial(&self) -> bool {
+        self.0.lock().unwrap().serial()
+    }
+    pub fn method(&self) -> OrigamiInstallMethod {
+        self.0.lock().unwrap().method().into()
+    }
+    pub fn set_method(&self, method: OrigamiInstallMethod) {
+        self.0.lock().unwrap().set_method(method.into());
+    }
+    /// Origami types the package commands.
+    pub fn automatic(&self) -> bool {
+        self.0.lock().unwrap().automatic()
+    }
+    pub fn apply(&self) -> OrigamiApplyState {
+        self.0.lock().unwrap().apply().into()
+    }
+    pub fn set_apply(&self, state: OrigamiApplyState) {
+        self.0.lock().unwrap().set_apply(state.into());
+    }
+    pub fn can_install(&self, machine_up: bool) -> bool {
+        self.0.lock().unwrap().can_install(machine_up)
+    }
+    /// "I fixed it at Inst>" is offered.
+    pub fn can_fixed(&self) -> bool {
+        self.0.lock().unwrap().can_fixed()
+    }
+    /// The person took over; show the guide's `restart` steps alone.
+    pub fn fixed(&self) {
+        self.0.lock().unwrap().fixed();
+    }
+    pub fn by_hand(&self) -> bool {
+        self.0.lock().unwrap().by_hand()
+    }
+    pub fn apply_hint(&self) -> String {
+        self.0.lock().unwrap().apply_hint()
     }
     pub fn resumed(&self) -> bool {
         self.0.lock().unwrap().resumed()
@@ -377,6 +461,7 @@ impl OrigamiInstallFlow {
     pub fn setup(&self) -> OrigamiInstallSetup {
         let s = self.0.lock().unwrap().setup();
         OrigamiInstallSetup {
+            method: s.method.map(Into::into),
             release: s.release,
             profile: s.profile,
             media_root: s.media_root.map(|p| p.to_string_lossy().into_owned()),

@@ -1043,6 +1043,7 @@ pub struct OrigamiInstallRelease {
 pub struct OrigamiInstallPlan {
     /// What it sets up, for the footer.
     pub summary: String,
+    pub method: crate::OrigamiInstallMethod,
     pub release: String,
     pub profile: String,
     pub local_media: bool,
@@ -1061,6 +1062,7 @@ pub struct OrigamiInstallAddon {
 /// What the assistant has asked for.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiInstallSetup {
+    pub method: Option<crate::OrigamiInstallMethod>,
     pub release: String,
     pub profile: String,
     pub media_root: Option<String>,
@@ -1418,6 +1420,7 @@ impl OrigamiCore {
     pub fn install_plan(&self, key: String) -> Res<Option<OrigamiInstallPlan>> {
         Ok(self.core.install_plan(&key)?.map(|p| OrigamiInstallPlan {
             summary: p.summary,
+            method: p.method.into(),
             release: p.release,
             profile: p.profile,
             local_media: p.local_media,
@@ -1433,6 +1436,7 @@ impl OrigamiCore {
         setup: OrigamiInstallSetup,
     ) -> Res<Vec<OrigamiReportLine>> {
         let setup = f::InstallSetup {
+            method: setup.method.map(Into::into),
             release: setup.release,
             profile: setup.profile,
             media_root: setup.media_root.map(PathBuf::from),
@@ -1489,6 +1493,17 @@ impl OrigamiCore {
     pub fn install_check(&self, key: String, full: bool) -> Res<Arc<OrigamiOperation>> {
         Ok(Arc::new(OrigamiOperation(
             self.core.install_check(&key, full)?,
+        )))
+    }
+
+    /// Type the install into the guest's serial console from `Inst>`, then
+    /// log in as root and halt. The operation holds the console, so it is
+    /// read-only until it ends; the machine is stopped when it succeeds. A
+    /// failure carries `install_failure`; cancelling leaves the machine
+    /// running.
+    pub fn install_apply(&self, key: String) -> Res<Arc<OrigamiOperation>> {
+        Ok(Arc::new(OrigamiOperation(
+            self.core.install_apply_from(&key)?,
         )))
     }
 
@@ -1880,6 +1895,11 @@ impl OrigamiOperation {
     }
 
     /// How far along it is, 0 to 1, when it says.
+    /// How an automated install stopped, once it has.
+    pub fn install_failure(&self) -> Option<crate::OrigamiInstallFailure> {
+        self.0.install_failure().map(Into::into)
+    }
+
     pub fn fraction(&self) -> Option<f32> {
         self.0.fraction()
     }
