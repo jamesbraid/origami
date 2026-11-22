@@ -171,13 +171,21 @@ fn builds_machine_type(offering: &origami_machine::Offering) -> bool {
         .any(|line| line.split_whitespace().next() == Some(kind))
 }
 
+/// MiB of memory the host can give a new process, where it says (Linux).
+fn available_mib() -> Option<u64> {
+    let meminfo = fs::read_to_string("/proc/meminfo").ok()?;
+    let line = meminfo.lines().find(|l| l.starts_with("MemAvailable:"))?;
+    Some(line.split_whitespace().nth(1)?.parse::<u64>().ok()? / 1024)
+}
+
 /// Create `name` from its preset, check its storage and arguments, and start
 /// it paused; what went wrong, if anything.
 fn check_preset(root: &Path, name: &str, offering: &origami_machine::Offering) -> Vec<String> {
     let mut failures = Vec::new();
-    // QEMU maps all guest RAM up front, so the 16 GiB presets fail to start on
-    // a 16 GB runner; the smallest memory the offering accepts starts the same.
-    let memory = offering.memory.accepted.iter().min().unwrap().to_string();
+    // QEMU maps all guest RAM up front, so the smallest memory the offering
+    // accepts is enough to start it; a preset still too big is not started.
+    let min_memory = *offering.memory.accepted.iter().min().unwrap();
+    let memory = min_memory.to_string();
     let extra = ["--memory-per-node", memory.as_str()];
     let machine = match create(root, &format!("{name}, with comma"), name, offering, &extra) {
         Ok(machine) => machine,
@@ -221,7 +229,13 @@ fn check_preset(root: &Path, name: &str, offering: &origami_machine::Offering) -
             }
         })
         .and_then(|_| {
-            if builds_machine_type(offering) {
+            // QEMU maps all guest RAM up front: a preset whose smallest
+            // memory exceeds what the host has cannot start.
+            let too_big = available_mib().filter(|have| u64::from(min_memory) > *have);
+            if let Some(have) = too_big {
+                eprintln!("{name}: not started, needs {min_memory} MiB and the host has {have}");
+                Ok(())
+            } else if builds_machine_type(offering) {
                 start_and_stop(root, &machine)
             } else {
                 Ok(())
