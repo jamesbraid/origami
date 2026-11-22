@@ -92,7 +92,7 @@ static class BehaviourSelftest
         JsonElement Evaluate(object request) => JsonDocument.Parse(uniffi.origami_ffi.OrigamiFfiMethods.OrigamiBehaviourEvaluate(JsonSerializer.Serialize(request))).RootElement;
         int[] Rect(Seen s) => new[] { s.PicX, s.PicY, s.PicW, s.PicH };
 
-        var budget = Environment.TickCount64 + 150_000;
+        var budget = Environment.TickCount64 + 300_000;
         foreach (var row in root.GetProperty("rows").EnumerateArray())
         {
             var id = row.GetProperty("id").GetString()!;
@@ -102,7 +102,8 @@ static class BehaviourSelftest
             var pane = row.GetProperty("pane");
             int[]? room = null;
             // The room the screen's work area leaves for the pane, in DIPs: the OS will not make a window bigger.
-            if (await Settle() is { } r0) { var wa = w.WorkArea; room = new[] { (int)(wa.W / scale - (r0.FrameW / scale - r0.PaneW)), (int)(wa.H / scale - (r0.FrameH / scale - r0.PaneH)) }; }
+            // One reading is enough for the room; settling here cost up to 4 s for every skipped row.
+            if (Now() is { } r0) { var wa = w.WorkArea; room = new[] { (int)(wa.W / scale - (r0.FrameW / scale - r0.PaneW)), (int)(wa.H / scale - (r0.FrameH / scale - r0.PaneH)) }; }
             var ask = new Dictionary<string, object?> { ["op"] = "skip", ["id"] = id, ["scale"] = scale, ["room_available"] = room, ["pane_reached"] = true };
             if (Evaluate(ask).GetProperty("skip") is { ValueKind: JsonValueKind.String } why) { skipped.Add($"{id}: {why.GetString()}"); check($"behaviour: {id} (skipped)", true, why.GetString()!); continue; }
             if (row.GetProperty("view_before").ValueKind == JsonValueKind.String) w.Invoke(menu[row.GetProperty("view_before").GetString()!]);

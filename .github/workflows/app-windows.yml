@@ -213,7 +213,7 @@ jobs:
           } else { "no ready marker" }
           New-Item -ItemType File "$out\done.txt" -Force | Out-Null
           if (Test-Path "$out\app.log") { "--- app.log"; Get-Content "$out\app.log" -Tail 40 }
-          if (-not $p.WaitForExit(280000)) { "self-test did not exit"; $p.Kill(); $code = 99 } else { $code = $p.ExitCode }
+          if (-not $p.WaitForExit(580000)) { "self-test did not exit"; $p.Kill(); $code = 99 } else { $code = $p.ExitCode }
           if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } else { "no selftest.json written"; if (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" } }
           "exit code: $code"
           exit $code

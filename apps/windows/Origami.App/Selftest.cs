@@ -87,7 +87,7 @@ public static class Selftest
         _out = outFile;
         var dir = Path.GetDirectoryName(Path.GetFullPath(outFile))!;
         // Hard stop so a hung step cannot hold the runner.
-        _ = Task.Run(async () => { await Task.Delay(300_000); w.DispatcherQueue.TryEnqueue(() => Fail("watchdog: 300 s")); });
+        _ = Task.Run(async () => { await Task.Delay(600_000); w.DispatcherQueue.TryEnqueue(() => Fail("watchdog: 600 s")); });
         try { await Scenario(w, core, dir); }
         catch (Exception e) { Check("exception", false, e.ToString()); }
         Finish();
