@@ -1630,7 +1630,8 @@ def headless():
 
 # The named set `tools/screenshots linux` collects into docs/images/app/.
 DOCS_SHOTS = ["linux-library", "linux-engine", "linux-new-machine", "linux-starting", "linux-running", "linux-paused", "linux-cpu-panel",
-              "linux-diagnostics", "linux-console", "linux-settings", "linux-about", "linux-acknowledgements", "linux-licences"]
+              "linux-diagnostics", "linux-console", "linux-settings", "linux-about", "linux-acknowledgements", "linux-licences",
+              "linux-install-assistant", "linux-ready-disk", "linux-network"]
 
 
 def window_ids(title):
@@ -1729,6 +1730,33 @@ def docs():
         time.sleep(3)
         doc_shot("linux-settings")
         key("Escape")
+        time.sleep(1)
+        a.req("invoke machine.settings octane2")
+        a.wait("the Network page", lambda: a.req("activate settings.network-page").get("ok"), 30, 0.5)
+        a.wait("Bridged", lambda: a.req("activate settings.network Bridged").get("ok"), 30, 0.5)
+        time.sleep(2)
+        doc_shot("linux-network")
+        key("Escape")
+        time.sleep(1)
+        # New Machine with a ready-made disk: the list comes from origami-dist, so the choice appears once it answers.
+        a.req("invoke machine.new")
+        a.wait("Ready-made disk", lambda: a.req("activate new.disk Ready-made disk").get("ok"), 60, 1)
+        a.req("activate new.name irix")
+        time.sleep(2)
+        doc_shot("linux-ready-disk")
+        a.req("activate new.dialog")
+        time.sleep(1)
+        # The Install IRIX assistant at its Software step; the media is only chosen here, not fetched.
+        a.req("invoke machine.install-irix octane2")
+        for step in ("Release", "Media"):
+            a.wait(step, lambda: a.req("activate install.step").get("text") == step, 60, 0.5)
+            a.wait("Continue", lambda: a.req("widget install.continue").get("sensitive"), 60, 0.5)
+            a.req("activate install.continue")
+        a.wait("Software", lambda: a.req("activate install.step").get("text") == "Software", 60, 0.5)
+        a.wait("the packages", lambda: a.req("widget install.addon.mipspro").get("found"), 60, 0.5)
+        time.sleep(2)
+        doc_shot("linux-install-assistant", "Install IRIX")
+        sh("wmctrl", "-c", "Install IRIX")
         time.sleep(1)
         a.req("invoke app.about")
         time.sleep(3)

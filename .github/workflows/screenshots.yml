@@ -3,6 +3,10 @@ name: screenshots
 # Each job also holds the main window with a running machine against tests/screenshots.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to show in About, such as 0.6.2; empty uses git describe'
+        required: false
 
 permissions:
   contents: read
@@ -24,9 +28,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Version from the tags, as the release build gets it
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          echo "ORIGAMI_VERSION=$(git describe --tags --match 'v[0-9]*' --always | sed 's/^v//')" >> "$GITHUB_ENV"
+          echo "ORIGAMI_VERSION=${VERSION:-$(git describe --tags --match 'v[0-9]*' --always | sed 's/^v//')}" >> "$GITHUB_ENV"
       - uses: ./.github/actions/cargo-cache
         with:
           name: screenshots-linux
@@ -97,9 +103,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Version from the tags, as the release build gets it
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          echo "ORIGAMI_VERSION=$(git describe --tags --match 'v[0-9]*' --always | sed 's/^v//')" >> "$GITHUB_ENV"
+          echo "ORIGAMI_VERSION=${VERSION:-$(git describe --tags --match 'v[0-9]*' --always | sed 's/^v//')}" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           name: windows-native-qemu
@@ -117,6 +125,7 @@ jobs:
           cp apps/windows/selftest-out/window.png set/windows-running.png
           cp apps/windows/selftest-out/windows-cpu-panel.png apps/windows/selftest-out/windows-diagnostics.png set/
           cp apps/windows/selftest-out/windows-acknowledgements.png apps/windows/selftest-out/windows-licences.png set/
+          cp apps/windows/selftest-out/windows-install-assistant.png apps/windows/selftest-out/windows-ready-disk.png apps/windows/selftest-out/windows-network.png set/
           # The cube's own readback, which a window capture of the Direct3D child window may miss.
           cp apps/windows/selftest-out/about-cube.png set/windows-about-cube.png
       - uses: actions/upload-artifact@v4
@@ -154,9 +163,11 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       - name: Version from the tags, as the release build gets it
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          echo "ORIGAMI_VERSION=$(git describe --tags --match 'v[0-9]*' --always | sed 's/^v//')" >> "$GITHUB_ENV"
+          echo "ORIGAMI_VERSION=${VERSION:-$(git describe --tags --match 'v[0-9]*' --always | sed 's/^v//')}" >> "$GITHUB_ENV"
       - name: Install Rust
         run: |
           rustup toolchain install 1.97.1 --profile minimal

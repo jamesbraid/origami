@@ -110,6 +110,15 @@ func runDocsShots(library: String, out: String) {
     // New Machine, with the model picked and a name typed, before the machine exists.
     capture(window("New Machine", NewMachineSheet(model: nm), 460, 340), "macos-new-machine", after: choose)
 
+    // The same sheet with a ready-made disk picked: the list comes from origami-dist.
+    func chooseReady() {
+        choose()
+        guard waitFor(60, { !nm.readyDisks.isEmpty }) else { fail("origami-dist listed no ready-made disk for \(nm.name)") }
+        nm.disk = .ready
+    }
+    capture(window("New Machine", NewMachineSheet(model: nm), 460, 400), "macos-ready-disk", after: chooseReady)
+    nm.disk = .noDisk
+
     #if !FAKE
     choose()
     var created: Bool?
@@ -120,6 +129,24 @@ func runDocsShots(library: String, out: String) {
     app.select(model.id)
     let main = window("Origami", MainView(), 1100, 720)
     capture(main, "macos-library", hide: false, after: { focusLibrary(main) })
+
+    // The Install IRIX assistant on the stopped machine, at its Software step.
+    if let install = app.installModel(for: model.id) {
+        _ = waitFor(30) { install.loaded }
+        install.next()
+        install.next()
+        _ = waitFor(30) { !install.flow.addons().isEmpty }
+        capture(window("Install IRIX: \(model.name)", InstallAssistant(model: install), 780, 540), "macos-install-assistant")
+        app.forgetInstall(model.id)
+    } else { fail("no install assistant for \(model.name)") }
+    // Settings at Network, with Bridged chosen and its fields open. The sheet reloads when it appears, which closes the fields.
+    let settings = SettingsModel(machine: model)
+    func chooseBridged() {
+        _ = waitFor(30) { settings.settings != nil && !settings.working }
+        guard let bridged = settings.networkChoices.first(where: { $0.label == "Bridged" }) else { fail("the machine's settings offer no Bridged mode") }
+        settings.chooseNetwork(bridged.mode)
+    }
+    capture(window("\(model.name) Settings", MachineSettings(model: model, pane: .network, edit: settings), 700, 460), "macos-network", after: chooseBridged)
 
     var started = false
     model.start { _ in started = true }

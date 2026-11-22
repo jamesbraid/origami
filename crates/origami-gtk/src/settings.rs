@@ -413,6 +413,7 @@ fn build_machine_dialog(
                 .title("Network")
                 .icon_name("network-wired-symbolic")
                 .build();
+            net.set_widget_name("settings.network-page");
             if !notes.is_empty() {
                 net.add(&notes_group(&notes, dialog.upcast_ref()));
             }

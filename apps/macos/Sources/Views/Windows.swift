@@ -68,9 +68,11 @@ struct MachineSettings: View {
     @State private var forwardUDP = false
     @State private var adding: ImageChoice?
 
-    init(model: MachineModel) {
+    /// `edit` and `pane` let the documentation pictures open on a prepared pane.
+    init(model: MachineModel, pane: Pane = .general, edit: SettingsModel? = nil) {
         _model = ObservedObject(wrappedValue: model)
-        _edit = StateObject(wrappedValue: SettingsModel(machine: model))   // an autoclosure: built once, not per render
+        _pane = State(initialValue: pane)
+        _edit = StateObject(wrappedValue: edit ?? SettingsModel(machine: model))   // an autoclosure: built once, not per render
     }
 
     enum Pane: String, CaseIterable, Identifiable {

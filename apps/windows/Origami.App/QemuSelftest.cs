@@ -1,6 +1,10 @@
 #if !ORIGAMI_FAKE
 using System.Text.Json;
 using Origami.Logic;
+using UI = Microsoft.UI.Xaml;
+using UIC = Microsoft.UI.Xaml.Controls;
+using UIM = Microsoft.UI.Xaml.Media;
+using OStep = uniffi.origami_ffi.OrigamiInstallStep;
 
 namespace Origami.App;
 
@@ -53,6 +57,101 @@ public static class Selftest
         Add("foreground for " + name, true, front ? "foreground" : $"not foreground (fg=0x{Win.ForegroundHandle().ToInt64():x}, target=0x{hwnd.ToInt64():x})");
         File.WriteAllText(Path.Combine(dir, $"want-{name}.txt"), hwnd.ToInt64().ToString());
         Add("capture " + name, await Until(() => File.Exists(Path.Combine(dir, $"got-{name}.txt")), 20_000));
+    }
+
+    /// <summary>The pictures docs/app.md shows of the New Machine sheet, the Network settings and the Install IRIX assistant, taken with the machine stopped.</summary>
+    static async Task Scenes(MainWindow w, UniffiCoreClient core, string key, string dir)
+    {
+        if (Environment.GetEnvironmentVariable("ORIGAMI_CAPTURES") != "1") return;
+        // A ContentDialog lives in a popup, so search the open popups; an id of null matches the first of the type.
+        T? FindOpen<T>(string? id) where T : UI.FrameworkElement
+        {
+            T? In(UI.DependencyObject o)
+            {
+                if (o is T t && (id == null || UI.Automation.AutomationProperties.GetAutomationId(t) == id)) return t;
+                for (var i = 0; i < UIM.VisualTreeHelper.GetChildrenCount(o); i++) if (In(UIM.VisualTreeHelper.GetChild(o, i)) is { } hit) return hit;
+                return null;
+            }
+            foreach (var p in UIM.VisualTreeHelper.GetOpenPopupsForXamlRoot(w.XamlRootForTest)) if (p.Child is { } c && In(c) is { } found) return found;
+            return null;
+        }
+        async Task CloseDialog()
+        {
+            FindOpen<UIC.ContentDialog>(null)?.Hide();
+            await Until(() => FindOpen<UIC.ContentDialog>(null) == null, 3000);
+        }
+        void Press(UIC.Button? b) { if (b != null) new UI.Automation.Peers.ButtonAutomationPeer(b).Invoke(); }
+        try
+        {
+            // New Machine with the ready-made choice: the list comes from origami-dist, so the choice appears once it answers.
+            for (var tries = 0; tries < 4 && FindOpen<UIC.ComboBox>("new.disk") == null; tries++)
+            {
+                w.Invoke("machine.new");
+                await Until(() => FindOpen<UIC.ComboBox>("new.disk") != null, 2000);
+            }
+            var plain = core.Labels().Choices.Count;
+            if (await Until(() => FindOpen<UIC.ComboBox>("new.disk") is { } d && d.Items.Count > plain, 30_000))
+            {
+                FindOpen<UIC.ComboBox>("new.disk")!.SelectedIndex = DiskChoices.Ready;
+                if (FindOpen<UIC.TextBox>("new.name") is { } typed) typed.Text = "irix";
+                await Task.Delay(1500);
+                await Grab(dir, "windows-ready-disk", w.Hwnd);
+            }
+            else Add("windows-ready-disk.png", false, "origami-dist listed no ready-made disk");
+            await CloseDialog();
+
+            // Settings at Network, with Bridged chosen and its fields open.
+            for (var tries = 0; tries < 4 && FindOpen<UIC.ComboBox>("settings.network") == null; tries++)
+            {
+                w.Invoke("machine.settings");
+                await Until(() => FindOpen<UIC.ComboBox>("settings.network") != null, 3000);
+            }
+            var bridgedAt = core.NetworkModes().ToList().FindIndex(c => c.Label == "Bridged");
+            if (FindOpen<UIC.ComboBox>("settings.network") is { } mode && bridgedAt >= 0)
+            {
+                mode.SelectedIndex = bridgedAt;
+                await Until(() => FindOpen<UIC.TextBox>("settings.bridge.device") != null, 3000);
+                // Choosing Bridged rebuilt the dialog, so scroll to the new Mode list, at the top of the view.
+                await Task.Delay(1000);
+                UI.DependencyObject? up = FindOpen<UIC.ComboBox>("settings.network");
+                while (up != null && up is not UIC.ScrollViewer) up = UIM.VisualTreeHelper.GetParent(up);
+                if (up is UIC.ScrollViewer sv && FindOpen<UIC.ComboBox>("settings.network") is { } fresh)
+                    sv.ChangeView(null, sv.VerticalOffset + fresh.TransformToVisual(sv).TransformPoint(new Windows.Foundation.Point(0, 0)).Y - 64, null, true);
+                await Task.Delay(1500);
+                await Grab(dir, "windows-network", w.Hwnd);
+            }
+            else Add("windows-network.png", false, $"network combo found: {FindOpen<UIC.ComboBox>("settings.network") != null}, Bridged at {bridgedAt}");
+            await CloseDialog();
+
+            // The Install IRIX assistant at its Software step; its window is separate, so it comes to the front of the main one.
+            InstallWindow? iw = null;
+            for (var tries = 0; tries < 4 && iw == null; tries++)
+            {
+                w.Invoke("machine.install-irix");
+                await Until(() => (iw = w.InstallForTest(key)) != null, 2000);
+            }
+            if (iw == null) { Add("windows-install-assistant.png", false, "the assistant did not open"); return; }
+            async Task Go(OStep next)
+            {
+                await Until(() => iw.Find<UIC.Button>("install.continue") is { IsEnabled: true }, 8000);
+                Press(iw.Find<UIC.Button>("install.continue"));
+                await Until(() => iw.StepForTest == next, 8000);
+            }
+            await Until(() => iw.StepForTest == OStep.Release, 8000);
+            await Go(OStep.Media);
+            await Go(OStep.Software);
+            await Until(() => iw.Find<UIC.CheckBox>("install.addon.mipspro") != null, 8000);
+            var main = w.AppWindow.Presenter as Microsoft.UI.Windowing.OverlappedPresenter;
+            var wasTop = main?.IsAlwaysOnTop ?? false;
+            if (main != null) main.IsAlwaysOnTop = false;
+            iw.Activate();
+            if (iw.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter ip) ip.IsAlwaysOnTop = true;
+            await Task.Delay(2000);
+            await Grab(dir, "windows-install-assistant", WinRT.Interop.WindowNative.GetWindowHandle(iw));
+            await iw.StopAndCloseAsync();
+            if (main != null) main.IsAlwaysOnTop = wasTop;
+        }
+        catch (Exception e) { Add("pictures of the dialogs", false, e.ToString()); }
     }
 
     public static async Task RunAsync(MainWindow w, UniffiCoreClient core, string outFile)
@@ -238,6 +337,7 @@ public static class Selftest
         // A clean stop waits for the guest (and a PROM menu never answers); force-quit ends QEMU at once.
         w.Invoke("machine.force-quit");
         Add("force quit settles as Stopped, not stopped unexpectedly", await Until(() => core.Status(key).State == MachineState.Stopped, 60_000), core.Status(key).State + " " + core.Status(key).Reason);
+        await Scenes(w, core, key, dir);
         // A runner that dies without a word must not leave the machine Running.
         w.Invoke("machine.start");
         if (await Until(() => core.Status(key).State == MachineState.Running, 180_000))

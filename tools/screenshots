@@ -20,10 +20,13 @@ GITHUB_REPO = "jamesbraid/origami"
 # The names docs/app.md and CHANGELOG.md use. Add a picture here and in the page that shows it.
 SETS = {
     "linux": ["linux-library", "linux-engine", "linux-new-machine", "linux-starting", "linux-running", "linux-paused", "linux-cpu-panel",
-              "linux-diagnostics", "linux-console", "linux-settings", "linux-about", "linux-acknowledgements", "linux-licences"],
+              "linux-diagnostics", "linux-console", "linux-settings", "linux-about", "linux-acknowledgements", "linux-licences",
+              "linux-install-assistant", "linux-ready-disk", "linux-network"],
     "cli": ["cli-machines", "cli-create", "cli-run"],
-    "windows": ["windows-running", "windows-cpu-panel", "windows-diagnostics", "windows-acknowledgements", "windows-licences"],
-    "macos": ["macos-library", "macos-new-machine", "macos-running", "macos-cpu-panel", "macos-diagnostics", "macos-about", "macos-acknowledgements", "macos-licences"],
+    "windows": ["windows-running", "windows-cpu-panel", "windows-diagnostics", "windows-acknowledgements", "windows-licences",
+                "windows-install-assistant", "windows-ready-disk", "windows-network"],
+    "macos": ["macos-library", "macos-new-machine", "macos-running", "macos-cpu-panel", "macos-diagnostics", "macos-about", "macos-acknowledgements", "macos-licences",
+              "macos-install-assistant", "macos-ready-disk", "macos-network"],
 }
 # The main window with a running machine, per app: what `compare` holds against a stored image.
 RUNNING = {"linux": "linux-running", "windows": "windows-running", "macos": "macos-running"}

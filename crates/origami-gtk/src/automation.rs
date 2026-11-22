@@ -500,6 +500,19 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 return json!({"ok": true, "text": label.label().as_str()});
             }
             let value = line.splitn(3, ' ').nth(2);
+            // A settings page, shown as its sidebar entry would.
+            if let Some(page) = widget.downcast_ref::<adw::PreferencesPage>() {
+                let dialog = page
+                    .ancestor(adw::PreferencesDialog::static_type())
+                    .and_downcast::<adw::PreferencesDialog>();
+                return match dialog {
+                    Some(d) => {
+                        d.set_visible_page(page);
+                        json!({"ok": true})
+                    }
+                    None => json!({"error": "the page is in no dialog"}),
+                };
+            }
             // An alert's response, as its button gives it.
             if let (Some(alert), Some(id)) = (widget.downcast_ref::<adw::AlertDialog>(), value) {
                 alert.emit_by_name::<()>("response", &[&id]);
