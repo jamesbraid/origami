@@ -4,7 +4,7 @@
 
 This guide follows a first session: install the archive, pick a machine,
 create it, start it, install IRIX, then set up networking and graphics.
-Examples use version 0.4.1. Substitute the version you downloaded.
+Examples use version 0.7.0. Substitute the version you downloaded.
 
 ## Install the archive
 
@@ -14,15 +14,17 @@ Download the command-line archive for your host from the
 `linux-arm64`, `macos-universal` (Apple silicon and Intel), `windows-x86_64`
 or `windows-arm64`.
 The `origami-<version>-<platform>` archives hold the desktop app, which
-includes this command, so pick one or the other. Extract it:
+includes this command, so pick one or the other. On Windows the app's
+`-setup.exe` installer also puts `origami` on your PATH, so with it there is
+nothing to extract. Extract the archive:
 
 ```sh
-tar -xzf origami-cli-0.6.1-linux-x86_64.tar.gz      # Linux
-tar -xzf origami-cli-0.6.1-macos-universal.tar.gz   # macOS
+tar -xzf origami-cli-0.7.0-linux-x86_64.tar.gz      # Linux
+tar -xzf origami-cli-0.7.0-macos-universal.tar.gz   # macOS
 ```
 
 ```powershell
-Expand-Archive .\origami-cli-0.6.1-windows-x86_64.zip -DestinationPath .\origami
+Expand-Archive .\origami-cli-0.7.0-windows-x86_64.zip -DestinationPath .\origami
 ```
 
 Keep the extracted directory whole. The CLI needs the QEMU, Instigator and

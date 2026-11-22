@@ -2,7 +2,7 @@
 
 [Back to the README](../README.md)
 
-Origami has a desktop app for Linux, macOS (Apple Silicon) and Windows. It
+Origami has a desktop app for Linux, macOS (Apple silicon and Intel) and Windows. It
 keeps a library of machines, starts them, shows their screens and serial
 consoles, and edits their settings. It runs the same machines as the
 [`origami` command](usage.md) and uses the same machine directories, so you can
@@ -17,12 +17,21 @@ windows with their own look and shortcuts.
 
 This guide follows one session: create a machine, pick an engine, start it,
 use the console, pause it, take a screenshot, and look at Diagnostics, the CPU
-panel and About.
+panel, Settings, the Install IRIX assistant and About.
 
 ## Get the app
 
-Pick the app archive for your computer from the
-[release page](https://github.com/jamesbraid/origami/releases):
+On Windows, run `origami-<version>-windows-x86_64-setup.exe` or
+`origami-<version>-windows-arm64-setup.exe` from the
+[release page](https://github.com/jamesbraid/origami/releases). It installs
+for you alone under `%LocalAppData%\Programs\Origami` without asking for
+administrator rights (the first page offers all users), adds Origami to the
+Start menu and the `origami` command to PATH (untick the box to skip that),
+and replaces an older install in place. Open a new terminal to use `origami`.
+Uninstall it from Settings, Apps; your machine library is never touched.
+
+On Linux and macOS, or on Windows if you would rather not install, pick the
+app archive for your computer from the same page:
 `origami-<version>-linux-x86_64.tar.gz`, `origami-<version>-linux-arm64.tar.gz`,
 `origami-<version>-macos-universal.zip` (one download for Apple silicon and
 Intel Macs), `origami-<version>-windows-x86_64.zip` or
@@ -33,17 +42,11 @@ it. Extract it, keep the extracted files together, and start `bin/origami-gtk`
 The first time a machine needs
 firmware, the app downloads and checks it, as `origami create` does.
 
-On Windows you can instead run `origami-<version>-windows-x86_64-setup.exe` or
-`origami-<version>-windows-arm64-setup.exe`. It installs for you alone under
-`%LocalAppData%\Programs\Origami` without asking for administrator rights (the
-first page offers all users), adds Origami to the Start menu and the `origami`
-command to PATH (untick the box to skip that), and replaces an older install in
-place. Uninstall it from Settings, Apps; your machine library is never touched.
-
-Builds that are not signed, such as one from a fork or a development build,
-are blocked by macOS Gatekeeper and flagged by Windows SmartScreen. On macOS,
-run `xattr -dr com.apple.quarantine Origami.app` once after extracting. On
-Windows, choose More info, then Run anyway. Signed releases need neither.
+Releases are signed: the Mac app is signed and notarized, and the Windows
+installer, app and command are signed. A build from a fork or a development
+build is not, and macOS Gatekeeper blocks it and Windows SmartScreen flags it.
+On macOS, run `xattr -dr com.apple.quarantine Origami.app` once after
+extracting. On Windows, choose More info, then Run anyway.
 
 The library is a folder of machine directories. The app starts with:
 
@@ -61,11 +64,13 @@ and Windows use `--machines DIR` and `--library DIR` respectively.
 
 ![The Origami window with one stopped machine](images/app/linux-library.png)
 
-The Machines list is on the left, one row per machine with its state. Selecting a
-row shows the machine on the right: its picture, name and a Start button, with
-Memory and Model below, and Nodes on a machine that has
-several. The machine's state is shown in the title bar
-or toolbar and in its row, and nowhere else. Double-click a row, or use
+The Machines list is on the left, one row per machine: its name over its model,
+or over its state as a dot and a word when it is not stopped. Selecting a row
+shows the machine on the right: its picture and a Start button, with cards
+below for its Memory, its Model, the System on its disk when Origami recognises
+one (such as IRIX 6.5.30), and its Nodes on a machine that has several. The
+machine's name and state head the window, and the state is shown there and in
+its row, and nowhere else. Double-click a row, or use
 Open in new tab in its right-click menu, to keep several machines open in
 tabs. The toolbar has Start or Power off, Pause, the pointer mode, the
 Console, Settings and the main menu. The CPU button shows the
@@ -127,21 +132,28 @@ the first time downloads its PROM and checks it. It is the same step as
 `origami create NAME --preset PRESET`; [Create a machine](usage.md#create-a-machine)
 lists the presets.
 
-**Disk** is the machine's system disk: no disk, an empty disk of the size you
-give (4 GB to start with), or an image you already have (CHD, qcow2 or raw).
+**Disk** is the machine's system disk. The choices are a ready-made IRIX disk
+(first, and marked Recommended, when one is offered for the model), install
+IRIX from discs, which starts with an empty disk of the size you give (4 GB to
+start with) and opens the install assistant, a disk image you already have
+(CHD, qcow2 or raw), or no disk.
 Use a disk made for the same kind of machine. An image is copied into the
 machine's folder, which keeps your original safe and the machine in one
 place, or used where it is. A CHD keeps its changes apart from your file
 unless you choose to save into the image. A copy shows its progress and can be
 cancelled; a cancelled copy leaves the machine without a disk. The sheet
-warns when another machine already uses the file. Each disk shows a badge
-naming what is on it, such as "IRIX 6.5.30" or "OpenBSD 6.9", or "Unknown";
-the library row shows the system disk's badge. This is
+warns when another machine already uses the file. Origami reads what is on the
+disk, such as "IRIX 6.5.30" or "OpenBSD 6.9", or "Unknown", and shows it as the
+System card on the machine's page. This is
 [`drive-create`](usage.md) and `drive-attach` from the command line.
 
 When the disk server lists a ready-made, boot-checked IRIX disk for the model
-you picked, **Ready-made disk** joins the choices, with a list of IRIX
-releases and their sizes. Create downloads the disk once, checks its SHA-256
+you picked, **Ready-made IRIX disk** is offered, with a list of IRIX
+releases and their sizes.
+
+![New machine with the Ready-made IRIX disk chosen](images/app/linux-ready-disk.png)
+
+Create downloads the disk once, checks its SHA-256
 and copies it into the machine's folder with its changes kept apart; the
 download shows its progress and can be cancelled, and a stopped download
 resumes; one that gets no data for a minute stops with a message to try
@@ -155,6 +167,8 @@ Remove button, which asks first and is refused while a disk is being downloaded 
 The machine gets its own copy because the CHD driver keeps its
 changes beside the image file and offers no way to put them elsewhere.
 
+![New machine with Ready-made disk chosen and an IRIX release picked](images/app/linux-ready-disk.png)
+
 **Advanced** holds the machine ID and the Ethernet address. The ID is the
 lowest free number from 1 to 2999 and makes the serial number, host id and
 Ethernet address, so two machines in one folder never share them. Choose
@@ -165,15 +179,16 @@ your network. The sheet says why a number or address cannot be used. It is
 ## Start it
 
 Select the machine and press Start (Ctrl+Shift+R; Cmd+R on macOS). The
-machine's page shows a starting screen while the emulator launches. Until it
-is up, the button reads Force quit rather than Power off.
+machine's page shows what the start is doing while the emulator launches: the
+emulator, then the screen, and the newest line from the console. Until the
+machine is up, the button reads Cancel start rather than Power off.
 
 ![The starting screen](images/app/linux-starting.png)
 
-When the guest draws, its screen replaces the page. This is an Octane2's PROM
-menu.
+When the guest draws, its screen replaces the page. This is an Octane2 that has
+booted IRIX from its ready-made disk, at the login screen.
 
-![The PROM menu of a running Octane2](images/app/linux-running.png)
+![An Octane2 at the IRIX login screen](images/app/linux-running.png)
 
 The picture goes from the emulator to your GPU without the CPU copying it
 where the platform allows. If it cannot, the app copies it instead, and
@@ -192,11 +207,11 @@ Power off, Reset and Force quit ask first, and the safe answer, Cancel, is the
 default. Power off asks the guest to stop. If the guest has not stopped after 30
 seconds, the app offers Force quit, which ends the emulator at once; the guest
 does not get to write its disks. When you quit the app with machines running,
-Keep Running leaves them going without it.
+Keep running leaves them going without it.
 
 ## The console
 
-![The Console window showing the PROM's power-on messages](images/app/linux-console.png)
+![The Console window showing IRIX booted to its login prompt](images/app/linux-console.png)
 
 The Console button (Ctrl+Shift+O; Alt+Cmd+C on macOS) opens the machine's
 serial console in its own window, one window per machine. It is a real
@@ -207,12 +222,13 @@ Ctrl+Shift+V or Shift+Insert, and scroll back with the mouse wheel or
 Shift+Page Up.
 
 A machine whose console is set to a serial line prints its PROM and system
-messages here; one whose console is graphics prints little. Set the line with
+messages here; one whose console is graphics prints little. Choose the line in
+Settings, on the Startup & firmware page, or with
 `origami nvram MACHINE set console=d`; see
 [Which serial line is the console](usage.md#which-serial-line-is-the-console).
-On a new machine's first boot the PROM warns about the NVRAM checksum and
-reports failed disk diagnostics. Both are normal until an operating system is
-installed.
+On a new machine's first boot the PROM warns about the NVRAM checksum, which
+is normal. A machine with no disk also reports failed disk diagnostics until an
+operating system is installed.
 
 ## Pause and resume
 
@@ -224,7 +240,7 @@ Resume (on Linux the picture is dimmed with a Resume button over it). Resume car
 
 ## Screenshots
 
-Choose Screenshot from the Machine menu while a machine runs (Save Screenshot,
+Choose Screenshot from the Machine menu while a machine runs (Save screenshot,
 Cmd+Shift+S, on macOS). The app saves the guest's screen as a PNG in your
 Pictures folder, named like `octane2 2026-11-18 at 14.30.05.png`. It is the
 guest's own picture, not a capture of your window. Linux shows a toast with a
@@ -263,7 +279,7 @@ hidden.
 ![A machine's Settings window](images/app/linux-settings.png)
 
 Settings (Ctrl+Shift+I; Cmd+I on macOS) edits the selected machine's file:
-its name, memory and processor, graphics, drives, network, shared folders, startup and input.
+its name, processor and memory, graphics, drives, network, shared folders, startup and firmware, and input.
 The Network page picks how the machine connects: Shared (NAT), Private,
 Bridged or Off. Bridged gives the machine its own address on your network
 through a tap device on Linux and Windows, or socket_vmnet on macOS. Its two
@@ -273,8 +289,11 @@ this up gives the steps and the commands to copy. It also shows the
 machine's Ethernet address, which you can copy but not change, and the private
 subnet under Advanced. After a change that moves the machine to a different
 network, the page shows the command that makes the guest forget its old
-address. This is [`origami network-set`](usage.md#join-a-real-network). The
-page also holds port forwards from the host to the guest. Shared folders
+address. This is [`origami network-set`](usage.md#join-a-real-network).
+
+![Settings at Network, with Bridged chosen and its fields open](images/app/linux-network.png)
+
+The page also holds port forwards from the host to the guest. Shared folders
 shares a folder of this computer with the guest over NFS: pick the folder, give it a
 name, and the page shows the two commands to run as root in IRIX to mount it,
 with Copy. This is [`origami share`](usage.md#share-a-host-folder). Startup
@@ -301,14 +320,19 @@ on the library to open New machine with that disk chosen.
 ## Install IRIX
 
 Machine > Install IRIX… opens the install assistant for a stopped machine.
+
+![The Install IRIX assistant at the Software step](images/app/linux-install-assistant.png)
+
 On macOS the set-up steps (release, discs, software, method, disk and check) are
 a sheet; once the install starts the sheet closes and the guide takes the sidebar,
 beside the machine's screen or, on a serial console, its console. A toolbar button
 switches the sidebar between the guide and the library. Each step names what to watch
 for and what to type, and a serial console marks it done when the prompt shows;
 a graphics console has a Done button. Continue is always at the foot, as in the other apps, with the reason beside it when it is off; pressing it counts the page's steps as done.
-New Machine can open it for you: with an empty disk chosen, tick Install IRIX
-after creating. It is the app's version of
+On Linux the set-up steps are a window; once the install starts the guide
+opens beside the machine's screen, with finished steps folded to one line and
+the current step showing what to watch for and what to type.
+New machine can open it for you: choose Install IRIX from discs. It is the app's version of
 [Install IRIX](usage.md#install-irix) from the command line. The assistant
 gets everything ready, serves the discs and lists each step with the
 machine's own release and addresses in it.
