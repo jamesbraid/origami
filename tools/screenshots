@@ -13,6 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CI = ROOT / "crates" / "origami-gtk" / "ci"
 OUT = ROOT / "docs" / "images" / "app"
 BASELINES = ROOT / "tests" / "screenshots"
+CACHE = ROOT / ".cache"  # ignored by git: downloads land here, never in /tmp
 XVFB_SCREEN = "1440x960"
 GITHUB_REPO = "jamesbraid/origami"
 
@@ -107,7 +108,8 @@ def pull(a):
         run_id = listing.stdout.strip()
         if not run_id:
             sys.exit("no successful screenshots run found: start the workflow first (Actions, screenshots, Run workflow)")
-    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR") or None) as t:
+    CACHE.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=getattr(a, "tmp", None) or CACHE) as t:
         run("gh", "run", "download", run_id, *repo, "--dir", t,
             "-n", "screenshots-linux", "-n", "screenshots-windows", "-n", "screenshots-macos")
         for artifact, platforms in (("screenshots-linux", ("linux", "cli")), ("screenshots-windows", ("windows",)), ("screenshots-macos", ("macos",))):
@@ -156,7 +158,8 @@ def baseline(a):
     global OUT
     OUT = BASELINES
     repo = ["--repo", a.repo]
-    with tempfile.TemporaryDirectory(dir=os.environ.get("TMPDIR") or None) as t:
+    CACHE.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=getattr(a, "tmp", None) or CACHE) as t:
         run("gh", "run", "download", a.run, *repo, "--dir", t, "-n", "screenshots-linux", "-n", "screenshots-windows", "-n", "screenshots-macos")
         for artifact, platform in (("screenshots-linux", "linux"), ("screenshots-windows", "windows"), ("screenshots-macos", "macos")):
             save(pathlib.Path(t) / artifact / f"{RUNNING[platform]}.png", RUNNING[platform])
@@ -192,6 +195,7 @@ def main():
         if name == "linux":
             c.add_argument("--gpu", type=int, help="run on this NVIDIA device instead of lavapipe")
     c = sub.add_parser("pull", help=HELP["pull"])
+    c.add_argument("--tmp", help="where to download the artifacts; default .cache/ in the repository")
     c.add_argument("--run", help="a workflow run id (default: the latest successful one)")
     c.add_argument("--repo", default=GITHUB_REPO, help="GitHub OWNER/NAME (origin is Forgejo); default %(default)s")
     c = sub.add_parser("compare", help=HELP["compare"])
@@ -199,6 +203,7 @@ def main():
     c.add_argument("--platform", action="append", choices=sorted(RUNNING), help="only this app (repeatable)")
     c.add_argument("--bad", type=float, default=BAD, help="the fraction of pixels that may differ; default %(default)s")
     c = sub.add_parser("baseline", help=HELP["baseline"])
+    c.add_argument("--tmp", help="where to download the artifacts; default .cache/ in the repository")
     c.add_argument("--run", required=True, help="a screenshots workflow run id")
     c.add_argument("--repo", default=GITHUB_REPO, help="GitHub OWNER/NAME; default %(default)s")
     c = sub.add_parser("windows", help=HELP["windows"])
