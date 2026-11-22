@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.7.0 - 2026-11-27
+
+Install IRIX from the app, ready-made disks, and a signed Windows
+installer.
+
+<img src="https://raw.githubusercontent.com/jamesbraid/origami/v0.7.0/docs/images/app/macos-library.png" alt="Origami on macOS: a stopped Octane2 with its Memory, Model and System cards" width="400"> <img src="https://raw.githubusercontent.com/jamesbraid/origami/v0.7.0/docs/images/app/windows-ready-disk.png" alt="New machine on Windows with the ready-made IRIX disk chosen" width="400"> <img src="https://raw.githubusercontent.com/jamesbraid/origami/v0.7.0/docs/images/app/linux-running.png" alt="Origami on Linux with an Octane2 at the IRIX login screen" width="400">
+
+- New:
+  - Install IRIX assistant: guided on any machine, automatic on machines
+    with a serial console.
+  - Ready-made IRIX disks in New Machine, downloaded and checked.
+  - Use your own disk images, copied or in place. The library shows the
+    OS on each disk.
+  - Bridged networking, and the machine ID and Ethernet address.
+  - Shared folders show the commands to mount them in IRIX.
+  - Choose the console's serial line, and upgrade older machines, from
+    the app.
+  - Signed Windows installer, app and CLI. The installer adds a Start
+    menu entry and puts `origami` on PATH.
+- Changed:
+  - A redesigned window on every platform: plainer words, a calmer
+    toolbar, clear state cards, and a guide that walks you through
+    installing IRIX.
+  - The install shows how far the machine has loaded the installer, and
+    says why the media server stopped.
+  - The picture fills the window and no longer jumps when you resize or
+    bring a machine back to the main window.
+- Fixed:
+  - Stopping a machine, or `halt -p`, now reads as stopped, not as a
+    crash or an error.
+  - Windows machines losing their runner seconds after starting.
+
 ## 0.6.1 - 2026-11-19
 
 More platforms, a signed Mac app and a smoother mouse. Bundles QEMU
