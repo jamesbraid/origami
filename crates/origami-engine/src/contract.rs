@@ -394,8 +394,10 @@ pub fn lifecycle(h: &dyn Harness) {
 /// A launch whose console port is already taken still starts, on another.
 pub fn launch_survives_a_taken_port(h: &dyn Harness) {
     let fixture = fixture(h, "taken-port", true);
-    let wiring = h.wiring("taken-port");
-    let _held = std::net::TcpListener::bind(("127.0.0.1", wiring.console_port)).expect("hold");
+    let mut wiring = h.wiring("taken-port");
+    // Bind first and hand that port over, so no other test can take it in between.
+    let held = std::net::TcpListener::bind("127.0.0.1:0").expect("hold");
+    wiring.console_port = held.local_addr().expect("held port").port();
     let plan = h
         .engine()
         .plan(&fixture.machine, &fixture.dir, &wiring)
