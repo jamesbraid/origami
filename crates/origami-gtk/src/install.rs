@@ -7,9 +7,10 @@ use crate::{disks, library, window};
 use adw::prelude::*;
 use gtk::glib;
 use origami_core::facade::{
-    disk_labels, install_media_folder, install_releases, texts, BootConsole, CheckState,
-    CloseAction, CloseQuestion, Core, CoreResult, DiskState, GuideStep, InstallFlow, InstallGuide,
-    InstallPlan, InstallStep, MachineState, MediaFolder, Operation, OperationState, StopKind,
+    disk_labels, install_media_folder, install_releases, texts, ApplyState, BootConsole,
+    CheckState, CloseAction, CloseQuestion, Core, CoreResult, DiskState, GuideStep, InstallFailure,
+    InstallFlow, InstallGuide, InstallMethod, InstallPlan, InstallStep, MachineState, MediaFolder,
+    Operation, OperationState, StopKind,
 };
 use origami_core::{Change, Kind};
 use std::cell::{Cell, RefCell};
@@ -67,6 +68,10 @@ struct Asst {
     ticks: RefCell<HashSet<(usize, usize)>>,
     type_buttons: RefCell<Vec<gtk::Button>>,
     server: RefCell<Server>,
+    apply_op: RefCell<Option<Operation>>,
+    apply_msg: RefCell<String>,
+    /// Bumped on every step change, so a page's timer ends with its page.
+    page: Cell<u32>,
     check_op: RefCell<Option<Operation>>,
     /// The machine's install setup is written, so the check need not write it again.
     set_up: Cell<bool>,
@@ -83,6 +88,16 @@ struct Asst {
     cancel: gtk::Button,
     back: gtk::Button,
     next: gtk::Button,
+}
+
+/// The last `NN%` in a console line.
+fn last_percent(line: &str) -> Option<u32> {
+    let head = &line[..line.rfind('%')?];
+    let digits = head.len() - head.trim_end_matches(|c: char| c.is_ascii_digit()).len();
+    head[head.len() - digits..]
+        .parse()
+        .ok()
+        .filter(|p| *p <= 100)
 }
 
 fn col(spacing: i32) -> gtk::Box {
@@ -260,6 +275,7 @@ impl Asst {
         if pending {
             flow.set_prepared();
         }
+        flow.set_serial(serial);
         let title = format!("Install IRIX: {}", m.name);
         let win = named(
             adw::Window::builder()
@@ -370,6 +386,9 @@ impl Asst {
             ticks: RefCell::new(HashSet::new()),
             type_buttons: RefCell::new(Vec::new()),
             server: RefCell::new(Server::Off),
+            apply_op: RefCell::new(None),
+            apply_msg: RefCell::new(String::new()),
+            page: Cell::new(0),
             check_op: RefCell::new(None),
             seen_up: Cell::new(false),
             busy: Cell::new(false),
@@ -505,11 +524,17 @@ impl Asst {
         )
     }
 
+    /// The media server or the automated install is running.
     fn server_running(&self) -> bool {
-        matches!(&*self.server.borrow(), Server::Running(op) if !op.state().is_finished())
+        let live = |op: &Operation| !op.state().is_finished();
+        matches!(&*self.server.borrow(), Server::Running(op) if live(op))
+            || self.apply_op.borrow().as_ref().is_some_and(live)
     }
 
     fn stop_server(&self) {
+        if let Some(op) = self.apply_op.borrow().as_ref() {
+            op.cancel();
+        }
         if let Server::Running(op) = self.server.replace(Server::Off) {
             op.cancel();
         }
@@ -529,13 +554,15 @@ impl Asst {
             op.cancel();
         }
         let step = self.step();
+        self.page.set(self.page.get() + 1);
         self.error.set_visible(false);
         while let Some(c) = self.content.first_child() {
             self.content.remove(&c);
         }
         self.type_buttons.borrow_mut().clear();
+        let steps = self.flow.borrow().steps();
         for (i, r) in self.rows.iter().enumerate() {
-            let on = i == step as usize;
+            let on = steps.get(i) == Some(&step);
             r.set_css_classes(&[if on { "heading" } else { "dim-label" }]);
         }
         let title = named(text(step.title()), "install.step");
@@ -545,8 +572,13 @@ impl Asst {
             InstallStep::Release => self.release_page(),
             InstallStep::Media => self.media_page(),
             InstallStep::Software => self.software_page(),
+            InstallStep::Method => self.method_page(),
             InstallStep::Disk => self.disk_page(),
             InstallStep::Check => self.check_page(),
+            InstallStep::Packages if self.flow.borrow().automatic() => self.apply_page(),
+            InstallStep::Finish if self.flow.borrow().automatic() => self
+                .content
+                .append(&text("IRIX is installed and the machine is stopped.")),
             _ if self.guide.borrow().is_some() => self.guide_page(step),
             _ => self.enter_prepare(),
         }
@@ -596,6 +628,32 @@ impl Asst {
                 me.flow.borrow_mut().restart(disk_labels().default_gb);
                 me.go();
             },
+        );
+    }
+
+    fn method_page(self: &Rc<Self>) {
+        self.content.append(&text("How should the install run?"));
+        let on = self.flow.borrow().method() == InstallMethod::Automatic;
+        let mut group = None;
+        let auto = radio("Automatic", "install.method.auto", on, &mut group);
+        let guided = radio("Guided", "install.method.guided", !on, &mut group);
+        let me = self.clone();
+        auto.connect_toggled(move |b| {
+            let m = if b.is_active() {
+                InstallMethod::Automatic
+            } else {
+                InstallMethod::Guided
+            };
+            me.flow.borrow_mut().set_method(m);
+        });
+        append(
+            &self.content,
+            &[
+                auto.upcast_ref(),
+                note("Origami types the package commands for you, logs in when they finish and shuts IRIX down.").upcast_ref(),
+                guided.upcast_ref(),
+                note("You type each command in the console. Origami shows each step.").upcast_ref(),
+            ],
         );
     }
 
@@ -1115,6 +1173,116 @@ impl Asst {
         );
     }
 
+    /// Take the automated install's outcome once its operation ends.
+    fn poll_apply(&self) {
+        let op = self.apply_op.borrow().clone();
+        let Some(op) = op.filter(|op| op.state().is_finished()) else {
+            return;
+        };
+        self.apply_op.take();
+        let state = match op.state() {
+            OperationState::Succeeded => ApplyState::Done,
+            OperationState::Failed(e) => {
+                *self.apply_msg.borrow_mut() = e.to_string();
+                ApplyState::Failed(op.install_failure().unwrap_or(InstallFailure::Setup))
+            }
+            _ => ApplyState::Failed(op.install_failure().unwrap_or(InstallFailure::Cancelled)),
+        };
+        self.flow.borrow_mut().set_apply(state);
+    }
+
+    fn apply_page(self: &Rc<Self>) {
+        let install = button("Install", "install.apply");
+        install.add_css_class("suggested-action");
+        let hint = named(text(""), "install.apply.hint");
+        let bar = gtk::ProgressBar::new();
+        let line = named(text(""), "install.apply.progress");
+        let stop = button("Cancel Install", "install.apply.cancel");
+        let failure = named(text(""), "install.apply.error");
+        failure.add_css_class("error");
+        let fixed = button("I fixed it at Inst>", "install.apply.fixed");
+        let console = button("Open Console", "install.open-console");
+        append(
+            &self.content,
+            &[
+                hint.upcast_ref(),
+                install.upcast_ref(),
+                bar.upcast_ref(),
+                line.upcast_ref(),
+                stop.upcast_ref(),
+                failure.upcast_ref(),
+                fixed.upcast_ref(),
+                console.upcast_ref(),
+            ],
+        );
+        let (app, m) = (self.app.clone(), self.m.clone());
+        console.connect_clicked(move |_| crate::console::present(&app, &m));
+        let me = self.clone();
+        stop.connect_clicked(move |_| {
+            if let Some(op) = me.apply_op.borrow().as_ref() {
+                op.cancel();
+            }
+        });
+        let me = self.clone();
+        fixed.connect_clicked(move |_| {
+            me.flow.borrow_mut().fixed();
+            me.go();
+        });
+        let me = self.clone();
+        install.connect_clicked(move |_| {
+            me.flow.borrow_mut().set_apply(ApplyState::Running);
+            let (core, key) = (me.app.core.clone(), me.key());
+            me.work(
+                move || core.install_apply_from(&key).map_err(|e| e.to_string()),
+                |me, r| match r {
+                    Ok(op) => *me.apply_op.borrow_mut() = Some(op),
+                    Err(e) => {
+                        *me.apply_msg.borrow_mut() = e;
+                        let failed = ApplyState::Failed(InstallFailure::Setup);
+                        me.flow.borrow_mut().set_apply(failed);
+                    }
+                },
+            );
+        });
+        let (weak, gen) = (Rc::downgrade(self), self.page.get());
+        let render = move || {
+            let Some(me) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if me.closing.get() || me.page.get() != gen {
+                return glib::ControlFlow::Break;
+            }
+            me.poll_apply();
+            let up = me.machine_up();
+            let (state, hint_text, can_install, can_fixed) = {
+                let f = me.flow.borrow();
+                (f.apply(), f.apply_hint(), f.can_install(up), f.can_fixed())
+            };
+            hint.set_label(&hint_text);
+            install.set_sensitive(can_install);
+            fixed.set_visible(can_fixed);
+            let progress = me.apply_op.borrow().as_ref().map(|op| op.progress());
+            match progress.as_deref().and_then(last_percent) {
+                Some(p) => bar.set_fraction(f64::from(p) / 100.0),
+                None => bar.pulse(),
+            }
+            line.set_label(progress.as_deref().unwrap_or(""));
+            for w in [
+                bar.upcast_ref::<gtk::Widget>(),
+                line.upcast_ref(),
+                stop.upcast_ref(),
+            ] {
+                w.set_visible(state == ApplyState::Running);
+            }
+            failure.set_label(&me.apply_msg.borrow());
+            failure.set_visible(matches!(state, ApplyState::Failed(_)));
+            me.update_nav();
+            glib::ControlFlow::Continue
+        };
+        render();
+        glib::timeout_add_local(Duration::from_millis(300), render);
+    }
+
     fn guide_page(self: &Rc<Self>, step: InstallStep) {
         let Some(guide) = self.guide.borrow().clone() else {
             return;
@@ -1126,6 +1294,9 @@ impl Asst {
             _ => (guide.finish, None),
         };
         if step == InstallStep::Packages {
+            if self.flow.borrow().by_hand() {
+                steps.clear();
+            }
             steps.extend(guide.restart);
         }
         if step != InstallStep::Finish {
