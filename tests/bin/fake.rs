@@ -50,7 +50,8 @@
 //! - `in TEXT`: the guest waits until the host has sent TEXT, and
 //!   consumes the input through it;
 //! - `wait MS`: pause;
-//! - `close`: the guest closes the console.
+//! - `close`: the guest closes the console;
+//! - `poweroff`: the guest powers the machine off, which ends this program.
 //!
 //! When the script ends the console stays open and discards input, as a
 //! running guest's does.
@@ -452,7 +453,7 @@ fn foreground(switches: &Switches) -> Result<(), String> {
                 let _ = sink.write_all(&text);
                 let _ = sink.flush();
             }
-            Step::Close => break,
+            Step::Close | Step::Poweroff => break,
             Step::In(_) | Step::Wait(_) => {}
         }
     }
@@ -677,6 +678,7 @@ enum Step {
     In(Vec<u8>),
     Wait(u64),
     Close,
+    Poweroff,
 }
 
 fn guest_script(switches: &Switches) -> Result<String, String> {
@@ -743,6 +745,7 @@ fn parse_script(script: &str) -> Result<Vec<Step>, String> {
                     .map_err(|_| at("wait needs milliseconds".into()))?,
             ),
             "close" => Step::Close,
+            "poweroff" => Step::Poweroff,
             other => return Err(at(format!("unknown directive {other}"))),
         });
     }
@@ -790,6 +793,10 @@ fn play(mut stream: TcpStream, script: &str, log: &Log) {
             Step::Close => {
                 log.line("console closed by the guest");
                 return;
+            }
+            Step::Poweroff => {
+                log.line("powered off by the guest");
+                std::process::exit(0);
             }
             Step::In(wanted) => {
                 let started = Instant::now();

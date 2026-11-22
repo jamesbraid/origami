@@ -1726,6 +1726,7 @@ fn a_cached_ready_disk_is_copied_into_the_machine_and_the_cache_is_left_alone() 
 
 fn setup(release: &str, profile: &str, addons: &[&str]) -> InstallSetup {
     InstallSetup {
+        method: None,
         release: release.into(),
         profile: profile.into(),
         media_root: None,
@@ -1749,6 +1750,8 @@ fn the_install_setup_is_prepared_read_back_and_reset() {
         .install_prepare(&key, &setup("6.5.30", "standard", &["mipspro"]))
         .unwrap();
     let plan = f.core.install_plan(&key).unwrap().unwrap();
+    // A setup written before the method was stored reads as Guided.
+    assert_eq!(plan.method, InstallMethod::Guided);
     assert_eq!(
         (
             plan.release.as_str(),
@@ -2007,4 +2010,47 @@ fn the_boot_console_is_serial_for_a_headless_machine_and_screen_for_one_with_gra
     std::fs::write(&toml, format!("{text}{}", pipe("rad4"))).unwrap();
     let rad4 = fixture_in(f.root.path()).core.open_machine(&key).unwrap();
     assert_eq!(rad4.boot_console().unwrap(), BootConsole::Serial);
+}
+
+#[test]
+fn a_stopped_install_names_how_far_it_got() {
+    use super::install::failure_kind as kind;
+    use origami_machine::install::ApplyStage::*;
+    assert_eq!(kind(Prompt, false, false), InstallFailure::Setup);
+    assert_eq!(kind(Packages, true, false), InstallFailure::Conflict);
+    assert_eq!(kind(Packages, false, false), InstallFailure::Lost);
+    assert_eq!(kind(Packages, false, true), InstallFailure::Cancelled);
+    // A cancel keeps its stage once the packages are in.
+    assert_eq!(kind(Login, false, true), InstallFailure::Login);
+    assert_eq!(kind(Shutdown, false, true), InstallFailure::Shutdown);
+    assert_eq!(kind(Login, false, false), InstallFailure::Login);
+}
+
+#[test]
+fn an_automated_install_will_not_type_unless_the_console_ends_at_inst() {
+    let f = fixture();
+    let (machine, session) = f.started("o200");
+    session.say("Option? ");
+    for _ in 0..500 {
+        let end = machine.console_read(u64::MAX, 0).next;
+        if machine
+            .console_read(end.saturating_sub(8), 8)
+            .bytes
+            .ends_with(b"Option? ")
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let error = f.core.install_apply_from(machine.key()).err().unwrap();
+    assert_eq!(error.kind, ErrorKind::Invalid);
+    assert!(error.message.contains("not at Inst>"), "{error}");
+}
+
+#[test]
+fn a_server_that_ends_after_a_halted_install_is_not_an_error() {
+    let halted = Mutex::new(std::collections::HashSet::new());
+    assert!(!super::install::server_ended_normally(&halted, "m"));
+    halted.lock().unwrap().insert("m".into());
+    assert!(super::install::server_ended_normally(&halted, "m"));
 }

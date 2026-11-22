@@ -3,7 +3,9 @@
 //! and the media server is a child the operation owns.
 
 use crate::{engine, root, support};
-use origami_core::facade::{Config, Core, ErrorKind, InstallStart, Operation, OperationState};
+use origami_core::facade::{
+    Config, Core, ErrorKind, InstallFailure, InstallStart, Operation, OperationState,
+};
 use origami_machine::control;
 use origami_protocol::{Client, ConsoleData, Event, Request};
 use std::fs;
@@ -149,6 +151,63 @@ fn an_install_holds_the_lease_and_a_viewer_beside_it_is_read_only() {
     wait_until("the lease to be free", TIMEOUT, || {
         client(&machine).call_data(&lease()).is_ok()
     });
+}
+
+/// The recorded install behind an `Inst>` prompt that is already showing.
+fn at_prompt(then: &str) -> String {
+    let script = include_str!("../fixtures/guests/install-6.5.30-minimal.txt");
+    let after_menu = script.split_once("in \\n\n").unwrap().1;
+    format!("out Inst>\\x20\nin \\n\n{after_menu}{then}")
+}
+
+#[test]
+fn an_automated_install_logs_in_and_halts_the_guest() {
+    let machine = machine("halt");
+    let core = core();
+    let script = at_prompt(
+        "in root\\n\nout TERM = (vt100)\\x20\nin \\n\nout #\\x20\nin halt -p\\n\npoweroff\n",
+    );
+    let _running = run(&machine, &script, &[]);
+    let install = core.install_apply_from(machine.to_str().unwrap()).unwrap();
+    // The guest only powers off when it was sent root and halt -p.
+    assert_eq!(install.wait(Some(TIMEOUT)), OperationState::Succeeded);
+    assert_eq!(install.install_failure(), None);
+}
+
+#[test]
+fn an_automated_install_that_stops_at_a_conflict_leaves_the_guest_running() {
+    let machine = machine("conflict");
+    let core = core();
+    let script = "out Inst>\\x20\nin \\n\nin admin source\nin \\n\nout ERROR: Conflicts must be resolved.\\r\\n\nout Inst>\\x20\n";
+    let _running = run(&machine, script, &[]);
+    let install = core.install_apply_from(machine.to_str().unwrap()).unwrap();
+    let OperationState::Failed(error) = install.wait(Some(TIMEOUT)) else {
+        panic!("the install should fail")
+    };
+    assert!(
+        error.message.contains("unresolved installation conflicts"),
+        "{error}"
+    );
+    assert_eq!(install.install_failure(), Some(InstallFailure::Conflict));
+    let status = client(&machine).call_data(&Request::Status {}).unwrap();
+    assert_eq!(status["state"], "running");
+}
+
+#[test]
+fn cancelling_while_the_machine_powers_off_is_a_cancel_not_a_success() {
+    let machine = machine("halt-cancel");
+    let core = core();
+    // The guest takes halt -p and never powers off.
+    let script =
+        at_prompt("in root\\n\nout TERM = (vt100)\\x20\nin \\n\nout #\\x20\nin halt -p\\n\n");
+    let _running = run(&machine, &script, &[]);
+    let install = core.install_apply_from(machine.to_str().unwrap()).unwrap();
+    wait_until("halt to be typed", TIMEOUT, || {
+        support::fake_log(&machine).contains(&"script finished".to_string())
+    });
+    assert!(install.cancel());
+    assert_eq!(install.wait(Some(TIMEOUT)), OperationState::Cancelled);
+    assert_eq!(install.install_failure(), Some(InstallFailure::Shutdown));
 }
 
 fn pump(from: &mut impl std::io::Read, to: &mpsc::Sender<String>) {
@@ -435,6 +494,7 @@ fn a_second_server_and_a_setup_under_a_live_server_are_refused() {
     let error = core.install_serve(key).err().unwrap();
     assert_eq!(error.kind, ErrorKind::Busy);
     let setup = origami_core::facade::InstallSetup {
+        method: None,
         release: "6.5.30".into(),
         profile: "minimal".into(),
         media_root: None,

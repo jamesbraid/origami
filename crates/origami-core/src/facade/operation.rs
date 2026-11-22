@@ -33,8 +33,26 @@ struct Inner {
     fraction: Mutex<Option<f32>>,
     /// The machine a cancelled create left behind, for `result_machine`.
     kept: Mutex<Option<String>>,
+    install_failure: Mutex<Option<InstallFailure>>,
     changed: Condvar,
     slot: Arc<Slot>,
+}
+
+/// How an automated install stopped, so a front end knows what to offer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstallFailure {
+    /// The guest was not at `Inst>` and nothing was typed: it may be tried again.
+    Setup,
+    /// inst reported a conflict or a failed command, or went quiet.
+    Conflict,
+    /// Origami lost the console or the machine died while the packages were
+    /// going in: where the guest is, is unknown.
+    Lost,
+    /// The packages are in; the guest restarted but Origami could not log in.
+    Login,
+    /// Logged in, but `halt -p` did not power the machine off.
+    Shutdown,
+    Cancelled,
 }
 
 /// A running long call. Clones share it.
@@ -56,6 +74,10 @@ impl Control {
     pub(crate) fn progress(&self, text: impl Into<String>) {
         *self.0.progress.lock().unwrap() = text.into();
         self.0.slot.raise(&[EventKind::Operation]);
+    }
+
+    pub(crate) fn install_failure(&self, kind: InstallFailure) {
+        *self.0.install_failure.lock().unwrap() = Some(kind);
     }
 
     /// How far along the work is, 0 to 1.
@@ -96,6 +118,11 @@ impl Operation {
     /// The latest line of progress the work reported; empty before any.
     pub fn progress(&self) -> String {
         self.inner.progress.lock().unwrap().clone()
+    }
+
+    /// How an automated install stopped, once it has.
+    pub fn install_failure(&self) -> Option<InstallFailure> {
+        *self.inner.install_failure.lock().unwrap()
     }
 
     /// How far along the work is, 0 to 1, when it says.
@@ -159,6 +186,7 @@ where
         progress: Mutex::new(String::new()),
         fraction: Mutex::new(None),
         kept: Mutex::new(None),
+        install_failure: Mutex::new(None),
         changed: Condvar::new(),
         slot,
     });

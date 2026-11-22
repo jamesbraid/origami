@@ -568,6 +568,7 @@ fn command(action: Action) -> Result<()> {
                     connect_install_console(dir, attached, Arc::new(|| false))
                 },
                 &mut std::io::stdout(),
+                false,
             )?;
         }
         Action::InstallCheck { machine, full } => {

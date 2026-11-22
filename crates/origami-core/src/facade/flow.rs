@@ -2,8 +2,10 @@
 //! steps, so the three apps share one behaviour and keep only their widgets.
 
 use super::install::{
-    InstallAddonChoice, InstallPlan, InstallRelease, InstallSetup, InstallSetupAddon, MediaFolder,
+    InstallAddonChoice, InstallMethod, InstallPlan, InstallRelease, InstallSetup,
+    InstallSetupAddon, MediaFolder,
 };
+use super::operation::InstallFailure;
 use std::path::PathBuf;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -11,6 +13,7 @@ pub enum InstallStep {
     Release,
     Media,
     Software,
+    Method,
     Disk,
     Check,
     Prepare,
@@ -25,6 +28,7 @@ impl InstallStep {
             Self::Release => "Release",
             Self::Media => "Media",
             Self::Software => "Software",
+            Self::Method => "Method",
             Self::Disk => "Disk",
             Self::Check => "Check",
             Self::Prepare => "Prepare the disk",
@@ -35,10 +39,11 @@ impl InstallStep {
     }
 }
 
-const ALL: [InstallStep; 9] = [
+const ALL: [InstallStep; 10] = [
     InstallStep::Release,
     InstallStep::Media,
     InstallStep::Software,
+    InstallStep::Method,
     InstallStep::Disk,
     InstallStep::Check,
     InstallStep::Prepare,
@@ -99,15 +104,23 @@ pub mod texts {
     pub const PASSED: &str = "All sources answered.";
     pub const FINISHED: &str = "IRIX is installed. Start the machine to use it.";
     pub const QUIT_HEADING: &str = "An IRIX install is running.";
-    pub const QUIT_TEXT: &str =
-        "Quitting stops the install server and the machine. The install will have to start again.";
-    pub const TAB_TEXT: &str = "Closing this tab stops the install server and the machine. The install will have to start again.";
+    pub const QUIT_TEXT: &str = "Quitting stops the install server and the machine, and cancels an automated install. The install will have to start again.";
+    pub const TAB_TEXT: &str = "Closing this tab stops the install server and the machine, and cancels an automated install. The install will have to start again.";
     pub const KEEP: &str = "Keep Installing";
     pub const STOP_AND_CLOSE: &str = "Stop and Close";
     pub const STOP_AND_QUIT: &str = "Stop and Quit";
     pub const CHECK_INTRO: &str = "Origami will switch this machine to the private installation network until the install is done. Then it checks every disc.";
     pub const MEDIA_DOWNLOAD: &str = "Fetched while the install runs, so the internet must stay connected until the install finishes.";
     pub const MEDIA_FOLDER: &str = "A folder of disc images I already have";
+}
+
+/// Where the automated install is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplyState {
+    Idle,
+    Running,
+    Done,
+    Failed(InstallFailure),
 }
 
 pub struct InstallFlow {
@@ -126,6 +139,10 @@ pub struct InstallFlow {
     new_disk_gb: u32,
     erase: bool,
     check: CheckState,
+    serial: bool,
+    method: InstallMethod,
+    apply: ApplyState,
+    by_hand: bool,
 }
 
 impl InstallFlow {
@@ -147,6 +164,10 @@ impl InstallFlow {
             new_disk_gb,
             erase: false,
             check: CheckState::Ready,
+            serial: false,
+            method: plan.as_ref().map_or(InstallMethod::Automatic, |p| p.method),
+            apply: ApplyState::Idle,
+            by_hand: false,
             releases,
         };
         match plan {
@@ -172,8 +193,92 @@ impl InstallFlow {
         self.step
     }
 
+    /// The steps this machine has: Method only on a serial console, and
+    /// not once a setup exists.
     pub fn steps(&self) -> Vec<InstallStep> {
-        ALL.to_vec()
+        ALL.into_iter().filter(|s| self.has(*s)).collect()
+    }
+
+    fn has(&self, step: InstallStep) -> bool {
+        step != InstallStep::Method || (self.serial && !self.resumed)
+    }
+
+    /// Whether the PROM prints on the serial line, so the install can be typed.
+    pub fn set_serial(&mut self, serial: bool) {
+        self.serial = serial;
+    }
+
+    pub fn serial(&self) -> bool {
+        self.serial
+    }
+
+    pub fn method(&self) -> InstallMethod {
+        self.method
+    }
+
+    pub fn set_method(&mut self, method: InstallMethod) {
+        self.method = method;
+    }
+
+    /// Origami types the package commands.
+    pub fn automatic(&self) -> bool {
+        self.serial && self.method == InstallMethod::Automatic && !self.by_hand
+    }
+
+    pub fn apply(&self) -> ApplyState {
+        self.apply
+    }
+
+    pub fn set_apply(&mut self, apply: ApplyState) {
+        self.apply = apply;
+    }
+
+    /// Install is offered: the guest is at `Inst>` (or nothing was typed).
+    pub fn can_install(&self, machine_up: bool) -> bool {
+        self.automatic()
+            && machine_up
+            && matches!(
+                self.apply,
+                ApplyState::Idle | ApplyState::Failed(InstallFailure::Setup)
+            )
+    }
+
+    /// "I fixed it at Inst>" is offered: the person finished by hand.
+    pub fn can_fixed(&self) -> bool {
+        self.automatic()
+            && matches!(
+                self.apply,
+                ApplyState::Failed(
+                    InstallFailure::Conflict | InstallFailure::Cancelled | InstallFailure::Lost
+                )
+            )
+    }
+
+    /// The person took over: the rest of the install is the guided list
+    /// from `quit` on.
+    pub fn fixed(&mut self) {
+        self.by_hand = true;
+        self.apply = ApplyState::Idle;
+    }
+
+    pub fn by_hand(&self) -> bool {
+        self.by_hand
+    }
+
+    /// What to tell the person about the automated install's state.
+    pub fn apply_hint(&self) -> String {
+        match self.apply {
+            ApplyState::Idle => "At Inst>, press Install. Origami types the package commands, restarts the machine, logs in and shuts IRIX down.",
+            ApplyState::Running => "The Console is read-only while Origami types.",
+            ApplyState::Done => "The install finished and IRIX shut down.",
+            ApplyState::Failed(InstallFailure::Setup) => "The guest is not at Inst>. Get it there in the Console, then press Install.",
+            ApplyState::Failed(InstallFailure::Conflict) => "The install stopped with the guest at Inst>. Open the Console and fix it there, then press I fixed it at Inst>.",
+            ApplyState::Failed(InstallFailure::Lost) => "Origami lost the console, or the machine stopped, while the packages were going in. Open the Console to see where the install is. When the guest is back at Inst> and the packages are in, press I fixed it at Inst>.",
+            ApplyState::Failed(InstallFailure::Cancelled) => "The install was cancelled and the guest keeps running. Finish it in the Console, then press I fixed it at Inst>.",
+            ApplyState::Failed(InstallFailure::Login) => "The packages are installed, but Origami could not log in. Open the Console and log in as root, type halt -p, and wait for the machine to stop.",
+            ApplyState::Failed(InstallFailure::Shutdown) => "The packages are installed, but IRIX did not power off. Open the Console and type halt -p, and wait for the machine to stop.",
+        }
+        .into()
     }
 
     pub fn resumed(&self) -> bool {
@@ -340,6 +445,11 @@ impl InstallFlow {
     pub fn can_continue(&self, machine_up: bool) -> bool {
         match self.step {
             InstallStep::Media => !self.use_folder || self.folder_complete,
+            InstallStep::Packages if self.automatic() => match self.apply {
+                ApplyState::Done => true,
+                ApplyState::Failed(InstallFailure::Login | InstallFailure::Shutdown) => !machine_up,
+                _ => false,
+            },
             InstallStep::Disk => match self.disk {
                 DiskState::Unknown => false,
                 DiskState::Present(_) => self.erase,
@@ -360,8 +470,11 @@ impl InstallFlow {
     }
 
     pub fn next(&mut self) {
-        if let Some(next) = ALL.get(self.step as usize + 1) {
-            self.step = *next;
+        let steps = self.steps();
+        if let Some(at) = steps.iter().position(|s| *s == self.step) {
+            if let Some(next) = steps.get(at + 1) {
+                self.step = *next;
+            }
         }
     }
 
@@ -373,14 +486,18 @@ impl InstallFlow {
             // The choices may change before the check is asked again.
             self.check = CheckState::Ready;
         }
-        self.step = ALL[self.step as usize - 1];
+        let steps = self.steps();
+        if let Some(at) = steps.iter().position(|s| *s == self.step) {
+            self.step = steps[at.saturating_sub(1)];
+        }
     }
 
     /// Start over, after the machine's setup was forgotten.
     pub fn restart(&mut self, new_disk_gb: u32) {
         let releases = std::mem::take(&mut self.releases);
-        let prepared = self.prepared;
+        let (serial, prepared) = (self.serial, self.prepared);
         *self = Self::new(releases, None, new_disk_gb);
+        self.serial = serial;
         self.prepared = prepared;
     }
 
@@ -397,6 +514,7 @@ impl InstallFlow {
             });
         let extras = self.extras.iter().cloned();
         InstallSetup {
+            method: self.serial.then_some(self.method),
             release: self.release.clone(),
             profile: self.profile.clone(),
             media_root: self.use_folder.then(|| self.folder.clone()).flatten(),
@@ -411,6 +529,10 @@ impl InstallFlow {
             return None;
         }
         let (heading, text) = match self.step {
+            InstallStep::Packages if self.apply == ApplyState::Running => (
+                "Stop the machine?",
+                "An automated install is typing. Closing cancels it, and stopping the machine ends the install: the disk will have to be erased and installed again.",
+            ),
             InstallStep::Prepare | InstallStep::Installer | InstallStep::Packages => (
                 "Stop the machine?",
                 "The install is partway through. Stopping the machine ends it, and the disk will have to be erased and installed again.",
@@ -528,6 +650,7 @@ mod tests {
     fn a_resumed_assistant_starts_at_disk_and_cannot_go_back() {
         let plan = InstallPlan {
             summary: String::new(),
+            method: InstallMethod::Guided,
             release: "6.5.30".into(),
             profile: "standard".into(),
             local_media: false,
@@ -586,5 +709,60 @@ mod tests {
         assert_eq!(setup.addons[0].install, ["TABLET.sw", "TABLET.man"]);
         f.remove_extra(0);
         assert!(f.setup().addons.is_empty());
+    }
+
+    #[test]
+    fn a_serial_machine_has_a_method_step_and_the_apply_state_gates_continue() {
+        let mut f = flow();
+        f.set_serial(true);
+        assert!(f.steps().contains(&InstallStep::Method));
+        f.next();
+        f.next();
+        f.next();
+        assert_eq!(f.step(), InstallStep::Method);
+        f.next();
+        assert_eq!(f.step(), InstallStep::Disk);
+        f.back();
+        assert_eq!(f.step(), InstallStep::Method);
+        assert_eq!(f.setup().method, Some(InstallMethod::Automatic));
+        f.set_method(InstallMethod::Guided);
+        assert_eq!(f.setup().method, Some(InstallMethod::Guided));
+        f.set_method(InstallMethod::Automatic);
+        while f.step() != InstallStep::Packages {
+            f.next();
+        }
+        assert!(f.can_install(true) && !f.can_continue(false));
+        f.set_apply(ApplyState::Running);
+        assert!(!f.can_install(true));
+        f.set_apply(ApplyState::Failed(InstallFailure::Setup));
+        assert!(f.can_install(true) && !f.can_fixed());
+        f.set_apply(ApplyState::Failed(InstallFailure::Conflict));
+        assert!(!f.can_install(true) && f.can_fixed() && !f.can_continue(false));
+        f.set_apply(ApplyState::Failed(InstallFailure::Login));
+        assert!(!f.can_continue(true), "the guest still runs");
+        assert!(f.can_continue(false), "stopped by hand, on to Finish");
+        f.set_apply(ApplyState::Failed(InstallFailure::Conflict));
+        f.fixed();
+        assert!(!f.automatic() && f.can_continue(false));
+        f.set_apply(ApplyState::Done);
+        assert!(f.apply_hint().contains("shut down"));
+    }
+
+    #[test]
+    fn a_screen_machine_is_guided_and_a_resumed_plan_keeps_its_method() {
+        let mut f = flow();
+        assert!(!f.steps().contains(&InstallStep::Method) && !f.automatic());
+        f.set_serial(true);
+        let plan = InstallPlan {
+            summary: String::new(),
+            method: InstallMethod::Automatic,
+            release: "6.5.30".into(),
+            profile: "standard".into(),
+            local_media: false,
+            addons: vec![],
+        };
+        let mut r = InstallFlow::new(install_releases(), Some(plan), 4);
+        r.set_serial(true);
+        assert!(r.automatic() && !r.steps().contains(&InstallStep::Method));
     }
 }

@@ -23,6 +23,10 @@ pub struct InstallMedia {
     pub media: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub addons: Vec<InstallAddon>,
+    /// How an app runs the install: `automatic` or `guided`. The command
+    /// line ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -268,6 +272,19 @@ const STANDARD_INSTALL_SCRIPT: &str = "irix";
 const POST_INSTALL: &[&str] = &["chkconfig -f autoconfig_ipaddress on", "nvram AutoLoad Yes"];
 /// Instigator's post-install file prints this once every command succeeded.
 const POST_INSTALL_DONE: &[u8] = b"instigator: post-install commands finished";
+/// inst printed a conflict or a failing command, or went quiet: the guest
+/// is mid-install and a person has to look at it.
+#[derive(Debug)]
+pub struct Stopped(pub String);
+
+impl std::fmt::Display for Stopped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Stopped {}
+
 /// inst prints this for a failing command and skips the rest of the file.
 const COMMAND_FAILED: &[u8] = b"(command failed)";
 
@@ -346,6 +363,7 @@ fn init_sources(
         } else {
             vec![]
         },
+        method: None,
     };
     let old_network = file.network.clone();
     let old_identity = file.identity.clone();
@@ -449,6 +467,17 @@ pub fn add_addon(
     let path = dir.join("install/media.toml");
     fs::write(&path, toml::to_string_pretty(&media)?)?;
     Ok(path)
+}
+
+/// Record how an app runs the install in the machine's media list.
+pub fn set_method(dir: &Path, method: Option<&str>) -> Result<()> {
+    let mut media = read_media(dir)?;
+    media.method = method.map(str::to_owned);
+    fs::write(
+        dir.join("install/media.toml"),
+        toml::to_string_pretty(&media)?,
+    )?;
+    Ok(())
 }
 
 pub fn read_media(dir: &Path) -> Result<InstallMedia> {
@@ -796,10 +825,11 @@ impl InstallProgress {
             pending.windows(marker.len()).any(|window| window == marker)
         };
         if contains(&self.post_install_pending, COMMAND_FAILED) {
-            return Err(
+            return Err(Stopped(
                 "an inst command failed; post-install commands did not finish; guest remains running"
                     .into(),
-            );
+            )
+            .into());
         }
         if contains(&self.post_install_pending, POST_INSTALL_DONE) {
             self.post_install_done = true;
@@ -935,12 +965,12 @@ impl Console {
                         self.send(format!("{choice}\n"))?;
                     }
                     if conflict_prompt {
-                        return Err("IRIX reported unresolved installation conflicts; guest remains running".into());
+                        return Err(Stopped("IRIX reported unresolved installation conflicts; guest remains running".into()).into());
                     }
                     progress.observe_post_install(&chunk[..count])?;
                     if progress.observe(&chunk[..count]) {
                         if !progress.post_install_done {
-                            return Err("inst returned without finishing the post-install commands; guest remains running".into());
+                            return Err(Stopped("inst returned without finishing the post-install commands; guest remains running".into()).into());
                         }
                         return Ok(());
                     }
@@ -983,13 +1013,61 @@ fn check_quit(output: &str) -> Result<()> {
     Ok(())
 }
 
+/// Where `apply` was when it failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplyStage {
+    /// The guest never reached `Inst>`: nothing was typed.
+    Prompt,
+    /// The installer was typing or waiting for the packages.
+    Packages,
+    /// The packages are in; the guest restarted or would not log in.
+    Login,
+    /// Logged in; `halt -p` did not power the machine off.
+    Shutdown,
+}
+
+/// Why `apply` stopped, and how far it got.
+#[derive(Debug)]
+pub struct ApplyError {
+    pub stage: ApplyStage,
+    /// inst reported a conflict or a failed command, or went quiet.
+    pub stopped: bool,
+    pub error: Box<dyn std::error::Error + Send + Sync>,
+}
+
+impl std::fmt::Display for ApplyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
+}
+
+impl std::error::Error for ApplyError {}
+
 /// Drive the guest's installer over its console, echoing the console to
-/// `out`.
+/// `out`. With `shutdown` it then logs in as root and halts the machine, so
+/// the disk is consistent when it powers off.
 pub fn apply(
     dir: &Path,
     file: &MachineFile,
     connect: &dyn Fn(&Path) -> Result<Console>,
     out: &mut dyn Write,
+    shutdown: bool,
+) -> std::result::Result<(), ApplyError> {
+    let mut stage = ApplyStage::Prompt;
+    run_apply(dir, file, connect, out, shutdown, &mut stage).map_err(|error| ApplyError {
+        stage,
+        stopped: error.downcast_ref::<Stopped>().is_some(),
+        error,
+    })
+}
+
+fn run_apply(
+    dir: &Path,
+    file: &MachineFile,
+    connect: &dyn Fn(&Path) -> Result<Console>,
+    out: &mut dyn Write,
+    shutdown: bool,
+    stage: &mut ApplyStage,
 ) -> Result<()> {
     if file.network.mode != "private" {
         return Err("package installation requires private installation networking".into());
@@ -999,16 +1077,46 @@ pub fn apply(
     let mut console = connect(dir)?;
     writeln!(out, "Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.")?;
     console.command("", INSTALL_PROMPT, Duration::from_secs(30), out)?;
+    *stage = ApplyStage::Packages;
     console.send(command)?;
     console.wait_for_install(passes, Duration::from_secs(4 * 60 * 60), out)?;
     let quit = console.command("quit", RESTART_PROMPT, Duration::from_secs(900), out)?;
-    check_quit(&quit)?;
+    check_quit(&quit).map_err(|e| Stopped(e.to_string()))?;
+    *stage = ApplyStage::Login;
     console.restart(out)?;
     writeln!(out, "Installed IRIX reached serial login. Stop the machine before switching to user networking.")?;
+    if shutdown {
+        console.login_root(out)?;
+        *stage = ApplyStage::Shutdown;
+        console.power_off(out)?;
+    }
     Ok(())
 }
 
 impl Console {
+    /// From the login prompt, log in as root: a new install has no password.
+    fn login_root(&mut self, out: &mut dyn Write) -> Result<()> {
+        self.command("root", TERMINAL_PROMPT, Duration::from_secs(60), out)?;
+        self.command("", SHELL_PROMPT, Duration::from_secs(60), out)?;
+        Ok(())
+    }
+
+    /// Type `halt -p` and wait for the machine to power off, which ends the
+    /// console cleanly. A read error or a cancel is an error, not a stop.
+    fn power_off(&mut self, out: &mut dyn Write) -> Result<()> {
+        self.send("halt -p\n")?;
+        let deadline = Instant::now() + Duration::from_secs(300);
+        let mut chunk = [0u8; 4096];
+        while Instant::now() < deadline {
+            match self.read_some(&mut chunk)? {
+                Some(0) => return Ok(()),
+                Some(count) => out.write_all(&chunk[..count])?,
+                None => {}
+            }
+        }
+        Err("the machine did not power off within 300 seconds after halt -p".into())
+    }
+
     /// Answer the restart prompt and wait for login. If the first boot's
     /// autoconfig built a kernel instead of the quit-time reconfiguration,
     /// log in as root, which has no password on a new install, and restart
@@ -1441,6 +1549,7 @@ mod tests {
                 dist: Some("dist".into()),
                 install: vec!["tablet.sw.helper".into()],
             }],
+            method: None,
         };
         let file = MachineFile {
             format: crate::MACHINE_FORMAT,
@@ -1575,6 +1684,7 @@ mod tests {
                 .map(|layer| (layer.name.clone(), source.display().to_string()))
                 .collect(),
             addons: vec![],
+            method: None,
         };
         let manifest_path = dir.join("install/media.toml");
         fs::write(&manifest_path, toml::to_string_pretty(&media).unwrap()).unwrap();
@@ -2055,6 +2165,7 @@ mod tests {
                 .map(|layer| (layer.name.clone(), layer.url.clone()))
                 .collect(),
             addons: vec![],
+            method: None,
         }
     }
 

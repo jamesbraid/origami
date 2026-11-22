@@ -33,11 +33,13 @@ pub use disks::{disk_labels, image_verdict, size_label, DiskImageCheck, DiskLabe
 pub use error::{CoreError, CoreResult, ErrorKind};
 pub use event::{Event, EventKind, Observer};
 pub use flow::{
-    texts, CheckState, CloseAction, CloseQuestion, DiskState, InstallDisk, InstallFlow, InstallStep,
+    texts, ApplyState, CheckState, CloseAction, CloseQuestion, DiskState, InstallDisk, InstallFlow,
+    InstallStep,
 };
 pub use install::{
     install_media_folder, install_releases, GuideStep, InstallAddonChoice, InstallGuide,
-    InstallPlan, InstallProfile, InstallRelease, InstallSetup, InstallSetupAddon, MediaFolder,
+    InstallMethod, InstallPlan, InstallProfile, InstallRelease, InstallSetup, InstallSetupAddon,
+    MediaFolder,
 };
 pub use lease::{connect as connect_install_console, Cancel, InstallStart, Starter};
 pub(crate) use machine::classify_exit;
@@ -48,7 +50,7 @@ pub use machine::{
 pub use network::{
     bridged_setup, host_network_modes, BridgedSetup, IdentityPreview, NetworkChoice, NetworkSetting,
 };
-pub use operation::{Operation, OperationState};
+pub use operation::{InstallFailure, Operation, OperationState};
 pub use osview::{Osview, OsviewBar, OsviewKey, OsviewSegment, CAPTION as OSVIEW_CAPTION};
 pub use ready::{CachedDisk, ReadyDisk};
 pub use settings::{

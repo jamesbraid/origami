@@ -172,6 +172,9 @@ pub(crate) struct CoreInner {
     next_operation: Arc<AtomicU64>,
     /// Install operations, which own child processes and the console lease.
     installs: Mutex<Vec<Operation>>,
+    /// Machines an automated install halted: their media server then ends
+    /// when the guest's network goes away, which is not an error.
+    halted: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 impl Drop for CoreInner {
@@ -219,6 +222,7 @@ impl Core {
                 machines: Mutex::default(),
                 next_operation: Arc::new(AtomicU64::new(1)),
                 installs: Mutex::default(),
+                halted: Arc::default(),
             }),
         })
     }
@@ -726,6 +730,10 @@ impl Core {
         self.inner.config.instigator.clone().ok_or_else(|| {
             CoreError::new(ErrorKind::Unsupported, "this build has no install server")
         })
+    }
+
+    pub(crate) fn halted(&self) -> Arc<Mutex<std::collections::HashSet<String>>> {
+        self.inner.halted.clone()
     }
 
     /// Run `work` with no install operation live on `key`, and none able to

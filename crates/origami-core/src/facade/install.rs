@@ -10,13 +10,14 @@ use super::child;
 use super::core::Core;
 use super::error::{CoreError, CoreResult, ErrorKind};
 use super::lease::{self, InstallStart};
-use super::operation::{Control as OpControl, Operation};
+use super::operation::{Control as OpControl, InstallFailure, Operation};
 use crate::Report;
 use origami_machine::addressing::Addresses;
 use origami_machine::{install, MachineFile};
 use std::cell::Cell;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// A profile of an IRIX release: `name` is what the install takes, `label`
 /// and `detail` are for showing.
@@ -35,11 +36,39 @@ pub struct InstallRelease {
     pub profiles: Vec<InstallProfile>,
 }
 
+/// How the assistant runs the install on a serial console.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstallMethod {
+    /// Origami types the package commands, logs in and halts.
+    Automatic,
+    /// The person types them.
+    Guided,
+}
+
+impl InstallMethod {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Automatic => "automatic",
+            Self::Guided => "guided",
+        }
+    }
+
+    fn of(name: &str) -> Option<Self> {
+        match name {
+            "automatic" => Some(Self::Automatic),
+            "guided" => Some(Self::Guided),
+            _ => None,
+        }
+    }
+}
+
 /// What `install/media.toml` configures.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstallPlan {
     /// What it sets up, for the footer: "IRIX 6.5.30, Standard + MIPSpro".
     pub summary: String,
+    /// How the person chose to run the install; a setup from before the choice was kept reads as Guided.
+    pub method: InstallMethod,
     pub release: String,
     pub profile: String,
     pub local_media: bool,
@@ -59,6 +88,7 @@ pub struct InstallSetupAddon {
 /// Everything the assistant asks before it prepares the machine.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InstallSetup {
+    pub method: Option<InstallMethod>,
     pub release: String,
     pub profile: String,
     /// A folder of disc images; without it the discs download.
@@ -348,6 +378,11 @@ impl Core {
         .join(" + ");
         Ok(Some(InstallPlan {
             summary,
+            method: media
+                .method
+                .as_deref()
+                .and_then(InstallMethod::of)
+                .unwrap_or(InstallMethod::Guided),
             release: media.release,
             profile: media.profile,
             local_media: media.media.values().any(|source| !source.contains("://")),
@@ -413,6 +448,7 @@ impl Core {
                             report.lines.push(line);
                         }
                     }
+                    install::set_method(dir, setup.method.map(InstallMethod::name))?;
                     Ok(report)
                 })();
                 if made.is_err() {
@@ -670,6 +706,7 @@ impl Core {
         let instigator = self.instigator()?;
         let machine = self.open_machine(key)?;
         let (dir, engine) = (PathBuf::from(machine.key()), machine.engine());
+        let (halted, name) = (self.halted(), machine.key().to_owned());
         self.install_operation(&machine, SERVE_TITLE, move |control| {
             let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
             let line = serving_line(&dir, &loaded.file).map_err(CoreError::machine)?;
@@ -679,7 +716,9 @@ impl Core {
             control.progress(line);
             match child::run(&mut command, None, control)? {
                 None => Err(cancelled("the media server")),
-                Some(done) if done.status.success() => Ok(None),
+                Some(done) if done.status.success() || server_ended_normally(&halted, &name) => {
+                    Ok(None)
+                }
                 Some(done) => Err(CoreError::new(
                     ErrorKind::Io,
                     format!("Instigator exited with {}", done.status),
@@ -693,8 +732,44 @@ impl Core {
     /// the console's input lease and releases it when it ends, is cancelled
     /// or loses its connection; cancelling leaves the machine running.
     pub fn install_apply(&self, key: &str, start: InstallStart) -> CoreResult<Operation> {
+        self.apply_operation(key, start, false)
+    }
+
+    /// As [`Core::install_apply`] for an app: the guest must be sitting at
+    /// `Inst>` on a serial console, and after the packages the machine is
+    /// logged into as root and halted. The operation ends when it powers
+    /// off. A failure says how far it got through [`Operation::install_failure`].
+    pub fn install_apply_from(&self, key: &str) -> CoreResult<Operation> {
+        let machine = self.open_machine(key)?;
+        if machine.boot_console()? != super::BootConsole::Serial {
+            return Err(CoreError::new(
+                ErrorKind::Unsupported,
+                "this machine's PROM prints on the screen, so the installer cannot be typed for",
+            ));
+        }
+        // A console this core is not reading (the machine runs under another
+        // process) cannot be checked; the install then waits for the prompt.
+        let end = machine.console_read(u64::MAX, 0).next;
+        let tail = machine.console_read(end.saturating_sub(64), 64).bytes;
+        if machine.view().console.connected && !tail.ends_with(b"Inst> ") {
+            return Err(CoreError::new(
+                ErrorKind::Invalid,
+                "the guest is not at Inst>. Get it there in the Console first",
+            ));
+        }
+        self.apply_operation(key, InstallStart::Attached, true)
+    }
+
+    fn apply_operation(
+        &self,
+        key: &str,
+        start: InstallStart,
+        shutdown: bool,
+    ) -> CoreResult<Operation> {
         let machine = self.open_machine(key)?;
         let (dir, engine) = (PathBuf::from(machine.key()), machine.engine());
+        let (halted, name) = (self.halted(), machine.key().to_owned());
+        halted.lock().unwrap().remove(&name);
         self.install_operation(&machine, "Install IRIX", move |control| {
             let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
             let start = Cell::new(Some(start));
@@ -711,14 +786,36 @@ impl Core {
                     lease::connect(dir, start, cancel.clone())
                 },
                 &mut sink,
+                shutdown,
             );
             match result {
-                Ok(()) => Ok(None),
-                Err(_) if control.is_cancelled() => Err(cancelled("the install")),
-                Err(error) => Err(CoreError::machine(error)),
+                Ok(()) => {
+                    if shutdown {
+                        halted.lock().unwrap().insert(name);
+                    }
+                    Ok(None)
+                }
+                Err(error) => {
+                    let cancel = control.is_cancelled();
+                    control.install_failure(failure_kind(error.stage, error.stopped, cancel));
+                    if cancel {
+                        Err(cancelled("the install"))
+                    } else {
+                        Err(CoreError::machine(Box::new(error)))
+                    }
+                }
             }
         })
     }
+}
+
+/// The server also exits (status 1, "private network disconnected") when
+/// the guest powers off after a finished automated install.
+pub(super) fn server_ended_normally(
+    halted: &Mutex<std::collections::HashSet<String>>,
+    key: &str,
+) -> bool {
+    halted.lock().unwrap().contains(key)
 }
 
 const NETWORK_BEFORE: &str = "install/network-before.json";
@@ -748,6 +845,26 @@ fn remember_network(dir: &Path, file: &MachineFile) -> origami_machine::Result<(
     std::fs::create_dir_all(dir.join("install"))?;
     std::fs::write(path, serde_json::to_vec(&before)?)?;
     Ok(())
+}
+
+/// What an automated install that stopped at `stage` offers the person. A
+/// cancel keeps its stage once the packages are in, so the person is told
+/// to halt in the Console, not to finish at `Inst>`.
+pub(super) fn failure_kind(
+    stage: install::ApplyStage,
+    stopped: bool,
+    cancelled: bool,
+) -> InstallFailure {
+    use install::ApplyStage::*;
+    match (stage, stopped, cancelled) {
+        (Shutdown, _, _) => InstallFailure::Shutdown,
+        (Login, true, false) => InstallFailure::Conflict,
+        (Login, _, _) => InstallFailure::Login,
+        (_, _, true) => InstallFailure::Cancelled,
+        (Prompt, _, _) => InstallFailure::Setup,
+        (_, true, _) => InstallFailure::Conflict,
+        (Packages, false, _) => InstallFailure::Lost,
+    }
 }
 
 /// The files `install_prepare` rewrites, so a failed setup puts them back.
