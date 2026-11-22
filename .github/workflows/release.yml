@@ -8,18 +8,13 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
-    inputs:
-      winget_tag:
-        description: 'Only generate winget manifests for this published tag, skipping the build'
-        required: false
-        default: ''
 
 permissions:
   contents: read
 
 jobs:
   build:
-    if: github.server_url == 'https://github.com' && inputs.winget_tag == ''
+    if: github.server_url == 'https://github.com'
     uses: ./.github/workflows/build.yml
     # The signing jobs read the release environment's secrets, which a called workflow only sees when inherited.
     secrets: inherit
@@ -119,7 +114,7 @@ jobs:
   dry-run:
     needs: [build, installer-windows]
     # A manual run skips sign-windows, and a skipped job upstream would skip this one without the status check.
-    if: ${{ !cancelled() && github.server_url == 'https://github.com' && github.event_name == 'workflow_dispatch' && inputs.winget_tag == '' && needs.build.result == 'success' && needs.installer-windows.result == 'success' }}
+    if: ${{ !cancelled() && github.server_url == 'https://github.com' && github.event_name == 'workflow_dispatch' && needs.build.result == 'success' && needs.installer-windows.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -136,11 +131,6 @@ jobs:
         run: |
           v=$(git describe --tags --match 'v[0-9]*' --always)
           .github/scripts/release-assets.sh "${v#v}" assets
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-sums
-          path: assets/SHA256SUMS
-          retention-days: 3
 
   publish:
     needs: [build, sign-windows, installer-windows]
@@ -225,52 +215,3 @@ jobs:
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
             commit -m "origami: update to ${TAG#v}" -m "Release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
           git push origin HEAD:main
-
-  # Manifests for winget from the release's checksums, kept as an artifact: nothing is submitted.
-  # A prerelease tag (with a suffix) makes none; a manual run uses the dry run's checksums.
-  winget:
-    needs: [publish, dry-run]
-    if: ${{ !cancelled() && github.server_url == 'https://github.com' && ((github.event_name == 'push' && needs.publish.result == 'success' && !contains(github.ref_name, '-')) || needs.dry-run.result == 'success' || inputs.winget_tag != '') }}
-    runs-on: windows-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Checksums of a release
-        if: github.event_name == 'push' || inputs.winget_tag != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.winget_tag || github.ref_name }}
-        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir sums
-      - name: Checksums of the dry run
-        if: github.event_name == 'workflow_dispatch' && inputs.winget_tag == ''
-        uses: actions/download-artifact@v4
-        with:
-          name: release-sums
-          path: sums
-      - name: Write the manifests
-        env:
-          TAG: ${{ inputs.winget_tag || (github.event_name == 'push' && github.ref_name) || '' }}
-        run: |
-          set -eu
-          v=$TAG
-          test -n "$v" || v=$(git describe --tags --match 'v[0-9]*' --always)
-          .github/scripts/winget-manifests.sh "${v#v}" sums/SHA256SUMS manifests
-          find manifests -type f
-      - name: Validate
-        run: |
-          set -eu
-          for d in manifests/*/; do
-            winget validate --manifest "$d"
-          done
-      - uses: actions/upload-artifact@v4
-        with:
-          name: winget-manifests
-          path: manifests
-          if-no-files-found: error
-          retention-days: 30
