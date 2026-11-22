@@ -260,10 +260,9 @@ the machine runs.
 Machine > Install IRIX… opens the install assistant for a stopped machine.
 New Machine can open it for you: with an empty disk chosen, tick Install IRIX
 after creating. It is the app's version of
-[Install IRIX](usage.md#install-irix) from the command line, and you still
-type the PROM and installer commands yourself. The assistant gets everything
-else ready, serves the discs and lists each step with the machine's own
-release and addresses in it.
+[Install IRIX](usage.md#install-irix) from the command line. The assistant
+gets everything ready, serves the discs and lists each step with the
+machine's own release and addresses in it.
 
 Choose the release and profile (IRIX 6.5.30 Standard or Minimal, or 6.5.22),
 then where the discs come from: downloaded from the Origami server while the
@@ -274,6 +273,19 @@ Disk step creates a system disk when the machine has none and asks before it
 erases one it has. Check switches the machine to the private installation
 network and checks every disc; Check thoroughly also reads the downloaded
 ones.
+
+On a machine whose PROM prints on a serial line, a Method step asks how the
+install should run. Automatic, the default, types the package commands for
+you: at `Inst>` press Install and Origami loads the install script, restarts
+the machine, logs in as root and runs `halt -p`, while the Console shows the
+guest and is read-only. It types nothing unless the console ends at `Inst>`.
+If a conflict or a failed command stops it, the message says so and the guest
+waits at `Inst>`: fix it in the Console and press "I fixed it at Inst>" to
+finish by hand. If the packages went in but the login or `halt -p` failed,
+use the Console to halt IRIX; Continue turns on once the machine has stopped.
+Guided shows the commands for you to type. A machine with graphics keeps its
+screen as the console, so it is always Guided, and the assistant never
+switches a machine's console.
 
 The next three steps start the media server and the machine, then list what
 to do: label the disk, start the installer and install the packages. Copy
