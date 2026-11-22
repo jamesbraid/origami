@@ -96,9 +96,23 @@ pub fn pump(app: &Rc<App>, m: &Rc<MachineUi>) {
     }
 }
 
+/// Show `tex` as the picture, before the machine sends another.
+pub fn restore(m: &MachineUi, tex: &gtk::gdk::Texture) {
+    // The copying path updates changed rows into this buffer, so it holds the whole restored picture.
+    let mut down = gdk::TextureDownloader::new(tex);
+    down.set_format(gdk::MemoryFormat::B8g8r8x8);
+    let (bytes, stride) = down.download_bytes();
+    if stride == tex.width() as usize * 4 {
+        *m.fallback.borrow_mut() = bytes.to_vec();
+    }
+    m.set_texture(tex);
+    shown(m, tex.width() as u32, tex.height() as u32, m.seq.get());
+}
+
 fn shown(m: &MachineUi, w: u32, h: u32, seq: u64) {
     let before = m.size.replace((w, h));
     if before == (0, 0) {
+        m.run.set(m.machine.run_serial());
         m.picture_appeared();
     }
     if before != (w, h) {

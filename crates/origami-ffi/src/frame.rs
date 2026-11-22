@@ -1296,9 +1296,23 @@ pub(crate) mod present {
     };
     use std::ptr::NonNull;
 
+    impl Drop for Inner {
+        fn drop(&mut self) {
+            // The display client gave this view the only copy of the picture; the next view of
+            // the machine (a tab switched back to) starts from it.
+            if let Some(t) = self.texture.take() {
+                self.machine
+                    .machine
+                    .keep_picture(self.run, self.head, Box::new(t));
+            }
+        }
+    }
+
     pub(super) struct Inner {
         machine: Arc<origami_machine>,
         head: u32,
+        /// The run this view attached in; its picture is kept for that run only.
+        run: u64,
         gpu: Gpu,
         view: View,
         compose: Compose,
@@ -1409,6 +1423,7 @@ pub(crate) mod present {
             .map_err(|e| Fail(Status::NoGpu, e))?;
         Ok(origami_view {
             inner: Mutex::new(Inner {
+                run: machine.machine.run_serial(),
                 machine,
                 head,
                 compose: Compose::new(&gpu),
@@ -1571,6 +1586,27 @@ pub(crate) mod present {
             Ok((w, h, pixels))
         }
 
+        /// A view made after another one starts from the picture that one left, if it is
+        /// still the size of the head.
+        fn take_kept_picture(&mut self) {
+            if self.texture.is_some() {
+                return;
+            }
+            let Some(kept) = self.machine.machine.take_kept_picture(self.head) else {
+                return;
+            };
+            let Ok(t) = kept.downcast::<HeadTexture>() else {
+                return;
+            };
+            let heads = self.machine.machine.heads();
+            if heads
+                .get(self.head as usize)
+                .is_some_and(|h| h.active && (h.width, h.height) == (t.width, t.height))
+            {
+                self.texture = Some(*t);
+            }
+        }
+
         pub(super) fn present(&mut self) -> Result<u32, Fail> {
             let start = std::time::Instant::now();
             // Changes pile up in the display while hidden; the first present
@@ -1581,6 +1617,7 @@ pub(crate) mod present {
             // Before the take: an error here must not drop a frame whose
             // changed lines the producer will not send again.
             self.refresh_cursor()?;
+            self.take_kept_picture();
             let mut pending = None;
             let mut fresh = false;
             match self

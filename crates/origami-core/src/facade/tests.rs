@@ -502,6 +502,47 @@ fn frame_hooks_run_on_a_new_frame_and_not_otherwise() {
 }
 
 #[test]
+fn a_kept_picture_goes_to_the_next_view_of_the_same_run_only() {
+    let f = fixture();
+    let (machine, _session) = f.started("m");
+    let woke = Arc::new(AtomicU32::new(0));
+    let w = woke.clone();
+    machine.add_frame_hook(Arc::new(move || {
+        w.fetch_add(1, Ordering::SeqCst);
+    }));
+    // The view goes away; the next one gets its picture once, and the hooks are told.
+    machine.keep_picture(machine.run_serial(), 0, Box::new(7u32));
+    assert_eq!(woke.load(Ordering::SeqCst), 1);
+    assert!(machine.take_kept_picture(1).is_none(), "another head's");
+    let got = machine.take_kept_picture(0).unwrap();
+    assert_eq!(*got.downcast::<u32>().unwrap(), 7);
+    assert!(machine.take_kept_picture(0).is_none(), "once");
+    // A stopped machine forgets it.
+    machine.keep_picture(machine.run_serial(), 0, Box::new(8u32));
+    machine.stop(StopKind::Force).unwrap().wait(Some(WAIT));
+    let _ = machine.view();
+    assert!(machine.take_kept_picture(0).is_none());
+}
+
+#[test]
+fn a_kept_picture_does_not_survive_a_restart() {
+    let f = fixture();
+    let (machine, _session) = f.started("m");
+    let old_run = machine.run_serial();
+    machine.keep_picture(old_run, 0, Box::new(1u32));
+    machine.stop(StopKind::Force).unwrap().wait(Some(WAIT));
+    let _ = machine.view();
+    // A view of the stopped run drops late: refused.
+    machine.keep_picture(old_run, 0, Box::new(2u32));
+    machine.start().unwrap().wait(Some(WAIT));
+    assert!(machine.take_kept_picture(0).is_none());
+    // A view of the old run drops after the restart: refused, the run has a new number.
+    machine.keep_picture(old_run, 0, Box::new(3u32));
+    assert!(machine.take_kept_picture(0).is_none());
+    assert_ne!(old_run, machine.run_serial());
+}
+
+#[test]
 fn a_frame_hook_runs_when_a_start_attaches_the_display() {
     // An engine may wake before the start has stored its display.
     let f = fixture();

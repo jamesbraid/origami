@@ -190,6 +190,8 @@ struct Run {
     cpu: Option<Arc<CpuMonitor>>,
     /// The activity view last returned, which the next one glides from.
     osview: Option<Osview>,
+    /// Which run the frames are from; see `RUNS`.
+    serial: u64,
 }
 
 #[derive(Default, Clone)]
@@ -223,7 +225,18 @@ pub(crate) struct MachineInner {
     held: Mutex<Held>,
     hooks: Mutex<Arc<Vec<Hook>>>,
     next_hook: AtomicU64,
+    /// A picture a front end left behind for the next view, tied to the run it is from.
+    kept: Mutex<Option<Kept>>,
 }
+
+struct Kept {
+    run: u64,
+    head: u32,
+    picture: Box<dyn std::any::Any + Send>,
+}
+
+/// Numbers each run of any machine, so a kept picture cannot outlive its run.
+static RUNS: AtomicU64 = AtomicU64::new(1);
 
 /// A handle on a machine of the library. Clones share it. Dropping every
 /// handle leaves a running guest running.
@@ -264,10 +277,12 @@ impl Machine {
                     exit_note: None,
                     cpu: None,
                     osview: None,
+                    serial: 0,
                 }),
                 held: Mutex::default(),
                 hooks: Mutex::new(Arc::new(Vec::new())),
                 next_hook: AtomicU64::new(1),
+                kept: Mutex::new(None),
             }),
         }
     }
@@ -600,6 +615,48 @@ impl Machine {
         Ok(self.inner.frames()?.take_frame(head, pixels))
     }
 
+    /// Leave `picture` of `head` for the next view of this machine: a view that
+    /// goes away takes the display client's only copy of the picture with it.
+    /// Wakes the frame hooks so a view that attached first draws it. Dropped when
+    /// the run ends; refused when `run` is not the run going or the machine is not up.
+    pub fn keep_picture(&self, run: u64, head: u32, picture: Box<dyn std::any::Any + Send>) {
+        // Only the run now going, and only while it is up: a view that drops late
+        // (after a stop, or after a restart) must not leave its picture for the next one.
+        if run != self.run_serial()
+            || !matches!(
+                self.inner.view().state,
+                MachineState::Running | MachineState::Paused
+            )
+        {
+            return;
+        }
+        *self.inner.kept.lock().unwrap() = Some(Kept { run, head, picture });
+        let hooks = self.inner.hooks.lock().unwrap().clone();
+        for hook in hooks.iter() {
+            (hook.run)();
+        }
+    }
+
+    /// Which run of this machine is going, to hand to [`Machine::keep_picture`]: a view
+    /// reads it when it first shows the run's picture.
+    pub fn run_serial(&self) -> u64 {
+        self.inner.run.lock().unwrap().serial
+    }
+
+    /// The picture left for `head` by [`Machine::keep_picture`], once, if it is
+    /// of the run now going and the machine still runs it.
+    pub fn take_kept_picture(&self, head: u32) -> Option<Box<dyn std::any::Any + Send>> {
+        let serial = self.inner.run.lock().unwrap().serial;
+        let mut kept = self.inner.kept.lock().unwrap();
+        match kept.take() {
+            Some(k) if k.run == serial && k.head == head => Some(k.picture),
+            other => {
+                *kept = other.filter(|k| k.run == serial);
+                None
+            }
+        }
+    }
+
     pub fn cursor(&self, head: usize, known_gen: u32) -> CoreResult<Option<CursorInfo>> {
         Ok(self.inner.frames()?.cursor(head, known_gen))
     }
@@ -910,6 +967,10 @@ impl MachineInner {
                 (MachineState::Exited, how)
             }
         };
+        if !matches!(state, MachineState::Running | MachineState::Paused) {
+            // A picture of a run that has ended is of no use to a view of the next one.
+            *self.kept.lock().unwrap() = None;
+        }
         let (product, has_display) = {
             let model = self.model.lock().unwrap();
             (model.product.clone(), !model.graphics.is_empty())
@@ -1011,6 +1072,8 @@ impl MachineInner {
             let mut run = self.run.lock().unwrap();
             run.session = Some(session);
             run.frames = frames;
+            run.serial = RUNS.fetch_add(1, Ordering::Relaxed);
+            *self.kept.lock().unwrap() = None;
             run.remote_display = remote_display;
         }
         // A wake that came before the frames were stored found nothing to take.

@@ -126,6 +126,8 @@ pub struct MachineUi {
     first_fit: Cell<bool>,
     /// The window was sized for this run's picture; cleared when the run ends.
     sized: Cell<bool>,
+    /// The run whose picture is on screen, for `Machine::keep_picture`.
+    pub run: Cell<u64>,
     /// The guest pixel last sent as the pointer's place, for tests.
     pub pointer_at: Cell<(i32, i32)>,
     place: Cell<Place>,
@@ -292,6 +294,7 @@ impl MachineUi {
             offload,
             first_fit: Cell::new(false),
             sized: Cell::new(false),
+            run: Cell::new(0),
             pointer_at: Cell::new((-1, -1)),
             place: Cell::new(Place::default()),
             status,
@@ -347,6 +350,11 @@ impl MachineUi {
     pub fn set_texture(&self, tex: &gdk::Texture) {
         self.picture
             .set_paintable(Some(&Crisp::new(tex, self.place.get())));
+    }
+
+    /// The window is not to be sized for this run's picture.
+    pub fn mark_sized(&self) {
+        self.sized.set(true);
     }
 
     /// A run's picture just appeared: size the window for it once it is laid out.

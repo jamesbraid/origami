@@ -632,6 +632,16 @@ fn wire_tabs(app: &Rc<App>, w: &Rc<Win>) {
 
 /// Drop a machine's tab state; the machine itself keeps running.
 fn forget(app: &Rc<App>, m: &Rc<MachineUi>) {
+    if m.state.get().is_up() {
+        let tex = m
+            .picture
+            .paintable()
+            .and_then(|p| p.downcast::<crate::crisp::Crisp>().ok())
+            .and_then(|c| c.texture());
+        if let Some(tex) = tex {
+            m.machine.keep_picture(m.run.get(), 0, Box::new(tex));
+        }
+    }
     input::release_all(app, m);
     if let Some(id) = m.hook.take() {
         m.machine.remove_frame_hook(id);

@@ -334,6 +334,8 @@ pub fn open(app: &Rc<App>, entry: &Entry) -> Option<Rc<MachineUi>> {
             .unwrap_or(false);
             let open = app.machines.borrow().iter().any(|x| Rc::ptr_eq(x, &m));
             if up && open && !m.state.get().is_up() {
+                // Attaching to a run that is already up is not a first picture: the window keeps its size.
+                m.mark_sized();
                 m.left_running.set(true);
                 m.apply_state();
                 window::refresh(&app);
@@ -346,6 +348,18 @@ pub fn open(app: &Rc<App>, entry: &Entry) -> Option<Rc<MachineUi>> {
     app.machines.borrow_mut().push(m.clone());
     window::add_tab(app, &m);
     m.apply_state();
+    // A machine this core already runs (its tab was closed and kept running): its picture
+    // comes back as it was, and the window keeps its size.
+    // The core drops it when the run ends, so it is the picture of the run now going.
+    if let Some(tex) = Some(&m)
+        .filter(|m| m.state.get().is_up())
+        .and_then(|m| m.machine.take_kept_picture(0))
+        .and_then(|b| b.downcast::<gtk::gdk::Texture>().ok())
+    {
+        m.mark_sized();
+        display::restore(&m, &tex);
+        m.apply_state();
+    }
     Some(m)
 }
 
