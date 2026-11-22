@@ -33,6 +33,11 @@ final class InstallModel: ObservableObject {
     private var serial = false
     private var serve: OrigamiOperation?
     private var checkOp: OrigamiOperation?
+    private var applyOp: OrigamiOperation?
+    /// The automated install's latest console line, how far along it says it is, and the core's sentence if it failed.
+    @Published private(set) var applyLine = ""
+    @Published private(set) var applyFraction: Double?
+    @Published private(set) var applyMessage: String?
     private var cancelRequested = false
     private var sawRunning = false
     private(set) var closing = false
@@ -81,9 +86,8 @@ final class InstallModel: ObservableObject {
             case .success(let (plan, serial, pending)):
                 self.serial = serial
                 // A machine left on the installation network offers to set it back on close.
-                if pending { self.flow.setPrepared() }
-                guard let plan else { return }
-                self.objectWillChange.send(); self.flow = OrigamiInstallFlow(plan: plan)
+                guard let plan else { self.edit { $0.setSerial(serial: serial); if pending { $0.setPrepared() } }; return }
+                self.objectWillChange.send(); self.flow = OrigamiInstallFlow(plan: plan); self.flow.setSerial(serial: serial)
                 if pending { self.flow.setPrepared() }
                 self.planText = plan.summary
                 self.entered()
@@ -154,7 +158,7 @@ final class InstallModel: ObservableObject {
         case .disk: readDisk()
         case .prepare: startServing(); loadGuide()
         case .installer, .packages: loadGuide()
-        case .release, .check, .finish: break
+        case .release, .method, .check, .finish: break
         }
     }
 
@@ -251,6 +255,48 @@ final class InstallModel: ObservableObject {
         }
     }
 
+    // MARK: automated install
+
+    /// Type the package commands at Inst>; the operation ends when the machine has stopped or it failed.
+    func install() {
+        guard flow.canInstall(machineUp: machine.isRunning) else { return }
+        edit { $0.setApply(state: .running) }
+        applyLine = ""; applyFraction = nil; applyMessage = nil; error = nil
+        let host = machine.coreHost, key = machine.record.key
+        DispatchQueue.global(qos: .userInitiated).async {
+            var state = OrigamiApplyState.running
+            var message: String?
+            do {
+                let op = try host.core.installApply(key: key)
+                DispatchQueue.main.async { MainActor.assumeIsolated { self.applyOp = op } }
+                switch op.wait(timeoutMs: nil) {
+                case .succeeded: state = .done
+                case .failed(_, let m): state = .failed(kind: op.installFailure() ?? .setup); message = m
+                default: state = .failed(kind: .cancelled)
+                }
+            } catch { state = .failed(kind: .setup); message = Self.say(error) }
+            let (result, said) = (state, message)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.applyOp = nil; self.applyMessage = said
+                    self.edit { $0.setApply(state: result) }
+                }
+            }
+        }
+    }
+
+    func cancelInstall() { applyOp?.cancel() }
+
+    /// The person fixed it at Inst> and takes over from the guide's restart list.
+    func fixed() { edit { $0.fixed() } }
+
+    /// The last NN% in a console line, as 0 to 1.
+    nonisolated static func percent(in line: String) -> Double? {
+        guard let r = line.range(of: #"(\d{1,3})%(?!.*\d%)"#, options: .regularExpression),
+              let n = Double(line[r].dropLast()) else { return nil }
+        return min(n, 100) / 100
+    }
+
     func cancelCheck() {
         cancelRequested = true
         checkOp?.cancel()
@@ -259,6 +305,8 @@ final class InstallModel: ObservableObject {
     // MARK: serving
 
     var serving: Bool { serve?.state() == .running }
+    /// The server or the automated install is running.
+    var busyInstalling: Bool { serving || flow.apply() == .running }
 
     /// Serve the media, then start the machine. Going back to this step keeps a running server.
     private func startServing() {
@@ -291,11 +339,18 @@ final class InstallModel: ObservableObject {
             if footer != line { footer = line }
             if case .failed(_, let message) = s.state(), serveFailed != message { serveFailed = message }
         }
+        if let op = applyOp {
+            let line = op.progress()
+            if applyLine != line { applyLine = line; applyFraction = Self.percent(in: line) ?? applyFraction }
+        }
         if machine.state == .running { sawRunning = true }
     }
 
     /// The machine ended while the guide was being followed.
-    var stoppedBySelf: Bool { [.prepare, .installer, .packages].contains(step) && sawRunning && !machine.isRunning && machine.busy == nil }
+    var stoppedBySelf: Bool {
+        [.prepare, .installer, .packages].contains(step) && sawRunning && !machine.isRunning && machine.busy == nil
+            && !(flow.automatic() && flow.apply() != .idle)
+    }
 
     // MARK: following the guide
 
@@ -349,7 +404,7 @@ final class InstallModel: ObservableObject {
         background({ try host.core.installReset(key: key) }) { result in
             self.working = false
             if let e = result.failure { self.error = Self.say(e); return }
-            self.guide = nil; self.ticks = []; self.notes = []; self.planText = nil; self.disk = nil; self.diskKnown = false
+            self.applyMessage = nil; self.guide = nil; self.ticks = []; self.notes = []; self.planText = nil; self.disk = nil; self.diskKnown = false
             self.edit { $0.restart() }
             self.entered()
         }
@@ -374,7 +429,7 @@ final class InstallModel: ObservableObject {
         }
     }
 
-    private func cancelServer() { cancelCheck(); serve?.cancel() }
+    private func cancelServer() { cancelCheck(); cancelInstall(); serve?.cancel() }
 
     /// Re-read the network, then ask whether to put it back.
     private func closeNetwork() {

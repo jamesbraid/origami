@@ -750,7 +750,7 @@ final class AppModel: ObservableObject {
     var installServing: Bool { installs.keys.contains { installRunning($0) } }
 
     /// Whether the machine's install is running and quitting or closing its tab would stop it.
-    func installRunning(_ id: String) -> Bool { installs[id]?.serving ?? false }
+    func installRunning(_ id: String) -> Bool { installs[id]?.busyInstalling ?? false }
 
     // MARK: quit
 

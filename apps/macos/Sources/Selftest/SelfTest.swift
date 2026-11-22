@@ -1611,6 +1611,13 @@ func runSelfTest(library: String, out: String) {
                     _ = waitFor(30) { !im.flow.addons().isEmpty }
                     im.edit { $0.tick(name: "mipspro", on: true) }
                     im.next()
+                    // Method shows only on a serial console, with Automatic chosen; Guided carries the rest of the sequence.
+                    let methodShown = im.flow.steps().contains(.method)
+                    check("install-method-step-only-on-a-serial-console",
+                          methodShown == im.flow.serial() && (!methodShown || (im.step == .method && im.flow.method() == .automatic)),
+                          ["serial": im.flow.serial()])
+                    var automatic = false
+                    if im.step == .method { automatic = true; im.next() }
                     _ = waitFor(30) { im.diskKnown }
                     check("install-disk-step-offers-a-disk-of-the-default-size",
                           im.step == .disk && im.disk == nil && im.flow.newDiskGb() == origamiDiskLabels().defaultGb && im.canContinue,
@@ -1645,7 +1652,18 @@ func runSelfTest(library: String, out: String) {
                         }
                         check("install-type-it-reaches-the-console", send != nil && reached, ["send": send ?? "none"])
                     }
-                    im.next(); im.next(); im.next()
+                    im.next(); im.next()
+                    if automatic {
+                        // The fake engine has no console runner, so Install ends Failed with the core's sentence and Continue stays off.
+                        check("install-automatic-offers-install-and-blocks-continue",
+                              im.step == .packages && im.flow.canInstall(machineUp: true) && !im.canContinue, [:])
+                        im.install()
+                        _ = waitFor(60) { im.flow.apply() != .running && im.flow.apply() != .idle }
+                        check("install-automatic-failure-shows-the-core-sentence",
+                              im.flow.apply() != .done && !(im.applyMessage ?? "").isEmpty && !im.canContinue, ["message": im.applyMessage ?? "none"])
+                        im.edit { $0.setMethod(method: .guided) }   // the Method step is behind Check: carry on by the guide
+                    }
+                    im.next()
                     check("install-reaches-finish-and-waits-for-the-machine", im.step == .finish && !im.canContinue, ["state": box.state.pill])
                     box.stop()
                     check("install-finish-waits-for-the-machine-to-stop", waitFor(60) { box.state == .stopped && im.canContinue }, ["state": box.state.pill])

@@ -98,8 +98,14 @@ struct InstallAssistant: View {
         case .check: checkStep
         case .prepare: guideStep(model.guide?.prepare, section: "prepare")
         case .installer: guideStep(model.guide?.installer, section: "installer")
-        case .packages: guideStep(model.guide.map { $0.packages + $0.restart }, section: "packages", note: model.guide?.packageNote)
-        case .finish: guideStep(model.guide?.finish, section: "finish")
+        case .method: methodStep
+        case .packages:
+            if model.flow.automatic() { automaticStep }
+            else if model.flow.byHand() { guideStep(model.guide?.restart, section: "restart") }
+            else { guideStep(model.guide.map { $0.packages + $0.restart }, section: "packages", note: model.guide?.packageNote) }
+        case .finish:
+            if model.flow.automatic() { Text("IRIX is installed and the machine is stopped.") }
+            else { guideStep(model.guide?.finish, section: "finish") }
         }
     }
 
@@ -114,6 +120,34 @@ struct InstallAssistant: View {
                         }
                     }.padding(.leading, 24)
                 }
+            }
+        }
+    }
+
+    private var methodStep: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("How should the install run?")
+            RadioRow(title: "Automatic", detail: "Origami types the package commands for you, logs in when they finish and shuts IRIX down.",
+                     selected: model.flow.method() == .automatic) { model.edit { $0.setMethod(method: .automatic) } }
+            RadioRow(title: "Guided", detail: "You type each command in the console. Origami shows each step.",
+                     selected: model.flow.method() == .guided) { model.edit { $0.setMethod(method: .guided) } }
+        }
+    }
+
+    private var automaticStep: some View {
+        let running = model.flow.apply() == .running
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(model.flow.applyHint()).fixedSize(horizontal: false, vertical: true)
+            if running {
+                if let f = model.applyFraction { ProgressView(value: f) } else { ProgressView().progressViewStyle(.linear) }
+                if !model.applyLine.isEmpty { Text(model.applyLine).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            if let m = model.applyMessage { Text(m).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+            HStack {
+                Button("Install") { model.install() }.disabled(!model.flow.canInstall(machineUp: model.machine.isRunning))
+                if running { Button("Cancel Install") { model.cancelInstall() } }
+                if model.flow.canFixed() { Button("I fixed it at Inst>") { model.fixed() } }
+                Button("Open Console") { model.openConsole() }
             }
         }
     }
