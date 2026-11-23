@@ -83,7 +83,7 @@ struct LibrarySidebar: View {
 
     var body: some View {
         List(selection: Binding(get: { app.active }, set: { if let id = $0 { app.select(id) } })) {
-            Section("Library") {
+            Section(Labels.sidebarHeading) {
                 // Rows are keyed by the machine's path, never by product or art.
                 ForEach(app.models) { model in
                     LibraryRow(model: model).tag(model.id)
@@ -311,7 +311,6 @@ struct StatusBar: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
         HStack(spacing: 14) {
-            StatusPill(state: model.state)
             Text(model.statusLine).foregroundStyle(.secondary).lineLimit(1)
             if let n = app.notice {
                 Text(n.text).lineLimit(1)

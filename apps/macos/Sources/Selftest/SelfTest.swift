@@ -318,6 +318,18 @@ func runSelfTest(library: String, out: String) {
            "memory": model.record.memory, "nodes": model.record.nodes])
     check("library-not-running", model.state == .stopped, ["state": model.state.pill])
 
+    // Layout: every Settings tab name fits its sidebar row (text plus icon and row padding), and the New Machine sheet
+    // asks for no more than its width. SwiftUI cannot report a truncated Text, so the tab names are measured.
+    do {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let wide = MachineSettings.Pane.allCases.map { ($0.rawValue, NSAttributedString(string: $0.rawValue, attributes: [.font: font]).size().width) }
+        let over = wide.filter { $0.1 + 52 > MachineSettings.sidebarWidth }.map(\.0)
+        check("settings-tab-names-fit-the-sidebar", over.isEmpty, ["too_wide": over])
+        let sheet = NSHostingView(rootView: NewMachineSheet(app: app))
+        sheet.layoutSubtreeIfNeeded()
+        check("new-machine-sheet-fits-its-width", sheet.fittingSize.width <= 460.5, ["fitting": "\(sheet.fittingSize)"])
+    }
+
     // 2. The command table.
     var keys: [String: CommandID] = [:]
     var clash: [String] = []

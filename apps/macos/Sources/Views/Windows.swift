@@ -75,14 +75,15 @@ struct MachineSettings: View {
         _edit = StateObject(wrappedValue: edit ?? SettingsModel(machine: model))   // an autoclosure: built once, not per render
     }
 
+    static let sidebarWidth: CGFloat = 190
+
     enum Pane: String, CaseIterable, Identifiable {
-        case general = "General", system = "System Information", processor = "Processor & Memory", graphics = "Graphics",
+        case general = "General", processor = "Processor & Memory", graphics = "Graphics",
              drives = "Drives", network = "Network", shares = "Shared Folders", startup = "Startup & Firmware", input = "Input"
         var id: String { rawValue }
         var symbol: String {
             switch self {
             case .general: return "slider.horizontal.3"
-            case .system: return "info.circle"
             case .processor: return "cpu"
             case .graphics: return "display"
             case .drives: return "internaldrive"
@@ -98,7 +99,7 @@ struct MachineSettings: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 List(Pane.allCases, selection: $pane) { p in Label(p.rawValue, systemImage: p.symbol).tag(p) }
-                    .listStyle(.sidebar).frame(width: 190)
+                    .listStyle(.sidebar).frame(width: Self.sidebarWidth)
                 Divider()
                 Form { detail }.formStyle(.grouped).frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -271,8 +272,6 @@ struct MachineSettings: View {
         case .general:
             HStack { MachineArt(product: r.product, pt: Int(Tokens.Size.artSummary)); Text(r.name).font(.title2.weight(.semibold)) }
             LabeledContent("Name", value: r.name)
-            LabeledContent("Product", value: r.product.name)
-        case .system:
             LabeledContent("Model", value: r.product.name)
             if let t = r.topology { LabeledContent("Topology", value: t) }
             LabeledContent("Nodes", value: "\(r.nodes)")

@@ -15,11 +15,11 @@ struct NewMachineSheet: View {
             if model.loading {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity)
             } else {
-                Picker("Engine", selection: $model.engine) {
+                Picker(Labels.NewMachine.engine, selection: $model.engine) {
                     ForEach(model.engines, id: \.self) { Text($0).tag(String?.some($0)) }
                 }
                 .disabled(!model.canPickEngine)
-                Picker("Model", selection: $model.selected) {
+                Picker(Labels.NewMachine.model, selection: $model.selected) {
                     ForEach(model.visible, id: \.self) { Text(model.label(model.offerings[$0])).tag($0) }
                 }
                 if model.offerings.indices.contains(model.selected) {
@@ -28,10 +28,10 @@ struct NewMachineSheet: View {
                     HStack { Spacer(); NewMachineCard(product: Product.withArt(of: o)) ; Spacer() }
                         .accessibilityHidden(true).id(product.name + o.topology)
                 }
-                TextField("Name", text: $model.name).onSubmit { create() }
-                Picker("Disk", selection: $model.disk) { ForEach(model.choices) { Text($0.title).tag($0) } }
+                TextField(Labels.NewMachine.name, text: $model.name).onSubmit { create() }
+                Picker(Labels.NewMachine.disk, selection: $model.disk) { ForEach(model.choices) { Text($0.title).tag($0) } }
                 if model.disk == .ready {
-                    Picker(origamiDiskLabels().release, selection: $model.readyPick) {
+                    Picker(Labels.NewMachine.release, selection: $model.readyPick) {
                         ForEach(model.readyDisks.indices, id: \.self) { Text(model.readyDisks[$0].label).tag($0) }
                     }
                 }
@@ -40,7 +40,7 @@ struct NewMachineSheet: View {
                     Toggle("Install IRIX after creating", isOn: $model.installAfter)
                 }
                 if model.disk == .image { ImageChoiceView(choice: model.image) }
-                DisclosureGroup("Advanced") {
+                DisclosureGroup(Labels.NewMachine.advanced) {
                     TextField("Machine ID", text: $model.idText, prompt: Text("1 to 2999"))
                     LabeledContent("Ethernet address", value: model.addressShown)
                     Toggle("Use this address instead", isOn: $model.useAddress).disabled(model.identity?.fromId == false)

@@ -131,11 +131,13 @@ func runDocsShots(library: String, out: String) {
     capture(main, "macos-library", hide: false, after: { focusLibrary(main) })
 
     // The Install IRIX assistant on the stopped machine, at its Software step.
+    var installSteps: [String] = []
     if let install = app.installModel(for: model.id) {
         _ = waitFor(30) { install.loaded }
         install.next()
         install.next()
         _ = waitFor(30) { !install.flow.addons().isEmpty }
+        installSteps = install.flow.steps().map { origamiInstallStepTitle(step: $0) }
         capture(window("Install IRIX: \(model.name)", InstallAssistant(model: install), 780, 540), "macos-install-assistant")
         app.forgetInstall(model.id)
     } else { fail("no install assistant for \(model.name)") }
@@ -177,6 +179,13 @@ func runDocsShots(library: String, out: String) {
     var stopped = false
     app.stopAll(force: true) { _ in stopped = true }
     _ = waitFor(120) { stopped }
+    // The names the other apps must match: tools/screenshots parity compares these files.
+    let names: [String: Any] = ["platform": "macos", "sidebar_heading": Labels.sidebarHeading,
+                                "settings_tabs": MachineSettings.Pane.allCases.map(\.rawValue),
+                                "new_machine_fields": Labels.NewMachine.fields, "install_steps": installSteps]
+    if let json = try? JSONSerialization.data(withJSONObject: names, options: [.prettyPrinted, .sortedKeys]) {
+        try? json.write(to: URL(fileURLWithPath: "\(out)/macos-parity.json"))
+    }
     emit(["step": "docs-shots", "ok": true, "out": out])
     exit(0)
 }
