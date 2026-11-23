@@ -298,6 +298,7 @@ impl Asst {
                     .margin_top(4)
                     .margin_bottom(4)
                     .build();
+                l.set_widget_name("install.step-row");
                 list.append(&l);
                 l
             })

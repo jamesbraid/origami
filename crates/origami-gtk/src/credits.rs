@@ -18,6 +18,11 @@ fn failed(parent: &impl IsA<gtk::Widget>, title: &str, why: &str) {
 fn link(url: &str, label: &str) -> gtk::LinkButton {
     let b = gtk::LinkButton::with_label(url, label);
     b.set_valign(gtk::Align::Center);
+    // Every link label is as wide as the longest word, left aligned, so "Source" lines up with "Website".
+    if let Some(l) = b.first_child().and_downcast::<gtk::Label>() {
+        l.set_width_chars(8);
+        l.set_xalign(0.0);
+    }
     b
 }
 

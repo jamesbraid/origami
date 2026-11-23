@@ -14,6 +14,7 @@
 //!   activate WIDGET [VALUE]       use a control by its widget name, as a click, a
 //!                                 pick of the combo item labelled VALUE, or a
 //!                                 dialog's close would
+//!   audit WIDGET                  a dialog's labels, the cut ones and its page, field and step names
 //!   widget WIDGET                 whether a control is shown and usable, and a check's state
 //!   change memory N | cpus N | network MODE | forward NAME HOST GUEST | share NAME DIR
 //!   compare NAME [MACHINE]        the picture shown, against QMP screendump
@@ -500,19 +501,6 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 return json!({"ok": true, "text": label.label().as_str()});
             }
             let value = line.splitn(3, ' ').nth(2);
-            // A settings page, shown as its sidebar entry would.
-            if let Some(page) = widget.downcast_ref::<adw::PreferencesPage>() {
-                let dialog = page
-                    .ancestor(adw::PreferencesDialog::static_type())
-                    .and_downcast::<adw::PreferencesDialog>();
-                return match dialog {
-                    Some(d) => {
-                        d.set_visible_page(page);
-                        json!({"ok": true})
-                    }
-                    None => json!({"error": "the page is in no dialog"}),
-                };
-            }
             // An alert's response, as its button gives it.
             if let (Some(alert), Some(id)) = (widget.downcast_ref::<adw::AlertDialog>(), value) {
                 alert.emit_by_name::<()>("response", &[&id]);
@@ -557,6 +545,65 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                     },
                 },
             }
+        }
+        "audit" => {
+            // The labels shown in a named dialog or window, the ones the layout cut short with an
+            // ellipsis, and the page, field and step names a parity check compares across apps.
+            let Some(name) = a1 else {
+                return json!({"error": "audit WIDGET"});
+            };
+            let mut roots = Vec::new();
+            for top in gtk::Window::list_toplevels() {
+                if top.widget_name() == name {
+                    roots.push(top.clone().upcast::<gtk::Widget>());
+                }
+                descendants(top.upcast_ref(), &|c| c.widget_name() == name, &mut roots);
+            }
+            if roots.is_empty() {
+                return json!({"found": false});
+            }
+            let (mut labels, mut rows, mut pages) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut cut, mut steps, mut own) = (Vec::new(), Vec::new(), Vec::new());
+            for r in &roots {
+                if let Some(l) = r.downcast_ref::<gtk::Label>() {
+                    own.push(l.label().to_string());
+                }
+                if let Some(t) = r.downcast_ref::<adw::WindowTitle>() {
+                    own.push(t.title().to_string());
+                }
+                descendants(r, &|c| c.is::<gtk::Label>() && c.is_mapped(), &mut labels);
+                descendants(
+                    r,
+                    &|c| c.is::<adw::PreferencesRow>() && c.is_mapped(),
+                    &mut rows,
+                );
+                descendants(
+                    r,
+                    &|c| c.widget_name().starts_with("prefs.page."),
+                    &mut pages,
+                );
+                descendants(r, &|c| c.widget_name() == "install.step-row", &mut steps);
+            }
+            for l in labels.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()) {
+                if l.layout().is_ellipsized() {
+                    cut.push(l.text().to_string());
+                }
+            }
+            let text = |w: &gtk::Widget| {
+                let mut found = Vec::new();
+                descendants(w, &|c| c.is::<gtk::Label>(), &mut found);
+                found
+                    .iter()
+                    .filter_map(|l| l.downcast_ref::<gtk::Label>())
+                    .map(|l| l.text().to_string())
+                    .next()
+                    .unwrap_or_default()
+            };
+            json!({"found": true, "own": own, "ellipsized": cut,
+                   "labels": labels.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>(),
+                   "fields": rows.iter().filter_map(|w| w.downcast_ref::<adw::PreferencesRow>()).map(|r| r.title().to_string()).collect::<Vec<_>>(),
+                   "pages": pages.iter().map(text).collect::<Vec<_>>(),
+                   "steps": steps.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>()})
         }
         "widget" => {
             let mut found = Vec::new();

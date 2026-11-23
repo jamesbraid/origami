@@ -9,6 +9,7 @@ use crate::disks;
 use crate::library;
 use crate::machine::MachineUi;
 use crate::prefs::PointerMode;
+use crate::prefs_dialog::Prefs;
 use crate::{input, window};
 use adw::prelude::*;
 use gtk::glib;
@@ -103,7 +104,7 @@ fn apply(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    dialog: &adw::PreferencesDialog,
+    dialog: &Prefs,
     change: Change,
 ) {
     apply_with(app, parent, m, dialog, move |machine| {
@@ -116,7 +117,7 @@ fn apply_network(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    dialog: &adw::PreferencesDialog,
+    dialog: &Prefs,
     (mode, device, share, subnet): (NetworkMode, String, Option<String>, Option<String>),
 ) {
     apply_with(app, parent, m, dialog, move |machine| {
@@ -128,7 +129,7 @@ fn apply_with(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    dialog: &adw::PreferencesDialog,
+    dialog: &Prefs,
     edit: impl FnOnce(
             &origami_core::facade::Machine,
         ) -> origami_core::facade::CoreResult<origami_core::Report>
@@ -159,7 +160,7 @@ fn reopen(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    dialog: &adw::PreferencesDialog,
+    dialog: &Prefs,
     notes: Vec<Line>,
 ) {
     *m.entry.borrow_mut() = library::read(&m.dir);
@@ -176,9 +177,7 @@ fn build_machine_dialog(
     loaded: Result<Loaded, String>,
     notes: Vec<Line>,
 ) {
-    let dialog = adw::PreferencesDialog::builder()
-        .title(format!("{} Settings", m.name))
-        .build();
+    let dialog = Prefs::new(&format!("{} Settings", m.name));
     dialog.set_widget_name("settings.dialog");
     BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let running = m.state.get().is_up();
@@ -413,9 +412,8 @@ fn build_machine_dialog(
                 .title("Network")
                 .icon_name("network-wired-symbolic")
                 .build();
-            net.set_widget_name("settings.network-page");
             if !notes.is_empty() {
-                net.add(&notes_group(&notes, dialog.upcast_ref()));
+                net.add(&notes_group(&notes, dialog.dialog.upcast_ref()));
             }
             network_groups(app, parent, m, &dialog, &net, &l.network, running);
             let fg = adw::PreferencesGroup::builder()
@@ -486,6 +484,7 @@ fn build_machine_dialog(
                 .build();
             let line = adw::ComboRow::builder()
                 .title("Console serial line")
+                .use_subtitle(true)
                 .sensitive(!running)
                 .build();
             line.set_widget_name("settings.console");
@@ -637,7 +636,7 @@ fn notes_group(notes: &[Line], root: &gtk::Widget) -> adw::PreferencesGroup {
 }
 
 /// A button that puts `text` on the clipboard.
-fn copy_button(root: &adw::PreferencesDialog, text: String) -> gtk::Button {
+fn copy_button(root: &Prefs, text: String) -> gtk::Button {
     let copy = gtk::Button::builder()
         .label("Copy")
         .valign(gtk::Align::Center)
@@ -664,7 +663,7 @@ fn shares_group(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    dialog: &adw::PreferencesDialog,
+    dialog: &Prefs,
     page: &adw::PreferencesPage,
     network: &adw::PreferencesPage,
     shares: &[origami_core::facade::ShareSetting],
@@ -743,7 +742,7 @@ fn network_groups(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    dialog: &adw::PreferencesDialog,
+    dialog: &Prefs,
     page: &adw::PreferencesPage,
     n: &NetworkSetting,
     running: bool,
@@ -904,7 +903,7 @@ fn cd_buttons(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    dialog: &adw::PreferencesDialog,
+    dialog: &Prefs,
     row: &adw::ActionRow,
     drive: &str,
 ) {
@@ -954,7 +953,7 @@ fn media(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    dialog: &adw::PreferencesDialog,
+    dialog: &Prefs,
     drive: &str,
     image: Option<std::path::PathBuf>,
 ) {
@@ -1041,7 +1040,7 @@ fn add_image(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    settings: &adw::PreferencesDialog,
+    settings: &Prefs,
     target: u32,
 ) {
     let go_ok = Rc::new(std::cell::RefCell::new(None::<gtk::Button>));
@@ -1103,14 +1102,14 @@ fn add_image(
             }
         }
     });
-    dialog.present(Some(&present_on));
+    dialog.present(Some(&present_on.dialog));
 }
 
 fn add_forward(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    settings: &adw::PreferencesDialog,
+    settings: &Prefs,
 ) {
     let dialog = adw::Dialog::builder()
         .title("Add a Port Forward")
@@ -1176,14 +1175,14 @@ fn add_forward(
             apply(&app, &parent, &m, &settings, Change::AddForward(forward));
         });
     }
-    dialog.present(Some(settings));
+    dialog.present(Some(&settings.dialog));
 }
 
 fn share_folder(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    settings: &adw::PreferencesDialog,
+    settings: &Prefs,
 ) {
     let (app, parent2, m, settings) = (app.clone(), parent.clone(), m.clone(), settings.clone());
     disks::pick_folder(parent, "Share a Folder", move |path| {
@@ -1196,7 +1195,7 @@ fn name_share(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     m: &Rc<MachineUi>,
-    settings: &adw::PreferencesDialog,
+    settings: &Prefs,
     dir: std::path::PathBuf,
 ) {
     let name = adw::EntryRow::builder().title("Name in IRIX").build();
@@ -1237,9 +1236,7 @@ fn name_share(
 }
 
 pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
-    let dialog = adw::PreferencesDialog::builder()
-        .title("Preferences")
-        .build();
+    let dialog = Prefs::new("Preferences");
     let general = adw::PreferencesPage::builder()
         .title("General")
         .icon_name("preferences-system-symbolic")
@@ -1367,6 +1364,7 @@ fn new_machine_dialog(
     let dialog = adw::Dialog::builder()
         .title("New Machine")
         .content_width(460)
+        .content_height(680)
         .build();
     dialog.set_widget_name("new.dialog");
     let page = adw::PreferencesPage::new();

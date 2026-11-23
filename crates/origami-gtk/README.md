@@ -53,6 +53,8 @@ Xvfb, wtype under cage, a virtual pointer under sway):
 - `console`: the Console window under real input, with the PROM's serial output
   on screen: mouse selection, copy, paste, scrollback and one window per machine.
 - `settings`: edits through the core on a stopped machine, refused while it runs.
+- `layout`: Settings (every page) and New Machine at the smallest window; fails on a label cut short
+  by an ellipsis, and writes the names the other apps must match.
 - `docs`: one real session photographed under the names `docs/app.md` shows
   (`tools/screenshots linux` runs it and collects the pictures).
 

@@ -266,7 +266,9 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         let side_head = adw::HeaderBar::builder()
             .show_end_title_buttons(false)
             .build();
-        side_head.set_title_widget(Some(&adw::WindowTitle::new("Machines", "")));
+        let heading = adw::WindowTitle::new("Machines", "");
+        heading.set_widget_name("sidebar.heading");
+        side_head.set_title_widget(Some(&heading));
         let add = gtk::Button::builder()
             .icon_name("list-add-symbolic")
             .tooltip_text("New Machine")
@@ -1319,7 +1321,6 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
     m.hero.set_margin_end(24);
     let e = m.entry.borrow().clone();
     let state = m.state.get();
-    let (word, class) = state.pill();
 
     let g: gtk::Widget = match e.art.and_then(|id| crate::art::framed(id, "hero")) {
         Some(hero) => hero.upcast(),
@@ -1332,12 +1333,6 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
         .xalign(0.0)
         .build();
     let pills = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    pills.append(
-        &gtk::Label::builder()
-            .label(word)
-            .css_classes(["pill", class])
-            .build(),
-    );
     pills.append(
         &gtk::Label::builder()
             .label(m.pointer.get().label())
@@ -1447,6 +1442,13 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
     m.hero.append(&flow);
 }
 
+/// The app icon from the binary, so About shows it where the icon theme has none (a run outside an install).
+fn app_icon() -> gtk::gdk::Texture {
+    const PNG: &[u8] =
+        include_bytes!("../../../resources/linux/icons/hicolor/256x256/apps/fans.irix.Origami.png");
+    gtk::gdk::Texture::from_bytes(&glib::Bytes::from_static(PNG)).expect("the bundled icon decodes")
+}
+
 /// The About window: the cube on a band (an icon where there is no GPU for
 /// it), the version, who made it and two buttons for the credits.
 fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
@@ -1477,7 +1479,7 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         Some(cube) => cube.enable_pointer(),
         None => page.append(
             &gtk::Image::builder()
-                .icon_name("computer-symbolic")
+                .paintable(&app_icon())
                 .pixel_size(96)
                 .margin_top(24)
                 .build(),

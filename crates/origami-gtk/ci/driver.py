@@ -1634,6 +1634,70 @@ DOCS_SHOTS = ["linux-library", "linux-engine", "linux-new-machine", "linux-start
               "linux-install-assistant", "linux-ready-disk", "linux-network"]
 
 
+def slug(title):
+    return "-".join(w.lower() for w in re.split(r"[^0-9A-Za-z]+", title) if w)
+
+
+def audit_dialogs(a, machine, fit):
+    """Open Settings (each page), New Machine and the install assistant; with `fit` fail on any label cut short
+    by an ellipsis. Returns the names the apps must agree on."""
+    heading = (a.req("audit sidebar.heading").get("own") or [""])[0]
+    a.req("invoke machine.settings " + machine)
+    a.wait("the settings dialog", lambda: a.req("audit settings.dialog").get("found"), 30, 0.5)
+    time.sleep(1)
+    tabs = a.req("audit settings.dialog")["pages"]
+    check("settings lists its pages", len(tabs) >= 7, tabs)
+    for t in tabs:
+        a.req("activate prefs.page." + slug(t))
+        time.sleep(0.7)
+        r = a.req("audit settings.dialog")
+        if fit:
+            check("no label is cut short on the %s page" % t, not r["ellipsized"], r["ellipsized"])
+    a.req("activate settings.dialog")
+    time.sleep(1)
+    a.req("invoke machine.new")
+    a.wait("the New Machine dialog", lambda: a.req("audit new.dialog").get("found") and a.req("audit new.dialog")["fields"], 30, 0.5)
+    time.sleep(1)
+    r = a.req("audit new.dialog")
+    # An expander row lists its own title twice: once as the row, once as its header.
+    fields = [f for i, f in enumerate(r["fields"]) if i == 0 or f != r["fields"][i - 1]]
+    if fit:
+        check("no label is cut short in New Machine", not r["ellipsized"], r["ellipsized"])
+    a.req("activate new.dialog")
+    time.sleep(1)
+    a.req("invoke machine.install-irix " + machine)
+    a.wait("the install assistant", lambda: a.req("audit install.window").get("steps"), 30, 0.5)
+    steps = [re.sub(r"^\d+\.\s*", "", s) for s in a.req("audit install.window")["steps"]]
+    sh("wmctrl", "-c", "Install IRIX")
+    time.sleep(1)
+    return {"platform": "linux", "sidebar_heading": heading, "settings_tabs": tabs, "new_machine_fields": fields, "install_steps": steps}
+
+
+def layout():
+    """No label in Settings or New Machine is cut short by an ellipsis at the smallest window the app allows."""
+    if mode != "x11":
+        skip("layout", "needs xdotool and wmctrl")
+        return
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        time.sleep(2)
+        # An X11 window cannot go below the minimum size its toolkit declares, so this is the smallest the app allows.
+        for i in window_ids("Origami"):
+            sh("xdotool", "windowsize", i, "1", "1")
+        time.sleep(2)
+        size = [sh("xdotool", "getwindowgeometry", i).stdout.split("Geometry:")[-1].strip() for i in window_ids("Origami")]
+        print("window size at the minimum:", size, flush=True)
+        check("the window really shrank", all(int(s.split("x")[0]) < 1000 for s in size), size)
+        parity = audit_dialogs(a, "octane2", True)
+        json.dump(parity, open(os.path.join(out, "linux-parity.json"), "w"), indent=1)
+        check("the sidebar heading is Machines", parity["sidebar_heading"] == "Machines", parity)
+    finally:
+        a.stop()
+
+
 def window_ids(title):
     return sh("xdotool", "search", "--onlyvisible", "--name", title).stdout.split()
 
@@ -1732,7 +1796,7 @@ def docs():
         key("Escape")
         time.sleep(1)
         a.req("invoke machine.settings octane2")
-        a.wait("the Network page", lambda: a.req("activate settings.network-page").get("ok"), 30, 0.5)
+        a.wait("the Network page", lambda: a.req("activate prefs.page.network").get("ok"), 30, 0.5)
         a.wait("Bridged", lambda: a.req("activate settings.network Bridged").get("ok"), 30, 0.5)
         time.sleep(2)
         doc_shot("linux-network")
@@ -1771,13 +1835,16 @@ def docs():
         a.req("credits licences")
         time.sleep(3)
         doc_shot("linux-licences")
+        key("Escape")
+        time.sleep(1)
+        json.dump(audit_dialogs(a, "octane2", False), open(os.path.join(out, "linux-parity.json"), "w"), indent=1)
         for n in DOCS_SHOTS:
             check("%s.png exists" % n, os.path.exists(os.path.join(out, n + ".png")))
     finally:
         a.stop()
 
 
-SCENARIOS = {"docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"layout": layout, "docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

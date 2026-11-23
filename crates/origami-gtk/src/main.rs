@@ -27,6 +27,7 @@ mod library;
 mod machine;
 mod pointer_lock;
 mod prefs;
+mod prefs_dialog;
 mod settings;
 mod style;
 mod upgrade;
