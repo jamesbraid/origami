@@ -1206,6 +1206,8 @@ def hidpi():
         for cmd, step in [("view.scale-1x", factor), ("view.actual-size", 1.0)]:
             a.req("invoke %s octane2" % cmd)
             time.sleep(1.2)
+            # The window follows the request when the window system lets it, which a loaded machine delays: look for up to 6 s.
+            a.wait("the picture to reach step %s" % step, lambda: abs(a.machine("octane2")["picture"]["step"] - step) < 1e-6, 6, 0.3)
             m = a.machine("octane2")
             pic = m["picture"]
             # The monitor's logical size, less the app's margin and room for the sidebar and bars.
@@ -1241,6 +1243,43 @@ def hidpi():
         st = a.req("stats")
         json.dump(st, open(os.path.join(out, "stats.json"), "w"), indent=1)
         print(json.dumps(st["machines"][0].get("pump_us")), json.dumps(st["machines"][0].get("gpu_copy_us")))
+    finally:
+        a.stop()
+
+
+def actual_size_loop():
+    """The View menu's sizes, repeated on one running machine: from a window the user made small or large,
+    Scale 1x then Actual Size must give 1 logical and 1 device pixel per guest pixel each time.
+    LOOPS (default 30) rounds; the picture's step is read a second after each command."""
+    loops = int(os.environ.get("LOOPS") or 30)
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        a.req("invoke machine.start octane2")
+        check("first picture within 15 min", prom_ready(a, "octane2") is not None)
+        win = app_window()
+        if not win:
+            skip("actual-size loop", "no window to drive (needs X11)")
+            return
+        factor = a.machine("octane2")["scale_factor"]
+        guest = a.machine("octane2")["size"]
+        sizes = [tuple(int(v) for v in t.split("x")) for t in (os.environ.get("SIZES") or "1100x900,1500x1200,900x700,1300x1000").split(",")]
+        bad = 0
+        for i in range(loops):
+            w, h = sizes[i % len(sizes)]
+            sh("xdotool", "windowsize", win, str(round(w * factor)), str(round(h * factor)))
+            time.sleep(1.2)
+            for cmd, step in [("view.scale-1x", factor), ("view.actual-size", 1.0)]:
+                a.req("invoke %s octane2" % cmd)
+                time.sleep(1.2)
+                pic = a.machine("octane2")["picture"]
+                ok = abs(pic["step"] - step) < 1e-6
+                if not ok:
+                    bad += 1
+                check("round %d (%dx%d first) %s: %s device px per guest px" % (i, w, h, cmd, step), ok, pic)
+        check("no round ended short", bad == 0, bad)
     finally:
         a.stop()
 
@@ -1846,7 +1885,7 @@ def docs():
         a.stop()
 
 
-SCENARIOS = {"layout": layout, "docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"layout": layout, "docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "actual-size-loop": actual_size_loop, "first-light": first_light, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

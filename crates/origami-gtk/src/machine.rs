@@ -371,13 +371,14 @@ impl MachineUi {
         self.size_window(
             Rc::new(move |mon, chrome, g, f| view_scale::scale_window(scale, mon, chrome, g, f)),
             (0, 0),
-            false,
+            true,
         );
     }
 
     /// Ask for the window `want` gives. `slack` is how far a default size has
     /// overshot the window's real size (X11 frames); measured once, then corrected.
-    fn size_window(self: &Rc<Self>, want: Rc<WindowFor>, slack: (i32, i32), retried: bool) {
+    /// `check` says whether to look afterwards for a shortfall and correct it once.
+    fn size_window(self: &Rc<Self>, want: Rc<WindowFor>, slack: (i32, i32), check: bool) {
         let Some(win) = self.screen.root().and_downcast::<gtk::Window>() else {
             return;
         };
@@ -402,33 +403,50 @@ impl MachineUi {
         };
         let ask = (w + slack.0, h + slack.1);
         win.set_default_size(ask.0, ask.1);
-        if slack == (0, 0) && !retried {
-            let weak = Rc::downgrade(self);
-            glib::timeout_add_local_once(std::time::Duration::from_millis(400), move || {
-                let Some(m) = weak.upgrade() else { return };
-                let Some(win) = m.screen.root().and_downcast::<gtk::Window>() else {
-                    return;
-                };
-                let slack = (ask.0 - win.width(), ask.1 - win.height());
-                // Correct a frame-sized shortfall (libadwaita on X11), not a tiling compositor.
-                if (1..=16).contains(&slack.0) && (1..=16).contains(&slack.1) {
-                    m.size_window(want, slack, true);
-                    return;
-                }
-                // The sidebar grows with the window, so the picture's area came out smaller than asked
-                // for: ask once more with the chrome as it is now.
-                let short = (
-                    w - chrome.0 - m.screen.width(),
-                    h - chrome.1 - m.screen.height(),
-                );
-                if short.0.max(short.1) > 1
-                    && short.0.min(short.1) >= 0
-                    && short.0.max(short.1) <= 200
-                {
-                    m.size_window(want, (0, 0), true);
-                }
-            });
+        if check {
+            self.check_size(want, ask, (w - chrome.0, h - chrome.1), 0, None);
         }
+    }
+
+    /// Wait for the window to stop changing size after a request (a loaded machine or the window system
+    /// can take far longer than a fixed delay), then correct a shortfall once: a frame-sized one (libadwaita
+    /// on X11), or the picture's area coming out smaller because the sidebar grew with the window.
+    fn check_size(
+        self: &Rc<Self>,
+        want: Rc<WindowFor>,
+        ask: (i32, i32),
+        area: (i32, i32),
+        polls: u8,
+        last: Option<(i32, i32, i32, i32)>,
+    ) {
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local_once(std::time::Duration::from_millis(200), move || {
+            let Some(m) = weak.upgrade() else { return };
+            let Some(win) = m.screen.root().and_downcast::<gtk::Window>() else {
+                return;
+            };
+            let now = (
+                win.width(),
+                win.height(),
+                m.screen.width(),
+                m.screen.height(),
+            );
+            // Still moving, or not started: look again, for up to about 3 s.
+            if last != Some(now) && polls < 15 {
+                m.check_size(want, ask, area, polls + 1, Some(now));
+                return;
+            }
+            let slack = (ask.0 - now.0, ask.1 - now.1);
+            if (1..=16).contains(&slack.0) && (1..=16).contains(&slack.1) {
+                m.size_window(want, slack, false);
+                return;
+            }
+            let short = (area.0 - now.2, area.1 - now.3);
+            if short.0.max(short.1) > 1 && short.0.min(short.1) >= 0 && short.0.max(short.1) <= 200
+            {
+                m.size_window(want, (0, 0), false);
+            }
+        });
     }
 
     /// Put the picture where `layout` says, and lay it out again when the
@@ -461,7 +479,7 @@ impl MachineUi {
                             view_scale::grow_only(now, view_scale::first_window(mon, chrome, g))
                         }),
                         (0, 0),
-                        false,
+                        true,
                     );
                 });
             }
