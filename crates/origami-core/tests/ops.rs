@@ -237,7 +237,7 @@ fn validate_reports_the_verdict_as_a_result_line() {
     let report = validate(&f.engine, &f.dir).unwrap();
     let result: Vec<_> = report.of(Kind::Result).collect();
     assert_eq!(result.len(), 1);
-    assert!(result[0].starts_with("valid: fake (1 CPUs"), "{result:?}");
+    assert!(result[0].starts_with("valid: fake (1 CPU"), "{result:?}");
 }
 
 #[test]

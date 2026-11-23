@@ -35,7 +35,7 @@ impl Status {
                 };
                 match reason {
                     ExitReason::GuestPoweredOff => "stopped (the guest powered off)".into(),
-                    ExitReason::HostStopped => "stopped (stop requested)".into(),
+                    ExitReason::HostStopped => "stopped".into(),
                     ExitReason::Crashed => format!("stopped unexpectedly ({})", with("crashed")),
                     ExitReason::RunnerError => format!(
                         "stopped unexpectedly ({})",
@@ -82,14 +82,8 @@ mod tests {
             line(ended(Some(0), None, None)),
             "stopped (the guest powered off)"
         );
-        assert_eq!(
-            line(ended(Some(0), None, Some("stop"))),
-            "stopped (stop requested)"
-        );
-        assert_eq!(
-            line(ended(None, Some(9), Some("force"))),
-            "stopped (stop requested)"
-        );
+        assert_eq!(line(ended(Some(0), None, Some("stop"))), "stopped");
+        assert_eq!(line(ended(None, Some(9), Some("force"))), "stopped");
         assert_eq!(
             line(ended(None, Some(11), None)),
             "stopped unexpectedly (crashed: signal 11)"

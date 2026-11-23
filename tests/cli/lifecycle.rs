@@ -47,10 +47,7 @@ fn a_machine_runs_in_the_background_and_stops() {
     );
 
     assert_eq!(ok(root, &["stop", path]).trim(), "stopped");
-    assert_eq!(
-        ok(root, &["status", path]).trim(),
-        "stopped (stop requested)"
-    );
+    assert_eq!(ok(root, &["status", path]).trim(), "stopped");
     assert!(fake_log(&machine).contains(&"exit".to_string()));
     assert!(!machine.join("state/run.json").exists());
 }

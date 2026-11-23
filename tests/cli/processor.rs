@@ -87,5 +87,5 @@ fn create_fixes_the_processor_module_in_machine_toml() {
         .replace("1792MiB", "64MiB");
     fs::write(&toml, text).unwrap();
     let valid = origami(root, &["validate", dir]).unwrap();
-    assert_eq!(valid, "valid: origin200 (1 CPUs)\n");
+    assert_eq!(valid, "valid: origin200-1 (1 CPU)\n");
 }

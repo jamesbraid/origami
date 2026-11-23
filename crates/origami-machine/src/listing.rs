@@ -126,7 +126,8 @@ fn wrap(text: &str, indent: usize) -> String {
     out
 }
 
-fn plural(count: u32, noun: &str) -> String {
+/// `1 CPU`, `0 CPUs`, `2 CPUs`.
+pub fn plural(count: u32, noun: &str) -> String {
     format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
 }
 

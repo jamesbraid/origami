@@ -154,6 +154,18 @@ pub fn presets(machines: &Machines) -> Vec<(String, &Offering)> {
         .collect()
 }
 
+/// The preset a machine of `offering_id` with `pipes` was made from: the one
+/// whose graphics product is fitted, else the one that takes the default.
+pub fn preset_name(offering_id: &str, pipes: &[crate::graphics::Pipe]) -> Option<&'static str> {
+    let of = || STARTERS.iter().filter(|p| p.offering == offering_id);
+    of().find(|p| {
+        p.graphics
+            .is_some_and(|g| pipes.iter().any(|f| f.product == g))
+    })
+    .or_else(|| of().find(|p| p.graphics.is_none()))
+    .map(|p| p.id)
+}
+
 /// An Origin 200 starts with this much memory per node, not the 64 MiB the
 /// catalogue lists first: IRIX 6.5 on 64 MiB has little left for a user.
 const ORIGIN200_MEMORY_MIB: u32 = 256;

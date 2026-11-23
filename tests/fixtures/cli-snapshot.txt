@@ -1096,7 +1096,7 @@ origami: unknown or unimplemented preset: no-such-preset
 === origami show <ROOT>/origin200_1
 exit 0
 --- stdout
-origin200: 1 CPUs, 1 nodes, 256MiB per node
+origin200: 1 CPU, 1 node, 256MiB per node
 graphics: none
 processor: 180 MHz R10000, 1 MB secondary cache
 state: <ROOT>/origin200_1/state
@@ -1114,7 +1114,7 @@ exit 0
 === origami validate <ROOT>/origin200_1
 exit 0
 --- stdout
-valid: origin200 (1 CPUs)
+valid: origin200-1 (1 CPU)
 --- stderr
 === origami status <ROOT>/origin200_1
 exit 0
@@ -1142,7 +1142,7 @@ exit 0
 === origami validate <ROOT>/origin2000_8
 exit 0
 --- stdout
-valid: origin2000-rack (8 CPUs)
+valid: origin2000-8 (8 CPUs)
 --- stderr
 === origami status <ROOT>/origin2000_8
 exit 0
@@ -1152,7 +1152,7 @@ stopped
 === origami show <ROOT>/origin300_2
 exit 0
 --- stdout
-origin300: 2 CPUs, 1 nodes, 512MiB per node
+origin300: 2 CPUs, 1 node, 512MiB per node
 graphics: none
 processor: 500 MHz R14000, 2 MB secondary cache
 state: <ROOT>/origin300_2/state
@@ -1170,7 +1170,7 @@ exit 0
 === origami validate <ROOT>/origin300_2
 exit 0
 --- stdout
-valid: origin300 (2 CPUs)
+valid: origin300-2 (2 CPUs)
 --- stderr
 === origami status <ROOT>/origin300_2
 exit 0
@@ -1180,7 +1180,7 @@ stopped
 === origami show <ROOT>/octane_impact
 exit 0
 --- stdout
-octane: 1 CPUs, 1 nodes, 128MiB per node
+octane: 1 CPU, 1 node, 128MiB per node
 graphics: Solid IMPACT (SI) (si) in widget-11, Crossbow port 11, the default graphics port
   fidelity: implemented
 processor: 195 MHz R10000, 1 MB secondary cache
@@ -1199,7 +1199,7 @@ exit 0
 === origami validate <ROOT>/octane_impact
 exit 0
 --- stdout
-valid: octane (1 CPUs)
+valid: octane-impact (1 CPU)
 --- stderr
 === origami status <ROOT>/octane_impact
 exit 0
@@ -1209,7 +1209,7 @@ stopped
 === origami show <ROOT>/octane2_vpro
 exit 0
 --- stdout
-octane2: 1 CPUs, 1 nodes, 256MiB per node
+octane2: 1 CPU, 1 node, 256MiB per node
 graphics: VPro V12 (v12) in widget-11, Crossbow port 11, the default graphics port
   fidelity: implemented
 processor: 360 MHz R12000, 2 MB secondary cache
@@ -1228,7 +1228,7 @@ exit 0
 === origami validate <ROOT>/octane2_vpro
 exit 0
 --- stdout
-valid: octane2 (1 CPUs)
+valid: octane2-vpro (1 CPU)
 --- stderr
 === origami status <ROOT>/octane2_vpro
 exit 0
@@ -1263,7 +1263,7 @@ exit 0
 === origami validate <ROOT>/onyx2_infinite_reality
 exit 0
 --- stdout
-valid: onyx2-deskside (4 CPUs)
+valid: onyx2-infinite-reality (4 CPUs)
 --- stderr
 === origami status <ROOT>/onyx2_infinite_reality
 exit 0
@@ -1273,7 +1273,7 @@ stopped
 === origami show <ROOT>/fuel_1
 exit 0
 --- stdout
-fuel: 1 CPUs, 1 nodes, 512MiB per node
+fuel: 1 CPU, 1 node, 512MiB per node
 graphics: VPro V12 (v12) in widget-13, the graphics connector at XBridge widget 13
   fidelity: implemented
 processor: 500 MHz R14000, 2 MB secondary cache
@@ -1292,7 +1292,7 @@ exit 0
 === origami validate <ROOT>/fuel_1
 exit 0
 --- stdout
-valid: fuel (1 CPUs)
+valid: fuel-1 (1 CPU)
 --- stderr
 === origami status <ROOT>/fuel_1
 exit 0
@@ -1411,7 +1411,7 @@ origami: cannot read <ROOT>/origin200_1/install/media.toml: No such file or dire
 === origami show <ROOT>/origin200_1
 exit 0
 --- stdout
-origin200: 1 CPUs, 1 nodes, 256MiB per node
+origin200: 1 CPU, 1 node, 256MiB per node
 graphics: none
 processor: 180 MHz R10000, 1 MB secondary cache
 state: <ROOT>/origin200_1/state
@@ -1463,5 +1463,5 @@ stopped
 === origami status <ROOT>/console
 exit 0
 --- stdout
-stopped (stop requested)
+stopped
 --- stderr

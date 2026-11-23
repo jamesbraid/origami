@@ -80,12 +80,12 @@ pub fn validate(engine: &dyn Engine, dir: &Path) -> Result<Report> {
     for warning in warnings {
         report.warning(warning);
     }
+    let name =
+        origami_machine::profiles::preset_name(&offer.id, &file.pipe).unwrap_or(&offer.topology);
+    let cpus = listing::plural(offer.cpus, "CPU");
     report.result(match &file.machine.processor {
-        Some(processor) => format!(
-            "valid: {} ({} CPUs, {processor})",
-            offer.topology, offer.cpus
-        ),
-        None => format!("valid: {} ({} CPUs)", offer.topology, offer.cpus),
+        Some(processor) => format!("valid: {name} ({cpus}, {processor})"),
+        None => format!("valid: {name} ({cpus})"),
     });
     Ok(report)
 }
@@ -99,8 +99,11 @@ pub fn show(engine: &dyn Engine, dir: &Path) -> std::result::Result<Report, Inco
         let machines = &catalogue;
         let offer = origami_machine::offering(machines, &file.machine)?;
         report.detail(format!(
-            "{}: {} CPUs, {} nodes, {} per node",
-            file.machine.model, offer.cpus, offer.nodes, file.machine.memory_per_node,
+            "{}: {}, {}, {} per node",
+            file.machine.model,
+            listing::plural(offer.cpus, "CPU"),
+            listing::plural(offer.nodes, "node"),
+            file.machine.memory_per_node,
         ));
         for line in graphics::show_lines(machines, &offer.topology, &file.pipe) {
             report.detail(line);

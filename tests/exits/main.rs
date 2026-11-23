@@ -109,18 +109,8 @@ fn each_ending_reads_the_same_in_the_core_and_in_status() {
             ExitReason::GuestPoweredOff,
             "stopped (the guest powered off)",
         ),
-        (
-            "stop",
-            stop,
-            ExitReason::HostStopped,
-            "stopped (stop requested)",
-        ),
-        (
-            "force",
-            force,
-            ExitReason::HostStopped,
-            "stopped (stop requested)",
-        ),
+        ("stop", stop, ExitReason::HostStopped, "stopped"),
+        ("force", force, ExitReason::HostStopped, "stopped"),
         (
             "killed",
             killed,
