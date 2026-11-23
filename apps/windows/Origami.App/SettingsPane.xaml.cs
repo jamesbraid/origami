@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI.Xaml.Controls;
 using Origami.Logic;
 
@@ -14,6 +15,9 @@ public sealed partial class SettingsPane : UserControl
     public SettingsPane()
     {
         InitializeComponent();
+        PrefsTitle.Text = Ui.T(OrigamiUiString.Preferences);
+        ModeButtons.Header = Ui.T(OrigamiUiString.Pointer);
+        DownloadedTitle.Text = Ui.T(OrigamiUiString.DownloadedDisks);
         SaveButton.Click += (_, _) =>
         {
             _s.LibraryRoot = RootBox.Text.Trim();
@@ -38,10 +42,10 @@ public sealed partial class SettingsPane : UserControl
     {
         DownloadedList.Children.Clear();
         var disks = Core?.CachedDisks() ?? Array.Empty<CachedDisk>();
-        if (disks.Count == 0) DownloadedList.Children.Add(new TextBlock { Text = "No downloaded disks", Opacity = 0.7 });
+        if (disks.Count == 0) DownloadedList.Children.Add(new TextBlock { Text = Ui.T(OrigamiUiString.NoDownloadedDisks), Opacity = 0.7 });
         foreach (var d in disks)
         {
-            var remove = new Button { Content = "Remove", VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center };
+            var remove = new Button { Content = Ui.T(OrigamiUiString.Remove), VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center };
             remove.Click += (_, _) => { Core?.RemoveCachedDisk(d.Key); ListDownloaded(); };
             var text = new StackPanel { Children = { new TextBlock { Text = d.Label }, new TextBlock { Text = Core!.SizeLabel(d.Bytes), Opacity = 0.7 } } };
             var row = new Grid { ColumnSpacing = 12, ColumnDefinitions = { new ColumnDefinition(), new ColumnDefinition { Width = Microsoft.UI.Xaml.GridLength.Auto } } };

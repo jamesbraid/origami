@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -57,15 +58,15 @@ public sealed class AboutWindow : Window
     public AboutWindow(ICoreClient core, string? runningKey, bool dark)
     {
         _core = core; _dark = dark;
-        Title = "About Origami";
+        Title = Ui.T(OrigamiUiString.AboutOrigami);
         AppIcon.Apply(this);
         Cube.WindowHandle = () => WinRT.Interop.WindowNative.GetWindowHandle(this);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(Cube, "about.cube");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Cube, "The SGI cube");
 
         var credits = new StackPanel { Spacing = 4, Padding = new Thickness(24, 16, 24, 24), HorizontalAlignment = HorizontalAlignment.Center };
-        credits.Children.Add(new TextBlock { Text = "Origami", Style = (Style)Application.Current.Resources["TitleTextBlockStyle"], HorizontalAlignment = HorizontalAlignment.Center });
-        credits.Children.Add(new TextBlock { Text = "Version " + (typeof(AboutWindow).Assembly.GetName().Version?.ToString(3) ?? "0"), Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center });
+        credits.Children.Add(new TextBlock { Text = Ui.T(OrigamiUiString.Origami), Style = (Style)Application.Current.Resources["TitleTextBlockStyle"], HorizontalAlignment = HorizontalAlignment.Center });
+        credits.Children.Add(new TextBlock { Text = OrigamiFfiMethods.OrigamiVersionLine(typeof(AboutWindow).Assembly.GetName().Version?.ToString(3) ?? "0"), Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center });
         try { _credits = CreditsDocument.Parse(uniffi.origami_ffi.OrigamiFfiMethods.OrigamiCreditsJson()); }
         catch (Exception e) { App.Log("about: no credits: " + e.Message); }
         if (_credits is { } c)
@@ -74,8 +75,8 @@ public sealed class AboutWindow : Window
             credits.Children.Add(new TextBlock { Text = c.LicenceName, Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center });
             credits.Children.Add(new HyperlinkButton { Content = c.ProjectUrl.Replace("https://", ""), NavigateUri = new Uri(c.ProjectUrl), HorizontalAlignment = HorizontalAlignment.Center });
         }
-        _acknowledgements = new Button { Content = "Acknowledgements", IsEnabled = _credits != null };
-        _licences = new Button { Content = "Licences", IsEnabled = _credits != null };
+        _acknowledgements = new Button { Content = Ui.T(OrigamiUiString.Acknowledgements), IsEnabled = _credits != null };
+        _licences = new Button { Content = Ui.T(OrigamiUiString.Licences), IsEnabled = _credits != null };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_acknowledgements, "about.acknowledgements");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_licences, "about.licences");
         _acknowledgements.Click += (_, _) => Show(CreditsWindow.Page.Acknowledgements);

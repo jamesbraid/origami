@@ -112,7 +112,7 @@ struct ImageChoiceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button("Choose an image…") { choice.choose() }
+                Button(ui(.chooseAnImage)) { choice.choose() }
                 if let p = choice.path {
                     Text(p.lastPathComponent).lineLimit(1).truncationMode(.middle)
                     if let c = choice.check { Text(origamiSizeLabel(bytes: c.bytes)).foregroundStyle(.secondary) }
@@ -120,12 +120,12 @@ struct ImageChoiceView: View {
                 }
             }
             if choice.check != nil {
-                Picker("Where should the disk live?", selection: $choice.copy) {
+                Picker(ui(.whereShouldTheDiskLive), selection: $choice.copy) {
                     Text(labels.place[0]).tag(true)
                     Text(labels.place[1]).tag(false)
                 }.pickerStyle(.radioGroup)
                 if choice.check?.isChd == true {
-                    Picker("How should changes be kept?", selection: $choice.apart) {
+                    Picker(ui(.howShouldChangesBeKept), selection: $choice.apart) {
                         Text(labels.keep[0]).tag(true)
                         Text(labels.keep[1]).tag(false)
                     }.pickerStyle(.radioGroup)
@@ -147,7 +147,7 @@ struct OperationProgress: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ProgressView(value: progress.fraction)
-            HStack { Text(progress.text).font(.caption).foregroundStyle(.secondary); Spacer(); Button("Cancel", action: cancel) }
+            HStack { Text(progress.text).font(.caption).foregroundStyle(.secondary); Spacer(); Button(ui(.cancel), action: cancel) }
         }
     }
 }

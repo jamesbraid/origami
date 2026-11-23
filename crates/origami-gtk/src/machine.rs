@@ -11,6 +11,7 @@ use crate::view_scale::{self, Layout, ViewScale};
 use crate::vk;
 use adw::prelude::*;
 use gtk::{gdk, glib};
+use origami_core::facade::UiString;
 use origami_core::facade::{HookId, Machine, MachineState, Operation, OperationState};
 use origami_engine::ImportedUpdate;
 use std::cell::{Cell, RefCell};
@@ -240,7 +241,7 @@ impl MachineUi {
             .build()
             .upcast();
         let heading = gtk::Label::builder()
-            .label("Starting up the system…")
+            .label(UiString::StartingUpTheSystem.text())
             .css_classes(["title-2"])
             .build();
         starting.append(&spinner);

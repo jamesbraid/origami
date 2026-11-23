@@ -11,7 +11,7 @@ struct NewMachineSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("New machine").font(.headline)
+            Text(ui(.newMachine)).font(.headline)
             if model.loading {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity)
             } else {
@@ -37,14 +37,14 @@ struct NewMachineSheet: View {
                 }
                 if model.disk == .empty {
                     Stepper("Disk size: \(model.sizeGB) GB", value: $model.sizeGB, in: 1...2048)
-                    Toggle("Install IRIX after creating", isOn: $model.installAfter)
+                    Toggle(ui(.installIrixAfterCreating), isOn: $model.installAfter)
                 }
                 if model.disk == .image { ImageChoiceView(choice: model.image) }
                 DisclosureGroup(Labels.NewMachine.advanced) {
                     TextField("Machine ID", text: $model.idText, prompt: Text("1 to 2999"))
-                    LabeledContent("Ethernet address", value: model.addressShown)
-                    Toggle("Use this address instead", isOn: $model.useAddress).disabled(model.identity?.fromId == false)
-                    if model.useAddress { TextField("Address", text: $model.addressText, prompt: Text("08:00:69:__:__:__")) }
+                    LabeledContent(ui(.ethernetAddress), value: model.addressShown)
+                    Toggle(ui(.useThisAddressInstead), isOn: $model.useAddress).disabled(model.identity?.fromId == false)
+                    if model.useAddress { TextField(ui(.address), text: $model.addressText, prompt: Text("08:00:69:__:__:__")) }
                 }
                 if let p = model.identityProblem { Text(p).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true) }
                 if let p = model.progress { OperationProgress(progress: p) { model.cancelCopy() } }
@@ -54,8 +54,8 @@ struct NewMachineSheet: View {
             }
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Create") { create() }.keyboardShortcut(.defaultAction).disabled(!model.canCreate)
+                Button(ui(.cancel)) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(ui(.create)) { create() }.keyboardShortcut(.defaultAction).disabled(!model.canCreate)
             }
         }
         .padding(20).frame(width: 460)

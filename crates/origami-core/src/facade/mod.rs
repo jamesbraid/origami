@@ -24,6 +24,7 @@ mod operation;
 mod osview;
 mod ready;
 mod settings;
+mod ui_text;
 
 pub use commands::{Command, EnabledWhen, Platform, Shortcut};
 pub use core::{
@@ -62,6 +63,7 @@ pub use settings::{
     check_share_name, suggest_share_name, ConsolePortSetting, DriveSetting, MachineSettings,
     PipeSetting, ShareSetting,
 };
+pub use ui_text::{version_line, UiString};
 
 pub use origami_engine::{
     Control, CpuLoad, CursorInfo, Frame, FrameStats, FrameUpdate, InputEvent, Key, PointerButton,

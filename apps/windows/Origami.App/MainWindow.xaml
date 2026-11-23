@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="using:Origami.App"
-        Title="Origami">
+        >
     <Window.SystemBackdrop>
         <MicaBackdrop Kind="Base"/>
     </Window.SystemBackdrop>
@@ -15,7 +15,7 @@
         </Grid.RowDefinitions>
 
         <!-- One header: icon and title, the machine's name and state, then the actions and the main menu, beside the caption buttons. -->
-        <TitleBar x:Name="AppTitleBar" Grid.Row="0" Title="Origami">
+        <TitleBar x:Name="AppTitleBar" Grid.Row="0">
             <TitleBar.IconSource>
                 <ImageIconSource x:Name="TitleIcon"/>
             </TitleBar.IconSource>
@@ -29,7 +29,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                        <TextBlock x:Name="TitleText" Text="Origami" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TitleText" FontWeight="SemiBold" VerticalAlignment="Center"/>
                         <Border x:Name="PillBorder" CornerRadius="9" Padding="8,1" Background="Gray" VerticalAlignment="Center">
                             <TextBlock x:Name="PillText" Text="" Foreground="White" FontSize="12"
                                        AutomationProperties.AutomationId="status.pill"/>
@@ -37,25 +37,25 @@
                     </StackPanel>
                     <CommandBar x:Name="Toolbar" Grid.Column="1" DefaultLabelPosition="Collapsed" IsOpen="False"
                                 Background="Transparent" TitleBar.IsDragRegion="False">
-                        <AppBarButton x:Name="StartButton" Icon="Play" Label="Start"
+                        <AppBarButton x:Name="StartButton" Icon="Play"
                                       AutomationProperties.AutomationId="cmd.start" ToolTipService.ToolTip="Start the machine (Ctrl+Shift+R)"/>
-                        <AppBarButton x:Name="PowerOffButton" Icon="Stop" Label="Power off"
+                        <AppBarButton x:Name="PowerOffButton" Icon="Stop"
                                       AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power off the machine (Ctrl+Shift+P)"/>
                         <AppBarSeparator/>
-                        <AppBarButton x:Name="PauseButton" Icon="Pause" Label="Pause"
+                        <AppBarButton x:Name="PauseButton" Icon="Pause"
                                       AutomationProperties.AutomationId="cmd.pause" ToolTipService.ToolTip="Pause or resume the machine (Ctrl+P)"/>
-                        <AppBarButton x:Name="ConsoleButton" Icon="Message" Label="Console"
+                        <AppBarButton x:Name="ConsoleButton" Icon="Message"
                                       AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Open the machine's serial console (Ctrl+Shift+O)"/>
                         <AppBarSeparator/>
                         <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" Label="Follow"
                                             AutomationProperties.AutomationId="cmd.pointermode"
                                             ToolTipService.ToolTip="Pointer mode: follow my mouse or capture on click (Ctrl+Shift+M)"/>
-                        <AppBarToggleButton x:Name="CpuButton" Icon="Calculator" Label="CPU"
-                                            AutomationProperties.AutomationId="cmd.cpu" ToolTipService.ToolTip="Show or hide the emulated CPU load"/>
-                        <AppBarButton x:Name="SettingsButton" Icon="Setting" Label="Settings"
+                        <AppBarToggleButton x:Name="CpuButton" Icon="Calculator"
+                                            AutomationProperties.AutomationId="cmd.cpu"/>
+                        <AppBarButton x:Name="SettingsButton" Icon="Setting"
                                       AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Open the machine's settings (Ctrl+Shift+I)"/>
                         <AppBarButton x:Name="MoreButton" Icon="More" Label="Menu"
-                                      AutomationProperties.AutomationId="menu.more" ToolTipService.ToolTip="Open the main menu">
+                                      AutomationProperties.AutomationId="menu.more">
                             <AppBarButton.Flyout>
                                 <MenuFlyout x:Name="Menus"/>
                             </AppBarButton.Flyout>
@@ -102,7 +102,7 @@
                                AutomationProperties.AutomationId="hero.exitnote"/>
                     <TextBlock x:Name="UpgradeNotes" TextWrapping="Wrap" MaxWidth="420" HorizontalAlignment="Center" Opacity="0.8" Visibility="Collapsed"
                                AutomationProperties.AutomationId="hero.upgradenotes"/>
-                    <Button x:Name="HeroStart" Content="Start" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
+                    <Button x:Name="HeroStart" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
                             AutomationProperties.AutomationId="hero.start" MinWidth="120"/>
                 </StackPanel>
 
@@ -113,7 +113,7 @@
                     <TextBlock x:Name="UpgradeError" TextWrapping="Wrap" TextAlignment="Center" Visibility="Collapsed" IsTextSelectionEnabled="True"
                                Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.AutomationId="upgrade.error"/>
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                        <Button x:Name="UpgradeButton" Content="Upgrade" Style="{ThemeResource AccentButtonStyle}" AutomationProperties.AutomationId="upgrade.run"/>
+                        <Button x:Name="UpgradeButton" Style="{ThemeResource AccentButtonStyle}" AutomationProperties.AutomationId="upgrade.run"/>
                         <Button x:Name="UpgradeShow" Content="Show in Explorer" AutomationProperties.AutomationId="upgrade.show"/>
                         <ProgressRing x:Name="UpgradeRing" Width="20" Height="20" IsActive="False"/>
                     </StackPanel>
@@ -134,7 +134,7 @@
                     </Grid.RowDefinitions>
                     <local:CubeHost x:Name="StartCube" Grid.Row="0"/>
                     <StackPanel Grid.Row="1" Spacing="2" Padding="0,10,0,12" HorizontalAlignment="Center">
-                        <TextBlock Text="Starting up the system…" Style="{ThemeResource SubtitleTextBlockStyle}"
+                        <TextBlock x:Name="StartingText" Style="{ThemeResource SubtitleTextBlockStyle}"
                                    HorizontalAlignment="Center"/>
                         <TextBlock x:Name="StageText" Opacity="0.7" HorizontalAlignment="Center"
                                    AutomationProperties.AutomationId="start.stage"/>

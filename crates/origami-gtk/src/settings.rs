@@ -14,6 +14,7 @@ use crate::{input, window};
 use adw::prelude::*;
 use gtk::glib;
 use origami_core::facade::NetworkSetting;
+use origami_core::facade::UiString;
 use origami_core::facade::{CreateRequest, OperationState, SystemDisk};
 use origami_core::{Change, Line, NetworkMode};
 use std::cell::RefCell;
@@ -183,18 +184,22 @@ fn build_machine_dialog(
     let running = m.state.get().is_up();
 
     let general = adw::PreferencesPage::builder()
-        .title("General")
+        .title(UiString::General.text())
         .icon_name("preferences-system-symbolic")
         .build();
     if running {
-        general.add(&adw::PreferencesGroup::builder().description("This machine is running. Hardware settings are locked until it is powered off.").build());
+        general.add(
+            &adw::PreferencesGroup::builder()
+                .description(UiString::ThisMachineIsRunningHardware.text())
+                .build(),
+        );
     }
     general.add(&group(
         "Machine",
         vec![
-            value_row("Name", &m.name),
+            value_row(UiString::Name.text(), &m.name),
             value_row("Location", &m.dir.display().to_string()),
-            value_row("Model", &m.entry.borrow().product_label),
+            value_row(UiString::Model.text(), &m.entry.borrow().product_label),
         ],
     ));
     dialog.add(&general);
@@ -210,10 +215,10 @@ fn build_machine_dialog(
                 .title("Processor & memory")
                 .build();
             if let Some(p) = &f.machine.processor {
-                g.add(&value_row("Processor", p));
+                g.add(&value_row(UiString::Processor.text(), p));
             }
             let cpus = adw::ComboRow::builder()
-                .title("Processors per node")
+                .title(UiString::ProcessorsPerNode.text())
                 .sensitive(!running)
                 .build();
             let labels: Vec<String> = l.cpus.iter().map(u32::to_string).collect();
@@ -254,7 +259,7 @@ fn build_machine_dialog(
             }
             g.add(&cpus);
             let mem = adw::ComboRow::builder()
-                .title("Memory per node")
+                .title(UiString::MemoryPerNode.text())
                 .sensitive(!running)
                 .build();
             let labels: Vec<String> = l.memory.iter().map(|v| format!("{v} MiB")).collect();
@@ -287,17 +292,20 @@ fn build_machine_dialog(
             }
             g.add(&mem);
             if f.machine.nodes > 1 {
-                g.add(&value_row("Nodes", &f.machine.nodes.to_string()));
+                g.add(&value_row(
+                    UiString::Nodes.text(),
+                    &f.machine.nodes.to_string(),
+                ));
             }
             hw.add(&g);
             dialog.add(&hw);
 
             let gfx = adw::PreferencesPage::builder()
-                .title("Graphics")
+                .title(UiString::Graphics.text())
                 .icon_name("video-display-symbolic")
                 .build();
             let rows: Vec<_> = if f.pipe.is_empty() {
-                vec![value_row("Graphics", "None")]
+                vec![value_row(UiString::Graphics.text(), "None")]
             } else {
                 f.pipe
                     .iter()
@@ -313,12 +321,14 @@ fn build_machine_dialog(
             dialog.add(&gfx);
 
             let drives = adw::PreferencesPage::builder()
-                .title("Drives")
+                .title(UiString::Drives.text())
                 .icon_name("drive-harddisk-symbolic")
                 .build();
-            let g = adw::PreferencesGroup::builder().title("Drives").build();
+            let g = adw::PreferencesGroup::builder()
+                .title(UiString::Drives.text())
+                .build();
             if f.drive.is_empty() {
-                g.add(&value_row("Drives", "None"));
+                g.add(&value_row(UiString::Drives.text(), "None"));
             }
             for d in &f.drive {
                 let r = value_row(
@@ -342,7 +352,7 @@ fn build_machine_dialog(
                 }
                 let b = gtk::Button::builder()
                     .icon_name("list-remove-symbolic")
-                    .tooltip_text("Detach")
+                    .tooltip_text(UiString::Detach.text())
                     .valign(gtk::Align::Center)
                     .sensitive(!running)
                     .css_classes(["flat"])
@@ -419,7 +429,7 @@ fn build_machine_dialog(
             }
             network_groups(app, parent, m, &dialog, &net, &l.network, running);
             let fg = adw::PreferencesGroup::builder()
-                .title("Port forwards")
+                .title(UiString::PortForwards.text())
                 .build();
             for p in &f.network.forward {
                 let r = value_row(
@@ -431,7 +441,7 @@ fn build_machine_dialog(
                 );
                 let b = gtk::Button::builder()
                     .icon_name("list-remove-symbolic")
-                    .tooltip_text("Remove")
+                    .tooltip_text(UiString::Remove.text())
                     .valign(gtk::Align::Center)
                     .sensitive(!running)
                     .css_classes(["flat"])
@@ -477,15 +487,15 @@ fn build_machine_dialog(
             shares_group(app, parent, m, &dialog, &folders, &net, &l.shares, running);
             dialog.add(&folders);
             let startup = adw::PreferencesPage::builder()
-                .title("Startup & firmware")
+                .title(UiString::StartupFirmware.text())
                 .icon_name("system-shutdown-symbolic")
                 .build();
             let g = adw::PreferencesGroup::builder()
-                .title("Startup & firmware")
-                .description("The Console window and a headless machine's tab use this line. On a machine with graphics, the PROM may print on the screen instead.")
+                .title(UiString::StartupFirmware.text())
+                .description(UiString::TheConsoleWindowAndA.text())
                 .build();
             let line = adw::ComboRow::builder()
-                .title("Console serial line")
+                .title(UiString::ConsoleSerialLine.text())
                 .use_subtitle(true)
                 .sensitive(!running)
                 .build();
@@ -534,17 +544,17 @@ fn build_machine_dialog(
     }
 
     let input_page = adw::PreferencesPage::builder()
-        .title("Input")
+        .title(UiString::Input.text())
         .icon_name("input-mouse-symbolic")
         .build();
     let g = adw::PreferencesGroup::builder()
-        .title("Pointer")
+        .title(UiString::Pointer.text())
         .description(
             "How the mouse reaches the guest. This machine overrides the default in Preferences.",
         )
         .build();
     let combo = adw::ComboRow::builder()
-        .title("Mode")
+        .title(UiString::Mode.text())
         .model(&gtk::StringList::new(&[
             "Follow my mouse",
             "Capture on click",
@@ -588,7 +598,7 @@ fn list_downloaded(
     let found = core.cached_disks().unwrap_or_default();
     if found.is_empty() {
         let row = adw::ActionRow::builder()
-            .title("No downloaded disks")
+            .title(UiString::NoDownloadedDisks.text())
             .build();
         group.add(&row);
         rows.borrow_mut().push(row);
@@ -599,7 +609,7 @@ fn list_downloaded(
             .subtitle(origami_core::facade::size_label(disk.bytes))
             .build();
         let remove = gtk::Button::builder()
-            .label("Remove")
+            .label(UiString::Remove.text())
             .valign(gtk::Align::Center)
             .build();
         row.add_suffix(&remove);
@@ -625,7 +635,7 @@ fn notes_group(notes: &[Line], root: &gtk::Widget) -> adw::PreferencesGroup {
             .build();
         if let Some(command) = n.copy_text() {
             let copy = gtk::Button::builder()
-                .label("Copy")
+                .label(UiString::Copy.text())
                 .valign(gtk::Align::Center)
                 .build();
             let root = root.clone();
@@ -640,7 +650,7 @@ fn notes_group(notes: &[Line], root: &gtk::Widget) -> adw::PreferencesGroup {
 /// A button that puts `text` on the clipboard.
 fn copy_button(root: &Prefs, text: String) -> gtk::Button {
     let copy = gtk::Button::builder()
-        .label("Copy")
+        .label(UiString::Copy.text())
         .valign(gtk::Align::Center)
         .build();
     let root = root.clone();
@@ -673,7 +683,7 @@ fn shares_group(
 ) {
     let g = adw::PreferencesGroup::builder()
         .title("Shared folders")
-        .description("Run these as root in IRIX once it is up with nfs.sw.nfs installed. Files you write land on this computer as you.")
+        .description(UiString::RunTheseAsRootIn.text())
         .build();
     for sh in shares {
         let r = value_row(&sh.name, &sh.host_dir);
@@ -707,7 +717,7 @@ fn shares_group(
                 mount.set_title(problem);
                 if sh.needs_address {
                     let go = gtk::Button::builder()
-                        .label("Set the address in Network")
+                        .label(UiString::SetTheAddressInNetwork.text())
                         .valign(gtk::Align::Center)
                         .build();
                     let (dialog, network) = (dialog.clone(), network.clone());
@@ -725,7 +735,7 @@ fn shares_group(
         g.add(&mount);
     }
     let add = adw::ActionRow::builder()
-        .title("Share a folder…")
+        .title(UiString::ShareAFolder.text())
         .activatable(!running)
         .sensitive(!running)
         .build();
@@ -756,7 +766,7 @@ fn network_groups(
     let host_mode = choices.iter().map(|c| c.mode).find(|m| is_bridged(*m));
     let g = adw::PreferencesGroup::builder().title("Network").build();
     let mode = adw::ComboRow::builder()
-        .title("Mode")
+        .title(UiString::Mode.text())
         .sensitive(!running)
         .build();
     mode.set_widget_name("settings.network");
@@ -779,7 +789,7 @@ fn network_groups(
 
     // Bridged shows its fields before anything is saved: the core needs the device with the mode.
     let host = adw::PreferencesGroup::builder()
-        .title("Bridged")
+        .title(UiString::Bridged.text())
         .visible(current.is_some_and(|i| is_bridged(choices[i].mode)))
         .build();
     let device = entry(
@@ -795,7 +805,7 @@ fn network_groups(
         running,
     );
     let help = adw::ExpanderRow::builder()
-        .title("How to set this up")
+        .title(UiString::HowToSetThisUp.text())
         .build();
     help.add_row(
         &adw::ActionRow::builder()
@@ -867,7 +877,7 @@ fn network_groups(
     }
 
     let id = adw::PreferencesGroup::builder()
-        .title("Ethernet address")
+        .title(UiString::EthernetAddress.text())
         .build();
     let address = value_row(n.mac.as_deref().unwrap_or("None"), &n.mac_note);
     address.set_widget_name("network.mac");
@@ -881,7 +891,9 @@ fn network_groups(
         .map(|i| choices[i].mode)
         .filter(|m| matches!(m, NetworkMode::User | NetworkMode::Private))
     {
-        let adv = adw::ExpanderRow::builder().title("Advanced").build();
+        let adv = adw::ExpanderRow::builder()
+            .title(UiString::Advanced.text())
+            .build();
         let subnet = entry(
             "Private subnet (a /24)",
             "network.subnet",
@@ -1004,7 +1016,7 @@ fn edit_dialog(
     let bar = gtk::ProgressBar::builder().visible(false).build();
     let line = gtk::Label::builder().visible(false).build();
     let stop = gtk::Button::builder()
-        .label("Cancel")
+        .label(UiString::Cancel.text())
         .halign(gtk::Align::End)
         .visible(false)
         .build();
@@ -1119,16 +1131,18 @@ fn add_forward(
         .build();
     let page = adw::PreferencesPage::new();
     let g = adw::PreferencesGroup::new();
-    let name = adw::EntryRow::builder().title("Name").build();
+    let name = adw::EntryRow::builder()
+        .title(UiString::Name.text())
+        .build();
     let proto = adw::ComboRow::builder()
         .title("Protocol")
         .model(&gtk::StringList::new(&["tcp", "udp"]))
         .build();
     let host = adw::SpinRow::with_range(1.0, 65535.0, 1.0);
-    host.set_title("Host port");
+    host.set_title(UiString::HostPort.text());
     host.set_value(2222.0);
     let guest = adw::SpinRow::with_range(1.0, 65535.0, 1.0);
-    guest.set_title("Guest port");
+    guest.set_title(UiString::GuestPort.text());
     guest.set_value(22.0);
     for w in [
         name.upcast_ref::<gtk::Widget>(),
@@ -1140,7 +1154,7 @@ fn add_forward(
     }
     page.add(&g);
     let add = gtk::Button::builder()
-        .label("Add")
+        .label(UiString::Add.text())
         .css_classes(["suggested-action"])
         .sensitive(false)
         .build();
@@ -1200,12 +1214,14 @@ fn name_share(
     settings: &Prefs,
     dir: std::path::PathBuf,
 ) {
-    let name = adw::EntryRow::builder().title("Name in IRIX").build();
+    let name = adw::EntryRow::builder()
+        .title(UiString::NameInIrix.text())
+        .build();
     name.set_widget_name("share.name");
     name.set_text(&origami_core::facade::suggest_share_name(
         &dir.display().to_string(),
     ));
-    let folder = value_row("Folder", &dir.display().to_string());
+    let folder = value_row(UiString::Folder.text(), &dir.display().to_string());
     let group = adw::PreferencesGroup::new();
     group.add(&name);
     group.add(&folder);
@@ -1238,9 +1254,9 @@ fn name_share(
 }
 
 pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
-    let dialog = Prefs::new("Preferences");
+    let dialog = Prefs::new(UiString::Preferences.text());
     let general = adw::PreferencesPage::builder()
-        .title("General")
+        .title(UiString::General.text())
         .icon_name("preferences-system-symbolic")
         .build();
     let folder = value_row(
@@ -1271,11 +1287,11 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     dialog.add(&general);
 
     let input_page = adw::PreferencesPage::builder()
-        .title("Input")
+        .title(UiString::Input.text())
         .icon_name("input-mouse-symbolic")
         .build();
     let g = adw::PreferencesGroup::builder()
-        .title("Pointer")
+        .title(UiString::Pointer.text())
         .description("The default for machines that have no setting of their own.")
         .build();
     let combo = adw::ComboRow::builder()
@@ -1313,11 +1329,11 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     dialog.add(&input_page);
 
     let storage = adw::PreferencesPage::builder()
-        .title("Storage")
+        .title(UiString::Storage.text())
         .icon_name("drive-harddisk-symbolic")
         .build();
     let downloaded = adw::PreferencesGroup::builder()
-        .title("Downloaded disks")
+        .title(UiString::DownloadedDisks.text())
         .build();
     downloaded.set_widget_name("prefs.downloaded");
     storage.add(&downloaded);
@@ -1364,7 +1380,7 @@ fn new_machine_dialog(
     offerings: Vec<origami_core::facade::OfferingSummary>,
 ) {
     let dialog = adw::Dialog::builder()
-        .title("New machine")
+        .title(UiString::NewMachine.text())
         .content_width(460)
         .content_height(680)
         .build();
@@ -1383,7 +1399,9 @@ fn new_machine_dialog(
         .sensitive(engines.len() > 1)
         .build();
     let shown_offerings = Rc::new(RefCell::new(Vec::new()));
-    let combo = adw::ComboRow::builder().title("Model").build();
+    let combo = adw::ComboRow::builder()
+        .title(UiString::Model.text())
+        .build();
     let fill = {
         let (offerings, engines, shown) =
             (offerings.clone(), engines.clone(), shown_offerings.clone());
@@ -1402,7 +1420,7 @@ fn new_machine_dialog(
     fill(&engine, &combo);
     let offerings = shown_offerings;
     let name = adw::EntryRow::builder()
-        .title("Name")
+        .title(UiString::Name.text())
         .activates_default(true)
         .build();
     name.set_widget_name("new.name");
@@ -1451,12 +1469,12 @@ fn new_machine_dialog(
         .build();
     disk.set_widget_name("new.disk");
     let size = adw::SpinRow::with_range(1.0, 2048.0, 1.0);
-    size.set_title("Disk size (GB)");
+    size.set_title(UiString::DiskSizeGb.text());
     size.set_value(f64::from(origami_core::facade::disk_labels().default_gb));
     size.set_widget_name("new.size");
     size.set_visible(false);
     let choose = adw::ActionRow::builder()
-        .title("Choose an image…")
+        .title(UiString::ChooseAnImage.text())
         .activatable(true)
         .visible(false)
         .build();
@@ -1472,7 +1490,7 @@ fn new_machine_dialog(
     after.set_widget_name("new.install");
     let sync_after = Rc::new(RefCell::new(None::<Box<dyn Fn()>>));
     let after_row = adw::ActionRow::builder()
-        .title("Install IRIX after creating")
+        .title(UiString::InstallIrixAfterCreating.text())
         .activatable_widget(&after)
         .visible(false)
         .build();
@@ -1504,7 +1522,7 @@ fn new_machine_dialog(
     let image_ok = Rc::new(std::cell::Cell::new(false));
     let identity = IdentityForm::new();
     let create = gtk::Button::builder()
-        .label("Create")
+        .label(UiString::Create.text())
         .css_classes(["suggested-action"])
         .sensitive(false)
         .build();
@@ -1666,7 +1684,7 @@ fn new_machine_dialog(
     let bar = gtk::ProgressBar::builder().visible(false).build();
     let line = gtk::Label::builder().visible(false).build();
     let stop = gtk::Button::builder()
-        .label("Cancel")
+        .label(UiString::Cancel.text())
         .halign(gtk::Align::End)
         .visible(false)
         .build();
@@ -1807,18 +1825,20 @@ struct IdentityForm {
 
 impl IdentityForm {
     fn new() -> Self {
-        let advanced = adw::ExpanderRow::builder().title("Advanced").build();
+        let advanced = adw::ExpanderRow::builder()
+            .title(UiString::Advanced.text())
+            .build();
         let id = adw::EntryRow::builder()
-            .title("Machine ID (1 to 2999)")
+            .title(UiString::MachineIdRange.text())
             .build();
         id.set_widget_name("new.id");
         let shown = adw::ActionRow::builder()
-            .title("Ethernet address")
+            .title(UiString::EthernetAddress.text())
             .subtitle_selectable(true)
             .build();
         shown.set_widget_name("new.mac");
         let custom = adw::SwitchRow::builder()
-            .title("Use this address instead")
+            .title(UiString::UseThisAddressInstead.text())
             .build();
         custom.set_widget_name("new.mac-custom");
         let mac = adw::EntryRow::builder()

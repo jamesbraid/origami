@@ -12,6 +12,7 @@ use crate::{input, settings};
 use adw::prelude::*;
 use gtk::{gio, glib};
 use origami_core::facade::StopKind;
+use origami_core::facade::UiString;
 use origami_engine::Control;
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -172,7 +173,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     let toasts = adw::ToastOverlay::new();
     toasts.set_child(Some(&stack));
 
-    let title = adw::WindowTitle::new("Origami", "");
+    let title = adw::WindowTitle::new(UiString::Origami.text(), "");
     let pill = gtk::Label::builder()
         .css_classes(["pill", "pill-grey"])
         .valign(gtk::Align::Center)
@@ -183,7 +184,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
     title_box.append(&pill);
 
     let power_btn = gtk::Button::builder()
-        .label("Start")
+        .label(UiString::Start.text())
         .tooltip_text("Start the machine (Ctrl+Shift+R)")
         .action_name("win.machine.start")
         .css_classes(["suggested-action"])
@@ -194,17 +195,20 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .action_name("win.machine.pause")
         .build();
     let cpu_btn = gtk::ToggleButton::builder()
-        .label("CPU")
-        .tooltip_text("Show or hide the emulated CPU load")
+        .label(UiString::Cpu.text())
+        .tooltip_text(UiString::ShowOrHideTheEmulated.text())
         .build();
     let pointer_btn = gtk::MenuButton::builder()
         .icon_name("input-mouse-symbolic")
         .tooltip_text("Pointer mode: follow my mouse or capture on click")
         .build();
     let pm = gio::Menu::new();
-    pm.append(Some("Follow my mouse"), Some("win.machine.pointer-follow"));
     pm.append(
-        Some("Capture on click"),
+        Some(UiString::FollowMyMouse.text()),
+        Some("win.machine.pointer-follow"),
+    );
+    pm.append(
+        Some(UiString::CaptureOnClick.text()),
         Some("win.machine.pointer-capture"),
     );
     pointer_btn.set_menu_model(Some(&pm));
@@ -222,7 +226,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .icon_name("open-menu-symbolic")
         .menu_model(&menu_model(&app.commands))
         .primary(true)
-        .tooltip_text("Open the main menu")
+        .tooltip_text(UiString::OpenTheMainMenu.text())
         .build();
     let header = adw::HeaderBar::new();
     let sidebar_toggle = gtk::ToggleButton::builder()
@@ -271,7 +275,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         side_head.set_title_widget(Some(&heading));
         let add = gtk::Button::builder()
             .icon_name("list-add-symbolic")
-            .tooltip_text("New machine")
+            .tooltip_text(UiString::NewMachine.text())
             .action_name("win.machine.new")
             .build();
         side_head.pack_end(&add);
@@ -300,13 +304,13 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .application(&app.app)
         .default_width(default_size().0)
         .default_height(default_size().1)
-        .title("Origami")
+        .title(UiString::Origami.text())
         .content(&split)
         .build();
     let menu = gio::Menu::new();
-    menu.append(Some("Open in new tab"), Some("row.open"));
+    menu.append(Some(UiString::OpenInNewTab.text()), Some("row.open"));
     menu.append(Some("Show in Files"), Some("row.show"));
-    menu.append(Some("Diagnostics"), Some("row.diagnostics"));
+    menu.append(Some(UiString::Diagnostics.text()), Some("row.diagnostics"));
     let row_menu = gtk::PopoverMenu::from_model(Some(&menu));
     row_menu.set_parent(&list_host);
     row_menu.set_has_arrow(false);
@@ -1156,14 +1160,14 @@ pub fn refresh(app: &Rc<App>) {
                 w.win.set_title(Some(&format!("{} - Origami", m.name)));
             }
             None => {
-                w.title.set_title("Origami");
+                w.title.set_title(UiString::Origami.text());
                 w.title.set_subtitle("");
                 w.pill.set_visible(false);
-                w.power_btn.set_label("Start");
+                w.power_btn.set_label(UiString::Start.text());
                 w.power_btn
                     .set_tooltip_text(Some("Start the machine (Ctrl+Shift+R)"));
                 w.power_btn.set_action_name(Some("win.machine.start"));
-                w.win.set_title(Some("Origami"));
+                w.win.set_title(Some(UiString::Origami.text()));
             }
         }
         for c in &app.commands {
@@ -1358,7 +1362,7 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
     );
     buttons.append(
         &gtk::Button::builder()
-            .label("Settings")
+            .label(UiString::Settings.text())
             .action_name("win.machine.settings")
             .build(),
     );
@@ -1486,7 +1490,10 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         ),
     }
     page.append(&label("Origami", &["title-1"]));
-    page.append(&label(version, &["dim-label"]));
+    page.append(&label(
+        &origami_core::facade::version_line(version),
+        &["dim-label"],
+    ));
     // Typing h, i, n, v slides the host inventory over the credits; Escape or
     // a click puts them back.
     let stack = gtk::Stack::builder()
@@ -1535,9 +1542,9 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         .spacing(8)
         .halign(gtk::Align::Center)
         .build();
-    let acknowledgements = gtk::Button::with_label("Acknowledgements");
+    let acknowledgements = gtk::Button::with_label(UiString::Acknowledgements.text());
     acknowledgements.connect_clicked(crate::credits::acknowledgements);
-    let licences = gtk::Button::with_label("Licences");
+    let licences = gtk::Button::with_label(UiString::Licences.text());
     licences.connect_clicked(crate::credits::licences);
     buttons.append(&acknowledgements);
     buttons.append(&licences);
@@ -1586,7 +1593,7 @@ fn about(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     root.append(&page);
     toolbar.set_content(Some(&root));
     let dialog = adw::Dialog::builder()
-        .title("About Origami")
+        .title(UiString::AboutOrigami.text())
         .content_width(420)
         .child(&toolbar)
         .build();

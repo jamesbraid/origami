@@ -46,7 +46,7 @@ struct AboutView: View {
     final class CubeRef { weak var view: CubeNSView? }
 
     private var version: String {
-        "Version " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
+        origamiVersionLine(version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
     }
 
     var body: some View {
@@ -71,8 +71,8 @@ struct AboutView: View {
             }
             .frame(height: 150).clipped()
             HStack(spacing: 10) {
-                Button("Acknowledgements") { sheet = .acknowledgements }
-                Button("Licences") { sheet = .licences }
+                Button(ui(.acknowledgements)) { sheet = .acknowledgements }
+                Button(ui(.licences)) { sheet = .licences }
             }
             .padding(.bottom, 12)
         }
@@ -89,7 +89,7 @@ struct AboutView: View {
 
     private var credits: some View {
         VStack(spacing: 4) {
-            Text("Origami").font(.title.weight(.semibold))
+            Text(ui(.origami)).font(.title.weight(.semibold))
             Text(version).font(.caption).foregroundStyle(.secondary)
             Text(about?.copyright ?? "").font(.caption).foregroundStyle(.secondary)
             Text(about?.licenceName ?? "").font(.caption).foregroundStyle(.secondary)

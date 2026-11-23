@@ -72,16 +72,16 @@ struct InstallAssistant: View {
         HStack {
             if let failed = model.serveFailed {
                 Text(failed).font(.caption).foregroundStyle(.red).lineLimit(2)
-                Button("Restart") { model.restartServe() }
+                Button(ui(.restart)) { model.restartServe() }
             } else if !model.footer.isEmpty {
                 Text(model.footer).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             } else if let plan = model.planText {
                 Text(plan).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            if model.flow.resumed() { Button("Start over") { model.startOver() }.disabled(model.working) }
-            Button("Cancel") { model.requestClose() }.keyboardShortcut(.cancelAction)
-            Button("Back") { model.back() }.disabled(!model.canBack)
+            if model.flow.resumed() { Button(ui(.startOver)) { model.startOver() }.disabled(model.working) }
+            Button(ui(.cancel)) { model.requestClose() }.keyboardShortcut(.cancelAction)
+            Button(ui(.back)) { model.back() }.disabled(!model.canBack)
             Button(model.flow.continueLabel()) { model.next() }.keyboardShortcut(.defaultAction).disabled(!model.canContinue)
         }
         .padding(10)
@@ -144,10 +144,10 @@ struct InstallAssistant: View {
             }
             if let m = model.applyMessage { Text(m).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             HStack {
-                Button("Install") { model.install() }.disabled(!model.flow.canInstall(machineUp: model.machine.isRunning))
-                if running { Button("Cancel install") { model.cancelInstall() } }
-                if model.flow.canFixed() { Button("I fixed it at Inst>") { model.fixed() } }
-                Button("Open console") { model.openConsole() }
+                Button(ui(.install)) { model.install() }.disabled(!model.flow.canInstall(machineUp: model.machine.isRunning))
+                if running { Button(ui(.cancelInstall)) { model.cancelInstall() } }
+                if model.flow.canFixed() { Button(ui(.iFixedItAtInst)) { model.fixed() } }
+                Button(ui(.openConsole)) { model.openConsole() }
             }
         }
     }
@@ -160,7 +160,7 @@ struct InstallAssistant: View {
             if model.flow.useFolder() {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Button("Choose folder…") { model.chooseFolder() }
+                        Button(ui(.chooseFolder)) { model.chooseFolder() }
                         if let f = model.flow.folder() { Text(f).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary) }
                     }
                     if let v = model.folderVerdict {
@@ -192,10 +192,10 @@ struct InstallAssistant: View {
                         if !x.install.isEmpty { Text(x.install.joined(separator: ", ")).font(.caption).foregroundStyle(.secondary) }
                     }
                     Spacer()
-                    Button("Remove") { model.edit { $0.removeExtra(index: UInt32(i)) } }
+                    Button(ui(.remove)) { model.edit { $0.removeExtra(index: UInt32(i)) } }
                 }
             }
-            Button("Add a package…") { adding = true }
+            Button(ui(.addAPackage2)) { adding = true }
         }
     }
 
@@ -205,7 +205,7 @@ struct InstallAssistant: View {
                 ProgressView().controlSize(.small)
             } else if let d = model.disk {
                 Text(d.text).fixedSize(horizontal: false, vertical: true)
-                Toggle("Erase this disk and install onto it", isOn: Binding(get: { model.flow.erase() }, set: { on in model.edit { $0.setErase(on: on) } }))
+                Toggle(ui(.eraseThisDiskAndInstall), isOn: Binding(get: { model.flow.erase() }, set: { on in model.edit { $0.setErase(on: on) } }))
                     .toggleStyle(.checkbox)
             } else {
                 Text("This machine has no disk.")
@@ -219,23 +219,23 @@ struct InstallAssistant: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(model.texts.checkIntro)
                 .fixedSize(horizontal: false, vertical: true)
-            Toggle("Check thoroughly (also reads the downloaded discs)", isOn: $model.full).toggleStyle(.checkbox)
+            Toggle(ui(.checkThoroughlyAlsoReadsThe), isOn: $model.full).toggleStyle(.checkbox)
                 .disabled(model.flow.check() == .running)
             switch model.flow.check() {
             case .ready:
-                Button("Check now") { model.runCheck() }
+                Button(ui(.checkNow)) { model.runCheck() }
             case .running:
                 ProgressView().progressViewStyle(.linear)
                 HStack {
                     Text(model.texts.checking).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Cancel") { model.cancelCheck() }
+                    Button(ui(.cancel)) { model.cancelCheck() }
                 }
             case .passed:
                 Label(model.texts.passed, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             case .failed:
                 Text(model.checkMessage ?? "").foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-                Button("Check again") { model.runCheck() }
+                Button(ui(.checkAgain)) { model.runCheck() }
             }
             ForEach(model.notes, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
         }
@@ -246,8 +246,8 @@ struct InstallAssistant: View {
         VStack(alignment: .leading, spacing: 10) {
             if model.stoppedBySelf {
                 HStack {
-                    Label("The machine stopped.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Button("Start again") { model.startMachine() }
+                    Label(ui(.theMachineStopped), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Button(ui(.startAgain)) { model.startMachine() }
                 }
             }
             if let steps {
@@ -259,7 +259,7 @@ struct InstallAssistant: View {
                         }.toggleStyle(.checkbox)
                         Spacer()
                         if let c = s.command {
-                            Button("Copy") {
+                            Button(ui(.copy)) {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(c, forType: .string)
                             }
@@ -275,8 +275,8 @@ struct InstallAssistant: View {
             if let note { Text(note).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             if model.step != .finish {
                 HStack {
-                    Button("Show machine") { model.showMachine() }
-                    Button("Open console") { model.openConsole() }
+                    Button(ui(.showMachine)) { model.showMachine() }
+                    Button(ui(.openConsole)) { model.openConsole() }
                 }
             }
         }
@@ -316,18 +316,18 @@ struct AddPackageSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add a package").font(.headline)
+            Text(ui(.addAPackage)).font(.headline)
             HStack {
-                TextField("Source: a file or an HTTPS address", text: $source)
-                Button("Choose file…") { if let u = model.choosePath("Choose a package", false) { source = u.path } }
+                TextField(ui(.sourceAFileOrAn), text: $source)
+                Button(ui(.chooseFile)) { if let u = model.choosePath("Choose a package", false) { source = u.path } }
             }
             Text("Packages to install, one per line").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $packages).font(.system(.body, design: .monospaced)).frame(height: 90)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.4)))
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Add") { model.addExtra(source: source, packages: packages); dismiss() }
+                Button(ui(.cancel)) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(ui(.add)) { model.addExtra(source: source, packages: packages); dismiss() }
                     .keyboardShortcut(.defaultAction).disabled(source.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

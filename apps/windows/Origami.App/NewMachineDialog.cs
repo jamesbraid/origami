@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -50,16 +51,16 @@ public static class NewMachineDialog
             release.ItemsSource = found.Select(d => d.Label).ToList();
             release.SelectedIndex = found.Count > 0 ? 0 : -1;
         }
-        var size = new NumberBox { Header = "Disk size (GB)", Value = core.Labels().DefaultGb, Minimum = 1, Maximum = 2048, Visibility = Visibility.Collapsed };
-        var install = new CheckBox { Content = "Install IRIX after creating", Visibility = Visibility.Collapsed };
+        var size = new NumberBox { Header = Ui.T(OrigamiUiString.DiskSizeGb), Value = core.Labels().DefaultGb, Minimum = 1, Maximum = 2048, Visibility = Visibility.Collapsed };
+        var install = new CheckBox { Content = Ui.T(OrigamiUiString.InstallIrixAfterCreating), Visibility = Visibility.Collapsed };
         AutomationProperties.SetAutomationId(install, "new.install");
         var image = new ImagePanel(core, null);
         image.Root.Visibility = Visibility.Collapsed;
         // Advanced: the machine ID, prefilled with the next free one, and an Ethernet address to use instead of the one it makes.
-        var id = new TextBox { Header = "Machine ID (1 to 2999)" };
+        var id = new TextBox { Header = Ui.T(OrigamiUiString.MachineIdRange) };
         var addressShown = new TextBlock();
-        var custom = new CheckBox { Content = "Use this address instead" };
-        var typed = new TextBox { Header = "Address", PlaceholderText = "08:00:69:__:__:__", Visibility = Visibility.Collapsed };
+        var custom = new CheckBox { Content = Ui.T(OrigamiUiString.UseThisAddressInstead) };
+        var typed = new TextBox { Header = Ui.T(OrigamiUiString.Address), PlaceholderText = "08:00:69:__:__:__", Visibility = Visibility.Collapsed };
         var problem = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed) };
         var advanced = new Expander { Header = Labels.NewMachine.Advanced, HorizontalAlignment = HorizontalAlignment.Stretch, Content = new StackPanel { Spacing = 8, Children = { id, addressShown, custom, typed } } };
         AutomationProperties.SetAutomationId(id, "new.id");
@@ -69,7 +70,7 @@ public static class NewMachineDialog
         AutomationProperties.SetAutomationId(problem, "new.identity.problem");
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, Visibility = Visibility.Collapsed };
         var line = new TextBlock { Visibility = Visibility.Collapsed };
-        var stop = new Button { Content = "Cancel", Visibility = Visibility.Collapsed };
+        var stop = new Button { Content = Ui.T(OrigamiUiString.Cancel), Visibility = Visibility.Collapsed };
         var copy = new CancellationTokenSource();
         stop.Click += (_, _) => copy.Cancel();
         AutomationProperties.SetAutomationId(disk, "new.disk");
@@ -84,10 +85,10 @@ public static class NewMachineDialog
         var dlg = new ContentDialog
         {
             XamlRoot = root,
-            Title = "New machine",
+            Title = Ui.T(OrigamiUiString.NewMachine),
             Content = new StackPanel { Spacing = 12, Width = 380, Children = { engine, model, name, disk, release, size, install, image.Root, advanced, problem, bar, line, stop, error } },
-            PrimaryButtonText = "Create",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = Ui.T(OrigamiUiString.Create),
+            CloseButtonText = Ui.T(OrigamiUiString.Cancel),
             DefaultButton = ContentDialogButton.Primary,
             IsPrimaryButtonEnabled = false,
         };

@@ -6,6 +6,7 @@ use crate::app::App;
 use crate::machine::MachineUi;
 use adw::prelude::*;
 use gtk::glib;
+use origami_core::facade::UiString;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -50,7 +51,9 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
         .margin_start(16)
         .margin_end(16)
         .build();
-    let copy = gtk::Button::builder().label("Copy report").build();
+    let copy = gtk::Button::builder()
+        .label(UiString::CopyReport.text())
+        .build();
     let name = gtk::Label::builder().css_classes(["heading"]).build();
     let pill = gtk::Label::builder()
         .css_classes(["pill", "pill-grey"])

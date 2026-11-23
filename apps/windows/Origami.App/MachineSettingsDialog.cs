@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -76,7 +77,7 @@ public static class MachineSettingsDialog
                 var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
                 if (d.Kind == "disk")
                 {
-                    var badge = new TextBlock { Text = "Reading…", VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
+                    var badge = new TextBlock { Text = Ui.T(OrigamiUiString.Reading), VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
                     AutomationProperties.SetAutomationId(badge, "settings.badge." + d.Name);
                     tools.Children.Add(badge);
                     ReadBadge(d.Name, badge);
@@ -113,7 +114,7 @@ public static class MachineSettingsDialog
                 var bar = new ProgressBar { Minimum = 0, Maximum = 1, Visibility = Visibility.Collapsed };
                 var line = new TextBlock { Visibility = Visibility.Collapsed };
                 var copy = new CancellationTokenSource();
-                var stop = new Button { Content = "Cancel", Visibility = Visibility.Collapsed };
+                var stop = new Button { Content = Ui.T(OrigamiUiString.Cancel), Visibility = Visibility.Collapsed };
                 stop.Click += (_, _) => copy.Cancel();
                 AutomationProperties.SetAutomationId(stop, "settings.copycancel");
                 var go = Btn("Add disk", "settings.adddisk", panel.Choice.Ready && diskTarget is not null, async () =>
@@ -151,14 +152,14 @@ public static class MachineSettingsDialog
             if (shown == bridgedAt && shown >= 0)
             {
                 var device = new TextBox { Header = setup.Field, PlaceholderText = setup.Example, IsEnabled = ok, Text = s.Network.Device };
-                var share = new TextBox { Header = "Address for shared folders", PlaceholderText = "ADDRESS/PREFIX", IsEnabled = ok, Text = s.Network.ShareAddress ?? "" };
+                var share = new TextBox { Header = Ui.T(OrigamiUiString.AddressForSharedFolders), PlaceholderText = "ADDRESS/PREFIX", IsEnabled = ok, Text = s.Network.ShareAddress ?? "" };
                 AutomationProperties.SetAutomationId(device, "settings.bridge.device");
                 AutomationProperties.SetAutomationId(share, "settings.bridge.share");
                 body.Children.Add(device);
                 body.Children.Add(share);
                 var help = new StackPanel { Spacing = 6, Children = { Text(setup.Steps) } };
                 if (setup.Commands is { } commands) help.Children.Add(Btn("Copy", "settings.bridge.copy", true, () => { CopyText(commands); return Task.CompletedTask; }));
-                body.Children.Add(new Expander { Header = "How to set this up", Content = help });
+                body.Children.Add(new Expander { Header = Ui.T(OrigamiUiString.HowToSetThisUp), Content = help });
                 body.Children.Add(Btn("Apply", "settings.bridge.apply", ok, () =>
                 {
                     Apply(new MachineChange.SetNetwork(choices[bridgedAt].Mode, device.Text, share.Text));
@@ -178,16 +179,16 @@ public static class MachineSettingsDialog
                     Apply(new MachineChange.SetNetwork(s.Network.Mode, "", null, subnet.Text));
                     return Task.CompletedTask;
                 }));
-                body.Children.Add(new Expander { Header = "Advanced", Content = advanced });
+                body.Children.Add(new Expander { Header = Ui.T(OrigamiUiString.Advanced), Content = advanced });
             }
 
             body.Children.Add(Heading("Port forwards", sub: true));
             foreach (var f in s.Forwards)
                 body.Children.Add(Row($"{f.Name}: {f.Protocol} host {f.HostPort} to guest {f.GuestPort}", "Remove", "settings.unforward." + f.Name, ok, () => Apply(new MachineChange.RemoveForward(f.Name))));
-            var fname = new TextBox { PlaceholderText = "Name", IsEnabled = ok, Width = 120 };
+            var fname = new TextBox { PlaceholderText = Ui.T(OrigamiUiString.Name), IsEnabled = ok, Width = 120 };
             var proto = new ComboBox { ItemsSource = new[] { "tcp", "udp" }, SelectedIndex = 0, IsEnabled = ok };
-            var host = new NumberBox { Header = "Host port", Value = 2222, Minimum = 1, Maximum = 65535, IsEnabled = ok };
-            var guest = new NumberBox { Header = "Guest port", Value = 22, Minimum = 1, Maximum = 65535, IsEnabled = ok };
+            var host = new NumberBox { Header = Ui.T(OrigamiUiString.HostPort), Value = 2222, Minimum = 1, Maximum = 65535, IsEnabled = ok };
+            var guest = new NumberBox { Header = Ui.T(OrigamiUiString.GuestPort), Value = 22, Minimum = 1, Maximum = 65535, IsEnabled = ok };
             var add = new Button { Content = "Add forward", IsEnabled = false };
             void SyncAdd() => add.IsEnabled = ok && MachineSettingsRules.CanAddForward(fname.Text, (int)host.Value, (int)guest.Value);
             fname.TextChanged += (_, _) => SyncAdd();
@@ -216,7 +217,7 @@ public static class MachineSettingsDialog
                     body.Children.Add(Btn("Copy", "settings.mount.copy." + sh.Name, true, () => { CopyText(mount); return Task.CompletedTask; }));
                 }
             }
-            var pick = new Button { Content = "Share a folder…", IsEnabled = ok };
+            var pick = new Button { Content = Ui.T(OrigamiUiString.ShareAFolder), IsEnabled = ok };
             AutomationProperties.SetAutomationId(pick, "settings.share");
             pick.Click += async (_, _) =>
             {
@@ -230,7 +231,7 @@ public static class MachineSettingsDialog
             if (sharing is { } draft)
             {
                 // The name is asked inline: a ContentDialog cannot open another.
-                var nameBox = new TextBox { Header = "Name in IRIX", Text = draft.Name };
+                var nameBox = new TextBox { Header = Ui.T(OrigamiUiString.NameInIrix), Text = draft.Name };
                 var why = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed) };
                 var addShare = Btn("Add", "settings.share.add", ok, () =>
                 {

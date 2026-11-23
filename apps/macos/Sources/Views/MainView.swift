@@ -94,17 +94,17 @@ struct LibrarySidebar: View {
         // Double-click opens a tab. A tap gesture on the row would delay and drop plain clicks.
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first, let model = app.models.first(where: { $0.id == id }) {
-                Button("Open in new tab") { app.openInNewTab(id) }
+                Button(ui(.openInNewTab)) { app.openInNewTab(id) }
                 Divider()
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.root.appendingPathComponent(model.name)]) }
-                Button("Diagnostics") { app.select(id); app.invoke(.diagnostics) }
+                Button(ui(.diagnostics)) { app.select(id); app.invoke(.diagnostics) }
             }
         } primaryAction: { ids in
             if let id = ids.first { app.openInNewTab(id) }
         }
         .safeAreaInset(edge: .bottom) {
             HStack {
-                Button { app.invoke(.newMachine) } label: { Label("New machine", systemImage: "plus") }
+                Button { app.invoke(.newMachine) } label: { Label(ui(.newMachine), systemImage: "plus") }
                     .buttonStyle(.borderless).disabled(!app.isEnabled(.newMachine))
                     .help("New machine (⌘N)")
                 Spacer()
@@ -237,19 +237,19 @@ struct MachineToolbar: ToolbarContent {
             ToolbarItem(placement: .primaryAction) { PointerControl(model: m) }
         }
         ToolbarItem(placement: .primaryAction) {
-            Button { app.invoke(.console) } label: { Label("Console", systemImage: "terminal") }
+            Button { app.invoke(.console) } label: { Label(ui(.console), systemImage: "terminal") }
                 .disabled(!app.isEnabled(.console)).help(ToolbarTip.console)
         }
         ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: $app.showsCpu) { Label("CPU", systemImage: "cpu") }
+            Toggle(isOn: $app.showsCpu) { Label(ui(.cpu), systemImage: "cpu") }
                 .toggleStyle(.button).help(ToolbarTip.cpu)
         }
         ToolbarItem(placement: .primaryAction) {
-            Button { app.invoke(.diagnostics) } label: { Label("Diagnostics", systemImage: "waveform.path.ecg") }
+            Button { app.invoke(.diagnostics) } label: { Label(ui(.diagnostics), systemImage: "waveform.path.ecg") }
                 .disabled(!app.isEnabled(.diagnostics)).help(ToolbarTip.diagnostics)
         }
         ToolbarItem(placement: .primaryAction) {
-            Button { app.invoke(.settings) } label: { Label("Settings", systemImage: "gearshape") }
+            Button { app.invoke(.settings) } label: { Label(ui(.settings), systemImage: "gearshape") }
                 .disabled(!app.isEnabled(.settings)).help(ToolbarTip.settings)
         }
     }
@@ -276,12 +276,12 @@ struct PowerControl: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
         if model.canStart {
-            Button { app.invoke(.start) } label: { Label("Start", systemImage: "play.fill") }
+            Button { app.invoke(.start) } label: { Label(ui(.start), systemImage: "play.fill") }
                 .help(ToolbarTip.start)
         } else {
             Menu {
-                Button("Power off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
-                Button("Pause") { app.invoke(.pause) }.disabled(!app.isEnabled(.pause))
+                Button(ui(.powerOff)) { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
+                Button(ui(.pause)) { app.invoke(.pause) }.disabled(!app.isEnabled(.pause))
                 Button("Resume") { app.invoke(.resume) }.disabled(!app.isEnabled(.resume))
                 Button("Save screenshot") { app.invoke(.screenshot) }.disabled(!app.isEnabled(.screenshot))
                 Button("Reset…") { app.invoke(.reset) }.disabled(!app.isEnabled(.reset))
@@ -296,9 +296,9 @@ struct PowerControl: View {
 struct PointerControl: View {
     @ObservedObject var model: MachineModel
     var body: some View {
-        Picker("Pointer", selection: $model.pointerMode) {
-            Label("Follow my mouse", systemImage: "cursorarrow").tag(PointerMode.follow)
-            Label("Capture on click", systemImage: "cursorarrow.click.2").tag(PointerMode.capture)
+        Picker(ui(.pointer), selection: $model.pointerMode) {
+            Label(ui(.followMyMouse), systemImage: "cursorarrow").tag(PointerMode.follow)
+            Label(ui(.captureOnClick), systemImage: "cursorarrow.click.2").tag(PointerMode.capture)
         }
         .pickerStyle(.segmented)
         .help(ToolbarTip.pointer)

@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -18,7 +19,7 @@ public sealed class CreditsWindow : Window
 
     readonly CreditsDocument _doc;
     readonly StackPanel _list = new() { Spacing = 8 };
-    readonly TextBox _search = new() { PlaceholderText = "Search components and licences" };
+    readonly TextBox _search = new() { PlaceholderText = Ui.T(OrigamiUiString.SearchComponentsAndLicences) };
     readonly List<Expander> _groups = new();
     List<string> _shown = new();
 

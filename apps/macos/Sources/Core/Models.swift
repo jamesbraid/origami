@@ -429,7 +429,7 @@ final class AppModel: ObservableObject {
         alert.messageText = title
         alert.informativeText = detail
         alert.addButton(withTitle: action)
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: ui(.cancel))
         return alert.runModal() == .alertFirstButtonReturn
     }
     /// The core's prompt for a running install, with its own text for a quit or a tab close; true to stop it.

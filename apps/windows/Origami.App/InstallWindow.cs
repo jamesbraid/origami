@@ -51,7 +51,7 @@ public sealed class InstallWindow : Window
         AppIcon.Apply(this);
         AutomationProperties.SetAutomationId(_error, "install.error");
         AutomationProperties.SetAutomationId(_server, "install.footer.server");
-        _stopped.Children.Add(new TextBlock { Text = "The machine stopped.", VerticalAlignment = VerticalAlignment.Center });
+        _stopped.Children.Add(new TextBlock { Text = Ui.T(OrigamiUiString.TheMachineStopped), VerticalAlignment = VerticalAlignment.Center });
         _stopped.Children.Add(Btn("Start again", "install.startagain", () => _ = BusyAsync(() => _core.StartAsync(_key))));
 
         _restart = Btn("Restart", "install.restart", () => _ = RestartServerAsync());
@@ -400,16 +400,16 @@ public sealed class InstallWindow : Window
     async Task AddPackageAsync(StackPanel list)
     {
         if (OpenDialog is not null) return;
-        var source = new TextBox { Header = "Source: a file or an HTTPS address", PlaceholderText = "https://" };
+        var source = new TextBox { Header = Ui.T(OrigamiUiString.SourceAFileOrAn), PlaceholderText = "https://" };
         var lines = new TextBox { Header = "Packages to install (one per line)", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 90 };
         AutomationProperties.SetAutomationId(source, "install.package.source");
         AutomationProperties.SetAutomationId(lines, "install.package.lines");
         var choose = Btn("Choose file…", "install.package.choose", () => _ = ChooseFileAsync(source));
         var dlg = new ContentDialog
         {
-            XamlRoot = _root.XamlRoot, Title = "Add a package",
+            XamlRoot = _root.XamlRoot, Title = Ui.T(OrigamiUiString.AddAPackage),
             Content = new StackPanel { Spacing = 10, Width = 420, Children = { source, choose, lines } },
-            PrimaryButtonText = "Add", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = false,
+            PrimaryButtonText = Ui.T(OrigamiUiString.Add), CloseButtonText = Ui.T(OrigamiUiString.Cancel), DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = false,
         };
         source.TextChanged += (_, _) => dlg.IsPrimaryButtonEnabled = source.Text.Trim().Length > 0;
         OpenDialog = dlg;

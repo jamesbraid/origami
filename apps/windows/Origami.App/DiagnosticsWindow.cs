@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -22,11 +23,11 @@ public sealed class DiagnosticsWindow : Window
     public DiagnosticsWindow(ICoreClient core, string key, Func<(long, long)> screenCounts)
     {
         _core = core; _key = key; _screen = screenCounts;
-        Title = "Diagnostics";
+        Title = Ui.T(OrigamiUiString.Diagnostics);
         AppIcon.Apply(this);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_report, "diagnostics.report");
         _pillBox.Child = _pill;
-        var copy = new Button { Content = "Copy report" };
+        var copy = new Button { Content = Ui.T(OrigamiUiString.CopyReport) };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(copy, "diagnostics.copy");
         copy.Click += (_, _) => Copy();
         var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Padding = new Thickness(16, 12, 16, 8), Children = { _title, _pillBox, copy } };

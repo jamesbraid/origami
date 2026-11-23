@@ -3,6 +3,7 @@
 
 use adw::prelude::*;
 use gtk::glib;
+use origami_core::facade::UiString;
 use origami_credits::credits;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -174,7 +175,7 @@ pub fn licences(parent: &impl IsA<gtk::Widget>) {
         .margin_end(18)
         .build();
     let search = gtk::SearchEntry::builder()
-        .placeholder_text("Search components and licences")
+        .placeholder_text(UiString::SearchComponentsAndLicences.text())
         .build();
     page.append(&search);
     let qemu = adw::PreferencesGroup::builder()

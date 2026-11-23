@@ -81,7 +81,7 @@ struct AcknowledgementsView: View {
         VStack(spacing: 0) {
             if let c = doc {
                 Form {
-                    Section("Built on") {
+                    Section(ui(.builtOn)) {
                         ForEach(c.builtOn) { p in
                             CreditRow(title: p.name, detail: "\(p.by). \(p.note)", links: [CreditLink(label: "Website", url: p.url)])
                             if p.name.hasPrefix("QEMU") {
@@ -90,18 +90,18 @@ struct AcknowledgementsView: View {
                             }
                         }
                     }
-                    Section("Thanks") {
+                    Section(ui(.thanks)) {
                         ForEach(c.thanks) { t in
                             CreditRow(title: t.name, detail: t.reason, links: [CreditLink(label: "Website", url: t.url)])
                         }
                     }
-                    Section("Photographs") {
+                    Section(ui(.photographs)) {
                         ForEach(c.photographs) { p in
                             CreditRow(title: p.title, detail: "\(p.author), \(p.year). \(p.changes).",
                                       links: [CreditLink(label: p.licence, url: p.licenceUrl), CreditLink(label: "Source", url: p.source)])
                         }
                     }
-                    Section("Artwork") {
+                    Section(ui(.artwork)) {
                         ForEach(c.artwork) { a in
                             CreditRow(title: a.name, detail: a.from,
                                       links: a.url.map { [CreditLink(label: "Source", url: $0)] } ?? [])
@@ -180,9 +180,9 @@ struct LicencesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Licences").font(.headline)
+            Text(ui(.licences)).font(.headline)
             if let c = doc {
-                TextField("Search components and licences", text: $query).textFieldStyle(.roundedBorder)
+                TextField(ui(.searchComponentsAndLicences), text: $query).textFieldStyle(.roundedBorder)
                 Text(c.qemu.note).font(.caption).foregroundStyle(.secondary)
                 if let u = URL(string: c.qemu.url) { Link("Source of \(c.qemu.label)", destination: u).font(.caption) }
                 ScrollView {

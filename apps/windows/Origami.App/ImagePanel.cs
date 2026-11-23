@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -39,11 +40,11 @@ public sealed class ImagePanel
     public event Action? Changed;
     readonly ICoreClient _core;
     readonly string? _machine;
-    readonly Button _choose = new() { Content = "Choose an image…" };
+    readonly Button _choose = new() { Content = Ui.T(OrigamiUiString.ChooseAnImage) };
     readonly TextBlock _file = new() { TextWrapping = TextWrapping.Wrap };
     readonly TextBlock _badge = new() { Opacity = 0.8 };
-    readonly ComboBox _place = new() { Header = "Where should the disk live?", SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
-    readonly ComboBox _keep = new() { Header = "How should changes be kept?", SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly ComboBox _place = new() { Header = Ui.T(OrigamiUiString.WhereShouldTheDiskLive), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+    readonly ComboBox _keep = new() { Header = Ui.T(OrigamiUiString.HowShouldChangesBeKept), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
     readonly TextBlock _note = new() { TextWrapping = TextWrapping.Wrap };
 
     /// <param name="machineKey">The machine the image is for, once it exists.</param>

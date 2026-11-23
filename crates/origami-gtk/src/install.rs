@@ -6,6 +6,7 @@ use crate::machine::MachineUi;
 use crate::{disks, library, window};
 use adw::prelude::*;
 use gtk::glib;
+use origami_core::facade::UiString;
 use origami_core::facade::{
     disk_labels, install_media_folder, install_releases, texts, ApplyState, BootConsole,
     CheckState, CloseAction, CloseQuestion, Core, CoreResult, DiskState, GuideStep, InstallFailure,
@@ -313,8 +314,8 @@ impl Asst {
         margins(&error, 0, 0, 18, 18);
         let banner = named(
             adw::Banner::builder()
-                .title("The machine stopped.")
-                .button_label("Start again")
+                .title(UiString::TheMachineStopped.text())
+                .button_label(UiString::StartAgain.text())
                 .build(),
             "install.stopped",
         );
@@ -346,10 +347,10 @@ impl Asst {
                 .build(),
             "install.footer",
         );
-        let restart = button("Restart", "install.restart");
-        let start_over = button("Start over", "install.start-over");
-        let cancel = button("Cancel", "install.cancel");
-        let back = button("Back", "install.back");
+        let restart = button(UiString::Restart.text(), "install.restart");
+        let start_over = button(UiString::StartOver.text(), "install.start-over");
+        let cancel = button(UiString::Cancel.text(), "install.cancel");
+        let back = button(UiString::Back.text(), "install.back");
         let next = button("Continue", "install.continue");
         next.add_css_class("suggested-action");
         let bar = row();
@@ -723,7 +724,7 @@ impl Asst {
             folder,
             &mut group,
         );
-        let choose = button("Choose folder…", "install.media.choose");
+        let choose = button(UiString::ChooseFolder.text(), "install.media.choose");
         let shown = named(
             text(
                 &path
@@ -860,7 +861,7 @@ impl Asst {
                         p.install.join(", ")
                     ));
                     label.set_hexpand(true);
-                    let remove = gtk::Button::with_label("Remove");
+                    let remove = gtk::Button::with_label(UiString::Remove.text());
                     let m2 = me.clone();
                     remove.connect_clicked(move |_| {
                         m2.flow.borrow_mut().remove_extra(i);
@@ -869,7 +870,7 @@ impl Asst {
                     append(&r, &[label.upcast_ref(), remove.upcast_ref()]);
                     me.content.append(&r);
                 }
-                let add = button("Add a package…", "install.addon.add");
+                let add = button(UiString::AddAPackage2.text(), "install.addon.add");
                 let m2 = me.clone();
                 add.connect_clicked(move |_| m2.add_package());
                 me.content.append(&add);
@@ -880,7 +881,7 @@ impl Asst {
     fn add_package(self: &Rc<Self>) {
         let dialog = named(
             adw::Dialog::builder()
-                .title("Add a package")
+                .title(UiString::AddAPackage.text())
                 .content_width(440)
                 .build(),
             "install.package.dialog",
@@ -892,7 +893,7 @@ impl Asst {
             "install.package.source",
         );
         let pick = gtk::Button::builder()
-            .label("Choose file…")
+            .label(UiString::ChooseFile.text())
             .valign(gtk::Align::Center)
             .build();
         source.add_suffix(&pick);
@@ -904,7 +905,7 @@ impl Asst {
         frame.add_css_class("card");
         let add = named(
             gtk::Button::builder()
-                .label("Add")
+                .label(UiString::Add.text())
                 .css_classes(["suggested-action"])
                 .sensitive(false)
                 .build(),
@@ -977,7 +978,7 @@ impl Asst {
                         me.content.append(&text(&d.text));
                         me.flow.borrow_mut().set_disk(DiskState::Present(d));
                         let erase = check(
-                            "Erase this disk and install onto it",
+                            UiString::EraseThisDiskAndInstall.text(),
                             "install.disk.erase",
                             me.flow.borrow().erase(),
                         );
@@ -1036,14 +1037,14 @@ impl Asst {
         );
         let infoline = named(text(""), "install.check.info");
         infoline.set_visible(false);
-        let now = button("Check now", "install.check.now");
+        let now = button(UiString::CheckNow.text(), "install.check.now");
         let thorough = check(
-            "Check thoroughly (also reads the downloaded discs)",
+            UiString::CheckThoroughlyAlsoReadsThe.text(),
             "install.check.full",
             false,
         );
         let bar = gtk::ProgressBar::builder().visible(false).build();
-        let stop = button("Cancel", "install.check.cancel");
+        let stop = button(UiString::Cancel.text(), "install.check.cancel");
         stop.set_visible(false);
         append(
             &self.content,
@@ -1120,7 +1121,7 @@ impl Asst {
                         };
                         status.set_label(&words);
                         if result == CheckState::Failed {
-                            b.set_label("Check again");
+                            b.set_label(UiString::CheckAgain.text());
                         }
                         if let Some(me) = weak.upgrade() {
                             me.flow.borrow_mut().set_check(result);
@@ -1193,16 +1194,16 @@ impl Asst {
     }
 
     fn apply_page(self: &Rc<Self>) {
-        let install = button("Install", "install.apply");
+        let install = button(UiString::Install.text(), "install.apply");
         install.add_css_class("suggested-action");
         let hint = named(text(""), "install.apply.hint");
         let bar = gtk::ProgressBar::new();
         let line = named(text(""), "install.apply.progress");
-        let stop = button("Cancel install", "install.apply.cancel");
+        let stop = button(UiString::CancelInstall.text(), "install.apply.cancel");
         let failure = named(text(""), "install.apply.error");
         failure.add_css_class("error");
-        let fixed = button("I fixed it at Inst>", "install.apply.fixed");
-        let console = button("Open console", "install.open-console");
+        let fixed = button(UiString::IFixedItAtInst.text(), "install.apply.fixed");
+        let console = button(UiString::OpenConsole.text(), "install.open-console");
         append(
             &self.content,
             &[
@@ -1302,9 +1303,9 @@ impl Asst {
         }
         if step != InstallStep::Finish {
             let r = row();
-            let show = gtk::Button::with_label("Show machine");
+            let show = gtk::Button::with_label(UiString::ShowMachine.text());
             let console = named(
-                gtk::Button::with_label("Open console"),
+                gtk::Button::with_label(UiString::OpenConsole.text()),
                 "install.open-console",
             );
             let (app, m) = (self.app.clone(), self.m.clone());

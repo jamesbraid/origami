@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -59,7 +60,19 @@ public sealed partial class MainWindow : Window
         _core = core; _store = store; _settings = store.Load();
         _ui = DispatcherQueue.GetForCurrentThread();
         InitializeComponent();
-        Title = "Origami";
+        Title = AppTitleBar.Title = TitleText.Text = Ui.T(OrigamiUiString.Origami);
+        HeroStart.Content = Ui.T(OrigamiUiString.Start);
+        StartButton.Label = Ui.T(OrigamiUiString.Start);
+        PowerOffButton.Label = Ui.T(OrigamiUiString.PowerOff);
+        PauseButton.Label = Ui.T(OrigamiUiString.Pause);
+        ConsoleButton.Label = Ui.T(OrigamiUiString.Console);
+        CpuButton.Label = Ui.T(OrigamiUiString.Cpu);
+        SettingsButton.Label = Ui.T(OrigamiUiString.Settings);
+        ToolTipService.SetToolTip(MoreButton, Ui.T(OrigamiUiString.OpenTheMainMenu));
+        ToolTipService.SetToolTip(CpuButton, Ui.T(OrigamiUiString.ShowOrHideTheEmulated));
+        UpgradeButton.Content = Ui.T(OrigamiUiString.Upgrade);
+        StartingText.Text = Ui.T(OrigamiUiString.StartingUpTheSystem);
+        Title = Ui.T(OrigamiUiString.Origami);
         if (AppIcon.Apply(this))
         {
             try { TitleIcon.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(AppIcon.Path)); } catch { }
@@ -320,7 +333,7 @@ public sealed partial class MainWindow : Window
             _pills[m.Key] = (pill, ptext);
             item.DoubleTapped += (_, _) => OpenInNewTab(m.Key);
             var menu = new MenuFlyout();
-            var openTab = new MenuFlyoutItem { Text = "Open in new tab" };
+            var openTab = new MenuFlyoutItem { Text = Ui.T(OrigamiUiString.OpenInNewTab) };
             openTab.Click += (_, _) => OpenInNewTab(m.Key);
             var show = new MenuFlyoutItem { Text = "Show in Explorer" };
             show.Click += (_, _) => ShowMachineInExplorer(m.Key);
@@ -373,7 +386,7 @@ public sealed partial class MainWindow : Window
             {
                 XamlRoot = Root.XamlRoot, Title = $"Close {m.Name}?",
                 Content = "The machine is running. Closing its tab can leave it running or power it off.",
-                PrimaryButtonText = "Keep running", SecondaryButtonText = "Power off", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary,
+                PrimaryButtonText = Ui.T(OrigamiUiString.KeepRunning), SecondaryButtonText = Ui.T(OrigamiUiString.PowerOff), CloseButtonText = Ui.T(OrigamiUiString.Cancel), DefaultButton = ContentDialogButton.Primary,
             };
             var r = await dlg.ShowAsync();
             if (r == ContentDialogResult.None) return;
@@ -671,7 +684,7 @@ public sealed partial class MainWindow : Window
     {
         while (_dialogOpen) await Task.Delay(100);
         _dialogOpen = true;
-        try { await new ContentDialog { XamlRoot = Root.XamlRoot, Title = "Install IRIX", Content = text, CloseButtonText = "OK" }.ShowAsync(); }
+        try { await new ContentDialog { XamlRoot = Root.XamlRoot, Title = Ui.T(OrigamiUiString.InstallIrix), Content = text, CloseButtonText = "OK" }.ShowAsync(); }
         finally { _dialogOpen = false; }
     }
 
@@ -1147,9 +1160,9 @@ public sealed partial class MainWindow : Window
                 XamlRoot = Root.XamlRoot,
                 Title = up.Count == 1 ? $"{up[0].Name} is running" : $"{up.Count} machines are running",
                 Content = "Machines keep running without the app. Power off asks each to stop cleanly.",
-                PrimaryButtonText = "Keep running",
-                SecondaryButtonText = "Power off",
-                CloseButtonText = "Cancel",
+                PrimaryButtonText = Ui.T(OrigamiUiString.KeepRunning),
+                SecondaryButtonText = Ui.T(OrigamiUiString.PowerOff),
+                CloseButtonText = Ui.T(OrigamiUiString.Cancel),
                 DefaultButton = ContentDialogButton.Primary,
             };
             var r = await dlg.ShowAsync();
@@ -1197,9 +1210,9 @@ public sealed partial class MainWindow : Window
             XamlRoot = Root.XamlRoot,
             Title = failed.Count == 1 ? $"{failed[0].Name} did not power off" : $"{failed.Count} machines did not power off",
             Content = "A clean stop can take a while while a disk folds its changes. Force quit ends the emulator at once.",
-            PrimaryButtonText = "Force quit instead",
-            SecondaryButtonText = "Quit and leave running",
-            CloseButtonText = "Cancel quit",
+            PrimaryButtonText = Ui.T(OrigamiUiString.ForceQuitInstead),
+            SecondaryButtonText = Ui.T(OrigamiUiString.QuitAndLeaveRunning),
+            CloseButtonText = Ui.T(OrigamiUiString.CancelQuit),
             DefaultButton = ContentDialogButton.Close,
         };
         var choice = await alert.ShowAsync();

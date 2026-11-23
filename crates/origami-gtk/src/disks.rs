@@ -4,6 +4,7 @@
 use crate::app::App;
 use adw::prelude::*;
 use gtk::glib;
+use origami_core::facade::UiString;
 use origami_core::facade::{
     disk_labels, image_verdict, size_label, DiskImageCheck, Operation, OperationState,
 };
@@ -50,7 +51,7 @@ pub fn pick_folder(parent: &impl IsA<gtk::Window>, title: &str, then: impl Fn(Pa
 /// A small grey label naming the OS on a disk.
 pub fn badge(name: &str) -> gtk::Label {
     let b = gtk::Label::builder()
-        .label("Reading…")
+        .label(UiString::Reading.text())
         .css_classes(["pill", "pill-grey"])
         .valign(gtk::Align::Center)
         .build();
@@ -143,14 +144,14 @@ impl ImageForm {
         badge.set_visible(false);
         file.add_suffix(&badge);
         let place = adw::ComboRow::builder()
-            .title("Where should the disk live?")
+            .title(UiString::WhereShouldTheDiskLive.text())
             .model(&gtk::StringList::new(
                 &labels.place.iter().map(String::as_str).collect::<Vec<_>>(),
             ))
             .build();
         place.set_widget_name("disk.place");
         let keep = adw::ComboRow::builder()
-            .title("How should changes be kept?")
+            .title(UiString::HowShouldChangesBeKept.text())
             .model(&gtk::StringList::new(
                 &labels.keep.iter().map(String::as_str).collect::<Vec<_>>(),
             ))
@@ -211,7 +212,7 @@ impl ImageForm {
                 .map_or_else(String::new, |n| n.to_string_lossy().into_owned()),
         );
         self.file.set_subtitle("");
-        self.badge.set_label("Reading…");
+        self.badge.set_label(UiString::Reading.text());
         self.badge.set_visible(true);
         {
             let mut picked = self.picked.borrow_mut();

@@ -165,7 +165,7 @@ struct Hero: View {
                 Button {
                     app.invoke(.start)
                 } label: {
-                    Label("Start", systemImage: "play.fill").font(.title3).padding(.horizontal, 22).padding(.vertical, 4)
+                    Label(ui(.start), systemImage: "play.fill").font(.title3).padding(.horizontal, 22).padding(.vertical, 4)
                 }
                 .buttonStyle(.borderedProminent).controlSize(.large)
                 .accessibilityLabel("Start \(r.name)")
@@ -219,12 +219,12 @@ struct StartingCard: View {
                 CubeHost(look: .starting(chassis: model.record.product.colour))
                     .frame(width: 108, height: 108)
                     .accessibilityHidden(true)
-                Text("Starting up the system…").font(.title3).foregroundStyle(.white)
+                Text(ui(.startingUpTheSystem)).font(.title3).foregroundStyle(.white)
                 HStack(spacing: 28) {
                     StageChip(title: "Emulator", symbol: "cpu", state: model.emulatorUp ? true : nil)
                     StageChip(title: "Screen", symbol: "display", state: model.hasPicture ? true : nil)
                 }
-                Button("Power off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
+                Button(ui(.powerOff)) { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
             }
         }
     }
@@ -303,7 +303,7 @@ struct UpgradeCard: View {
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: "arrow.triangle.2.circlepath.circle.fill").font(.system(size: 44)).foregroundStyle(.orange).accessibilityHidden(true)
-            Text("Needs upgrade").font(.title2.weight(.semibold))
+            Text(ui(.needsUpgrade)).font(.title2.weight(.semibold))
             Text("This machine was made by an older Origami. Upgrade it once to use it. Flash, NVRAM, drives, network settings and the Ethernet address are kept.")
                 .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
             if let e = model.upgradeError {
@@ -311,7 +311,7 @@ struct UpgradeCard: View {
                     .foregroundStyle(.red).multilineTextAlignment(.center).frame(maxWidth: 420).textSelection(.enabled)
             }
             HStack {
-                Button { model.upgrade() } label: { Text("Upgrade") }
+                Button { model.upgrade() } label: { Text(ui(.upgrade)) }
                     .buttonStyle(.borderedProminent).disabled(model.upgrading)
                 Button("Show in Finder") { app.invoke(.showInFinder) }
                 if model.upgrading { ProgressView().controlSize(.small) }

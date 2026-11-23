@@ -88,9 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = running.count == 1
             ? "Keep it running to find it again the next time Origami opens, or power it off now."
             : "Keep them running to find them again the next time Origami opens, or power them off now. (\(names))"
-        alert.addButton(withTitle: "Keep running")
-        alert.addButton(withTitle: "Power off")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: ui(.keepRunning))
+        alert.addButton(withTitle: ui(.powerOff))
+        alert.addButton(withTitle: ui(.cancel))
         switch alert.runModal() {
         case .alertFirstButtonReturn: AppDelegate.reply(true)
         case .alertSecondButtonReturn:
@@ -117,9 +117,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let why = failed.compactMap(\.failure).first
             alert.informativeText = force ? (why ?? "The emulator did not stop.")
                 : "Force quit stops the emulator at once; changes the guest has not written to disk are lost."
-            if !force { alert.addButton(withTitle: "Force quit instead") }
-            alert.addButton(withTitle: "Quit and leave running")
-            alert.addButton(withTitle: "Cancel quit")
+            if !force { alert.addButton(withTitle: ui(.forceQuitInstead)) }
+            alert.addButton(withTitle: ui(.quitAndLeaveRunning))
+            alert.addButton(withTitle: ui(.cancelQuit))
             let r = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
             let choice = force ? r + 1 : r
             switch choice {
@@ -154,7 +154,7 @@ struct OrigamiCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
-            Button("About Origami") { openWindow(id: "about") }
+            Button(ui(.aboutOrigami)) { openWindow(id: "about") }
         }
         CommandGroup(replacing: .newItem) {
             item(.newMachine); item(.chooseLibrary)
@@ -186,31 +186,31 @@ struct OrigamiApp: App {
     @StateObject private var app = Shared.model
 
     var body: some Scene {
-        Window("Origami", id: "main") {
+        Window(ui(.origami), id: "main") {
             MainView()
                 .environmentObject(app)
         }
         .defaultSize(width: 1100, height: 760)
         .commands { OrigamiCommands(app: app) }
 
-        Window("Diagnostics", id: "diagnostics") {
+        Window(ui(.diagnostics), id: "diagnostics") {
             DiagnosticsView().environmentObject(app)
         }
         .defaultSize(width: 640, height: 400)
 
-        WindowGroup("Console", id: "console", for: String.self) { $key in
+        WindowGroup(ui(.console), id: "console", for: String.self) { $key in
             if let key { ConsoleWindow(key: key).environmentObject(app) }
         }
         .defaultSize(width: 700, height: 440)
         .commandsRemoved()
 
-        WindowGroup("Install IRIX", id: "install", for: String.self) { $key in
+        WindowGroup(ui(.installIrix), id: "install", for: String.self) { $key in
             if let key { InstallWindow(key: key).environmentObject(app) }
         }
         .windowResizability(.contentSize)
         .commandsRemoved()
 
-        Window("About Origami", id: "about") {
+        Window(ui(.aboutOrigami), id: "about") {
             AboutView().environmentObject(app)
         }
         .windowResizability(.contentSize)

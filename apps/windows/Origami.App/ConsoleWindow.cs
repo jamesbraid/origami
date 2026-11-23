@@ -1,3 +1,4 @@
+using uniffi.origami_ffi;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
@@ -60,7 +61,7 @@ public sealed class ConsoleView : Grid
         _host.Children.Add(_canvas); _host.Children.Add(_overlay);
         _canvas.Children.Add(_cursor);
 
-        var copy = new Button { Content = "Copy" }; var paste = new Button { Content = "Paste" };
+        var copy = new Button { Content = Ui.T(OrigamiUiString.Copy) }; var paste = new Button { Content = "Paste" };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(copy, "console.copy");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(paste, "console.paste");
         copy.Click += (_, _) => Copy(); paste.Click += async (_, _) => await PasteAsync();
@@ -276,7 +277,7 @@ public sealed class ConsoleWindow : Window
 
     public ConsoleWindow(ICoreClient core, string key)
     {
-        Title = "Console";
+        Title = Ui.T(OrigamiUiString.Console);
         AppIcon.Apply(this);
         View = new ConsoleView(core, key);
         Content = View;
