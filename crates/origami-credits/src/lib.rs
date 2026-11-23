@@ -88,6 +88,8 @@ pub struct Artwork {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QemuSource {
     pub tag: String,
+    /// What a person calls the build, such as `QEMU 11.1.90-3, Origami build`.
+    pub label: String,
     pub url: String,
     pub archive_url: String,
     /// The written statement that the source is available.
@@ -161,15 +163,25 @@ pub fn qemu_source_file() -> Result<String, String> {
     ))
 }
 
+/// `sgi-origami-11.1.90-3` as `QEMU 11.1.90-3, Origami build`.
+fn qemu_label(tag: &str) -> String {
+    match tag.strip_prefix("sgi-origami-") {
+        Some(version) => format!("QEMU {version}, Origami build"),
+        None => format!("QEMU {tag}"),
+    }
+}
+
 fn qemu_source(tag: &str) -> QemuSource {
     QemuSource {
         tag: tag.into(),
+        label: qemu_label(tag),
         url: format!("{QEMU_REPO}/tree/{tag}"),
         archive_url: format!("{QEMU_REPO}/archive/refs/tags/{tag}.tar.gz"),
         note: format!(
             "QEMU is licensed under the GNU General Public License, version 2. \
-             The source of this build is available at the tag {tag}. The libraries built into QEMU \
-             (GLib, pixman, SDL 2 and others) have their licences in the package's share/origami/licenses folder."
+             The source of this build, {label}, is linked below. The libraries built into QEMU \
+             (GLib, pixman, SDL 2 and others) have their licences listed under Licences.",
+            label = qemu_label(tag)
         ),
     }
 }
@@ -235,6 +247,12 @@ fn normalised(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Components the notices file names by their package, as a person knows them.
+const PRODUCT_NAMES: &[(&str, &str)] = &[(
+    "libghostty-vt (the apps' terminal engine)",
+    "Ghostty's terminal library",
+)];
+
 /// Licences the apps list first, in this order.
 const FIRST: &[&str] = &["GNU General Public License", "BSD 3-Clause"];
 
@@ -253,6 +271,13 @@ fn licences(source: &Source, notices: &str) -> Result<Vec<Licence>, String> {
         });
     }
     found.extend(parse_notices(notices));
+    for entry in &mut found {
+        for c in &mut entry.components {
+            if let Some((_, shown)) = PRODUCT_NAMES.iter().find(|(id, _)| id == c) {
+                *c = shown.to_string();
+            }
+        }
+    }
     let mut groups: Vec<Licence> = Vec::new();
     for entry in found {
         let group = match groups.iter().position(|g| g.name == entry.name) {

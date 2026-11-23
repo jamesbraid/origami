@@ -43,6 +43,12 @@ fn a_credit_line_without_a_year_is_refused() {
 
 #[test]
 fn every_bundled_component_appears_under_a_licence() {
+    let shown = |c: String| {
+        PRODUCT_NAMES
+            .iter()
+            .find(|(id, _)| *id == c)
+            .map_or(c, |(_, name)| name.to_string())
+    };
     let c = all();
     let have = names(&c);
     let mut skipped = false;
@@ -68,7 +74,7 @@ fn every_bundled_component_appears_under_a_licence() {
         } else {
             header.split(", ").map(str::to_string).collect()
         };
-        for component in expected {
+        for component in expected.into_iter().map(shown) {
             wanted += 1;
             assert!(
                 have.contains(&component),
@@ -98,9 +104,9 @@ fn what_we_ship_and_depend_on_is_listed_with_its_text() {
     for name in [
         "Origami",
         "Instigator",
-        "iris",
-        "QEMU",
-        "libghostty-vt (the apps' terminal engine)",
+        "Iris",
+        "QEMU (Origami)",
+        "Ghostty's terminal library",
     ] {
         assert!(
             have.contains(name),
@@ -116,7 +122,7 @@ fn what_we_ship_and_depend_on_is_listed_with_its_text() {
     let qemu = gpl
         .entries
         .iter()
-        .find(|e| e.components == ["QEMU"])
+        .find(|e| e.components == ["QEMU (Origami)"])
         .unwrap();
     assert!(qemu.text.contains("Version 2, June 1991"));
     assert_eq!(c.licences[0].name, "GNU General Public License");
@@ -131,7 +137,7 @@ fn qemu_source_is_the_tag_in_the_lock() {
         c.qemu.url,
         format!("https://github.com/jamesbraid/qemu-sgi-origami/tree/{tag}")
     );
-    assert!(c.qemu.note.contains(&tag));
+    assert!(c.qemu.note.contains(&c.qemu.label));
     let file = qemu_source_file().unwrap();
     assert!(file.contains(&c.qemu.url) && file.contains(&c.qemu.archive_url));
     assert!(qemu_tag_of("[qemu]\n").is_err());
@@ -141,7 +147,15 @@ fn qemu_source_is_the_tag_in_the_lock() {
 fn the_people_are_credited() {
     let c = all();
     let built: Vec<_> = c.built_on.iter().map(|p| p.name.as_str()).collect();
-    assert_eq!(built, ["QEMU", "iris", "libghostty-vt", "Instigator"]);
+    assert_eq!(
+        built,
+        [
+            "QEMU (Origami)",
+            "Iris",
+            "Ghostty's terminal library",
+            "Instigator"
+        ]
+    );
     assert_eq!(c.built_on[1].by, "Dominik Behr and contributors");
     assert_eq!(c.thanks.len(), 4);
     assert!(c.copyright.starts_with("© ") && c.copyright.ends_with("James Braid"));
@@ -201,4 +215,38 @@ fn a_rule_line_inside_a_text_does_not_start_a_group() {
     let found = parse_notices(&text);
     assert_eq!(found.len(), 1);
     assert!(found[0].text.contains("still foo"));
+}
+
+#[test]
+fn credit_text_is_plain_capitalised_and_has_no_raw_paths_or_ids() {
+    let c = all();
+    let mut lines: Vec<&str> = vec![&c.qemu.label, &c.qemu.note, &c.trademark];
+    for p in &c.built_on {
+        lines.extend([p.by.as_str(), p.note.as_str()]);
+    }
+    for t in &c.thanks {
+        lines.push(&t.reason);
+    }
+    for line in lines {
+        let first = line.chars().next().unwrap();
+        assert!(first.is_uppercase(), "{line:?} starts in lowercase");
+        assert!(!line.contains('·'), "{line:?}");
+        assert!(
+            !line.contains("://") && !line.contains("share/"),
+            "{line:?} shows a path"
+        );
+        assert!(
+            !line.contains("libghostty") && !line.contains("sgi-origami-"),
+            "{line:?} shows an id"
+        );
+    }
+    // Names such as jrra.zone are the people's own spelling; the rest is prose.
+    assert!(c.built_on.iter().all(|p| !p.name.contains("libghostty")));
+    assert_eq!(
+        c.qemu.label,
+        format!(
+            "QEMU {}, Origami build",
+            &c.qemu.tag["sgi-origami-".len()..]
+        )
+    );
 }

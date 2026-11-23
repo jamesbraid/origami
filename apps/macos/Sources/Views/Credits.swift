@@ -21,7 +21,7 @@ struct CreditsDocument: Decodable {
         let name: String, from: String, url: String?
         var id: String { name }
     }
-    struct QemuSource: Decodable { let tag: String, url: String, archiveUrl: String, note: String }
+    struct QemuSource: Decodable { let tag: String, label: String, url: String, archiveUrl: String, note: String }
     struct LicenceEntry: Decodable, Identifiable {
         let components: [String], text: String
         var id: String { components.joined(separator: ",") }
@@ -84,8 +84,8 @@ struct AcknowledgementsView: View {
                     Section("Built on") {
                         ForEach(c.builtOn) { p in
                             CreditRow(title: p.name, detail: "\(p.by). \(p.note)", links: [CreditLink(label: "Website", url: p.url)])
-                            if p.name == "QEMU" {
-                                CreditRow(title: "QEMU source, \(c.qemu.tag)", detail: "The exact source of the bundled build.",
+                            if p.name.hasPrefix("QEMU") {
+                                CreditRow(title: c.qemu.label, detail: "The exact source of the bundled build.",
                                           links: [CreditLink(label: "Source", url: c.qemu.url)])
                             }
                         }
@@ -184,7 +184,7 @@ struct LicencesView: View {
             if let c = doc {
                 TextField("Search components and licences", text: $query).textFieldStyle(.roundedBorder)
                 Text(c.qemu.note).font(.caption).foregroundStyle(.secondary)
-                if let u = URL(string: c.qemu.url) { Link("QEMU source at \(c.qemu.tag)", destination: u).font(.caption) }
+                if let u = URL(string: c.qemu.url) { Link("Source of \(c.qemu.label)", destination: u).font(.caption) }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(c.licences) { group($0) }

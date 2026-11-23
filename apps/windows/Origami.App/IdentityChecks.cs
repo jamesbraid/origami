@@ -94,8 +94,8 @@ static class IdentityChecks
             await Task.Delay(500);
             var missing = doc.Photographs.Where(p => !ack.Text.Contains(p.Author) || !ack.Text.Contains(p.Licence) || !ack.Text.Contains(p.Source)).Select(p => p.Title).ToList();
             steps.Add(("credits: Acknowledgements credits every photograph with its author, licence and source", missing.Count == 0, string.Join(", ", missing)));
-            steps.Add(("credits: Acknowledgements names QEMU's source tag, iris, the thanks and the artwork",
-                ack.Text.Contains(doc.Qemu.Tag) && ack.Text.Contains("iris") && doc.Thanks.All(t => ack.Text.Contains(t.Name)) && doc.Artwork.All(a => ack.Text.Contains(a.Name)), doc.Qemu.Tag));
+            steps.Add(("credits: Acknowledgements names QEMU's source build, Iris, the thanks and the artwork",
+                ack.Text.Contains(doc.Qemu.Label) && ack.Text.Contains("Iris") && doc.Thanks.All(t => ack.Text.Contains(t.Name)) && doc.Artwork.All(a => ack.Text.Contains(a.Name)), doc.Qemu.Label));
             if (shoot != null) await shoot("windows-acknowledgements", ack);
             ack.Close();
             steps.Add(("credits: closing Acknowledgements leaves no sheet behind", await until(() => about.Sheet is null, 3000), ""));

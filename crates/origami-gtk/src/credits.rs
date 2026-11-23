@@ -79,7 +79,7 @@ pub fn acknowledgements(parent: &impl IsA<gtk::Widget>) {
     built.insert(
         1,
         row(
-            &format!("QEMU source, {}", c.qemu.tag),
+            &c.qemu.label,
             "The exact source of the bundled build.",
             &[(&c.qemu.url, "Source")],
         ),
@@ -178,12 +178,12 @@ pub fn licences(parent: &impl IsA<gtk::Widget>) {
         .build();
     page.append(&search);
     let qemu = adw::PreferencesGroup::builder()
-        .title("QEMU")
+        .title("QEMU (Origami)")
         .description(glib::markup_escape_text(&c.qemu.note))
         .build();
     qemu.add(&row(
-        &format!("Source at {}", c.qemu.tag),
-        &c.qemu.url,
+        &format!("Source of {}", c.qemu.label),
+        "The exact source of this build.",
         &[(&c.qemu.url, "Open")],
     ));
     page.append(&qemu);

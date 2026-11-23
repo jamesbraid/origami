@@ -69,7 +69,7 @@ public sealed class CreditsWindow : Window
         foreach (var p in c.BuiltOn)
         {
             panel.Children.Add(Row(p.Name, $"{p.By}. {p.Note}", ("Website", p.Url)));
-            if (p.Name == "QEMU") panel.Children.Add(Row($"QEMU source, {c.Qemu.Tag}", "The exact source of the bundled build.", ("Source", c.Qemu.Url)));
+            if (p.Name.StartsWith("QEMU")) panel.Children.Add(Row(c.Qemu.Label, "The exact source of the bundled build.", ("Source", c.Qemu.Url)));
         }
         panel.Children.Add(Heading("Thanks"));
         foreach (var t in c.Thanks) panel.Children.Add(Row(t.Name, t.Reason, ("Website", t.Url)));
@@ -89,7 +89,7 @@ public sealed class CreditsWindow : Window
         var top = new StackPanel { Spacing = 6, Padding = new Thickness(24, 16, 24, 8) };
         top.Children.Add(_search);
         top.Children.Add(Line(c.Qemu.Note));
-        top.Children.Add(Link($"QEMU source at {c.Qemu.Tag}", c.Qemu.Url));
+        top.Children.Add(Link($"Source of {c.Qemu.Label}", c.Qemu.Url));
         Text += c.Qemu.Note + "\n";
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_search, "licences.search");
         _search.TextChanged += (_, _) => Rebuild();

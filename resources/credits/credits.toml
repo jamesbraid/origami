@@ -4,22 +4,22 @@ project_url = "https://github.com/jamesbraid/origami"
 trademark = "SGI, IRIX and all product names are trademarks of their respective owners."
 
 [[built_on]]
-name = "QEMU"
-by = "the QEMU project and the sgi-origami branch"
+name = "QEMU (Origami)"
+by = "The QEMU project and the sgi-origami branch"
 url = "https://github.com/jamesbraid/qemu-sgi-origami"
 licence = "GPL-2.0"
 note = "Machines run on this build of QEMU."
 
 [[built_on]]
-name = "iris"
+name = "Iris"
 by = "Dominik Behr and contributors"
 url = "https://github.com/techomancer/iris"
 licence = "BSD-3-Clause"
 note = "The second engine, for the Indy, Indigo2 and Octane2."
 
 [[built_on]]
-name = "libghostty-vt"
-by = "the Ghostty project"
+name = "Ghostty's terminal library"
+by = "The Ghostty project"
 url = "https://ghostty.org"
 licence = "MIT"
 note = "The console's terminal."
@@ -33,17 +33,17 @@ note = "Installs IRIX from the install media."
 
 [[thanks]]
 name = "jrra.zone"
-for = "the archive of SGI software"
+for = "The archive of SGI software"
 url = "https://jrra.zone/sgi/"
 
 [[thanks]]
 name = "suigintoulain"
-for = "the RAD4 software"
+for = "The RAD4 software"
 url = "https://mirror.rqsall.com/misc/sgi/psitech/"
 
 [[thanks]]
 name = "Miod Vallat"
-for = "porting OpenBSD to SGI systems"
+for = "Porting OpenBSD to SGI systems"
 url = "http://miod.online.fr/software/openbsd/stories/sgiall.html"
 
 [[thanks]]
@@ -74,10 +74,10 @@ file = "instigator.LICENSE"
 
 [[licence_text]]
 licence = "BSD 3-Clause"
-components = ["iris"]
+components = ["Iris"]
 file = "iris.LICENSE"
 
 [[licence_text]]
 licence = "GNU General Public License"
-components = ["QEMU"]
+components = ["QEMU (Origami)"]
 file = "GPL-2.0.txt"

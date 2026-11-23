@@ -10,7 +10,7 @@ public sealed class CreditsDocument
     public sealed class ThanksEntry { public string Name { get; init; } = ""; [JsonPropertyName("for")] public string Reason { get; init; } = ""; public string Url { get; init; } = ""; }
     public sealed class Photograph { public string Title { get; init; } = ""; public string Author { get; init; } = ""; public string Year { get; init; } = ""; public string Licence { get; init; } = ""; public string LicenceUrl { get; init; } = ""; public string Source { get; init; } = ""; public string Changes { get; init; } = ""; }
     public sealed class ArtworkEntry { public string Name { get; init; } = ""; public string From { get; init; } = ""; public string Url { get; init; } = ""; }
-    public sealed class QemuSource { public string Tag { get; init; } = ""; public string Url { get; init; } = ""; public string ArchiveUrl { get; init; } = ""; public string Note { get; init; } = ""; }
+    public sealed class QemuSource { public string Tag { get; init; } = ""; public string Label { get; init; } = ""; public string Url { get; init; } = ""; public string ArchiveUrl { get; init; } = ""; public string Note { get; init; } = ""; }
     public sealed class LicenceEntry
     {
         public List<string> Components { get; init; } = new();
