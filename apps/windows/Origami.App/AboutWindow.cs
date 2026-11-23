@@ -58,6 +58,7 @@ public sealed class AboutWindow : Window
     {
         _core = core; _dark = dark;
         Title = "About Origami";
+        AppIcon.Apply(this);
         Cube.WindowHandle = () => WinRT.Interop.WindowNative.GetWindowHandle(this);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(Cube, "about.cube");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Cube, "The SGI cube");

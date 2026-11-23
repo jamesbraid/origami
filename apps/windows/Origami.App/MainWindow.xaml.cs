@@ -60,11 +60,9 @@ public sealed partial class MainWindow : Window
         _ui = DispatcherQueue.GetForCurrentThread();
         InitializeComponent();
         Title = "Origami";
-        var icon = Path.Combine(AppContext.BaseDirectory, "Origami.ico");
-        if (File.Exists(icon))
+        if (AppIcon.Apply(this))
         {
-            AppWindow.SetIcon(icon);
-            try { TitleIcon.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(icon)); } catch { }
+            try { TitleIcon.ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(AppIcon.Path)); } catch { }
         }
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
@@ -78,6 +76,7 @@ public sealed partial class MainWindow : Window
         Display.PointerModeChanged = RefreshPointerUi;
         Display.Shortcut = OnDisplayShortcut;
 
+        LibraryHeading.Text = Labels.SidebarHeading;
         BuildMenus();
         BuildLibrary();
 
@@ -174,6 +173,7 @@ public sealed partial class MainWindow : Window
 
     public string? SelectedKey => (Library.SelectedItem as ListViewItem)?.Tag as string;
     public string PillTextForTest => PillText.Text;
+    public string LibraryHeadingForTest => LibraryHeading.Text;
     public int LibraryCount => Library.Items.Count;
     public string StatusForTest => StatusText.Text;
     /// <summary>The last View menu scale command run, for the self-test: the status line it sets can be replaced at once.</summary>
@@ -394,6 +394,7 @@ public sealed partial class MainWindow : Window
         _tabs.Retain(_core.Machines().Select(x => x.Key));
         var machines = _core.Machines().ToDictionary(x => x.Key);
         var sig = string.Join("|", _tabs.Keys.Select(k => k + ":" + (machines.TryGetValue(k, out var mm) ? mm.State : MachineState.Stopped))) + "@" + _tabs.Active;
+        if (_tabs.Active is null && SelectedKey is { } selected && machines.ContainsKey(selected)) _tabs.Select(selected); // a selection made while rebuilding the list gets its tab too
         TabBar.Visibility = Visibility.Visible; // always shown, as in the other apps, even with one tab
         if (sig == _tabSig) return;
         _tabSig = sig;
@@ -904,7 +905,8 @@ public sealed partial class MainWindow : Window
             }
         }
 
-        var key = SelectedKey;
+        // A row left over from a library that was just replaced is not a machine to show.
+        var key = SelectedKey is { } picked && _core.Machines().Any(m => m.Key == picked) ? picked : null;
         EmptyPanel.Visibility = Visibility.Collapsed;
         // The cube holds a child window and a GPU surface, so it lives only while the starting pane shows.
         var starting = key != null && !_prefsOpen && _core.Status(key).State == MachineState.Starting;

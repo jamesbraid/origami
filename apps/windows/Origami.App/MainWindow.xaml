@@ -81,7 +81,9 @@
                 <StackPanel x:Name="TabStrip" Orientation="Horizontal" Spacing="4" Padding="6,4,6,4"/>
             </Grid>
 
-            <ListView x:Name="Library" Grid.Column="0" Grid.RowSpan="2" SelectionMode="Single"
+            <TextBlock x:Name="LibraryHeading" Grid.Column="0" Grid.Row="0" VerticalAlignment="Center" Margin="16,0,0,0"
+                       FontWeight="SemiBold" Opacity="0.8" AutomationProperties.AutomationId="library.heading"/>
+            <ListView x:Name="Library" Grid.Column="0" Grid.Row="1" SelectionMode="Single"
                       AutomationProperties.AutomationId="library" AutomationProperties.Name="Library"
                       Background="{ThemeResource LayerFillColorDefaultBrush}"/>
 

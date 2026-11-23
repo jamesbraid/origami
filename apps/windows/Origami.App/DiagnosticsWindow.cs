@@ -23,6 +23,7 @@ public sealed class DiagnosticsWindow : Window
     {
         _core = core; _key = key; _screen = screenCounts;
         Title = "Diagnostics";
+        AppIcon.Apply(this);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_report, "diagnostics.report");
         _pillBox.Child = _pill;
         var copy = new Button { Content = "Copy Report" };

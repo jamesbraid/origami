@@ -17,8 +17,8 @@ public static class NewMachineDialog
         if (offerings.Count == 0) { await Message(root, "Cannot list the machines", "No engine offers a machine."); return null; }
 
         var models = NewMachine.Models(offerings);
-        var model = new ComboBox { Header = "Model", HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = models.Select(NewMachine.Label).ToList(), SelectedIndex = NewMachine.DefaultIndex(models) };
-        var engine = new ComboBox { Header = "Engine", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var model = new ComboBox { Header = Labels.NewMachine.Model, HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = models.Select(NewMachine.Label).ToList(), SelectedIndex = NewMachine.DefaultIndex(models) };
+        var engine = new ComboBox { Header = Labels.NewMachine.Engine, HorizontalAlignment = HorizontalAlignment.Stretch };
         IReadOnlyList<string> engines = Array.Empty<string>();
         void SyncEngines()
         {
@@ -27,10 +27,10 @@ public static class NewMachineDialog
             engine.SelectedIndex = engines.Count > 0 ? 0 : -1;
             engine.IsEnabled = engines.Count > 1; // always shown, as on Linux and macOS; one choice is not changeable
         }
-        var name = new TextBox { Header = "Name" };
+        var name = new TextBox { Header = Labels.NewMachine.Name };
         // Install from discs joins this list later; a ready-made disk is added while one fits the model.
         var labels = core.Labels();
-        var disk = new ComboBox { Header = "Disk", HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = labels.Choices.ToList(), SelectedIndex = DiskChoices.None };
+        var disk = new ComboBox { Header = Labels.NewMachine.Disk, HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = labels.Choices.ToList(), SelectedIndex = DiskChoices.None };
         var release = new ComboBox { Header = labels.Release, HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
         IReadOnlyList<ReadyDisk> ready = Array.Empty<ReadyDisk>();
         var asked = 0;
@@ -61,7 +61,7 @@ public static class NewMachineDialog
         var custom = new CheckBox { Content = "Use this address instead" };
         var typed = new TextBox { Header = "Address", PlaceholderText = "08:00:69:__:__:__", Visibility = Visibility.Collapsed };
         var problem = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed) };
-        var advanced = new Expander { Header = "Advanced", HorizontalAlignment = HorizontalAlignment.Stretch, Content = new StackPanel { Spacing = 8, Children = { id, addressShown, custom, typed } } };
+        var advanced = new Expander { Header = Labels.NewMachine.Advanced, HorizontalAlignment = HorizontalAlignment.Stretch, Content = new StackPanel { Spacing = 8, Children = { id, addressShown, custom, typed } } };
         AutomationProperties.SetAutomationId(id, "new.id");
         AutomationProperties.SetAutomationId(addressShown, "new.mac");
         AutomationProperties.SetAutomationId(custom, "new.mac.custom");
@@ -85,7 +85,7 @@ public static class NewMachineDialog
         {
             XamlRoot = root,
             Title = "New Machine",
-            Content = new StackPanel { Spacing = 12, Width = 380, Children = { model, engine, name, disk, release, size, install, image.Root, advanced, problem, bar, line, stop, error } },
+            Content = new StackPanel { Spacing = 12, Width = 380, Children = { engine, model, name, disk, release, size, install, image.Root, advanced, problem, bar, line, stop, error } },
             PrimaryButtonText = "Create",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,

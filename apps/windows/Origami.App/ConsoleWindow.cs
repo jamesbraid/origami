@@ -277,6 +277,7 @@ public sealed class ConsoleWindow : Window
     public ConsoleWindow(ICoreClient core, string key)
     {
         Title = "Console";
+        AppIcon.Apply(this);
         View = new ConsoleView(core, key);
         Content = View;
         AppWindow.Resize(new Windows.Graphics.SizeInt32(960, 640));

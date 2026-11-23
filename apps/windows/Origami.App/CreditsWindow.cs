@@ -26,6 +26,7 @@ public sealed class CreditsWindow : Window
     {
         Which = which; _doc = doc;
         Title = which == Page.Acknowledgements ? "Acknowledgements" : "Licences";
+        AppIcon.Apply(this);
         Content = which == Page.Acknowledgements ? Acknowledgements() : Licences();
         AppWindow.Resize(new Windows.Graphics.SizeInt32(560, 720));
     }

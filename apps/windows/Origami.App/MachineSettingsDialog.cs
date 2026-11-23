@@ -11,7 +11,7 @@ public static class MachineSettingsDialog
     public static async Task ShowAsync(XamlRoot root, ICoreClient core, string key, string name, Func<IntPtr> hwnd)
     {
         var body = new StackPanel { Spacing = 14, Width = 460 };
-        var dlg = new ContentDialog { XamlRoot = root, Title = name + " Settings", Content = new ScrollViewer { Content = body, MaxHeight = 520 }, CloseButtonText = "Close" };
+        var dlg = new ContentDialog { XamlRoot = root, Title = name + " Settings", Content = Scroller(body), CloseButtonText = "Close" };
         var note = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.IndianRed), Visibility = Visibility.Collapsed };
         AutomationProperties.SetAutomationId(note, "settings.error");
         List<(string Text, string? Copy)> notes = new(); // advice an edit returned, shown once on the next rebuild
@@ -47,23 +47,23 @@ public static class MachineSettingsDialog
             }
             notes = new();
 
-            body.Children.Add(Heading("Processor and memory"));
+            body.Children.Add(Heading(Labels.Settings.ProcessorMemory));
             body.Children.Add(Text($"{s.Processor} ({s.ProcessorPart}), {s.Nodes} node{(s.Nodes == 1 ? "" : "s")}"));
             body.Children.Add(Combo("settings.cpus", "Processors per node", s.CpusAllowed.Select(c => c.ToString()).ToList(), s.CpusAllowed.ToList().IndexOf(s.CpusPerNode), ok,
                 i => Apply(new MachineChange.SetCpus(s.CpusAllowed[i]))));
             body.Children.Add(Combo("settings.memory", "Memory per node", s.MemoryAllowed.Select(m => m + " MiB").ToList(), s.MemoryAllowed.ToList().IndexOf(s.MemoryMiB), ok,
                 i => Apply(new MachineChange.SetMemory(s.MemoryAllowed[i]))));
 
-            body.Children.Add(Heading("Startup and firmware"));
+            body.Children.Add(Heading(Labels.Settings.StartupFirmware));
             body.Children.Add(Combo("settings.console", "Console serial line", s.ConsoleLines.Select(l => l.Label).ToList(),
                 s.ConsoleLines.ToList().FindIndex(l => l.Name == s.ConsolePort), ok, i => Apply(MachineSettingsRules.SetConsoleTo(s.ConsoleLines[i]))));
             body.Children.Add(Text("The Console window and a headless machine's tab use this line. On a machine with graphics, the PROM may print on the screen instead."));
 
-            body.Children.Add(Heading("Graphics"));
+            body.Children.Add(Heading(Labels.Settings.Graphics));
             if (s.Pipes.Count == 0) body.Children.Add(Text("None"));
             foreach (var p in s.Pipes) body.Children.Add(Text($"Pipe in slot {p.Slot}: {p.Product} ({p.Family})"));
 
-            body.Children.Add(Heading("Drives"));
+            body.Children.Add(Heading(Labels.Settings.Drives));
             if (s.Drives.Count == 0) body.Children.Add(Text("None"));
             async void Media(string drive, string? image)
             {
@@ -125,13 +125,13 @@ public static class MachineSettingsDialog
                     await Rebuild();
                 });
                 panel.Changed += () => go.IsEnabled = panel.Choice.Ready && diskTarget is not null;
-                body.Children.Add(Heading("Add a disk image"));
+                body.Children.Add(Heading("Add a disk image", sub: true));
                 body.Children.Add(panel.Root);
                 body.Children.Add(bar); body.Children.Add(line); body.Children.Add(stop);
                 body.Children.Add(go);
             }
 
-            var netHeading = Heading("Network");
+            var netHeading = Heading(Labels.Settings.Network);
             body.Children.Add(netHeading);
             var choices = core.NetworkModes();
             var setup = core.HostBridgedSetup();
@@ -181,7 +181,7 @@ public static class MachineSettingsDialog
                 body.Children.Add(new Expander { Header = "Advanced", Content = advanced });
             }
 
-            body.Children.Add(Heading("Port forwards"));
+            body.Children.Add(Heading("Port forwards", sub: true));
             foreach (var f in s.Forwards)
                 body.Children.Add(Row($"{f.Name}: {f.Protocol} host {f.HostPort} to guest {f.GuestPort}", "Remove", "settings.unforward." + f.Name, ok, () => Apply(new MachineChange.RemoveForward(f.Name))));
             var fname = new TextBox { PlaceholderText = "Name", IsEnabled = ok, Width = 120 };
@@ -198,7 +198,7 @@ public static class MachineSettingsDialog
             body.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { fname, proto, host, guest } });
             body.Children.Add(add);
 
-            body.Children.Add(Heading("Shared folders"));
+            body.Children.Add(Heading(Labels.Settings.SharedFolders));
             foreach (var sh in s.Shares)
             {
                 body.Children.Add(Row($"{sh.Name}: {sh.HostDir}", "Stop sharing", "settings.unshare." + sh.Name, ok, () => Apply(new MachineChange.RemoveShare(sh.Name))));
@@ -243,7 +243,7 @@ public static class MachineSettingsDialog
                 AutomationProperties.SetAutomationId(why, "settings.share.problem");
                 nameBox.TextChanged += (_, _) => Check();
                 Check();
-                body.Children.Add(Heading("Share a folder"));
+                body.Children.Add(Heading("Share a folder", sub: true));
                 body.Children.Add(nameBox);
                 body.Children.Add(Text(draft.Dir));
                 body.Children.Add(why);
@@ -255,6 +255,14 @@ public static class MachineSettingsDialog
         await Rebuild();
         await dlg.ShowAsync();
     }
+
+    /// <summary>The scrolling body: hairlines mark the viewport's edges, and padding keeps controls off them and off the scroll bar.</summary>
+    static Border Scroller(UIElement body) => new()
+    {
+        BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(60, 128, 128, 128)),
+        BorderThickness = new Thickness(0, 1, 0, 1),
+        Child = new ScrollViewer { Content = body, MaxHeight = 520, Padding = new Thickness(0, 12, 16, 12), VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+    };
 
     static void CopyText(string text)
     {
@@ -272,7 +280,13 @@ public static class MachineSettingsDialog
     }
 
     static TextBlock Text(string t) => new() { Text = t, TextWrapping = TextWrapping.Wrap };
-    static TextBlock Heading(string t) => new() { Text = t, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 0) };
+    /// <summary>A section heading; the self-test reads the ones with "settings.heading." ids, a sub-heading is not a section.</summary>
+    static TextBlock Heading(string t, bool sub = false)
+    {
+        var h = new TextBlock { Text = t, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 6, 0, 0) };
+        AutomationProperties.SetAutomationId(h, (sub ? "settings.subheading." : "settings.heading.") + string.Concat(t.Where(char.IsLetterOrDigit)).ToLowerInvariant());
+        return h;
+    }
 
     static ComboBox Combo(string id, string header, List<string> items, int selected, bool enabled, Action<int> changed)
     {

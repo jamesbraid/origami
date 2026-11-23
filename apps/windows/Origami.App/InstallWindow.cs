@@ -48,6 +48,7 @@ public sealed class InstallWindow : Window
     {
         _core = core; _key = key; _showMachine = showMachine; _openConsole = openConsole; _tell = tell;
         Title = "Install IRIX: " + name;
+        AppIcon.Apply(this);
         AutomationProperties.SetAutomationId(_error, "install.error");
         AutomationProperties.SetAutomationId(_server, "install.footer.server");
         _stopped.Children.Add(new TextBlock { Text = "The machine stopped.", VerticalAlignment = VerticalAlignment.Center });
@@ -93,6 +94,7 @@ public sealed class InstallWindow : Window
     // ---- hooks for the self-test and the main window ------------------------------------------
 
     internal OrigamiInstallStep? StepForTest => _flow?.Step();
+    internal List<string> StepNamesForTest => _flow?.Steps().Select(OrigamiFfiMethods.OrigamiInstallStepTitle).ToList() ?? new();
     public string ServerLineForTest => _server.Text;
     public bool Serving => _serve?.State() is OrigamiOperationState.Running || _apply is not null;
 

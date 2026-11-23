@@ -70,6 +70,28 @@ public static class Selftest
         return null;
     }
 
+    /// <summary>Every element of type T in the open popups.</summary>
+    static List<T> AllOpen<T>(MainWindow w) where T : FrameworkElement
+    {
+        var found = new List<T>();
+        void In(DependencyObject o)
+        {
+            if (o is T t) found.Add(t);
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(o); i++) In(VisualTreeHelper.GetChild(o, i));
+        }
+        foreach (var p in VisualTreeHelper.GetOpenPopupsForXamlRoot(w.XamlRootForTest)) if (p.Child is { } c) In(c);
+        return found;
+    }
+
+    /// <summary>Text the open dialog cuts short with an ellipsis, and buttons narrower than their content.</summary>
+    static List<string> CutShort(MainWindow w)
+    {
+        var cut = AllOpen<TextBlock>(w).Where(t => t.ActualWidth > 0 && t.IsTextTrimmed).Select(t => t.Text).ToList();
+        cut.AddRange(AllOpen<Button>(w).Where(b => b.ActualWidth > 0 && b.Content is FrameworkElement c && c.DesiredSize.Width > b.ActualWidth - b.Padding.Left - b.Padding.Right + 1)
+            .Select(b => "button " + Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(b)));
+        return cut;
+    }
+
     /// <summary>The open dialog's button with this label, such as the primary "Create".</summary>
     static Button? FindButton(MainWindow w, string label) => FindWhere<Button>(w, b => b.Content as string == label);
 
@@ -193,6 +215,12 @@ public static class Selftest
             var back = await Until(() => core.SettingsAsync(made).Result.ConsolePort == "ttyS0", 3000);
             Check("console line: picking the default line puts the choice back", fresh && back, $"file {core.SettingsAsync(made).Result.ConsolePort}");
         }
+        // The Settings sheet cuts no text short; its section headings are the names the other apps give their tabs.
+        await Task.Delay(300);
+        var cutSettings = CutShort(w);
+        Check("layout: no text in Settings is cut short", cutSettings.Count == 0, string.Join(" | ", cutSettings));
+        var sections = AllOpen<TextBlock>(w).Where(t => Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(t).StartsWith("settings.heading.")).Select(t => t.Text).ToList();
+        Check("layout: Settings sections carry the names the other apps use", sections.SequenceEqual(new[] { Labels.Settings.ProcessorMemory, Labels.Settings.StartupFirmware, Labels.Settings.Graphics, Labels.Settings.Drives, Labels.Settings.Network, Labels.Settings.SharedFolders }), string.Join(",", sections));
         // --- network: Bridged opens its fields first, applies with its device; a moved subnet returns the lease advice ---
         var modes = core.NetworkModes().ToList();
         var bridgedAt = modes.FindIndex(c => c.Label == "Bridged");
@@ -462,6 +490,13 @@ public static class Selftest
         var diskChoice = FindOpen<ComboBox>(w, "new.disk");
         if (installBox != null && diskChoice != null)
         {
+            await Task.Delay(300);
+            var cutNew = CutShort(w);
+            Check("layout: no text in New Machine is cut short", cutNew.Count == 0, string.Join(" | ", cutNew));
+            var fields = new[] { "new.engine", "new.model", "new.name", "new.disk" }
+                .Select(id => FindOpen<FrameworkElement>(w, id)).Select(e => e switch { ComboBox c => (string)c.Header, TextBox t => (string)t.Header, _ => "" })
+                .Append(AllOpen<Expander>(w).Select(e => e.Header as string ?? "").FirstOrDefault() ?? "").ToList();
+            Check("layout: New Machine lists Engine, Model, Name, Disk, Advanced in that order", fields.SequenceEqual(new[] { Labels.NewMachine.Engine, Labels.NewMachine.Model, Labels.NewMachine.Name, Labels.NewMachine.Disk, Labels.NewMachine.Advanced }), string.Join(",", fields));
             var none = installBox.Visibility == Visibility.Collapsed;
             diskChoice.SelectedIndex = DiskChoices.Empty;
             var empty = installBox.Visibility == Visibility.Visible;
@@ -667,6 +702,8 @@ public static class Selftest
         w.CloseConsoles(); // the window would sit over the screen and take the clicks below
 
         // --- toolbar: every button has a tooltip, and pressing one never moves or resizes the window ---
+        Check("toolbar: the tab bar shows the selected machine's tab, not an empty strip", w.TabCount >= 1, $"tabs {w.TabCount}");
+        Check("sidebar: the heading is Machines", w.LibraryHeadingForTest == Labels.SidebarHeading, w.LibraryHeadingForTest);
         Check("toolbar: every button has a tooltip", w.ToolbarWithoutTipForTest.Length == 0, string.Join(",", w.ToolbarWithoutTipForTest));
         string Frame() => $"{w.AppWindow.Position.X},{w.AppWindow.Position.Y} {w.AppWindow.Size.Width}x{w.AppWindow.Size.Height}";
         var frame0 = Frame();
@@ -935,6 +972,8 @@ public static class Selftest
         var elsewhere = Path.Combine(dir, "elsewhere-library");
         w.ApplySettings(new AppSettings { LibraryRoot = elsewhere });
         Check("library folder: the list switches to the new, empty folder", await Until(() => w.LibraryCount == 0 && core.LibraryRoot == elsewhere, 5000), $"count {w.LibraryCount}");
+        // The machine that was selected is gone from this folder: refreshing must neither throw nor keep a tab for it.
+        Check("library folder: a selected machine that left the list leaves no tab and no crash", await Until(() => w.TabCount == 0 && w.SelectedKey is null, 5000), $"tabs {w.TabCount}, selected {w.SelectedKey}");
         await core.CreateMachineAsync("Other folder", core.Catalogue()[0].Id);
         Check("library folder: a machine made there is listed", await Until(() => w.LibraryCount == 1, 5000), $"count {w.LibraryCount}");
         w.ApplySettings(new AppSettings { LibraryRoot = home });

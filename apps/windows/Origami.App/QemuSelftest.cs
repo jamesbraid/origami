@@ -80,6 +80,20 @@ public static class Selftest
             FindOpen<UIC.ContentDialog>(null)?.Hide();
             await Until(() => FindOpen<UIC.ContentDialog>(null) == null, 3000);
         }
+        List<T> Find<T>() where T : UI.FrameworkElement
+        {
+            var all = new List<T>();
+            void In(UI.DependencyObject o)
+            {
+                if (o is T t) all.Add(t);
+                for (var i = 0; i < UIM.VisualTreeHelper.GetChildrenCount(o); i++) In(UIM.VisualTreeHelper.GetChild(o, i));
+            }
+            foreach (var p in UIM.VisualTreeHelper.GetOpenPopupsForXamlRoot(w.XamlRootForTest)) if (p.Child is { } c) In(c);
+            return all;
+        }
+        // The names the other apps must match: tools/screenshots parity compares this file.
+        var parity = new Dictionary<string, object> { ["platform"] = "windows", ["sidebar_heading"] = w.LibraryHeadingForTest };
+        void SaveParity() { try { File.WriteAllText(Path.Combine(dir, "windows-parity.json"), JsonSerializer.Serialize(parity, new JsonSerializerOptions { WriteIndented = true })); } catch { } }
         void Press(UIC.Button? b) { if (b != null) new UI.Automation.Peers.ButtonAutomationPeer(b).Invoke(); }
         try
         {
@@ -95,6 +109,9 @@ public static class Selftest
                 FindOpen<UIC.ComboBox>("new.disk")!.SelectedIndex = DiskChoices.Ready;
                 if (FindOpen<UIC.TextBox>("new.name") is { } typed) typed.Text = "irix";
                 await Task.Delay(1500);
+                parity["new_machine_fields"] = new[] { "new.engine", "new.model", "new.name", "new.disk" }
+                    .Select(id => FindOpen<UI.FrameworkElement>(id)).Select(e => e switch { UIC.ComboBox c => (string)c.Header, UIC.TextBox t => (string)t.Header, _ => "" })
+                    .Append(Find<UIC.Expander>().Select(e => e.Header as string ?? "").FirstOrDefault() ?? "").ToList();
                 await Grab(dir, "windows-ready-disk", w.Hwnd);
             }
             else Add("windows-ready-disk.png", false, "origami-dist listed no ready-made disk");
@@ -111,13 +128,14 @@ public static class Selftest
             {
                 mode.SelectedIndex = bridgedAt;
                 await Until(() => FindOpen<UIC.TextBox>("settings.bridge.device") != null, 3000);
-                // Choosing Bridged rebuilt the dialog, so scroll to the new Mode list, at the top of the view.
+                // Choosing Bridged rebuilt the dialog, so scroll to the Network heading, at the top of the view with nothing cut above it.
                 await Task.Delay(1000);
-                UI.DependencyObject? up = FindOpen<UIC.ComboBox>("settings.network");
+                UI.DependencyObject? up = FindOpen<UIC.TextBlock>("settings.heading.network");
                 while (up != null && up is not UIC.ScrollViewer) up = UIM.VisualTreeHelper.GetParent(up);
-                if (up is UIC.ScrollViewer sv && FindOpen<UIC.ComboBox>("settings.network") is { } fresh)
-                    sv.ChangeView(null, sv.VerticalOffset + fresh.TransformToVisual(sv).TransformPoint(new Windows.Foundation.Point(0, 0)).Y - 64, null, true);
+                if (up is UIC.ScrollViewer sv && FindOpen<UIC.TextBlock>("settings.heading.network") is { } head)
+                    sv.ChangeView(null, sv.VerticalOffset + head.TransformToVisual(sv).TransformPoint(new Windows.Foundation.Point(0, 0)).Y - 6, null, true);
                 await Task.Delay(1500);
+                parity["settings_tabs"] = Find<UIC.TextBlock>().Where(t => UI.Automation.AutomationProperties.GetAutomationId(t).StartsWith("settings.heading.")).Select(t => t.Text).ToList();
                 await Grab(dir, "windows-network", w.Hwnd);
             }
             else Add("windows-network.png", false, $"network combo found: {FindOpen<UIC.ComboBox>("settings.network") != null}, Bridged at {bridgedAt}");
@@ -141,6 +159,7 @@ public static class Selftest
             await Go(OStep.Media);
             await Go(OStep.Software);
             await Until(() => iw.Find<UIC.CheckBox>("install.addon.mipspro") != null, 8000);
+            parity["install_steps"] = iw.StepNamesForTest;
             var main = w.AppWindow.Presenter as Microsoft.UI.Windowing.OverlappedPresenter;
             var wasTop = main?.IsAlwaysOnTop ?? false;
             if (main != null) main.IsAlwaysOnTop = false;
@@ -152,6 +171,7 @@ public static class Selftest
             if (main != null) main.IsAlwaysOnTop = wasTop;
         }
         catch (Exception e) { Add("pictures of the dialogs", false, e.ToString()); }
+        finally { SaveParity(); }
     }
 
     public static async Task RunAsync(MainWindow w, UniffiCoreClient core, string outFile)
