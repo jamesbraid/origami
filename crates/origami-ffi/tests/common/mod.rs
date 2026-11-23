@@ -7,6 +7,9 @@ use std::ffi::{c_char, CString};
 use std::ptr;
 use std::sync::Arc;
 
+/// Create and copy fsync; a loaded runner takes well over 10 s for them.
+pub const WAIT_MS: u64 = 60_000;
+
 pub struct Lab {
     pub root: tempfile::TempDir,
     pub core: Arc<OrigamiCore>,
@@ -33,7 +36,7 @@ impl Lab {
                 identity: None,
             })
             .unwrap();
-        assert_eq!(op.wait(Some(10_000)), OrigamiOperationState::Succeeded);
+        assert_eq!(op.wait(Some(WAIT_MS)), OrigamiOperationState::Succeeded);
         let key = op.result_machine().unwrap();
         let c_root = CString::new(root.path().to_str().unwrap()).unwrap();
         let mut c_core = ptr::null_mut();

@@ -142,7 +142,7 @@ fn disks_are_imported_swapped_and_named() {
     let op = machine
         .import_drive(path.clone(), OrigamiDriveKind::Disk, 2, false, true)
         .unwrap();
-    assert_eq!(op.wait(Some(10_000)), OrigamiOperationState::Succeeded);
+    assert_eq!(op.wait(Some(WAIT_MS)), OrigamiOperationState::Succeeded);
     assert_eq!(op.fraction(), Some(1.0));
     let s = machine.settings().unwrap();
     assert_eq!(
