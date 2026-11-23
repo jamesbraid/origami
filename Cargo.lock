@@ -4887,6 +4887,7 @@ dependencies = [
  "origami-engine",
  "origami-machine",
  "origami-protocol",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

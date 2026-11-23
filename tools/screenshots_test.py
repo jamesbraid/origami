@@ -24,7 +24,8 @@ def test_a_different_size_is_a_mismatch():
 
 
 def names(**over):
-    base = {"sidebar_heading": "Machines", "settings_tabs": ["General", "Network"], "new_machine_fields": ["Engine", "Model"], "install_steps": ["Release", "Media"]}
+    base = {"sidebar_heading": "Machines", "settings_tabs": ["General", "Network"], "new_machine_fields": ["Engine", "Model"], "install_steps": ["Release", "Media"],
+            "about": ["About Origami", "Version 0.6.2"], "dialog_titles": ["New machine", "Settings"], "toolbar_tooltips": ["Open the main menu"]}
     return {p: {**base, **over.get(p, {})} for p in ("linux", "macos", "windows")}
 
 
@@ -42,3 +43,10 @@ def test_a_different_heading_field_order_tab_or_step_is_reported():
 
 def test_the_method_step_is_not_compared_because_it_depends_on_the_machine():
     assert tool.differences(names(linux={"install_steps": ["Release", "Method", "Media"]})) == []
+
+
+def test_about_and_dialog_titles_must_match_and_the_version_may_differ():
+    assert tool.differences(names(macos={"about": ["About Origami", "Version 0.6.3"]})) == []
+    assert tool.differences(names(macos={"about": ["About Origami", "0.6.2"]}))
+    assert tool.differences(names(windows={"dialog_titles": ["New Machine", "Settings"]}))
+    assert tool.differences(names(windows={"toolbar_tooltips": ["Open menu"]}))

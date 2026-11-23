@@ -1670,7 +1670,9 @@ def audit_dialogs(a, machine, fit):
     steps = [re.sub(r"^\d+\.\s*", "", s) for s in a.req("audit install.window")["steps"]]
     sh("wmctrl", "-c", "Install IRIX")
     time.sleep(1)
-    return {"platform": "linux", "sidebar_heading": heading, "settings_tabs": tabs, "new_machine_fields": fields, "install_steps": steps}
+    about = a.req("about-text")
+    return {"platform": "linux", "sidebar_heading": heading, "settings_tabs": tabs, "new_machine_fields": fields, "install_steps": steps,
+            "about": about["about"], "dialog_titles": about["dialog_titles"], "toolbar_tooltips": about["toolbar_tooltips"]}
 
 
 def layout():

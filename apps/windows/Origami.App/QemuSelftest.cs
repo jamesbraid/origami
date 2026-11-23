@@ -1,6 +1,7 @@
 #if !ORIGAMI_FAKE
 using System.Text.Json;
 using Origami.Logic;
+using uniffi.origami_ffi;
 using UI = Microsoft.UI.Xaml;
 using UIC = Microsoft.UI.Xaml.Controls;
 using UIM = Microsoft.UI.Xaml.Media;
@@ -93,6 +94,9 @@ public static class Selftest
         }
         // The names the other apps must match: tools/screenshots parity compares this file.
         var parity = new Dictionary<string, object> { ["platform"] = "windows", ["sidebar_heading"] = w.LibraryHeadingForTest };
+        parity["about"] = new[] { Ui.T(OrigamiUiString.AboutOrigami), OrigamiFfiMethods.OrigamiVersionLine(typeof(AboutWindow).Assembly.GetName().Version?.ToString(3) ?? "0") };
+        parity["dialog_titles"] = new[] { Ui.T(OrigamiUiString.NewMachine), Ui.T(OrigamiUiString.Settings), Ui.T(OrigamiUiString.Diagnostics), Ui.T(OrigamiUiString.InstallIrix) };
+        parity["toolbar_tooltips"] = new[] { Ui.T(OrigamiUiString.ShowOrHideTheEmulated), Ui.T(OrigamiUiString.OpenTheMainMenu) };
         void SaveParity() { try { File.WriteAllText(Path.Combine(dir, "windows-parity.json"), JsonSerializer.Serialize(parity, new JsonSerializerOptions { WriteIndented = true })); } catch { } }
         void Press(UIC.Button? b) { if (b != null) new UI.Automation.Peers.ButtonAutomationPeer(b).Invoke(); }
         try

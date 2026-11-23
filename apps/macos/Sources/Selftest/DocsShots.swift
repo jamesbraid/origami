@@ -182,7 +182,10 @@ func runDocsShots(library: String, out: String) {
     // The names the other apps must match: tools/screenshots parity compares these files.
     let names: [String: Any] = ["platform": "macos", "sidebar_heading": Labels.sidebarHeading,
                                 "settings_tabs": MachineSettings.Pane.allCases.map(\.rawValue),
-                                "new_machine_fields": Labels.NewMachine.fields, "install_steps": installSteps]
+                                "new_machine_fields": Labels.NewMachine.fields, "install_steps": installSteps,
+                                "about": [ui(.aboutOrigami), origamiVersionLine(version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")],
+                                "dialog_titles": [ui(.newMachine), ui(.settings), ui(.diagnostics), ui(.installIrix)],
+                                "toolbar_tooltips": [ui(.showOrHideTheEmulated), ui(.openTheMainMenu)]]
     if let json = try? JSONSerialization.data(withJSONObject: names, options: [.prettyPrinted, .sortedKeys]) {
         try? json.write(to: URL(fileURLWithPath: "\(out)/macos-parity.json"))
     }

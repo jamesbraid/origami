@@ -605,6 +605,14 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                    "pages": pages.iter().map(text).collect::<Vec<_>>(),
                    "steps": steps.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>()})
         }
+        "about-text" => {
+            // What the About window and the dialog titles say, for the parity check.
+            use origami_core::facade::UiString as U;
+            let version = option_env!("ORIGAMI_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"));
+            json!({"about": [U::AboutOrigami.text(), origami_core::facade::version_line(version)],
+                   "dialog_titles": [U::NewMachine.text(), U::Settings.text(), U::Diagnostics.text(), U::InstallIrix.text()],
+                   "toolbar_tooltips": [U::ShowOrHideTheEmulated.text(), U::OpenTheMainMenu.text()]})
+        }
         "widget" => {
             let mut found = Vec::new();
             for top in gtk::Window::list_toplevels() {

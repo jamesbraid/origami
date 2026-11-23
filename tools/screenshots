@@ -5,7 +5,7 @@
 # ///
 """Regenerate the app screenshots in docs/images/app/: one fixed, named set per platform.
 `pull` takes the release set from GitHub; the other commands make one platform's."""
-import argparse, io, json, os, pathlib, shutil, subprocess, sys, tempfile
+import argparse, io, json, os, pathlib, re, shutil, subprocess, sys, tempfile
 
 from PIL import Image, ImageChops
 
@@ -131,13 +131,22 @@ def differences(names: dict) -> list:
         for platform, got in names.items():
             if got.get(key) != names["linux"].get(key):
                 out.append(f"{key}: {platform} has {got.get(key)!r}, linux has {names['linux'].get(key)!r}")
+    for key in ("dialog_titles", "toolbar_tooltips"):
+        for platform, got in names.items():
+            if got.get(key) != names["linux"].get(key):
+                out.append(f"{key}: {platform} has {got.get(key)!r}, linux has {names['linux'].get(key)!r}")
+    # The version differs between builds, not between apps: compare its shape.
+    shape = lambda lines: [re.sub(r"\d+", "#", t) for t in lines]
+    for platform, got in names.items():
+        if shape(got.get("about", [])) != shape(names["linux"].get("about", [])):
+            out.append(f"about: {platform} has {got.get('about')!r}, linux has {names['linux'].get('about')!r}")
     if names["macos"].get("settings_tabs") != names["linux"].get("settings_tabs"):
         out.append(f"settings_tabs: macos has {names['macos'].get('settings_tabs')!r}, linux has {names['linux'].get('settings_tabs')!r}")
     extra = [t for t in names["windows"].get("settings_tabs", []) if t not in names["linux"].get("settings_tabs", [])]
     if extra:
         out.append(f"settings_tabs: windows has {extra!r}, which linux does not")
     for platform, got in names.items():
-        for key in ("sidebar_heading", "settings_tabs", "new_machine_fields", "install_steps"):
+        for key in ("sidebar_heading", "settings_tabs", "new_machine_fields", "install_steps", "about", "dialog_titles", "toolbar_tooltips"):
             if not got.get(key):
                 out.append(f"{key}: {platform} wrote none")
     return out
