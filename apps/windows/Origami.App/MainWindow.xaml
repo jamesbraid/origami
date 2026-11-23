@@ -39,7 +39,7 @@
                                 Background="Transparent" TitleBar.IsDragRegion="False">
                         <AppBarButton x:Name="StartButton" Icon="Play" Label="Start"
                                       AutomationProperties.AutomationId="cmd.start" ToolTipService.ToolTip="Start the machine (Ctrl+Shift+R)"/>
-                        <AppBarButton x:Name="PowerOffButton" Icon="Stop" Label="Power Off"
+                        <AppBarButton x:Name="PowerOffButton" Icon="Stop" Label="Power off"
                                       AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power off the machine (Ctrl+Shift+P)"/>
                         <AppBarSeparator/>
                         <AppBarButton x:Name="PauseButton" Icon="Pause" Label="Pause"

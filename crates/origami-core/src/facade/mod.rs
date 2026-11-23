@@ -16,6 +16,7 @@ mod error;
 mod event;
 mod flow;
 mod install;
+mod labels;
 mod lease;
 mod machine;
 mod network;
@@ -40,6 +41,9 @@ pub use install::{
     install_media_folder, install_releases, GuideStep, InstallAddonChoice, InstallGuide,
     InstallMethod, InstallPlan, InstallProfile, InstallRelease, InstallSetup, InstallSetupAddon,
     MediaFolder,
+};
+pub use labels::{
+    diagnostics_report, engine_name, memory_label, pointer_status, summary_cards, SummaryCard,
 };
 pub use lease::{connect as connect_install_console, Cancel, InstallStart, Starter};
 pub(crate) use machine::classify_exit;

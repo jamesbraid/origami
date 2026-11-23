@@ -147,7 +147,10 @@ final class NewMachineModel: ObservableObject {
         }
     }
 
-    func label(_ o: OrigamiOffering) -> String { "\(o.id) (\(o.cpus) CPU\(o.cpus == 1 ? "" : "s"))" }
+    func label(_ o: OrigamiOffering) -> String { o.label }
+
+    /// The engine as a person knows it, from the core.
+    func engineName(_ id: String) -> String { app.host?.core.engines().first { $0.id == id }?.name ?? id }
 
     /// The catalogue's first call may start the engine's program, so it runs off the main thread.
     func load() {

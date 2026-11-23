@@ -202,9 +202,9 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .tooltip_text("Pointer mode: follow my mouse or capture on click")
         .build();
     let pm = gio::Menu::new();
-    pm.append(Some("Follow My Mouse"), Some("win.machine.pointer-follow"));
+    pm.append(Some("Follow my mouse"), Some("win.machine.pointer-follow"));
     pm.append(
-        Some("Capture on Click"),
+        Some("Capture on click"),
         Some("win.machine.pointer-capture"),
     );
     pointer_btn.set_menu_model(Some(&pm));
@@ -271,7 +271,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         side_head.set_title_widget(Some(&heading));
         let add = gtk::Button::builder()
             .icon_name("list-add-symbolic")
-            .tooltip_text("New Machine")
+            .tooltip_text("New machine")
             .action_name("win.machine.new")
             .build();
         side_head.pack_end(&add);
@@ -304,7 +304,7 @@ pub fn build(app: &Rc<App>, with_library: bool) -> Rc<Win> {
         .content(&split)
         .build();
     let menu = gio::Menu::new();
-    menu.append(Some("Open in New Tab"), Some("row.open"));
+    menu.append(Some("Open in new tab"), Some("row.open"));
     menu.append(Some("Show in Files"), Some("row.show"));
     menu.append(Some("Diagnostics"), Some("row.diagnostics"));
     let row_menu = gtk::PopoverMenu::from_model(Some(&menu));
@@ -572,7 +572,7 @@ fn wire_tabs(app: &Rc<App>, w: &Rc<Win>) {
                 Some(&format!("Close {}?", m.name)),
                 Some("The machine is running. Closing the tab can leave it running in the background."),
             );
-            dialog.add_responses(&[("cancel", "Cancel"), ("keep", "Keep Running"), ("stop", "Power Off")]);
+            dialog.add_responses(&[("cancel", "Cancel"), ("keep", "Keep running"), ("stop", "Power off")]);
             dialog.set_response_appearance("stop", adw::ResponseAppearance::Destructive);
             dialog.set_default_response(Some("keep"));
             dialog.set_close_response("cancel");
@@ -710,8 +710,8 @@ fn close_popout(app: &Rc<App>, w: &Rc<Win>) -> glib::Propagation {
     );
     dialog.add_responses(&[
         ("cancel", "Cancel"),
-        ("keep", "Keep Running"),
-        ("stop", "Power Off"),
+        ("keep", "Keep running"),
+        ("stop", "Power off"),
     ]);
     dialog.set_response_appearance("stop", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("keep"));
@@ -849,7 +849,7 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
                     w,
                     &format!("Power off {}?", m.name),
                     "To the guest this is like pulling the power cord. IRIX should be shut down first.",
-                    "Power Off Anyway",
+                    "Power off anyway",
                     move || app::stop(&a, &mm, StopKind::Clean),
                 );
             } else {
@@ -863,7 +863,7 @@ pub fn run(app: &Rc<App>, w: &Rc<Win>, id: &str) {
                 w,
                 &format!("Force quit {}'s emulator?", m.name),
                 "Changes not yet written to disk can be lost.",
-                "Force Quit",
+                "Force quit",
                 move || app::stop(&a, &mm, StopKind::Force),
             );
         }
@@ -1119,12 +1119,12 @@ pub fn refresh(app: &Rc<App>) {
                 let up = m.state.get().is_up();
                 let (label, tip, action) = match m.state.get() {
                     State::Starting | State::Stopping => (
-                        "Force Quit",
+                        "Force quit",
                         "Force quit the emulator",
                         "win.machine.force-quit",
                     ),
                     _ if up => (
-                        "Power Off",
+                        "Power off",
                         "Power off the machine (Ctrl+Shift+P)",
                         "win.machine.stop",
                     ),
@@ -1335,7 +1335,10 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
     let pills = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     pills.append(
         &gtk::Label::builder()
-            .label(m.pointer.get().label())
+            .label(origami_core::facade::pointer_status(
+                m.pointer.get() == crate::prefs::PointerMode::Follow,
+                false,
+            ))
             .css_classes(["pill", "pill-grey"])
             .build(),
     );
@@ -1428,16 +1431,13 @@ pub fn rebuild_hero(m: &Rc<MachineUi>) {
         .row_spacing(12)
         .halign(gtk::Align::Center)
         .build();
-    let s = &e.summary;
-    let mut tiles = vec![
-        ("media-flash-symbolic", s.memory.clone(), "Memory"),
-        ("network-workgroup-symbolic", s.nodes.to_string(), "Nodes"),
-    ];
-    if let Some(t) = &s.topology {
-        tiles.push(("view-app-grid-symbolic", t.clone(), "Topology"));
-    }
-    for (icon, t, sub) in tiles {
-        flow.append(&summary_card(icon, &t, sub));
+    for c in &e.cards {
+        let icon = match c.title.as_str() {
+            "Memory" => "media-flash-symbolic",
+            "Nodes" => "network-workgroup-symbolic",
+            _ => "view-app-grid-symbolic",
+        };
+        flow.append(&summary_card(icon, &c.value, &c.title));
     }
     m.hero.append(&flow);
 }

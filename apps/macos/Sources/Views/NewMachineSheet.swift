@@ -11,12 +11,12 @@ struct NewMachineSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("New Machine").font(.headline)
+            Text("New machine").font(.headline)
             if model.loading {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity)
             } else {
                 Picker(Labels.NewMachine.engine, selection: $model.engine) {
-                    ForEach(model.engines, id: \.self) { Text($0).tag(String?.some($0)) }
+                    ForEach(model.engines, id: \.self) { Text(model.engineName($0)).tag(String?.some($0)) }
                 }
                 .disabled(!model.canPickEngine)
                 Picker(Labels.NewMachine.model, selection: $model.selected) {

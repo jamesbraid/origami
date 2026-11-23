@@ -321,7 +321,7 @@ public static class Selftest
         w.Invoke("window.diagnostics");
         if (await Until(() => w.DiagnosticsForTest(key) != null, 5000) && w.DiagnosticsForTest(key) is { } diag)
         {
-            await Until(() => diag.ReportText.Contains("wake-ups"), 5000);
+            await Until(() => diag.ReportText.Contains("Frame updates"), 5000);
             // The main window is always on top for input; Diagnostics must be in front of it to be photographed.
             if (w.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter top) top.IsAlwaysOnTop = false;
             diag.Activate();

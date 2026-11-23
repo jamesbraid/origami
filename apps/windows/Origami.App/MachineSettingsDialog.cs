@@ -116,7 +116,7 @@ public static class MachineSettingsDialog
                 var stop = new Button { Content = "Cancel", Visibility = Visibility.Collapsed };
                 stop.Click += (_, _) => copy.Cancel();
                 AutomationProperties.SetAutomationId(stop, "settings.copycancel");
-                var go = Btn("Add Disk", "settings.adddisk", panel.Choice.Ready && diskTarget is not null, async () =>
+                var go = Btn("Add disk", "settings.adddisk", panel.Choice.Ready && diskTarget is not null, async () =>
                 {
                     var progress = new Progress<CopyProgress>(p => { bar.Visibility = line.Visibility = stop.Visibility = Visibility.Visible; bar.Value = p.Fraction; line.Text = p.Text; });
                     try { await core.ImportDriveAsync(key, panel.Choice.Path!, diskTarget!.Value, panel.Choice.Overlay, panel.Choice.Copy, progress, copy.Token); adding = null; }

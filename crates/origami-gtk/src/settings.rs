@@ -194,7 +194,7 @@ fn build_machine_dialog(
         vec![
             value_row("Name", &m.name),
             value_row("Location", &m.dir.display().to_string()),
-            value_row("Model", &m.entry.borrow().model),
+            value_row("Model", &m.entry.borrow().product_label),
         ],
     ));
     dialog.add(&general);
@@ -203,11 +203,11 @@ fn build_machine_dialog(
         Ok(l) => {
             let f = &l.file;
             let hw = adw::PreferencesPage::builder()
-                .title("Processor & Memory")
+                .title("Processor & memory")
                 .icon_name("system-run-symbolic")
                 .build();
             let g = adw::PreferencesGroup::builder()
-                .title("Processor and memory")
+                .title("Processor & memory")
                 .build();
             if let Some(p) = &f.machine.processor {
                 g.add(&value_row("Processor", p));
@@ -286,7 +286,9 @@ fn build_machine_dialog(
                 });
             }
             g.add(&mem);
-            g.add(&value_row("Nodes", &f.machine.nodes.to_string()));
+            if f.machine.nodes > 1 {
+                g.add(&value_row("Nodes", &f.machine.nodes.to_string()));
+            }
             hw.add(&g);
             dialog.add(&hw);
 
@@ -389,7 +391,7 @@ fn build_machine_dialog(
                     (_, Some(t)) => {
                         let (app, parent, m, dlg) =
                             (app.clone(), parent.clone(), m.clone(), dlg.clone());
-                        disks::pick_path(&parent.clone(), "Choose a CD-ROM Image", move |path| {
+                        disks::pick_path(&parent.clone(), "Choose a CD-ROM image", move |path| {
                             let file = path;
                             let kind = origami_core::DriveKind::Cdrom;
                             let request = origami_core::DriveRequest {
@@ -469,17 +471,17 @@ fn build_machine_dialog(
                 dialog.set_visible_page(&net);
             }
             let folders = adw::PreferencesPage::builder()
-                .title("Shared Folders")
+                .title("Shared folders")
                 .icon_name("folder-symbolic")
                 .build();
             shares_group(app, parent, m, &dialog, &folders, &net, &l.shares, running);
             dialog.add(&folders);
             let startup = adw::PreferencesPage::builder()
-                .title("Startup & Firmware")
+                .title("Startup & firmware")
                 .icon_name("system-shutdown-symbolic")
                 .build();
             let g = adw::PreferencesGroup::builder()
-                .title("Startup and firmware")
+                .title("Startup & firmware")
                 .description("The Console window and a headless machine's tab use this line. On a machine with graphics, the PROM may print on the screen instead.")
                 .build();
             let line = adw::ComboRow::builder()
@@ -938,7 +940,7 @@ fn cd_buttons(
                 drive.clone(),
             );
             if change {
-                disks::pick_path(&parent.clone(), "Choose a CD-ROM Image", move |path| {
+                disks::pick_path(&parent.clone(), "Choose a CD-ROM image", move |path| {
                     media(&app, &parent, &m, &dlg, &drive, Some(path))
                 });
             } else {
@@ -1053,7 +1055,7 @@ fn add_image(
         })
     };
     let (dialog, go, bar, line, stop, err) =
-        edit_dialog("Add a Disk Image", "Add Disk", &[&form.group]);
+        edit_dialog("Add a disk image", "Add disk", &[&form.group]);
     *go_ok.borrow_mut() = Some(go.clone());
     form.choose(parent);
     let present_on = settings.clone();
@@ -1112,7 +1114,7 @@ fn add_forward(
     settings: &Prefs,
 ) {
     let dialog = adw::Dialog::builder()
-        .title("Add a Port Forward")
+        .title("Add a port forward")
         .content_width(420)
         .build();
     let page = adw::PreferencesPage::new();
@@ -1185,7 +1187,7 @@ fn share_folder(
     settings: &Prefs,
 ) {
     let (app, parent2, m, settings) = (app.clone(), parent.clone(), m.clone(), settings.clone());
-    disks::pick_folder(parent, "Share a Folder", move |path| {
+    disks::pick_folder(parent, "Share a folder", move |path| {
         name_share(&app, &parent2, &m, &settings, path)
     });
 }
@@ -1207,7 +1209,7 @@ fn name_share(
     let group = adw::PreferencesGroup::new();
     group.add(&name);
     group.add(&folder);
-    let (dialog, go, _bar, _line, _stop, err) = edit_dialog("Share a Folder", "Add", &[&group]);
+    let (dialog, go, _bar, _line, _stop, err) = edit_dialog("Share a folder", "Add", &[&group]);
     go.set_widget_name("share.add");
     let check = {
         let (name, go, err) = (name.clone(), go.clone(), err.clone());
@@ -1362,7 +1364,7 @@ fn new_machine_dialog(
     offerings: Vec<origami_core::facade::OfferingSummary>,
 ) {
     let dialog = adw::Dialog::builder()
-        .title("New Machine")
+        .title("New machine")
         .content_width(460)
         .content_height(680)
         .build();
@@ -1371,11 +1373,12 @@ fn new_machine_dialog(
     let g = adw::PreferencesGroup::new();
     // The engine comes first: it decides which models are offered, and the
     // machine keeps it for life.
-    let engines: Vec<String> = app.core.engines().into_iter().map(|e| e.id).collect();
+    let known = app.core.engines();
+    let engines: Vec<String> = known.iter().map(|e| e.id.clone()).collect();
     let engine = adw::ComboRow::builder()
         .title("Engine")
         .model(&gtk::StringList::new(
-            &engines.iter().map(String::as_str).collect::<Vec<_>>(),
+            &known.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
         ))
         .sensitive(engines.len() > 1)
         .build();
@@ -1387,20 +1390,8 @@ fn new_machine_dialog(
         move |engine: &adw::ComboRow, combo: &adw::ComboRow| {
             let id = engines.get(engine.selected() as usize).map(String::as_str);
             let list = for_engine(&offerings, id);
-            let labels: Vec<String> = list
-                .iter()
-                .map(|o| {
-                    format!(
-                        "{} ({} CPU{})",
-                        o.id,
-                        o.cpus,
-                        if o.cpus == 1 { "" } else { "s" }
-                    )
-                })
-                .collect();
-            combo.set_model(Some(&gtk::StringList::new(
-                &labels.iter().map(String::as_str).collect::<Vec<_>>(),
-            )));
+            let labels: Vec<&str> = list.iter().map(|o| o.label.as_str()).collect();
+            combo.set_model(Some(&gtk::StringList::new(&labels)));
             combo.set_selected(
                 list.iter()
                     .position(|o| o.id == "octane2-vpro")
@@ -1951,6 +1942,7 @@ mod engine_tests {
     fn offering(id: &str, engine: &str) -> OfferingSummary {
         OfferingSummary {
             id: id.into(),
+            label: id.into(),
             engine: engine.into(),
             product: String::new(),
             topology: String::new(),

@@ -52,7 +52,7 @@ public sealed class InstallWindow : Window
         AutomationProperties.SetAutomationId(_error, "install.error");
         AutomationProperties.SetAutomationId(_server, "install.footer.server");
         _stopped.Children.Add(new TextBlock { Text = "The machine stopped.", VerticalAlignment = VerticalAlignment.Center });
-        _stopped.Children.Add(Btn("Start Again", "install.startagain", () => _ = BusyAsync(() => _core.StartAsync(_key))));
+        _stopped.Children.Add(Btn("Start again", "install.startagain", () => _ = BusyAsync(() => _core.StartAsync(_key))));
 
         _restart = Btn("Restart", "install.restart", () => _ = RestartServerAsync());
         _startOver = Btn("Start over", "install.startover", () => _ = StartOverAsync());
@@ -176,10 +176,12 @@ public sealed class InstallWindow : Window
         _error.Visibility = Visibility.Collapsed;
         var step = flow.Step();
         _steps.Children.Clear();
-        foreach (var s in flow.Steps())
+        var listed = flow.Steps().ToList();
+        for (var i = 0; i < listed.Count; i++)
         {
+            var s = listed[i];
             var now = s == step;
-            _steps.Children.Add(new TextBlock { Text = (now ? "▸ " : "   ") + OrigamiFfiMethods.OrigamiInstallStepTitle(s), FontWeight = now ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal, Opacity = now ? 1 : 0.7 });
+            _steps.Children.Add(new TextBlock { Text = $"{i + 1}. " + OrigamiFfiMethods.OrigamiInstallStepTitle(s), FontWeight = now ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal, Opacity = now ? 1 : 0.7 });
         }
         _body.Children.Clear();
         _typeIts.Clear();
@@ -309,7 +311,7 @@ public sealed class InstallWindow : Window
         AutomationProperties.SetAutomationId(folder, "install.media.folder");
         var note = Text(_t.MediaDownload, dim: true);
         note.Margin = new Thickness(28, 0, 0, 8);
-        _mediaChoose = Btn("Choose Folder…", "install.media.choose", () => _ = ChooseFolderAsync());
+        _mediaChoose = Btn("Choose folder…", "install.media.choose", () => _ = ChooseFolderAsync());
         _mediaFile = new TextBlock { TextWrapping = TextWrapping.Wrap };
         _mediaVerdict = new TextBlock { TextWrapping = TextWrapping.Wrap };
         AutomationProperties.SetAutomationId(_mediaFile, "install.media.path");
@@ -402,7 +404,7 @@ public sealed class InstallWindow : Window
         var lines = new TextBox { Header = "Packages to install (one per line)", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 90 };
         AutomationProperties.SetAutomationId(source, "install.package.source");
         AutomationProperties.SetAutomationId(lines, "install.package.lines");
-        var choose = Btn("Choose File…", "install.package.choose", () => _ = ChooseFileAsync(source));
+        var choose = Btn("Choose file…", "install.package.choose", () => _ = ChooseFileAsync(source));
         var dlg = new ContentDialog
         {
             XamlRoot = _root.XamlRoot, Title = "Add a package",
@@ -465,7 +467,7 @@ public sealed class InstallWindow : Window
     {
         _body.Children.Add(Heading("Check"));
         _body.Children.Add(Text(_t.CheckIntro));
-        _checkRun = Btn("Check Now", "install.check.run", () => _ = RunCheckAsync());
+        _checkRun = Btn("Check now", "install.check.run", () => _ = RunCheckAsync());
         _checkStop = Btn("Cancel", "install.check.cancel", () => _check?.Cancel());
         _checkFull = Tick("install.check.full", Text("Check thoroughly (also reads the downloaded discs)"), _full, v => _full = v);
         _checkStatus = new TextBlock { TextWrapping = TextWrapping.Wrap };
@@ -486,7 +488,7 @@ public sealed class InstallWindow : Window
         var running = state == OrigamiCheckState.Running;
         _checkBar.Visibility = _checkStop.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         _checkRun.IsEnabled = _checkFull.IsEnabled = !running;
-        _checkRun.Content = state == OrigamiCheckState.Failed ? "Check Again" : "Check Now";
+        _checkRun.Content = state == OrigamiCheckState.Failed ? "Check again" : "Check now";
         _checkStatus.Text = state switch
         {
             OrigamiCheckState.Running => _t.Checking,
@@ -581,10 +583,10 @@ public sealed class InstallWindow : Window
         AutomationProperties.SetAutomationId(_applyHint, "install.apply.hint");
         AutomationProperties.SetAutomationId(_applyFail, "install.apply.error");
         _applyRun = Btn("Install", "install.apply.run", () => _ = RunApplyAsync());
-        _applyStop = Btn("Cancel Install", "install.apply.cancel", () => _apply?.Cancel());
+        _applyStop = Btn("Cancel install", "install.apply.cancel", () => _apply?.Cancel());
         _applyFixed = Btn("I fixed it at Inst>", "install.apply.fixed", () => { _flow!.Fixed(); ShowStep(); });
         _body.Children.Add(_applyHint); _body.Children.Add(_applyFail);
-        _body.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _applyRun, _applyStop, _applyFixed, Btn("Open Console", "install.apply.console", _openConsole) } });
+        _body.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _applyRun, _applyStop, _applyFixed, Btn("Open console", "install.apply.console", _openConsole) } });
         _body.Children.Add(_applyBar); _body.Children.Add(_applyLine);
         UpdateApply();
     }
@@ -658,7 +660,7 @@ public sealed class InstallWindow : Window
             }
             if (g.Send is { } send)
             {
-                var b = Btn("Type It", id + ".typeit", () => TypeIt(send));
+                var b = Btn("Type it", id + ".typeit", () => TypeIt(send));
                 _typeIts.Add(b);
                 tools.Children.Add(b);
             }
@@ -669,7 +671,7 @@ public sealed class InstallWindow : Window
         _body.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0),
-            Children = { Btn("Show Machine", "install.showmachine", _showMachine), Btn("Open Console", "install.openconsole", _openConsole) },
+            Children = { Btn("Show machine", "install.showmachine", _showMachine), Btn("Open console", "install.openconsole", _openConsole) },
         });
     }
 

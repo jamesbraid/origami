@@ -213,19 +213,17 @@ final class MachineModel: ObservableObject, Identifiable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: item)
     }
 
-    /// One sentence of what is happening.
+    /// What the status pill does not already say; empty when it says it all.
     var statusLine: String {
         switch state {
-        case .stopped: return "Not running."
-        case .starting: return "Starting up the system…"
+        case .stopped, .starting, .paused: return ""
         case .running:
             if let p = picture { return "\(p.width) × \(p.height)" }
-            return "Running."
+            return ""
         case .noPicture: return "The emulator is running but no picture has arrived."
         case .stopping: return "Saving changes to the disk image."
         case .stoppedUnexpectedly: return failure ?? "The emulator stopped."
         case .leftRunning: return "Running without Origami."
-        case .paused: return "Paused. The guest is stopped; Resume continues it."
         case .needsUpgrade: return "Made by an older Origami. Upgrade it once to use it."
         }
     }
@@ -667,7 +665,7 @@ final class AppModel: ObservableObject {
         case .powerOff:
             if let m { m.stop { [weak self, weak m] e in if let e, let m { self?.stopFailed(m, e) } } }
         case .forceQuit:
-            if confirm("Force Quit the emulator?", "\(m?.name ?? "The machine") stops at once. Changes the guest has not written to its disk are lost.", "Force Quit") {
+            if confirm("Force quit the emulator?", "\(m?.name ?? "The machine") stops at once. Changes the guest has not written to its disk are lost.", "Force quit") {
                 m?.stop(force: true)
             }
         case .reset:
@@ -811,7 +809,7 @@ final class AppModel: ObservableObject {
 
     /// Power Off did not finish: say why, and offer a force quit.
     func stopFailed(_ m: MachineModel, _ error: Error) {
-        if confirm("\(m.name) did not power off", "\(error.localizedDescription)\n\nForce Quit stops the emulator at once; changes the guest has not written to disk are lost.", "Force Quit") {
+        if confirm("\(m.name) did not power off", "\(error.localizedDescription)\n\nForce quit stops the emulator at once; changes the guest has not written to disk are lost.", "Force quit") {
             m.stop(force: true)
         }
     }

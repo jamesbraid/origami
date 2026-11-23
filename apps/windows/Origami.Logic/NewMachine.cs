@@ -1,12 +1,12 @@
 namespace Origami.Logic;
 
 /// <summary>One catalogue entry: a machine the core can create.</summary>
-public sealed record Offering(string Id, string Engine, string Product, string Topology, int Nodes, int Cpus, bool RunsIrix = true);
+public sealed record Offering(string Id, string Engine, string Product, string Topology, int Nodes, int Cpus, bool RunsIrix = true, string Label = "");
 
 /// <summary>What the New Machine sheet shows, matching the Linux app.</summary>
 public static class NewMachine
 {
-    public static string Label(Offering o) => $"{o.Id} ({o.Cpus} CPU{(o.Cpus == 1 ? "" : "s")})";
+    public static string Label(Offering o) => o.Label;
 
     /// <summary>One entry per offering ID: two engines may list the same machine.</summary>
     public static IReadOnlyList<Offering> Models(IReadOnlyList<Offering> offerings) => offerings.DistinctBy(o => o.Id).ToList();

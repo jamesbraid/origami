@@ -20,21 +20,34 @@ const NAMES: &[(&str, &str)] = &[
     ("onyx2-deskside", "Onyx2 deskside"),
     ("onyx2-rack", "Onyx2 rack"),
     ("origin300", "Origin 300"),
+    ("origin300-pci-expansion", "Origin 300 PCI expansion"),
+    (
+        "origin300-numalink-pci-expansion",
+        "Origin 300 NUMAlink PCI expansion",
+    ),
+    ("origin350-ip53", "Origin 350"),
+    ("origin350-ip59", "Origin 350 IP59"),
     ("origin3200", "Origin 3200"),
     ("origin3400", "Origin 3400"),
     ("origin3900-ip53", "Origin 3900"),
     ("origin3900-ip59", "Origin 3900 IP59"),
     ("onyx350-ip53", "Onyx 350"),
     ("onyx350-ip59", "Onyx 350 IP59"),
+    ("onyx4", "Onyx 4"),
     ("onyx3000", "Onyx 3000"),
     ("onyx3400-ir", "Onyx 3400"),
     ("octane", "Octane"),
     ("octane2", "Octane2"),
     ("fuel", "Fuel"),
     ("o2", "O2"),
+    ("o2plus", "O2+"),
     ("tezro-ip53", "Tezro"),
     ("tezro-ip59", "Tezro IP59"),
     ("tezro-one-processor", "Tezro"),
+    ("tezro-rack-ip53", "Tezro rack"),
+    ("tezro-rack-ip59", "Tezro rack IP59"),
+    ("indy", "Indy"),
+    ("indigo2", "Indigo2"),
 ];
 
 /// The name a person knows a topology by, or the topology itself.
@@ -129,6 +142,43 @@ fn wrap(text: &str, indent: usize) -> String {
 /// `1 CPU`, `0 CPUs`, `2 CPUs`.
 pub fn plural(count: u32, noun: &str) -> String {
     format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
+}
+
+/// Whether `text` holds something shaped like an offering, preset or
+/// topology id, such as `fuel.1` or `origin200-1`: lowercase letters or
+/// digits, then `.` or `-`, then a digit. Labels for people never do.
+pub fn looks_like_id(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    chars.windows(3).any(|w| {
+        (w[0].is_ascii_lowercase() || w[0].is_ascii_digit())
+            && (w[1] == '.' || w[1] == '-')
+            && w[2].is_ascii_digit()
+    })
+}
+
+/// What a person picks in New Machine: the product, its nodes where it has
+/// several, its CPUs and, where the offering names a processor, which one.
+pub fn offering_label(offering: &Offering) -> String {
+    // The table above lists it as an Origin 200; a picker needs the two apart.
+    let mut label = match offering.topology.as_str() {
+        "origin200-gigachannel" => "Origin 200 GIGAchannel",
+        topology => machine_name(topology),
+    }
+    .to_string();
+    if offering.nodes > 1 {
+        label += &format!(", {}", plural(offering.nodes, "node"));
+    }
+    label += &format!(", {}", plural(offering.cpus, "CPU"));
+    if offering.selects_processor {
+        let p = &offering.processor;
+        label += &format!(
+            ", {} {} MHz, {} MB cache",
+            p.part,
+            p.clock_hz / 1_000_000,
+            p.cache_mib
+        );
+    }
+    label
 }
 
 /// One table of the presets: name, machine, CPUs and default graphics.
@@ -557,5 +607,55 @@ Settings (create --set NAME[.SLOT]=VALUE):
             .clone()
             .unwrap();
         assert_eq!(settings(&record, &product), "rm-count=1|2*");
+    }
+
+    #[test]
+    fn every_offering_has_a_label_with_no_raw_id() {
+        let machines = crate::test_machines();
+        for offering in &machines.offerings {
+            let label = offering_label(offering);
+            assert!(!looks_like_id(&label), "{label}");
+            for id in [&offering.id, &offering.product, &offering.topology] {
+                assert!(!label.contains(id.as_str()), "{label} shows {id}");
+            }
+            assert!(label.contains("CPU"), "{label}");
+        }
+        let mut labels: Vec<_> = machines.offerings.iter().map(offering_label).collect();
+        labels.sort();
+        labels.dedup();
+        assert_eq!(
+            labels.len(),
+            machines.offerings.len(),
+            "two offerings share a label"
+        );
+        let by_id = |id: &str| {
+            let o = machines.offerings.iter().find(|o| o.id == id).unwrap();
+            offering_label(o)
+        };
+        assert_eq!(by_id("fuel.1"), "Fuel, 1 CPU");
+        assert_eq!(by_id("octane2.1"), "Octane2, 1 CPU");
+        assert!(by_id("origin300.4").starts_with("Origin 300, 4 CPUs"));
+        assert!(by_id("onyx2-deskside.2-2").contains("2 nodes, 4 CPUs"));
+    }
+
+    #[test]
+    fn ids_are_told_from_labels() {
+        for id in ["fuel.1", "origin200-1", "octane2.1.iris"] {
+            assert!(looks_like_id(id), "{id}");
+        }
+        for label in [
+            "Fuel, 1 CPU",
+            "Origin 200, 2 CPUs, R12000 270 MHz, 4 MB cache",
+        ] {
+            assert!(!looks_like_id(label), "{label}");
+        }
+    }
+
+    #[test]
+    fn counts_are_plural_except_one() {
+        let text = |n| format!("{} / {}", plural(n, "CPU"), plural(n, "node"));
+        assert_eq!(text(0), "0 CPUs / 0 nodes");
+        assert_eq!(text(1), "1 CPU / 1 node");
+        assert_eq!(text(2), "2 CPUs / 2 nodes");
     }
 }

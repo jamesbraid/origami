@@ -144,6 +144,8 @@ impl From<OrigamiMachineState> for f::MachineState {
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiEngineInfo {
     pub id: String,
+    /// What a person calls the engine, such as `QEMU`.
+    pub name: String,
     pub version: Option<String>,
     pub max_heads: u32,
     pub gpu_regions: bool,
@@ -152,6 +154,8 @@ pub struct OrigamiEngineInfo {
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiOffering {
     pub id: String,
+    /// What the New Machine picker shows, such as `Fuel, 1 CPU`.
+    pub label: String,
     pub engine: String,
     pub product: String,
     pub topology: String,
@@ -168,6 +172,12 @@ pub struct OrigamiOffering {
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiSummaryCard {
+    pub title: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiMachineSummary {
     pub key: String,
     pub name: String,
@@ -175,6 +185,8 @@ pub struct OrigamiMachineSummary {
     pub product_label: String,
     pub topology: Option<String>,
     pub topology_name: Option<String>,
+    /// The tiles under the machine's name: memory, nodes where several, model.
+    pub cards: Vec<OrigamiSummaryCard>,
     /// Whether the machine has a graphics head, from its file.
     pub has_display: bool,
     /// Whether the machine runs IRIX, so Install IRIX applies.
@@ -802,6 +814,8 @@ pub struct OrigamiMachineView {
     pub exit_detail: Option<String>,
     pub last_error: Option<String>,
     pub reason: String,
+    /// The reason, when it says more than the state pill does.
+    pub note: Option<String>,
     pub heads: Vec<OrigamiHeadView>,
     pub console: OrigamiConsoleView,
     pub operation: Option<u64>,
@@ -809,6 +823,7 @@ pub struct OrigamiMachineView {
 
 impl From<f::MachineView> for OrigamiMachineView {
     fn from(v: f::MachineView) -> Self {
+        let note = v.note().map(str::to_string);
         Self {
             key: v.key,
             name: v.name,
@@ -820,6 +835,7 @@ impl From<f::MachineView> for OrigamiMachineView {
             exit_reason: v.exit_reason.map(Into::into),
             exit_detail: v.exit_detail,
             last_error: v.last_error,
+            note,
             reason: v.reason,
             heads: v
                 .heads
@@ -987,6 +1003,12 @@ pub fn origami_command_enabled(
     state: Option<OrigamiMachineState>,
 ) -> bool {
     f::EnabledWhen::from(when).holds(state.map(Into::into))
+}
+
+/// The pointer status line, such as `Follows mouse`.
+#[uniffi::export]
+pub fn origami_pointer_status(follows: bool, captured: bool) -> String {
+    f::pointer_status(follows, captured).to_string()
 }
 
 /// A byte count as the apps show it, such as `3.3 GB`.
@@ -1203,6 +1225,7 @@ impl OrigamiCore {
             .engines()
             .into_iter()
             .map(|e| OrigamiEngineInfo {
+                name: e.name,
                 id: e.id,
                 version: e.version,
                 max_heads: e.capabilities.max_heads,
@@ -1220,6 +1243,7 @@ impl OrigamiCore {
             .into_iter()
             .map(|o| OrigamiOffering {
                 id: o.id,
+                label: o.label,
                 engine: o.engine,
                 product: o.product,
                 topology: o.topology,
@@ -1247,6 +1271,14 @@ impl OrigamiCore {
                 product_label: m.product_label,
                 topology: m.topology,
                 topology_name: m.topology_name,
+                cards: m
+                    .cards
+                    .into_iter()
+                    .map(|c| OrigamiSummaryCard {
+                        title: c.title,
+                        value: c.value,
+                    })
+                    .collect(),
                 has_display: m.has_display,
                 runs_irix: m.runs_irix,
                 nodes: m.nodes,
@@ -1702,6 +1734,13 @@ impl OrigamiMachine {
     /// the engine keeps current, so a timer on the UI thread may call it.
     pub fn view(&self) -> OrigamiMachineView {
         self.0.view().into()
+    }
+
+    /// The Diagnostics report, the same in every app. `status` is the word
+    /// on the status pill; `updates` and `shown` are the app's counts of
+    /// frame updates received and pictures drawn.
+    pub fn diagnostics_report(&self, status: String, updates: u64, shown: u64) -> String {
+        self.0.diagnostics_report(&status, updates, shown)
     }
 
     /// Long: returns at once.

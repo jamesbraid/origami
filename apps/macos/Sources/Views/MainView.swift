@@ -67,7 +67,7 @@ struct EmptyDetail: View {
             if app.models.isEmpty {
                 Text("Origami looks for machines in \((app.root.path as NSString).abbreviatingWithTildeInPath).")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
-                Button("Choose Library Folder…") { app.invoke(.chooseLibrary) }
+                Button("Choose library folder…") { app.invoke(.chooseLibrary) }
             } else {
                 Text("Pick one in the library.").foregroundStyle(.secondary)
             }
@@ -94,7 +94,7 @@ struct LibrarySidebar: View {
         // Double-click opens a tab. A tap gesture on the row would delay and drop plain clicks.
         .contextMenu(forSelectionType: String.self) { ids in
             if let id = ids.first, let model = app.models.first(where: { $0.id == id }) {
-                Button("Open in New Tab") { app.openInNewTab(id) }
+                Button("Open in new tab") { app.openInNewTab(id) }
                 Divider()
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.root.appendingPathComponent(model.name)]) }
                 Button("Diagnostics") { app.select(id); app.invoke(.diagnostics) }
@@ -104,13 +104,13 @@ struct LibrarySidebar: View {
         }
         .safeAreaInset(edge: .bottom) {
             HStack {
-                Button { app.invoke(.newMachine) } label: { Label("New Machine", systemImage: "plus") }
+                Button { app.invoke(.newMachine) } label: { Label("New machine", systemImage: "plus") }
                     .buttonStyle(.borderless).disabled(!app.isEnabled(.newMachine))
-                    .help("New Machine (⌘N)")
+                    .help("New machine (⌘N)")
                 Spacer()
-                Button { app.invoke(.chooseLibrary) } label: { Label("Choose Library Folder", systemImage: "folder") }
+                Button { app.invoke(.chooseLibrary) } label: { Label("Choose library folder", systemImage: "folder") }
                     .buttonStyle(.borderless).labelStyle(.iconOnly)
-                    .help("Choose Library Folder…")
+                    .help("Choose library folder…")
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(.bar)
@@ -173,7 +173,7 @@ struct TabItem: View {
             Circle().fill(model.state.tone.colour).frame(width: 6, height: 6).accessibilityHidden(true)
             // The close button shows on the selected tab and on hover; the space stays reserved.
             Button { app.closeTabAsking(model.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
-                .buttonStyle(.borderless).help("Close Tab").accessibilityLabel("Close \(model.name)")
+                .buttonStyle(.borderless).help("Close tab").accessibilityLabel("Close \(model.name)")
                 .opacity(active || hover ? 1 : 0)
         }
         .padding(.horizontal, 8)
@@ -280,13 +280,13 @@ struct PowerControl: View {
                 .help(ToolbarTip.start)
         } else {
             Menu {
-                Button("Power Off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
+                Button("Power off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
                 Button("Pause") { app.invoke(.pause) }.disabled(!app.isEnabled(.pause))
                 Button("Resume") { app.invoke(.resume) }.disabled(!app.isEnabled(.resume))
-                Button("Save Screenshot") { app.invoke(.screenshot) }.disabled(!app.isEnabled(.screenshot))
+                Button("Save screenshot") { app.invoke(.screenshot) }.disabled(!app.isEnabled(.screenshot))
                 Button("Reset…") { app.invoke(.reset) }.disabled(!app.isEnabled(.reset))
                 Divider()
-                Button("Force Quit Emulator…") { app.invoke(.forceQuit) }.disabled(!app.isEnabled(.forceQuit))
+                Button("Force quit emulator…") { app.invoke(.forceQuit) }.disabled(!app.isEnabled(.forceQuit))
             } label: { Label("Power", systemImage: "power") }
             .help(ToolbarTip.power)
         }
@@ -311,7 +311,7 @@ struct StatusBar: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
         HStack(spacing: 14) {
-            Text(model.statusLine).foregroundStyle(.secondary).lineLimit(1)
+            if !model.statusLine.isEmpty { Text(model.statusLine).foregroundStyle(.secondary).lineLimit(1) }
             if let n = app.notice {
                 Text(n.text).lineLimit(1)
                 if let url = n.reveal {
@@ -320,7 +320,7 @@ struct StatusBar: View {
             }
             Spacer()
             if model.state == .running {
-                Label(model.pointerMode == .follow ? "Follows mouse" : (model.captured ? "Captured" : "Click to capture"),
+                Label(origamiPointerStatus(follows: model.pointerMode == .follow, captured: model.captured),
                       systemImage: model.captured ? "cursorarrow.motionlines" : "cursorarrow")
                     .help(model.pointerMode == .follow ? "The guest's pointer follows your mouse" : "Click the screen to capture the mouse; press ⌃⌥ to release")
             }

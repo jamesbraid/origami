@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 pub struct Entry {
     pub dir: PathBuf,
     pub name: String,
-    pub model: String,
     /// The product's SGI name, such as "Origin 200".
     pub product_label: String,
     /// The machine's still, when the product art has one.
@@ -21,14 +20,8 @@ pub struct Entry {
     pub system_disk: Option<String>,
     /// Install IRIX applies only to machines that run IRIX.
     pub runs_irix: bool,
-    pub summary: Summary,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Summary {
-    pub nodes: u32,
-    pub topology: Option<String>,
-    pub memory: String,
+    /// The tiles under the name, as the core words them.
+    pub cards: Vec<origami_core::facade::SummaryCard>,
 }
 
 /// The grey a machine with no still is tinted with.
@@ -55,6 +48,7 @@ pub fn entries(core: &origami_core::facade::Core) -> Vec<Entry> {
             e.needs_upgrade = m.needs_upgrade;
             e.system_disk = m.system_disk;
             e.runs_irix = m.runs_irix;
+            e.cards = m.cards;
             if let Some(p) = m.problem {
                 e.error = Some(p);
             }
@@ -76,31 +70,25 @@ pub fn read(dir: &Path) -> Entry {
             Entry {
                 dir: dir.to_path_buf(),
                 name,
-                model: m.model.clone(),
                 product_label: origami_machine::product_label(&m.model, m.topology.as_deref()),
                 art: crate::art::of(&m.model, m.topology.as_deref()),
                 error: None,
                 needs_upgrade: false,
                 system_disk: None,
                 runs_irix: true,
-                summary: Summary {
-                    nodes: m.nodes,
-                    topology: m.topology.clone(),
-                    memory: m.memory_per_node.clone(),
-                },
+                cards: Vec::new(),
             }
         }
         Err(e) => Entry {
             dir: dir.to_path_buf(),
             name,
-            model: String::new(),
             product_label: String::new(),
             art: None,
             error: Some(e.to_string()),
             needs_upgrade: false,
             system_disk: None,
             runs_irix: true,
-            summary: Summary::default(),
+            cards: Vec::new(),
         },
     }
 }
@@ -129,8 +117,8 @@ mod tests {
         }
         let (ea, eb) = (read(&a), read(&b));
         assert_eq!(
-            (ea.model.as_str(), eb.model.as_str()),
-            ("octane2", "octane2")
+            (ea.product_label.as_str(), eb.product_label.as_str()),
+            ("Octane2", "Octane2")
         );
         assert_ne!((&ea.dir, &ea.name), (&eb.dir, &eb.name));
         let _ = std::fs::remove_dir_all(root);

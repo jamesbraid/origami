@@ -194,28 +194,15 @@ Test("commands: menu by id prefix", () =>
 
 Test("new machine: labels, default model and when Create is offered", () =>
 {
-    var a = new Offering("indy-r4400", "qemu", "Indy", "ip24", 1, 1);
-    var b = new Offering("octane2-vpro", "qemu", "Octane2", "ip30", 1, 2);
-    Eq("indy-r4400 (1 CPU)", NewMachine.Label(a), "singular");
-    Eq("octane2-vpro (2 CPUs)", NewMachine.Label(b), "plural");
+    var a = new Offering("indy-r4400", "qemu", "Indy", "ip24", 1, 1, Label: "Indy, 1 CPU");
+    var b = new Offering("octane2-vpro", "qemu", "Octane2", "ip30", 1, 2, Label: "Octane2, 2 CPUs");
+    Eq("Indy, 1 CPU", NewMachine.Label(a), "the core's label");
+    Eq("Octane2, 2 CPUs", NewMachine.Label(b), "not rebuilt from the id");
     Eq(1, NewMachine.DefaultIndex(new[] { a, b }), "octane2-vpro first choice");
     Eq(0, NewMachine.DefaultIndex(new[] { a }), "else the first");
     Eq(false, NewMachine.CanCreate("   ", 0), "blank name");
     Eq(false, NewMachine.CanCreate("x", -1), "no model");
     Eq(true, NewMachine.CanCreate(" x ", 0), "name and model");
-});
-
-Test("diagnostics report: lists engine, state, heads, console and screen counts", () =>
-{
-    var d = new MachineDiag("Octane2", "qemu", MachineState.Running, "The machine is running.", null,
-        new[] { new HeadDiag(0, 1280, 1024, true, 42) }, true, null, 1234);
-    var r = DiagnosticsReport.Format(d, 17, 16);
-    foreach (var want in new[] { "Octane2", "qemu", "Running", "The machine is running.", "Last error:   none", "#0  1280x1024  picture yes  sequence 42", "connected, 1234 bytes", "17 wake-ups, 16 presents" })
-        if (!r.Contains(want)) throw new Exception("missing: " + want + "\n" + r);
-    var dead = d with { State = MachineState.Exited, LastError = "runner died", ConsoleConnected = false, ConsoleDownReason = "closed", Heads = Array.Empty<HeadDiag>() };
-    var r2 = DiagnosticsReport.Format(dead, 0, 0);
-    foreach (var want in new[] { "Stopped unexpectedly", "runner died", "none", "not connected (closed)" })
-        if (!r2.Contains(want)) throw new Exception("missing: " + want + "\n" + r2);
 });
 
 Test("settings: editable only when stopped, add rules, share name", () =>

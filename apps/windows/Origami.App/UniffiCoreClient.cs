@@ -104,6 +104,8 @@ public sealed class UniffiCoreClient : ICoreClient
     /// <summary>A machine's stored view, or null when it has none yet (it is new, or its view failed on the last pass).</summary>
     OrigamiMachineView? TryView(string key) => _snap.Views.GetValueOrDefault(key);
 
+    public string PointerStatus(bool follows, bool captured) => OrigamiFfiMethods.OrigamiPointerStatus(follows, captured);
+    public string EngineName(string id) => _core.Engines().FirstOrDefault(e => e.Id == id)?.Name ?? id;
     public string EngineIds => string.Join(",", _core.Engines().Select(e => e.Id));
 
 #if ORIGAMI_FAKE
@@ -143,7 +145,7 @@ public sealed class UniffiCoreClient : ICoreClient
 #endif
 
     public IReadOnlyList<Offering> Catalogue() => _core.Catalogue()
-        .Select(o => new Offering(o.Id, o.Engine, o.Product, o.Topology, (int)o.Nodes, (int)o.Cpus, o.RunsIrix)).ToList();
+        .Select(o => new Offering(o.Id, o.Engine, o.Product, o.Topology, (int)o.Nodes, (int)o.Cpus, o.RunsIrix, o.Label)).ToList();
 
     public Task<string> CreateMachineAsync(string name, string offeringId, string? engine = null, CancellationToken ct = default, SystemDisk? disk = null, IProgress<CopyProgress>? progress = null, IdentityRequest? identity = null) => Task.Run(() =>
     {
@@ -352,7 +354,8 @@ public sealed class UniffiCoreClient : ICoreClient
             // The file says whether it has a graphics head; a head the engine reports counts too.
             var display = m.HasDisplay || (has && v!.Heads.Length > 0);
             return new MachineSummary(m.Key, m.Name, m.Product, m.ProductLabel, m.Topology, (int)m.Nodes, (int)m.MemoryPerNodeMib,
-                m.NeedsUpgrade ? MachineState.NeedsUpgrade : Settle(m.Key, state), m.Problem, display, m.NeedsUpgrade, m.SystemDisk, m.RunsIrix);
+                m.NeedsUpgrade ? MachineState.NeedsUpgrade : Settle(m.Key, state), m.Problem, display, m.NeedsUpgrade, m.SystemDisk, m.RunsIrix,
+                m.Cards.Select(c => new SummaryCard(c.Title, c.Value)).ToList());
         }).ToList();
     }
 
@@ -364,7 +367,7 @@ public sealed class UniffiCoreClient : ICoreClient
             if (listed is { NeedsUpgrade: true }) return new MachineStatus(MachineState.NeedsUpgrade, "Made by an older Origami. Upgrade it once to use it.", null);
             return new MachineStatus(listed is null ? MachineState.Stopped : Settle(key, listed.State), "No information about this machine yet.", null);
         }
-        return new MachineStatus(Settle(key, v.State), v.Reason, v.LastError);
+        return new MachineStatus(Settle(key, v.State), v.Reason, v.LastError, v.Note);
     }
 
     /// <summary>Runs a core operation to its end. With <paramref name="ignoreEnded"/>, a machine that is already not running is not an error.</summary>
@@ -453,13 +456,13 @@ public sealed class UniffiCoreClient : ICoreClient
         if (TryView(key) is not { } v)
         {
             var listed = _snap.List.FirstOrDefault(m => m.Key == key);
-            return new MachineDiag(listed?.Name ?? key, "", listed is null ? MachineState.Stopped : Settle(key, listed.State),
-                "No information about this machine yet.", null, Array.Empty<HeadDiag>(), false, null, 0);
+            return new MachineDiag(listed?.Name ?? key, listed is null ? MachineState.Stopped : Settle(key, listed.State));
         }
-        return new MachineDiag(v.Name, v.Engine, Settle(key, v.State), v.Reason, v.LastError,
-            v.Heads.Select(h => new HeadDiag((int)h.Index, (int)h.Width, (int)h.Height, h.Active, h.Seq)).ToList(),
-            v.Console.Connected, v.Console.DownReason, v.Console.Total);
+        return new MachineDiag(v.Name, Settle(key, v.State));
     }
+
+    public string DiagnosticsReport(string key, MachineState state, long updates, long shown) =>
+        TryView(key) is null ? "No information about this machine yet." : M(key).DiagnosticsReport(Pill.Text(state), (ulong)updates, (ulong)shown);
 
     public Task<OsviewScene> OsviewAsync(string key) => Task.Run(() =>
     {

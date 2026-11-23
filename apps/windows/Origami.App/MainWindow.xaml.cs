@@ -260,7 +260,7 @@ public sealed partial class MainWindow : Window
     public string? BadgeForTest(string key) => _badges.GetValueOrDefault(key) is { Visibility: Visibility.Visible } b ? b.Text : null;
 
     static string Detail(MachineSummary m) =>
-        $"{m.ProductLabel}, {m.Nodes} node{(m.Nodes == 1 ? "" : "s")}, {m.MemoryPerNodeMiB} MB";
+        $"{m.ProductLabel}, {m.Cards?.FirstOrDefault(c => c.Title == "Memory")?.Value}" + (m.Nodes > 1 ? $", {m.Nodes} nodes" : "");
 
     // Clearing the list raises SelectionChanged, which would refresh and rebuild again mid-Clear (COMException 0x8000FFFF).
     bool _rebuilding;
@@ -320,7 +320,7 @@ public sealed partial class MainWindow : Window
             _pills[m.Key] = (pill, ptext);
             item.DoubleTapped += (_, _) => OpenInNewTab(m.Key);
             var menu = new MenuFlyout();
-            var openTab = new MenuFlyoutItem { Text = "Open in New Tab" };
+            var openTab = new MenuFlyoutItem { Text = "Open in new tab" };
             openTab.Click += (_, _) => OpenInNewTab(m.Key);
             var show = new MenuFlyoutItem { Text = "Show in Explorer" };
             show.Click += (_, _) => ShowMachineInExplorer(m.Key);
@@ -373,7 +373,7 @@ public sealed partial class MainWindow : Window
             {
                 XamlRoot = Root.XamlRoot, Title = $"Close {m.Name}?",
                 Content = "The machine is running. Closing its tab can leave it running or power it off.",
-                PrimaryButtonText = "Keep Running", SecondaryButtonText = "Power Off", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary,
+                PrimaryButtonText = "Keep running", SecondaryButtonText = "Power off", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary,
             };
             var r = await dlg.ShowAsync();
             if (r == ContentDialogResult.None) return;
@@ -460,16 +460,17 @@ public sealed partial class MainWindow : Window
         return null;
     }
 
-    /// <summary>Memory, Nodes and Topology as fixed 140x104 cards with a fixed icon box, centred as a group.</summary>
+    /// <summary>The core's cards (memory, nodes where several, model) as fixed 140x104 cards with a fixed icon box, centred as a group.</summary>
     string _cardsFor = "";
 
     void BuildCards(MachineSummary m)
     {
-        var sig = $"{m.Key}|{m.MemoryPerNodeMiB}|{m.Nodes}|{m.Topology}|{m.Product}";
+        var cards = m.Cards ?? new List<SummaryCard>();
+        var sig = $"{m.Key}|{string.Join(",", cards.Select(c => c.Title + c.Value))}";
         if (sig == _cardsFor) return; // rebuilt only when the summary changes
         _cardsFor = sig;
         Cards.Children.Clear();
-        foreach (var (glyph, value, label) in new[] { ("\uE950", $"{m.MemoryPerNodeMiB} MB", "Memory"), ("\uE80F", m.Nodes.ToString(), m.Nodes == 1 ? "Node" : "Nodes"), ("\uE9D9", m.Topology ?? m.Product, "Topology") })
+        foreach (var (glyph, value, label) in cards.Select(c => (c.Title == "Memory" ? "\uE950" : c.Title == "Nodes" ? "\uE80F" : "\uE9D9", c.Value, c.Title)))
         {
             var icon = new Border { Width = 32, Height = 32, Child = new FontIcon { Glyph = glyph, FontSize = 20, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } };
             var body = new StackPanel
@@ -491,13 +492,13 @@ public sealed partial class MainWindow : Window
     static readonly CommandInfo[] AppOnly =
     {
         new("machine.pointer-mode", "Toggle Follow / Capture", "Ctrl+Shift+M"),
-        new("view.library", "Show Library", "F9"),
+        new("view.library", "Show library", "F9"),
         new("app.preferences", "Preferences", "Ctrl+,"),
         new("app.about", "About Origami", null),
-        new("view.fit", "Fit to Window", "Ctrl+9"),
+        new("view.fit", "Fit to window", "Ctrl+9"),
         new("view.scale1x", "Scale 1x", "Ctrl+Alt+1"),
         new("view.scale2x", "Scale 2x", "Ctrl+Alt+2"),
-        new("view.actual-size", "Actual Size", "Ctrl+0"),
+        new("view.actual-size", "Actual size", "Ctrl+0"),
     };
 
     readonly List<CommandInfo> _commands = new();
@@ -881,8 +882,7 @@ public sealed partial class MainWindow : Window
     {
         PointerButton.IsChecked = Display.Mode == PointerMode.Capture;
         PointerButton.Label = Display.Mode == PointerMode.Capture ? "Capture" : "Follow";
-        PointerStatus.Text = Display.Captured ? "Pointer captured (Ctrl+Alt releases)"
-            : Display.Mode == PointerMode.Capture ? "Capture on click" : "Following your mouse";
+        PointerStatus.Text = _core.PointerStatus(Display.Mode != PointerMode.Capture, Display.Captured);
     }
 
     bool _previewStart;
@@ -930,7 +930,7 @@ public sealed partial class MainWindow : Window
         TitleText.Text = info.Name;
         PillText.Text = Pill.Text(st.State, !info.HasDisplay);
         PillBorder.Background = new SolidColorBrush(Tones.For(Pill.Tone(st.State)));
-        StatusText.Text = st.LastError is { Length: > 0 } e ? st.Reason + " " + e : st.Reason;
+        StatusText.Text = string.Join(" ", new[] { st.Note, st.LastError }.Where(t => !string.IsNullOrEmpty(t)));
         foreach (var (cid, mi) in _menuItems) mi.IsEnabled = CommandOn(cid, st.State, key);
         StartButton.IsEnabled = HeroStart.IsEnabled = _core.CommandEnabled("machine.start", st.State);
         HeroStart.Content = st.State == MachineState.LeftRunning ? "Reconnect" : "Start";
@@ -955,7 +955,7 @@ public sealed partial class MainWindow : Window
         HeroBand.Fill = new SolidColorBrush(ChassisOf(info));
         HeroImage.Source = StillOf(info) is { } hs ? Art(hs.Id, "hero@2x.png") : null;
         HeroImage.Visibility = HeroImage.Source is null ? Visibility.Collapsed : Visibility.Visible;
-        StageText.Text = st.Reason;
+        StageText.Text = st.Note ?? "";
 
         if (_prefsOpen) { Display.Hide(); return; }
         switch (st.State)
@@ -1146,9 +1146,9 @@ public sealed partial class MainWindow : Window
             {
                 XamlRoot = Root.XamlRoot,
                 Title = up.Count == 1 ? $"{up[0].Name} is running" : $"{up.Count} machines are running",
-                Content = "Machines keep running without the app. Power Off asks each to stop cleanly.",
-                PrimaryButtonText = "Keep Running",
-                SecondaryButtonText = "Power Off",
+                Content = "Machines keep running without the app. Power off asks each to stop cleanly.",
+                PrimaryButtonText = "Keep running",
+                SecondaryButtonText = "Power off",
                 CloseButtonText = "Cancel",
                 DefaultButton = ContentDialogButton.Primary,
             };
@@ -1196,10 +1196,10 @@ public sealed partial class MainWindow : Window
         {
             XamlRoot = Root.XamlRoot,
             Title = failed.Count == 1 ? $"{failed[0].Name} did not power off" : $"{failed.Count} machines did not power off",
-            Content = "A clean stop can take a while while a disk folds its changes. Force Quit ends the emulator at once.",
-            PrimaryButtonText = "Force Quit Instead",
-            SecondaryButtonText = "Quit and Leave Running",
-            CloseButtonText = "Cancel Quit",
+            Content = "A clean stop can take a while while a disk folds its changes. Force quit ends the emulator at once.",
+            PrimaryButtonText = "Force quit instead",
+            SecondaryButtonText = "Quit and leave running",
+            CloseButtonText = "Cancel quit",
             DefaultButton = ContentDialogButton.Close,
         };
         var choice = await alert.ShowAsync();

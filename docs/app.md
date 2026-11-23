@@ -63,10 +63,11 @@ and Windows use `--machines DIR` and `--library DIR` respectively.
 
 The Machines list is on the left, one row per machine with its state. Selecting a
 row shows the machine on the right: its picture, name and a Start button, with
-Memory, Nodes and Topology below. The machine's state is shown in the title bar
+Memory and Model below, and Nodes on a machine that has
+several. The machine's state is shown in the title bar
 or toolbar and in its row, and nowhere else. Double-click a row, or use
-Open in New Tab in its right-click menu, to keep several machines open in
-tabs. The toolbar has Start or Power Off, Pause, the pointer mode, the
+Open in new tab in its right-click menu, to keep several machines open in
+tabs. The toolbar has Start or Power off, Pause, the pointer mode, the
 Console, Settings and the main menu. The CPU button shows the
 [CPU panel](#the-cpu-panel). A machine with no graphics opens straight to its
 console.
@@ -84,19 +85,19 @@ If an upgrade fails, the reason is shown. The machine file stays as it was unles
 
 ## Create a machine
 
-Choose New Machine (the **+** above the library, or Ctrl+N; Cmd+N on macOS).
+Choose New machine (the **+** above the library, or Ctrl+N; Cmd+N on macOS).
 The dialog asks for three things.
 
-![The Engine list open in the New Machine dialog, offering qemu and iris](images/app/linux-engine.png)
+![The Engine list open in the New machine dialog, offering QEMU (Origami) and Iris](images/app/linux-engine.png)
 
 **Engine** is the emulator that runs the machine. QEMU runs every machine
-Origami knows. iris is a second, experimental engine for the Indy, Indigo2
+Origami knows. Iris is a second, experimental engine for the Indy, Indigo2
 and Octane2. When a model is offered by one engine only, the list has one entry.
 
-![New Machine with iris chosen, the Indy model and a name typed](images/app/linux-new-machine.png)
+![New machine with Iris chosen, the Indy model and a name typed](images/app/linux-new-machine.png)
 
 **Model** is the machine to build: an Octane2, an Origin 200 and so on, with
-its CPU count. The list follows the engine you picked. **Name** is the
+its CPU count, such as "Fuel, 1 CPU". The list follows the engine you picked. **Name** is the
 machine's name and its directory name. Press Create. Creating a machine for
 the first time downloads its PROM and checks it. It is the same step as
 `origami create NAME --preset PRESET`; [Create a machine](usage.md#create-a-machine)
@@ -141,7 +142,7 @@ your network. The sheet says why a number or address cannot be used. It is
 
 Select the machine and press Start (Ctrl+Shift+R; Cmd+R on macOS). The
 machine's page shows a starting screen while the emulator launches. Until it
-is up, the button reads Force Quit rather than Power Off.
+is up, the button reads Force quit rather than Power off.
 
 ![The starting screen](images/app/linux-starting.png)
 
@@ -159,12 +160,12 @@ draw in-between sizes sharp: each guest pixel stays flat and blends only at its
 edge. Linux still smooths sizes between whole steps above 1x.
 
 Click the screen to type and use the mouse in the guest. The pointer button in
-the toolbar picks how the mouse works. *Follow My Mouse* makes the guest's
-pointer track yours while it is over the screen. *Capture on Click* takes the
+the toolbar picks how the mouse works. *Follow my mouse* makes the guest's
+pointer track yours while it is over the screen. *Capture on click* takes the
 mouse and keyboard when you click and hands them back on Ctrl+Alt (Linux).
 
-Power Off asks the guest to stop. If the guest has not stopped after 30
-seconds, the app offers Force Quit, which ends the emulator at once; the guest
+Power off asks the guest to stop. If the guest has not stopped after 30
+seconds, the app offers Force quit, which ends the emulator at once; the guest
 does not get to write its disks. When you quit the app with machines running,
 Keep Running leaves them going without it.
 
@@ -211,12 +212,13 @@ Finder.
 ![The Diagnostics window for a running machine](images/app/linux-diagnostics.png)
 
 Diagnostics (Ctrl+Shift+L; Alt+Cmd+L on macOS, or the row's right-click menu)
-opens a text report for the selected machine: its engine, state, the last
-error, each graphics head with its size and whether it has a picture, the
-console's connection and how many frames the screen has received and shown.
-Copy Report puts it on the clipboard. Attach it to a bug report.
+opens a text report for the selected machine, worded by the core so all
+three apps show the same lines: its model, engine, status, details, the last
+error, each display with its size and whether it has a picture, the
+console's connection and how many frame updates the screen has received and
+shown. Copy report puts it on the clipboard. Attach it to a bug report.
 
-When a machine stops unexpectedly, the report's Reason and Last error say why.
+When a machine stops unexpectedly, the report's Details and Last error say why.
 
 ## The CPU panel
 
@@ -246,7 +248,7 @@ machine's Ethernet address, which you can copy but not change, and the private
 subnet under Advanced. After a change that moves the machine to a different
 network, the page shows the command that makes the guest forget its old
 address. This is [`origami network-set`](usage.md#join-a-real-network). The
-page also holds port forwards from the host to the guest. Shared Folders
+page also holds port forwards from the host to the guest. Shared folders
 shares a folder of this computer with the guest over NFS: pick the folder, give it a
 name, and the page shows the two commands to run as root in IRIX to mount it,
 with Copy. This is [`origami share`](usage.md#share-a-host-folder). Startup
@@ -291,8 +293,8 @@ switches a machine's console.
 The next three steps start the media server and the machine, then list what
 to do: label the disk, start the installer and install the packages. Copy
 puts a command on the clipboard. On a machine whose console is a serial line,
-Type It sends it to the console for you. A machine with graphics keeps its
-screen as the console and is never switched to serial. Show Machine and Open
+Type it sends it to the console for you. A machine with graphics keeps its
+screen as the console and is never switched to serial. Show machine and Open
 Console bring the machine and its console forward. The footer shows what the
 media server is serving, and turns red with its message and a Restart button
 if the server stops. Cancel stops the media server, and in the middle of the
@@ -311,8 +313,8 @@ Start over to begin again. Install IRIX is for machines that run IRIX.
 ![The About window](images/app/linux-about.png)
 
 About shows the version, who made Origami and the project link. Its
-Acknowledgements button lists what Origami is built on (QEMU with the link to
-the source of the bundled build, iris, Ghostty's terminal library and
+Acknowledgements button lists what Origami is built on (QEMU (Origami) with the link to
+the source of the bundled build, Iris, Ghostty's terminal library and
 Instigator), the thanks, and each photograph and the artwork with its licence.
 Its Licences button opens the full text of every licence bundled, grouped by
 licence with the components under each, and a search box.

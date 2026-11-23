@@ -648,12 +648,12 @@ fn the_command_shortcuts_match_the_design() {
             .find(|c| c.id == "machine.stop")
             .unwrap()
             .title,
-        "Power Off"
+        "Power off"
     );
     assert!(keys("machine.reset").is_empty());
     assert!(keys("machine.force-quit").is_empty());
     assert_eq!(keys("window.console")[1], "Ctrl+Shift+O");
-    // Screenshot would collide with Power Off, so it is Mac-only.
+    // Screenshot would collide with Power off, so it is Mac-only.
     assert_eq!(keys("machine.screenshot"), ["Cmd+Shift+3"]);
 }
 

@@ -23,7 +23,7 @@ public static class NewMachineDialog
         void SyncEngines()
         {
             engines = model.SelectedIndex < 0 ? Array.Empty<string>() : NewMachine.EnginesFor(offerings, models[model.SelectedIndex].Id);
-            engine.ItemsSource = engines.ToList();
+            engine.ItemsSource = engines.Select(core.EngineName).ToList();
             engine.SelectedIndex = engines.Count > 0 ? 0 : -1;
             engine.IsEnabled = engines.Count > 1; // always shown, as on Linux and macOS; one choice is not changeable
         }
@@ -84,7 +84,7 @@ public static class NewMachineDialog
         var dlg = new ContentDialog
         {
             XamlRoot = root,
-            Title = "New Machine",
+            Title = "New machine",
             Content = new StackPanel { Spacing = 12, Width = 380, Children = { engine, model, name, disk, release, size, install, image.Root, advanced, problem, bar, line, stop, error } },
             PrimaryButtonText = "Create",
             CloseButtonText = "Cancel",

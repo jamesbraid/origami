@@ -79,7 +79,7 @@ struct InstallAssistant: View {
                 Text(plan).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            if model.flow.resumed() { Button("Start Over") { model.startOver() }.disabled(model.working) }
+            if model.flow.resumed() { Button("Start over") { model.startOver() }.disabled(model.working) }
             Button("Cancel") { model.requestClose() }.keyboardShortcut(.cancelAction)
             Button("Back") { model.back() }.disabled(!model.canBack)
             Button(model.flow.continueLabel()) { model.next() }.keyboardShortcut(.defaultAction).disabled(!model.canContinue)
@@ -145,9 +145,9 @@ struct InstallAssistant: View {
             if let m = model.applyMessage { Text(m).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             HStack {
                 Button("Install") { model.install() }.disabled(!model.flow.canInstall(machineUp: model.machine.isRunning))
-                if running { Button("Cancel Install") { model.cancelInstall() } }
+                if running { Button("Cancel install") { model.cancelInstall() } }
                 if model.flow.canFixed() { Button("I fixed it at Inst>") { model.fixed() } }
-                Button("Open Console") { model.openConsole() }
+                Button("Open console") { model.openConsole() }
             }
         }
     }
@@ -160,7 +160,7 @@ struct InstallAssistant: View {
             if model.flow.useFolder() {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Button("Choose Folder…") { model.chooseFolder() }
+                        Button("Choose folder…") { model.chooseFolder() }
                         if let f = model.flow.folder() { Text(f).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary) }
                     }
                     if let v = model.folderVerdict {
@@ -195,7 +195,7 @@ struct InstallAssistant: View {
                     Button("Remove") { model.edit { $0.removeExtra(index: UInt32(i)) } }
                 }
             }
-            Button("Add a Package…") { adding = true }
+            Button("Add a package…") { adding = true }
         }
     }
 
@@ -223,7 +223,7 @@ struct InstallAssistant: View {
                 .disabled(model.flow.check() == .running)
             switch model.flow.check() {
             case .ready:
-                Button("Check Now") { model.runCheck() }
+                Button("Check now") { model.runCheck() }
             case .running:
                 ProgressView().progressViewStyle(.linear)
                 HStack {
@@ -235,7 +235,7 @@ struct InstallAssistant: View {
                 Label(model.texts.passed, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             case .failed:
                 Text(model.checkMessage ?? "").foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-                Button("Check Again") { model.runCheck() }
+                Button("Check again") { model.runCheck() }
             }
             ForEach(model.notes, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
         }
@@ -247,7 +247,7 @@ struct InstallAssistant: View {
             if model.stoppedBySelf {
                 HStack {
                     Label("The machine stopped.", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Button("Start Again") { model.startMachine() }
+                    Button("Start again") { model.startMachine() }
                 }
             }
             if let steps {
@@ -265,7 +265,7 @@ struct InstallAssistant: View {
                             }
                         }
                         if let send = s.send, model.canTypeIt {
-                            Button("Type It") { model.typeIt(send) }
+                            Button("Type it") { model.typeIt(send) }
                         }
                     }
                 }
@@ -275,8 +275,8 @@ struct InstallAssistant: View {
             if let note { Text(note).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             if model.step != .finish {
                 HStack {
-                    Button("Show Machine") { model.showMachine() }
-                    Button("Open Console") { model.openConsole() }
+                    Button("Show machine") { model.showMachine() }
+                    Button("Open console") { model.openConsole() }
                 }
             }
         }
@@ -316,10 +316,10 @@ struct AddPackageSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Add a Package").font(.headline)
+            Text("Add a package").font(.headline)
             HStack {
                 TextField("Source: a file or an HTTPS address", text: $source)
-                Button("Choose File…") { if let u = model.choosePath("Choose a Package", false) { source = u.path } }
+                Button("Choose file…") { if let u = model.choosePath("Choose a package", false) { source = u.path } }
             }
             Text("Packages to install, one per line").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $packages).font(.system(.body, design: .monospaced)).frame(height: 90)

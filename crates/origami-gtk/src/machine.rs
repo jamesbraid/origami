@@ -583,14 +583,14 @@ impl MachineUi {
         if self.root.visible_child_name().as_deref() != Some(page) {
             self.root.set_visible_child_name(page);
         }
-        let reason = self.machine.view().reason;
+        let note = self.machine.view().note().unwrap_or_default().to_string();
         match state {
             State::NoPicture => {
-                self.status.set_label(&reason);
-                self.status.set_visible(true);
+                self.status.set_label(&note);
+                self.status.set_visible(!note.is_empty());
             }
             State::Running => self.status.set_visible(false),
-            State::Starting => self.starting_line.set_label(&reason),
+            State::Starting => self.starting_line.set_label(&note),
             _ => {}
         }
         if let Some(p) = self.page.borrow().as_ref() {

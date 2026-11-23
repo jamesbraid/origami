@@ -26,7 +26,7 @@ public sealed class DiagnosticsWindow : Window
         AppIcon.Apply(this);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_report, "diagnostics.report");
         _pillBox.Child = _pill;
-        var copy = new Button { Content = "Copy Report" };
+        var copy = new Button { Content = "Copy report" };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(copy, "diagnostics.copy");
         copy.Click += (_, _) => Copy();
         var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Padding = new Thickness(16, 12, 16, 8), Children = { _title, _pillBox, copy } };
@@ -56,7 +56,7 @@ public sealed class DiagnosticsWindow : Window
             _title.Text = d.Name;
             _pill.Text = Pill.Text(d.State);
             _pillBox.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Tones.For(Pill.Tone(d.State)));
-            _report.Text = DiagnosticsReport.Format(d, wakes, presents);
+            _report.Text = _core.DiagnosticsReport(_key, d.State, wakes, presents);
         }
         catch (Exception e) { _report.Text = "Could not read the machine: " + e.Message; }
     }

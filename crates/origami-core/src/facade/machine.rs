@@ -72,6 +72,26 @@ pub struct ConsoleView {
     pub total: u64,
 }
 
+/// The reasons that only repeat the state pill; see [`MachineView::note`].
+const STARTING: &str = "The machine is starting.";
+const STOPPING: &str = "The machine is stopping.";
+const NOT_RUNNING: &str = "The machine is not running.";
+const RUNNING: &str = "The machine is running.";
+const PAUSED: &str = "The machine is paused.";
+const SHUT_DOWN: &str = "The machine has shut down.";
+const STOPPED: &str = "The machine was stopped.";
+const ENDED: &str = "The machine was ended.";
+const PLAIN: [&str; 8] = [
+    STARTING,
+    STOPPING,
+    NOT_RUNNING,
+    RUNNING,
+    PAUSED,
+    SHUT_DOWN,
+    STOPPED,
+    ENDED,
+];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MachineView {
     pub key: String,
@@ -108,6 +128,13 @@ pub struct ConsoleChunk {
     /// Offset where output printed after the console connected begins;
     /// bytes below it are history (a replay), which must not be answered.
     pub live_from: u64,
+}
+
+impl MachineView {
+    /// The reason, when it says more than the state pill already does.
+    pub fn note(&self) -> Option<&str> {
+        Some(self.reason.as_str()).filter(|r| !PLAIN.contains(r))
+    }
 }
 
 /// Why the engine's program ended; `MachineView::exit_detail` says more.
@@ -313,6 +340,16 @@ impl Machine {
 
     pub fn view(&self) -> MachineView {
         self.inner.view()
+    }
+
+    /// The Diagnostics report for the window and its copy button; see
+    /// [`diagnostics_report`](super::diagnostics_report).
+    pub fn diagnostics_report(&self, status: &str, updates: u64, shown: u64) -> String {
+        let model = {
+            let model = self.inner.model.lock().unwrap();
+            origami_machine::product_label(&model.product, model.topology.as_deref())
+        };
+        super::diagnostics_report(&self.view(), &model, status, updates, shown)
     }
 
     /// Start the guest. Returns at once; the state moves to `Starting`, then
@@ -786,7 +823,7 @@ fn stop_within(session: Arc<dyn Session>, patience: Duration) -> CoreResult<()> 
         Err(mpsc::RecvTimeoutError::Timeout) => Err(CoreError::new(
             ErrorKind::Busy,
             format!(
-                "The machine did not power off within {} seconds. The guest may be ignoring the request, or QEMU may still be saving a disk. Wait, or use Force Quit.",
+                "The machine did not power off within {} seconds. The guest may be ignoring the request, or QEMU may still be saving a disk. Wait, or use Force quit.",
                 patience.as_secs()
             ),
         )),
@@ -964,18 +1001,9 @@ impl MachineInner {
             _ => (None, None),
         };
         let (state, reason) = match (phase, &facts) {
-            (Phase::Starting, _) => (
-                MachineState::Starting,
-                "The machine is starting.".to_string(),
-            ),
-            (Phase::Stopping, _) => (
-                MachineState::Stopping,
-                "The machine is stopping.".to_string(),
-            ),
-            (_, None) => (
-                MachineState::NotRunning,
-                "The machine is not running.".to_string(),
-            ),
+            (Phase::Starting, _) => (MachineState::Starting, STARTING.to_string()),
+            (Phase::Stopping, _) => (MachineState::Stopping, STOPPING.to_string()),
+            (_, None) => (MachineState::NotRunning, NOT_RUNNING.to_string()),
             (_, Some(RunState::Running)) => {
                 let blank = frames
                     .as_ref()
@@ -986,7 +1014,7 @@ impl MachineInner {
                         "The machine is running, with no picture: {}.",
                         why.trim_end_matches('.')
                     ),
-                    None => "The machine is running.".to_string(),
+                    None => RUNNING.to_string(),
                 };
                 (MachineState::Running, reason)
             }
@@ -996,17 +1024,17 @@ impl MachineInner {
                 format!("The machine's state is unknown: {why}"),
             ),
             (_, Some(RunState::Prelaunch | RunState::Paused)) => {
-                (MachineState::Paused, "The machine is paused.".to_string())
+                (MachineState::Paused, PAUSED.to_string())
             }
             (_, Some(RunState::Exited { last_error, .. })) => {
                 let how = match (&exit_reason, last_error, &exit_detail) {
                     (_, Some(error), _) => format!("The machine exited: {error}"),
-                    (Some(ExitReason::GuestPoweredOff), ..) => "The machine has shut down.".into(),
-                    (Some(ExitReason::HostStopped), ..) => "The machine was stopped.".into(),
+                    (Some(ExitReason::GuestPoweredOff), ..) => SHUT_DOWN.into(),
+                    (Some(ExitReason::HostStopped), ..) => STOPPED.into(),
                     (Some(ExitReason::Crashed), _, Some(how)) => {
                         format!("The machine ended: {how}.")
                     }
-                    _ => "The machine was ended.".to_string(),
+                    _ => ENDED.to_string(),
                 };
                 (MachineState::Exited, how)
             }

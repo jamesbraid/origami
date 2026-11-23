@@ -8,8 +8,8 @@ public static class Labels
     /// <summary>Settings is one scrolling page here: these are its section headings, named as the other apps name their tabs.</summary>
     public static class Settings
     {
-        public const string ProcessorMemory = "Processor & Memory", Graphics = "Graphics", Drives = "Drives", Network = "Network",
-            SharedFolders = "Shared Folders", StartupFirmware = "Startup & Firmware";
+        public const string ProcessorMemory = "Processor & memory", Graphics = "Graphics", Drives = "Drives", Network = "Network",
+            SharedFolders = "Shared folders", StartupFirmware = "Startup & firmware";
     }
 
     /// <summary>The New Machine fields in the order they appear; the IRIX release row only follows a ready-made disk.</summary>

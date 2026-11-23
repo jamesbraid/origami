@@ -538,8 +538,8 @@ fn quit_machines(app: &Rc<App>) {
     );
     dialog.add_responses(&[
         ("cancel", "Cancel"),
-        ("keep", "Keep Running"),
-        ("stop", "Power Off All"),
+        ("keep", "Keep running"),
+        ("stop", "Power off all"),
     ]);
     dialog.set_response_appearance("stop", adw::ResponseAppearance::Destructive);
     dialog.set_default_response(Some("keep"));

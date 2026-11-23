@@ -649,6 +649,8 @@ pub fn product_label(product: &str, topology: Option<&str>) -> String {
     let topology = topology.unwrap_or_default();
     let label = match product {
         "fuel" => "Fuel",
+        "indigo2" => "Indigo2",
+        "indy" => "Indy",
         "o2" => "O2",
         "octane" => "Octane",
         "octane2" => "Octane2",

@@ -39,7 +39,7 @@ impl InstallStep {
     }
 }
 
-const ALL: [InstallStep; 10] = [
+pub(super) const ALL: [InstallStep; 10] = [
     InstallStep::Release,
     InstallStep::Media,
     InstallStep::Software,
@@ -106,9 +106,9 @@ pub mod texts {
     pub const QUIT_HEADING: &str = "An IRIX install is running.";
     pub const QUIT_TEXT: &str = "Quitting stops the install server and the machine, and cancels an automated install. The install will have to start again.";
     pub const TAB_TEXT: &str = "Closing this tab stops the install server and the machine, and cancels an automated install. The install will have to start again.";
-    pub const KEEP: &str = "Keep Installing";
-    pub const STOP_AND_CLOSE: &str = "Stop and Close";
-    pub const STOP_AND_QUIT: &str = "Stop and Quit";
+    pub const KEEP: &str = "Keep installing";
+    pub const STOP_AND_CLOSE: &str = "Stop and close";
+    pub const STOP_AND_QUIT: &str = "Stop and quit";
     pub const CHECK_INTRO: &str = "Origami will switch this machine to the private installation network until the install is done. Then it checks every disc.";
     pub const MEDIA_DOWNLOAD: &str = "Fetched while the install runs, so the internet must stay connected until the install finishes.";
     pub const MEDIA_FOLDER: &str = "A folder of disc images I already have";
@@ -547,8 +547,8 @@ impl InstallFlow {
             heading: heading.into(),
             text: text.into(),
             buttons: vec![
-                ("Stop Machine".into(), CloseAction::StopMachine),
-                ("Leave Running".into(), CloseAction::LeaveRunning),
+                ("Stop machine".into(), CloseAction::StopMachine),
+                ("Leave running".into(), CloseAction::LeaveRunning),
                 ("Back".into(), CloseAction::Stay),
             ],
             default: 2,
@@ -567,7 +567,7 @@ impl InstallFlow {
             heading: "Set the network back?".into(),
             text: "The machine is still on the private installation network. Set the network back to what it was before the install?".into(),
             buttons: vec![
-                ("Set the Network Back".into(), CloseAction::SetBack),
+                ("Set the network back".into(), CloseAction::SetBack),
                 ("Leave".into(), CloseAction::Leave),
             ],
             default: 0,
@@ -677,7 +677,7 @@ mod tests {
         f.restart(4);
         assert!(
             f.close_network_question(false, true).is_some(),
-            "Start Over keeps it"
+            "Start over keeps it"
         );
         assert!(
             f.close_network_question(true, true).is_none(),

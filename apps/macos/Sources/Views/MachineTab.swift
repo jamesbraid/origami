@@ -224,7 +224,7 @@ struct StartingCard: View {
                     StageChip(title: "Emulator", symbol: "cpu", state: model.emulatorUp ? true : nil)
                     StageChip(title: "Screen", symbol: "display", state: model.hasPicture ? true : nil)
                 }
-                Button("Power Off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
+                Button("Power off") { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
             }
         }
     }
@@ -259,7 +259,7 @@ struct ProblemCard: View {
             .padding(14).background(RoundedRectangle(cornerRadius: 12).fill(Color.black.opacity(0.85)))
             Card(symbol: "exclamationmark.triangle.fill", tint: .red, title: "No picture",
                  detail: "The emulator is running but has sent no picture. Diagnostics shows what the display link reports.",
-                 actions: [("Open Diagnostics", { app.invoke(.diagnostics) }), ("Power Off", { app.invoke(.powerOff) })])
+                 actions: [("Open diagnostics", { app.invoke(.diagnostics) }), ("Power off", { app.invoke(.powerOff) })])
         }
     }
 }
@@ -283,7 +283,7 @@ struct StoppedCard: View {
     var body: some View {
         Card(symbol: "exclamationmark.octagon.fill", tint: .red, title: "Stopped unexpectedly",
              detail: model.failure ?? "The emulator exited.",
-             actions: [("Start", { app.invoke(.start) }), ("Open Diagnostics", { app.invoke(.diagnostics) })])
+             actions: [("Start", { app.invoke(.start) }), ("Open diagnostics", { app.invoke(.diagnostics) })])
     }
 }
 
@@ -293,7 +293,7 @@ struct LeftRunningCard: View {
     var body: some View {
         Card(symbol: "bolt.horizontal.circle.fill", tint: .orange, title: "Left running",
              detail: "\(model.name) kept running after Origami quit. Reconnect to see it, or power it off.",
-             actions: [("Reconnect", { app.invoke(.start) }), ("Power Off", { app.invoke(.powerOff) })])
+             actions: [("Reconnect", { app.invoke(.start) }), ("Power off", { app.invoke(.powerOff) })])
     }
 }
 

@@ -108,7 +108,7 @@ func runDocsShots(library: String, out: String) {
     }
 
     // New Machine, with the model picked and a name typed, before the machine exists.
-    capture(window("New Machine", NewMachineSheet(model: nm), 460, 340), "macos-new-machine", after: choose)
+    capture(window("New machine", NewMachineSheet(model: nm), 460, 340), "macos-new-machine", after: choose)
 
     // The same sheet with a ready-made disk picked: the list comes from origami-dist.
     func chooseReady() {
@@ -116,7 +116,7 @@ func runDocsShots(library: String, out: String) {
         guard waitFor(60, { !nm.readyDisks.isEmpty }) else { fail("origami-dist listed no ready-made disk for \(nm.name)") }
         nm.disk = .ready
     }
-    capture(window("New Machine", NewMachineSheet(model: nm), 460, 400), "macos-ready-disk", after: chooseReady)
+    capture(window("New machine", NewMachineSheet(model: nm), 460, 400), "macos-ready-disk", after: chooseReady)
     nm.disk = .noDisk
 
     #if !FAKE

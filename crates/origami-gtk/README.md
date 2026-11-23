@@ -48,7 +48,7 @@ Xvfb, wtype under cage, a virtual pointer under sway):
 - `frames`: boot to the PROM and print what presenting cost.
 - `sidebar`: real clicks on the library (select, open, row menu), the tab bar and
   the summary cards.
-- `diagnostics`: the Diagnostics window from the row menu, Copy Report and the
+- `diagnostics`: the Diagnostics window from the row menu, Copy report and the
   clipboard; `first-light` and `pointer` also check a running machine's report.
 - `console`: the Console window under real input, with the PROM's serial output
   on screen: mouse selection, copy, paste, scrollback and one window per machine.

@@ -46,6 +46,8 @@ impl Config {
 #[derive(Clone, Debug, PartialEq)]
 pub struct EngineSummary {
     pub id: String,
+    /// What a person calls the engine, such as `QEMU`.
+    pub name: String,
     pub version: Option<String>,
     pub capabilities: Capabilities,
 }
@@ -54,6 +56,8 @@ pub struct EngineSummary {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OfferingSummary {
     pub id: String,
+    /// What the New Machine picker shows, such as `Fuel, 1 CPU`.
+    pub label: String,
     pub engine: String,
     pub product: String,
     pub topology: String,
@@ -83,6 +87,8 @@ pub struct MachineSummary {
     /// What a person calls the topology; the topology itself where the
     /// catalogue has no name for it.
     pub topology_name: Option<String>,
+    /// The tiles under the machine's name: memory, nodes where several, model.
+    pub cards: Vec<super::SummaryCard>,
     /// Whether the machine has a graphics head, from its file.
     pub has_display: bool,
     /// Whether the machine runs IRIX, so Install IRIX applies.
@@ -252,6 +258,7 @@ impl Core {
             .map(|engine| {
                 let info = engine.info();
                 EngineSummary {
+                    name: super::engine_name(&info.id),
                     id: info.id,
                     version: info.version,
                     capabilities: info.capabilities,
@@ -308,6 +315,7 @@ impl Core {
                 };
                 out.push(OfferingSummary {
                     id: o.id.clone(),
+                    label: origami_machine::listing::offering_label(o),
                     engine: id.clone(),
                     product: o.product.clone(),
                     topology: o.topology.clone(),
@@ -355,37 +363,47 @@ impl Core {
             let key = key.to_string_lossy().into_owned();
             let legacy = is_legacy(&path);
             out.push(match origami_machine::read_machine(&path) {
-                Ok(file) => MachineSummary {
-                    system_disk: self.system_disk_label(&path, &file, state),
-                    runs_irix: origami_machine::install::runs_irix(
-                        &file.machine.model,
-                        file.machine.topology.as_deref().unwrap_or_default(),
-                    ),
-                    key,
-                    name,
-                    product_label: origami_machine::product_label(
-                        &file.machine.model,
-                        file.machine.topology.as_deref(),
-                    ),
-                    product: file.machine.model,
-                    topology_name: file
+                Ok(file) => {
+                    let topology_name = file
                         .machine
                         .topology
                         .as_deref()
-                        .map(|t| origami_machine::listing::machine_name(t).into()),
-                    has_display: !file.pipe.is_empty(),
-                    topology: file.machine.topology,
-                    nodes: file.machine.nodes,
-                    memory_per_node_mib: file
+                        .map(|t| origami_machine::listing::machine_name(t).to_string());
+                    let product_label = origami_machine::product_label(
+                        &file.machine.model,
+                        file.machine.topology.as_deref(),
+                    );
+                    let memory_per_node_mib = file
                         .machine
                         .memory_per_node
                         .trim_end_matches("MiB")
                         .parse()
-                        .unwrap_or(0),
-                    state,
-                    problem: None,
-                    needs_upgrade: legacy,
-                },
+                        .unwrap_or(0);
+                    MachineSummary {
+                        system_disk: self.system_disk_label(&path, &file, state),
+                        runs_irix: origami_machine::install::runs_irix(
+                            &file.machine.model,
+                            file.machine.topology.as_deref().unwrap_or_default(),
+                        ),
+                        key,
+                        name,
+                        cards: super::summary_cards(
+                            topology_name.as_deref().unwrap_or(&product_label),
+                            file.machine.nodes,
+                            memory_per_node_mib,
+                        ),
+                        product_label,
+                        product: file.machine.model,
+                        topology_name,
+                        has_display: !file.pipe.is_empty(),
+                        topology: file.machine.topology,
+                        nodes: file.machine.nodes,
+                        memory_per_node_mib,
+                        state,
+                        problem: None,
+                        needs_upgrade: legacy,
+                    }
+                }
                 Err(error) => {
                     let error = CoreError::machine(error);
                     MachineSummary {
@@ -395,6 +413,7 @@ impl Core {
                         product_label: String::new(),
                         topology: None,
                         topology_name: None,
+                        cards: Vec::new(),
                         has_display: false,
                         runs_irix: false,
                         nodes: 0,

@@ -314,7 +314,7 @@ impl Asst {
         let banner = named(
             adw::Banner::builder()
                 .title("The machine stopped.")
-                .button_label("Start Again")
+                .button_label("Start again")
                 .build(),
             "install.stopped",
         );
@@ -347,7 +347,7 @@ impl Asst {
             "install.footer",
         );
         let restart = button("Restart", "install.restart");
-        let start_over = button("Start Over", "install.start-over");
+        let start_over = button("Start over", "install.start-over");
         let cancel = button("Cancel", "install.cancel");
         let back = button("Back", "install.back");
         let next = button("Continue", "install.continue");
@@ -723,7 +723,7 @@ impl Asst {
             folder,
             &mut group,
         );
-        let choose = button("Choose Folder…", "install.media.choose");
+        let choose = button("Choose folder…", "install.media.choose");
         let shown = named(
             text(
                 &path
@@ -880,7 +880,7 @@ impl Asst {
     fn add_package(self: &Rc<Self>) {
         let dialog = named(
             adw::Dialog::builder()
-                .title("Add a Package")
+                .title("Add a package")
                 .content_width(440)
                 .build(),
             "install.package.dialog",
@@ -892,7 +892,7 @@ impl Asst {
             "install.package.source",
         );
         let pick = gtk::Button::builder()
-            .label("Choose File…")
+            .label("Choose file…")
             .valign(gtk::Align::Center)
             .build();
         source.add_suffix(&pick);
@@ -931,7 +931,7 @@ impl Asst {
         let (me, s) = (self.clone(), source.clone());
         pick.connect_clicked(move |_| {
             let s = s.clone();
-            disks::pick_path(&me.win, "Choose a Package", move |p| {
+            disks::pick_path(&me.win, "Choose a package", move |p| {
                 s.set_text(&p.display().to_string())
             });
         });
@@ -1036,7 +1036,7 @@ impl Asst {
         );
         let infoline = named(text(""), "install.check.info");
         infoline.set_visible(false);
-        let now = button("Check Now", "install.check.now");
+        let now = button("Check now", "install.check.now");
         let thorough = check(
             "Check thoroughly (also reads the downloaded discs)",
             "install.check.full",
@@ -1120,7 +1120,7 @@ impl Asst {
                         };
                         status.set_label(&words);
                         if result == CheckState::Failed {
-                            b.set_label("Check Again");
+                            b.set_label("Check again");
                         }
                         if let Some(me) = weak.upgrade() {
                             me.flow.borrow_mut().set_check(result);
@@ -1198,11 +1198,11 @@ impl Asst {
         let hint = named(text(""), "install.apply.hint");
         let bar = gtk::ProgressBar::new();
         let line = named(text(""), "install.apply.progress");
-        let stop = button("Cancel Install", "install.apply.cancel");
+        let stop = button("Cancel install", "install.apply.cancel");
         let failure = named(text(""), "install.apply.error");
         failure.add_css_class("error");
         let fixed = button("I fixed it at Inst>", "install.apply.fixed");
-        let console = button("Open Console", "install.open-console");
+        let console = button("Open console", "install.open-console");
         append(
             &self.content,
             &[
@@ -1302,9 +1302,9 @@ impl Asst {
         }
         if step != InstallStep::Finish {
             let r = row();
-            let show = gtk::Button::with_label("Show Machine");
+            let show = gtk::Button::with_label("Show machine");
             let console = named(
-                gtk::Button::with_label("Open Console"),
+                gtk::Button::with_label("Open console"),
                 "install.open-console",
             );
             let (app, m) = (self.app.clone(), self.m.clone());
@@ -1371,7 +1371,7 @@ impl Asst {
                 });
             }
             if let (true, Some(send)) = (self.serial, st.send.clone()) {
-                let type_it = side("Type It", "type");
+                let type_it = side("Type it", "type");
                 let me = self.clone();
                 type_it.connect_clicked(move |_| {
                     if let Err(e) = me.m.machine.console_send(send.as_bytes()) {

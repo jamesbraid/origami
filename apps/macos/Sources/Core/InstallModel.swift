@@ -168,7 +168,7 @@ final class InstallModel: ObservableObject {
     // MARK: media
 
     func chooseFolder() {
-        guard let url = choosePath("Choose Folder", true) else { return }
+        guard let url = choosePath("Choose folder", true) else { return }
         checkFolder(url)
     }
 

@@ -84,7 +84,7 @@ pub(crate) fn table() -> Vec<Command> {
     vec![
         command(
             "machine.new",
-            "New Machine",
+            "New machine",
             Always,
             ["Cmd+N", "Ctrl+N", "Ctrl+N"],
         ),
@@ -98,14 +98,14 @@ pub(crate) fn table() -> Vec<Command> {
         // there is no session to stop until it returns. Cancel the Start instead.
         command(
             "machine.stop",
-            "Power Off",
+            "Power off",
             MachineLive,
             ["Alt+Cmd+P", "Ctrl+Shift+P", "Ctrl+Shift+P"],
         ),
-        // Force Quit and Reset have no shortcut: they always confirm.
+        // Force quit and reset have no shortcut: they always confirm.
         command(
             "machine.force-quit",
-            "Force Quit",
+            "Force quit",
             MachineLive,
             ["", "", ""],
         ),
@@ -154,7 +154,7 @@ pub(crate) fn table() -> Vec<Command> {
         ),
         command(
             "machine.release-keys",
-            "Release Keys",
+            "Release keys",
             MachineLive,
             ["Cmd+Shift+K", "Ctrl+Shift+K", "Ctrl+Shift+K"],
         ),

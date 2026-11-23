@@ -7,19 +7,10 @@ import SwiftUI
 
 @MainActor
 func diagnosticsReport(_ model: MachineModel) -> String {
-    var out = ["Machine: \(model.name) (\(model.record.product.name))", "State: \(model.state.pill)"]
-    if let p = model.picture { out.append("Picture: \(p.width) x \(p.height)") }
-    if let s = model.session {
-        guard let v = model.coreView else { out.append("Waiting for the core."); return out.joined(separator: "\n") }
-        out.append("Engine: \(v.engine), core state: \(v.state), reason: \(v.reason)")
-        if let e = v.lastError { out.append("Last error: \(e)") }
-        for h in v.heads { out.append("Head \(h.index): \(h.width) x \(h.height), picture \(h.active ? "yes" : "no"), sequence \(h.seq)") }
-        out.append("Console: \(v.console.connected ? "connected" : "down\(v.console.downReason.map { " (\($0))" } ?? "")"), \(v.console.total) bytes")
-        out.append("Frame wake-ups received: \(s.wakes), presented by the app: \(model.view?.presented ?? 0)")
-    } else {
-        out.append("The machine has not been opened by this app.")
+    guard let s = model.session else {
+        return "Machine: \(model.name)\nStatus: \(model.state.pill)\nThe machine has not been opened by this app."
     }
-    return out.joined(separator: "\n")
+    return s.machine.diagnosticsReport(status: model.state.pill, updates: UInt64(s.wakes), shown: UInt64(model.view?.presented ?? 0))
 }
 
 struct DiagnosticsView: View {
@@ -35,7 +26,7 @@ struct DiagnosticsView: View {
                         Text(model.name).font(.headline)
                         StatusPill(state: model.state)
                         Spacer()
-                        Button("Copy Report") {
+                        Button("Copy report") {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(report, forType: .string)
                         }
@@ -78,8 +69,8 @@ struct MachineSettings: View {
     static let sidebarWidth: CGFloat = 190
 
     enum Pane: String, CaseIterable, Identifiable {
-        case general = "General", processor = "Processor & Memory", graphics = "Graphics",
-             drives = "Drives", network = "Network", shares = "Shared Folders", startup = "Startup & Firmware", input = "Input"
+        case general = "General", processor = "Processor & memory", graphics = "Graphics",
+             drives = "Drives", network = "Network", shares = "Shared folders", startup = "Startup & firmware", input = "Input"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -221,7 +212,7 @@ struct MachineSettings: View {
                 }
             }
         }
-        Button("Share a Folder…") { if let dir = PathPicker.chooseFolder("Share") { edit.chooseShareFolder(dir) } }.disabled(locked || edit.working)
+        Button("Share a folder…") { if let dir = PathPicker.chooseFolder("Share") { edit.chooseShareFolder(dir) } }.disabled(locked || edit.working)
         Text("Run these as root in IRIX once it is up with nfs.sw.nfs installed. Files you write land on this computer as you.")
             .font(.caption).foregroundStyle(.secondary)
     }
@@ -238,7 +229,7 @@ struct MachineSettings: View {
                 Spacer()
                 if d.kind == "cdrom" {
                     // A CD changes while the machine runs, unlike the rest of the pane.
-                    Button("Change CD…") { if let u = PathPicker.choose("Choose a CD-ROM Image") { edit.changeMedia(d.name, to: u) } }
+                    Button("Change CD…") { if let u = PathPicker.choose("Choose a CD-ROM image") { edit.changeMedia(d.name, to: u) } }
                         .disabled(edit.working).accessibilityLabel("Change CD \(d.name)")
                     Button("Eject") { edit.changeMedia(d.name, to: nil) }.disabled(edit.working).accessibilityLabel("Eject \(d.name)")
                 }
@@ -250,14 +241,14 @@ struct MachineSettings: View {
         let diskTarget = locked ? nil : s.diskTarget
         let cdTarget = locked ? nil : s.cdTarget
         HStack {
-            Button("Add Disk Image…") {
+            Button("Add disk image…") {
                 let choice = ImageChoice(core: { [model] in model.coreHost.core }, machine: model.record.key)
                 choice.choose()
                 if choice.path != nil { adding = choice }
             }.disabled(diskTarget == nil || edit.working)
             if !s.drives.contains(where: { $0.kind == "cdrom" }) {
-                Button("Insert CD-ROM Image…") {
-                    if let u = PathPicker.choose("Choose a CD-ROM Image"), let t = cdTarget { edit.attachCD(u, target: t) }
+                Button("Insert CD-ROM image…") {
+                    if let u = PathPicker.choose("Choose a CD-ROM image"), let t = cdTarget { edit.attachCD(u, target: t) }
                 }.disabled(cdTarget == nil || edit.working)
             }
         }
@@ -273,13 +264,12 @@ struct MachineSettings: View {
             HStack { MachineArt(product: r.product, pt: Int(Tokens.Size.artSummary)); Text(r.name).font(.title2.weight(.semibold)) }
             LabeledContent("Name", value: r.name)
             LabeledContent("Model", value: r.product.name)
-            if let t = r.topology { LabeledContent("Topology", value: t) }
-            LabeledContent("Nodes", value: "\(r.nodes)")
+            if r.nodes > 1 { LabeledContent("Nodes", value: "\(r.nodes)") }
             LabeledContent("Memory", value: r.memory)
         case .processor:
             if let s = edit.settings {
                 LabeledContent("Processor", value: "\(s.processor) \(s.processorPart)")
-                LabeledContent("Nodes", value: "\(s.nodes)")
+                if s.nodes > 1 { LabeledContent("Nodes", value: "\(s.nodes)") }
                 Picker("Processors per node", selection: Binding(get: { Int(s.cpusPerNode) }, set: { edit.apply(.setProcessor(cpusPerNode: UInt32($0))) })) {
                     ForEach(s.cpusPerNodeAllowed.map { Int($0) }, id: \.self) { Text("\($0)").tag($0) }
                 }.disabled(locked || edit.working)
@@ -300,7 +290,7 @@ struct MachineSettings: View {
             if let s = edit.settings { sharesPane(s) } else { loadingRow }
         case .startup:
             if let s = edit.settings {
-                Section("Startup and firmware") {
+                Section("Startup & firmware") {
                     Picker("Console serial line", selection: Binding(get: { s.consolePort }, set: { edit.setConsole($0) })) {
                         ForEach(s.consolePorts, id: \.name) { Text($0.label).tag($0.name) }
                     }.disabled(locked || edit.working)
@@ -326,7 +316,7 @@ struct ShareNameSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Share a Folder").font(.headline)
+            Text("Share a folder").font(.headline)
             TextField("Name in IRIX", text: Binding(get: { edit.draft?.name ?? "" }, set: { edit.draft?.name = $0 }))
             LabeledContent("Folder", value: edit.draft?.dir.path ?? "")
             if let p = edit.draftProblem { Text(p).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true) }
@@ -349,14 +339,14 @@ struct AddDiskSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Add a Disk Image").font(.headline)
+            Text("Add a disk image").font(.headline)
             ImageChoiceView(choice: choice)
             if let p = edit.progress { OperationProgress(progress: p) { edit.cancelCopy() } }
             if let e = edit.error { Text(e).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true) }
             HStack {
                 Spacer()
                 Button("Cancel") { if edit.working { edit.cancelCopy() } else { dismiss() } }.keyboardShortcut(.cancelAction)
-                Button("Add Disk") { edit.addDisk(choice, target: target) { ok in if ok { dismiss() } } }
+                Button("Add disk") { edit.addDisk(choice, target: target) { ok in if ok { dismiss() } } }
                     .keyboardShortcut(.defaultAction).disabled(!choice.ready || edit.working)
             }
         }
@@ -376,7 +366,7 @@ struct PreferencesView: View {
             Form {
                 Section("Library folder") {
                     Text((app.root.path as NSString).abbreviatingWithTildeInPath)
-                    Button("Choose Library Folder…") { app.invoke(.chooseLibrary) }
+                    Button("Choose library folder…") { app.invoke(.chooseLibrary) }
                 }
             }
             .formStyle(.grouped).tabItem { Label("General", systemImage: "gearshape") }

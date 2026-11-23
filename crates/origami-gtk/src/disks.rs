@@ -201,7 +201,7 @@ impl ImageForm {
     /// Choose a file, then read it.
     pub fn choose(self: &Rc<Self>, parent: &impl IsA<gtk::Window>) {
         let f = self.clone();
-        pick_path(parent, "Choose a Disk Image", move |path| f.set_path(path));
+        pick_path(parent, "Choose a disk image", move |path| f.set_path(path));
     }
 
     fn set_path(self: &Rc<Self>, path: PathBuf) {

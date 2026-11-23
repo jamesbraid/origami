@@ -50,7 +50,7 @@ final class ImageChoice: ObservableObject {
         self.machine = machine
     }
 
-    func choose() { if let url = PathPicker.choose("Choose a Disk Image") { set(url) } }
+    func choose() { if let url = PathPicker.choose("Choose a disk image") { set(url) } }
 
     func set(_ url: URL) {
         guard let core = core() else { return }
@@ -112,7 +112,7 @@ struct ImageChoiceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button("Choose an Image…") { choice.choose() }
+                Button("Choose an image…") { choice.choose() }
                 if let p = choice.path {
                     Text(p.lastPathComponent).lineLimit(1).truncationMode(.middle)
                     if let c = choice.check { Text(origamiSizeLabel(bytes: c.bytes)).foregroundStyle(.secondary) }

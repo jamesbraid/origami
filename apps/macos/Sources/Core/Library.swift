@@ -59,10 +59,11 @@ struct MachineRecord: Identifiable, Hashable {
 
     var id: String { key }
 
-    /// The summary cards: always Memory, Nodes and Topology. Other hardware belongs in Settings.
+    /// The summary cards, worded by the core. Other hardware belongs in Settings.
     var cards: [(symbol: String, title: String, value: String)] {
-        [("memorychip", "Memory", memory), ("cpu", "Nodes", "\(nodes)"), ("square.stack.3d.up", "Topology", topology ?? "Unknown")]
+        coreCards.map { ($0.title == "Memory" ? "memorychip" : $0.title == "Nodes" ? "cpu" : "square.stack.3d.up", $0.title, $0.value) }
     }
+    let coreCards: [OrigamiSummaryCard]
     var product: Product {
         var p = Product.of(model: productName, label: productLabel)
         if let id = Art.id(topology: topology, product: productName) {
@@ -72,10 +73,7 @@ struct MachineRecord: Identifiable, Hashable {
         return p
     }
 
-    var memory: String {
-        let total = memoryPerNodeMiB * max(1, nodes)
-        return total >= 1024 && total % 1024 == 0 ? "\(total / 1024) GB" : "\(total) MB"
-    }
+    var memory: String { coreCards.first { $0.title == "Memory" }?.value ?? "" }
 
     init(_ s: OrigamiMachineSummary) {
         key = s.key
@@ -83,6 +81,7 @@ struct MachineRecord: Identifiable, Hashable {
         productName = s.product
         productLabel = s.productLabel
         topology = s.topology
+        coreCards = s.cards
         nodes = Int(s.nodes)
         memoryPerNodeMiB = Int(s.memoryPerNodeMib)
         needsUpgrade = s.needsUpgrade

@@ -538,10 +538,10 @@ public static class Selftest
             Check("rows: a double click opens a tab and keeps the first machine's", await Until(() => w.TabCount == 2 && w.ActiveTabKey == other2, 2500), $"tabs {w.TabCount}, active {w.ActiveTabKey}");
         }
         else Check("rows: a library row can be clicked", false, "no row found");
-        Check("rows: the context menu offers Open in New Tab and Show in Explorer", w.RowMenuTexts(first2).SequenceEqual(new[] { "Open in New Tab", "Show in Explorer" }), string.Join(",", w.RowMenuTexts(first2)));
+        Check("rows: the context menu offers Open in New Tab and Show in Explorer", w.RowMenuTexts(first2).SequenceEqual(new[] { "Open in new tab", "Show in Explorer" }), string.Join(",", w.RowMenuTexts(first2)));
         w.SelectForTabs(first2); await Until(() => w.SelectedKey == first2, 2000);
         await w.CloseTabAsync(other2, ask: false);
-        Check("cards: Memory, Nodes and Topology show on the stopped machine's card", w.CardsText.Contains("Memory") && w.CardsText.Contains("Node") && w.CardsText.Contains("Topology"), w.CardsText);
+        Check("cards: Memory and Model show on the stopped machine's card, Nodes only with several", w.CardsText.Contains("Memory") && w.CardsText.Contains("Model") && !w.CardsText.Contains("Node") && !w.CardsText.Contains("Topology"), w.CardsText);
         key = w.SelectedKey!;
         // --- the app icon: embedded in the exe, and copied beside it for the window ---
         Check("icon: the exe carries the Origami icon", ExtractIconEx(Environment.ProcessPath!, -1, null, null, 0) > 0, $"{ExtractIconEx(Environment.ProcessPath!, -1, null, null, 0)} icon group(s)");
@@ -844,13 +844,13 @@ public static class Selftest
         Check("diagnostics: the window opens", diag != null);
         if (diag != null)
         {
-            Check("diagnostics: the report fills in", await Until(() => diag.ReportText.Contains("wake-ups"), 3000));
+            Check("diagnostics: the report fills in", await Until(() => diag.ReportText.Contains("Frame updates"), 3000));
             var rt = diag.ReportText;
-            Check("diagnostics: the report shows the engine, state, heads and screen counts", rt.Contains("fake") && rt.Contains("Running") && rt.Contains("64x48") && rt.Contains("wake-ups"), rt.Replace("\r", "").Replace("\n", " | "));
+            Check("diagnostics: the report shows the engine, state, heads and screen counts", rt.Contains("fake") && rt.Contains("Running") && rt.Contains("64 x 48") && rt.Contains("Frame updates"), rt.Replace("\r", "").Replace("\n", " | "));
             diag.Copy();
             string clip = "";
             try { clip = await Windows.ApplicationModel.DataTransfer.Clipboard.GetContent().GetTextAsync(); } catch (Exception e) { clip = "clipboard: " + e.Message; }
-            Check("diagnostics: Copy Report puts the report on the clipboard", clip == diag.ReportText, clip.Length > 80 ? clip[..80] : clip);
+            Check("diagnostics: Copy report puts the report on the clipboard", clip == diag.ReportText, clip.Length > 80 ? clip[..80] : clip);
             diag.Close();
         }
 
@@ -929,7 +929,7 @@ public static class Selftest
         // --- stopping a machine that has already ended is not an error ---
         string again = "ok";
         try { await core.PowerOffAsync(key); await core.ForceQuitAsync(key); } catch (Exception e) { again = e.GetType().Name + ": " + e.Message; }
-        Check("stop: Power Off and Force Quit on an ended machine do not fail", again == "ok", again);
+        Check("stop: Power off and Force quit on an ended machine do not fail", again == "ok", again);
         Check("quit: no machine is up, so quitting would not prompt", w.UpNames.Count == 0, string.Join(",", w.UpNames));
 
         // --- a machine with no display opens to its console ---

@@ -259,7 +259,7 @@ func runSelfTest(library: String, out: String) {
         } } ?? false
         let gpl = doc?.licences.first { $0.name == "GNU General Public License" }
         check("credits-every-photograph-has-a-credit-and-a-link", credited, ["scenes": scenes, "photographs": doc?.photographs.count ?? -1])
-        check("credits-licences-carry-qemus-gpl-and-source", gpl?.entries.contains { $0.components == ["QEMU"] && $0.text.contains("Version 2") } == true
+        check("credits-licences-carry-qemus-gpl-and-source", gpl?.entries.contains { $0.components == ["QEMU (Origami)"] && $0.text.contains("Version 2") } == true
               && doc?.qemu.url.contains("/tree/sgi-origami-") == true, ["licences": doc?.licences.map(\.name) ?? []])
         func opens<V: View>(_ view: V) -> NSSize {
             let hosting = NSHostingView(rootView: view)
@@ -364,13 +364,13 @@ func runSelfTest(library: String, out: String) {
             check("open-in-new-tab-adds-a-tab", app.tabs == [ids[0], ids[1]] && app.active == ids[1], ["tabs": app.tabs.count])
         }
     }
-    // Parity: the tab bar is up with one tab, and the cards are Memory, Nodes and Topology.
+    // Parity: the tab bar is up with one tab, and the cards are Memory and Model (Nodes only on a machine with several).
     do {
         app.closeAllTabsForTest()
         let bare = app.showsTabBar
         app.select(model.id)
         check("tab-bar-shows-with-one-tab", !bare && app.tabs.count == 1 && app.showsTabBar, [:])
-        check("summary-cards-are-memory-nodes-topology", model.record.cards.map(\.title) == ["Memory", "Nodes", "Topology"], [:])
+        check("summary-cards-are-memory-then-model", model.record.cards.map(\.title) == ["Memory", "Model"], [:])
     }
     // A start that fails stays "Stopped unexpectedly" with its reason, through later refreshes.
     do {
@@ -393,7 +393,7 @@ func runSelfTest(library: String, out: String) {
     check("ui-hero-renders", hero.ok && hero.colours > 20, ["distinct_colours_sampled": hero.colours])
     // An O2's summary pane in dark and light, at 2x, for looking at the tint fade by eye.
     if let tint = ProcessInfo.processInfo.environment["ORIGAMI_TINT_PNG"] {
-        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", hasDisplay: true, runsIrix: true, nodes: 1,
+        let o2 = MachineModel(summary: OrigamiMachineSummary(key: "/tmp/o2-tint", name: "o2-tint", product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", cards: [], hasDisplay: true, runsIrix: true, nodes: 1,
                                                              memoryPerNodeMib: 512, state: .notRunning, problem: nil, needsUpgrade: false, systemDisk: nil),
                               host: host, defaultPointer: .follow)
         let size = CGSize(width: 800, height: 600)
@@ -1189,7 +1189,7 @@ func runSelfTest(library: String, out: String) {
 
     // 7. The diagnostics report and the running view's card.
     let report = diagnosticsReport(model)
-    check("diagnostics-report", report.contains(model.name) && report.contains("Engine: fake"), ["lines": report.split(separator: "\n").count])
+    check("diagnostics-report", report.contains(model.name) && report.contains("Engine:") && report.contains("Frame updates:"), ["lines": report.split(separator: "\n").count])
     let running = snapshot(ScreenView(model: model).environmentObject(app), size: CGSize(width: 900, height: 700), to: "\(out)/ui-screen-view.png")
     check("ui-screen-view-renders", running.ok && running.colours > 5, ["distinct_colours_sampled": running.colours])
     let tips = ToolbarTip.all

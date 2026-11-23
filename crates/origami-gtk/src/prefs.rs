@@ -17,15 +17,6 @@ pub enum PointerMode {
     Capture,
 }
 
-impl PointerMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            PointerMode::Follow => "Follows mouse",
-            PointerMode::Capture => "Capture on click",
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Prefs {
     #[serde(default)]

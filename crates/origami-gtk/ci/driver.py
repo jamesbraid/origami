@@ -317,7 +317,7 @@ def wayland_pointer(a):
 
 
 def diagnostics_window(a, name):
-    """The open Diagnostics window's report, its Copy Report button clicked
+    """The open diagnostics window's report, its Copy Report button clicked
     with a real click, and what lands on the clipboard (X11 only)."""
     got = a.wait("diagnostics window", lambda: (a.machine(name) or {}).get("diagnostics"), 10, 0.2)
     if not check("the Diagnostics window opens", got):
@@ -331,9 +331,9 @@ def diagnostics_window(a, name):
         click()
         time.sleep(0.5)
         text = a.req("clipboard").get("text")
-        check("Copy Report puts the report on the clipboard", text and text.strip() == got["report"].strip(), text)
+        check("Copy report puts the report on the clipboard", text and text.strip() == got["report"].strip(), text)
     else:
-        skip("Copy Report", "no Diagnostics window or button to click")
+        skip("Copy report", "no Diagnostics window or button to click")
     return got["report"]
 
 
@@ -357,7 +357,7 @@ def diagnostics():
         report = diagnostics_window(a, "octane2")
         if report:
             shot("diagnostics")
-            for want in ("Machine:      octane2", "Engine:       ", "State:        Stopped (NotRunning)", "Last error:   none", "Heads:", "Console:      ", "Screen:       "):
+            for want in ("Machine:", "octane2", "Engine:", "QEMU (Origami)", "Status:", "Stopped", "Last error:", "none", "Display", "Console:", "Frame updates:"):
                 check("report has " + want.strip(), want in report, report)
         a.req("invoke window.diagnostics octane2")
         time.sleep(0.5)
@@ -520,7 +520,7 @@ def first_light(quick=False):
             a.req("invoke window.diagnostics octane2")
             w, h = c["width"], c["height"]
             report = diagnostics_window(a, "octane2")
-            check("diagnostics: a running machine shows its head and state", report and "State:        Running\n" in report and "%dx%d  picture yes" % (w, h) in report, report)
+            check("diagnostics: a running machine shows its head and state", report and "Running\n" in report and "%d x %d, picture yes" % (w, h) in report, report)
             sh("wmctrl", "-c", "Diagnostics")
         st = a.req("stats")["machines"][0]
         sc = st.get("scanout")
@@ -825,7 +825,7 @@ def settings():
         r = act("network.subnet 8.8.8.0/24")
         check("a public subnet is refused and the file keeps the old one",
               r.get("ok") and "8.8.8.0" not in read() and "10.42.0.0/24" in read() and a.state()["settings_builds"] == builds, [r, read()[-300:]])
-        # A folder is shared through the Shared Folders page and its name sheet; a bad name is refused.
+        # A folder is shared through the Shared folders page and its name sheet; a bad name is refused.
         a.req("pick " + lib)
         act("share.add-folder")
         act("share.name src")
@@ -924,7 +924,7 @@ def install():
         check("Install IRIX opens", r.get("ok") and at("Release"), r)
         check("6.5.30 Standard is the default", widget("install.release.6.5.30").get("active") and widget("install.profile.standard").get("active"))
         press("install.continue")
-        check("Continue moves to Media", at("Media"))
+        check("Continue moves to media", at("Media"))
         empty = os.path.join(work, "discs")
         os.makedirs(empty, exist_ok=True)
         press("install.media.folder")
@@ -965,7 +965,7 @@ def install():
         a.wait("serial output", lambda: received() > 0, 600, 3)
         check("a serial machine has Type It", widget("install.type.6.0").get("found"))
         before = received()
-        check("Type It sends", ok("activate install.type.6.0"))
+        check("Type it sends", ok("activate install.type.6.0"))
         echoed = a.wait("the guest's answer", lambda: received() > before, 60, 1)
         check("the guest answers what Type It sent", echoed, (before, received()))
         press("install.continue")
@@ -1458,7 +1458,7 @@ def sidebar():
         row("octane2-c")
         click(3)
         shown = a.wait("row menu", lambda: chrome()["row_menu"], 20, 0.2)
-        check("a right click shows the row menu with its items", shown and chrome()["row_menu_items"] == ["Open in New Tab", "Show in Files", "Diagnostics"], chrome())
+        check("a right click shows the row menu with its items", shown and chrome()["row_menu_items"] == ["Open in new tab", "Show in Files", "Diagnostics"], chrome())
         shot("sidebar-menu")
         key("Return")
         a.wait("tab", lambda: len(opened()) == 3, 20, 0.2)

@@ -88,8 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.informativeText = running.count == 1
             ? "Keep it running to find it again the next time Origami opens, or power it off now."
             : "Keep them running to find them again the next time Origami opens, or power them off now. (\(names))"
-        alert.addButton(withTitle: "Keep Running")
-        alert.addButton(withTitle: "Power Off")
+        alert.addButton(withTitle: "Keep running")
+        alert.addButton(withTitle: "Power off")
         alert.addButton(withTitle: "Cancel")
         switch alert.runModal() {
         case .alertFirstButtonReturn: AppDelegate.reply(true)
@@ -116,10 +116,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.messageText = force ? "\(names) would not stop" : "\(names) did not power off"
             let why = failed.compactMap(\.failure).first
             alert.informativeText = force ? (why ?? "The emulator did not stop.")
-                : "Force Quit stops the emulator at once; changes the guest has not written to disk are lost."
-            if !force { alert.addButton(withTitle: "Force Quit Instead") }
-            alert.addButton(withTitle: "Quit and Leave Running")
-            alert.addButton(withTitle: "Cancel Quit")
+                : "Force quit stops the emulator at once; changes the guest has not written to disk are lost."
+            if !force { alert.addButton(withTitle: "Force quit instead") }
+            alert.addButton(withTitle: "Quit and leave running")
+            alert.addButton(withTitle: "Cancel quit")
             let r = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
             let choice = force ? r + 1 : r
             switch choice {
@@ -141,7 +141,7 @@ struct OrigamiCommands: Commands {
         case .followMouse:
             Toggle(c.title, isOn: Binding(get: { app.current?.pointerMode == .follow }, set: { _ in app.invoke(c) })).disabled(!enabled)
         case .showLibrary:
-            Button(app.sidebarVisible ? "Hide Library" : "Show Library") { app.invoke(c) }
+            Button(app.sidebarVisible ? "Hide library" : "Show library") { app.invoke(c) }
                 .keyboardShortcut("s", modifiers: [.control, .command])
         default:
             if let key = c.info.key {

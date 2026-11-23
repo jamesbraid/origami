@@ -41,6 +41,10 @@ public interface ICoreClient : IDisposable
     ImageVerdict Verdict(DiskImageCheck check, bool copy);
     /// <summary>The disk choices and how an image is kept, in the core's words.</summary>
     DiskLabels Labels();
+    /// <summary>The engine as a person knows it, such as "QEMU (Origami)".</summary>
+    string EngineName(string id);
+    /// <summary>The pointer status line, such as "Follows mouse".</summary>
+    string PointerStatus(bool follows, bool captured);
     /// <summary>A byte count as every app shows it, such as "3.3 GB".</summary>
     string SizeLabel(ulong bytes);
     /// <summary>Adds a disk image to a stopped machine, used where it is or copied into its folder.</summary>
@@ -78,6 +82,8 @@ public interface ICoreClient : IDisposable
 
     DisplayInfo Display(string key, int head);
     MachineDiag Diagnostics(string key);
+    /// <summary>The Diagnostics report, worded by the core and the same in every app.</summary>
+    string DiagnosticsReport(string key, MachineState state, long updates, long shown);
     /// <summary>The activity view for the latest emulated-CPU load,  (the core glides it from the last one); the core samples while this keeps being called, so call it only while the panel is shown.</summary>
     Task<OsviewScene> OsviewAsync(string key);
     IFrames OpenFrames(string key);

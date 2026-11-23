@@ -178,6 +178,16 @@ mod tests {
     }
 
     #[test]
+    fn every_offering_has_a_plain_label() {
+        let labels: Vec<_> = catalogue()
+            .offerings
+            .iter()
+            .map(origami_machine::listing::offering_label)
+            .collect();
+        assert_eq!(labels, ["Indy, 1 CPU", "Indigo2, 1 CPU", "Octane2, 1 CPU"]);
+    }
+
+    #[test]
     fn every_offering_names_its_iris_data() {
         let catalogue = catalogue();
         for offering in &catalogue.offerings {
