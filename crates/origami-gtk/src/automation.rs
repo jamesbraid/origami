@@ -558,9 +558,14 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             match (widget.downcast_ref::<adw::ComboRow>(), value) {
                 (Some(row), Some(value)) => {
                     let list = row.model().and_downcast::<gtk::StringList>();
-                    let at = (0..list.as_ref().map_or(0, |l| l.n_items())).find(|&i| {
-                        list.as_ref().and_then(|l| l.string(i)).as_deref() == Some(value)
-                    });
+                    let item = |i| list.as_ref().and_then(|l| l.string(i));
+                    let n = list.as_ref().map_or(0, |l| l.n_items());
+                    // An item's exact text, else the first that starts with VALUE.
+                    let at = (0..n)
+                        .find(|&i| item(i).as_deref() == Some(value))
+                        .or_else(|| {
+                            (0..n).find(|&i| item(i).is_some_and(|s| s.starts_with(value)))
+                        });
                     match at {
                         Some(i) => {
                             row.set_selected(i);

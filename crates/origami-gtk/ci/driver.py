@@ -2220,19 +2220,77 @@ def doc_shot(name, title="Origami"):
     check("saved " + name, os.path.exists(p), g)
 
 
+def irix_settled(a, name, secs=1800):
+    """IRIX has booted to its login screen: the picture, read off the emulator's own screendump, is no
+    longer the PROM's, has many colours and has stopped changing."""
+    t0 = time.time()
+
+    def f():
+        m = a.machine(name)
+        if not m or m["state"] != "Running" or time.time() - t0 < 60 or m["idle_ms"] < 20000:
+            return None
+        c = a.req("compare menu-probe " + name)
+        if "ppm" not in c:
+            return None
+        png = ppm_to_png(c["ppm"], "settle-probe")
+        text = ocr(png)
+        if "Start System" in text or "any key" in text:
+            return None
+        return c if int(sh("identify", "-format", "%k", png).stdout or 0) > 200 else None
+    r = a.wait("IRIX booted", f, timeout=secs, step=10)
+    check("IRIX booted to a settled picture in %d s" % (time.time() - t0), r is not None)
+    return r
+
+
 def docs():
     """The walkthrough in docs/app.md: one real session, each step photographed under its name.
     The console shot needs a second boot, after the first has set up NVRAM."""
     if mode != "x11":
         skip("docs", "needs XTest")
         return
-    create_machine("octane2")
+    os.makedirs(lib, exist_ok=True)
     a = App()
     try:
-        a.wait("library", lambda: a.state()["library"], 30)
+        # The machine is made the way a user makes it: Ready-made disk in New Machine, downloaded once and cached.
+        a.req("invoke machine.new")
+        a.wait("the Octane2 model", lambda: a.req("activate new.model Octane2").get("ok"), 60, 0.5)
+        # A model change reloads the disk list and resets the choice, so let that finish first.
+        time.sleep(8)
+        a.wait("Ready-made disk", lambda: a.req("activate new.disk.ready").get("ok"), 60, 1)
+        a.wait("IRIX 6.5.30, 1.1 GB", lambda: a.req("activate new.release IRIX 6.5.30, 1.1").get("ok"), 60, 1)
+        a.req("activate new.name octane2")
+        time.sleep(2)
+        doc_shot("linux-ready-disk")
+        t0 = time.time()
+        a.wait("Create", lambda: a.req("activate new.create").get("ok"), 30, 0.5)
+        listed = a.wait("created", lambda: "octane2" in a.state()["library"], 2400, 5)
+        # The machine is listed before its disk is copied in; the dialog closes when that is done.
+        a.wait("the dialog to close", lambda: a.req("widget new.dialog").get("found") is False, 1800, 5)
+        check("the ready-made disk was downloaded and copied in %d s" % (time.time() - t0), listed is not None)
         a.req("open octane2")
+        a.wait("the System card", lambda: len((a.machine("octane2") or {}).get("cards") or []) == 3, 120, 1)
         time.sleep(2)
         doc_shot("linux-library")
+        # Before the console is set to a serial line, so the assistant has no Method step, as on the other apps.
+        a.req("invoke machine.settings octane2")
+        a.wait("the Network page", lambda: a.req("activate prefs.page.network").get("ok"), 30, 0.5)
+        a.wait("Bridged", lambda: a.req("activate settings.network.tap").get("ok"), 30, 0.5)
+        time.sleep(3)
+        doc_shot("linux-network")
+        key("Escape")
+        time.sleep(1)
+        # The Install IRIX assistant at its Software step; the media is only chosen here, not fetched.
+        a.req("invoke machine.install-irix octane2")
+        for step in ("Release", "Discs"):
+            a.wait(step, lambda: a.req("activate install.step").get("text") == step, 60, 0.5)
+            a.wait("Continue", lambda: a.req("widget install.continue").get("sensitive"), 60, 0.5)
+            a.req("activate install.continue")
+        a.wait("Software", lambda: a.req("activate install.step").get("text") == "Software", 60, 0.5)
+        a.wait("the packages", lambda: a.req("widget install.addon.mipspro").get("found"), 60, 0.5)
+        time.sleep(2)
+        doc_shot("linux-install-assistant")
+        a.req("activate install.window")
+        time.sleep(1)
         # New Machine: the Engine list open, then iris chosen and a name typed.
         a.req("invoke machine.new")
         time.sleep(2)
@@ -2252,12 +2310,27 @@ def docs():
         # The dialog's close leaves a focus ring on the + button; a click on the empty page takes it away.
         pointer_to(900, 700)
         click()
-        a.req("invoke machine.start octane2")
-        a.wait("Starting", lambda: (a.machine("octane2") or {}).get("state") == "Starting", 15, 0.1)
-        time.sleep(0.5)
-        doc_shot("linux-starting")
-        check("the PROM draws its menu", prom_menu(a, "octane2") is not None)
-        a.wait("menu settled", lambda: a.machine("octane2")["idle_ms"] > 3000, 60, 0.5)
+        # The start is photographed the moment the machine reads Starting, with the window found and focused beforehand.
+        sh("xdotool", "windowactivate", "--sync", window_ids("Origami")[-1])
+        g = dict(l.split("=") for l in sh("xdotool", "getwindowgeometry", "--shell", window_ids("Origami")[-1]).stdout.split())
+        # The window repaints a moment after the state changes, so each try waits a little longer; a try whose
+        # picture does not say Starting is thrown away with its boot.
+        for delay in (0.2, 0.4, 0.7, 1.0):
+            a.req("invoke machine.start octane2")
+            a.wait("Starting", lambda: (a.machine("octane2") or {}).get("state") == "Starting", 15, 0.02)
+            time.sleep(delay)
+            root = shot("_root")
+            after = (a.machine("octane2") or {}).get("state")
+            p = os.path.join(out, "linux-starting.png")
+            sh("convert", root, "-crop", "%sx%s+%s+%s" % (g["WIDTH"], g["HEIGHT"], g["X"], g["Y"]), "+repage", "-strip", p)
+            os.remove(root)
+            if after == "Starting" and "Starting" in ocr(p):
+                break
+            a.req("invoke machine.force-quit octane2")
+            a.wait("stopped", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+            time.sleep(1)
+        check("the starting picture was taken while the machine read Starting", after == "Starting" and "Starting" in ocr(p), after)
+        irix_settled(a, "octane2")
         doc_shot("linux-running")
         a.req("invoke machine.pause octane2")
         a.wait("Paused", lambda: a.machine("octane2")["state"] == "Paused", 15, 0.2)
@@ -2277,11 +2350,16 @@ def docs():
         a.req("invoke machine.force-quit octane2")
         a.wait("stopped", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
         sh(origami, "nvram", os.path.join(lib, "octane2"), "set", "console=d")
-        a.req("invoke window.console octane2")
-        a.wait("console window", lambda: window_ids("Console"), 15, 0.3)
         a.req("invoke machine.start octane2")
+        a.wait("Running", lambda: (a.machine("octane2") or {}).get("state") == "Running", 120, 0.5)
+        # The console is opened once IRIX has had time to boot, so its window shows only this run's output.
+        t0 = time.time()
+        time.sleep(100)
+        a.req("invoke window.console octane2")
+        a.wait("console window", lambda: window_ids("Console"), 30, 0.3)
         probe = lambda: (a.machine("octane2") or {}).get("console")
-        check("the console shows the PROM's output", a.wait("diagnostics", lambda: probe() and "Press any key" in probe()["screen"], 600, 2) is not None)
+        up = a.wait("the login prompt", lambda: probe() and "login:" in probe()["screen"], 1800, 5)
+        check("the serial console reached IRIX's login prompt in %d s" % (time.time() - t0), up is not None, probe() and probe()["screen"])
         time.sleep(3)
         doc_shot("linux-console", "Console")
         sh("wmctrl", "-c", "Console")
@@ -2291,45 +2369,6 @@ def docs():
         time.sleep(3)
         doc_shot("linux-settings")
         key("Escape")
-        time.sleep(1)
-        a.req("invoke machine.settings octane2")
-        a.wait("the Network page", lambda: a.req("activate prefs.page.network").get("ok"), 30, 0.5)
-        a.wait("Bridged", lambda: a.req("activate settings.network.tap").get("ok"), 30, 0.5)
-        time.sleep(2)
-        doc_shot("linux-network")
-        key("Escape")
-        time.sleep(1)
-        # New Machine with a ready-made disk: the list comes from origami-dist, so the choice appears once it answers.
-        a.req("invoke machine.new")
-        a.wait("Ready-made disk", lambda: a.req("activate new.disk.ready").get("ok"), 60, 1)
-        a.req("activate new.name irix")
-        time.sleep(2)
-        doc_shot("linux-ready-disk")
-        # Make that machine, so its page can show the System card for a disk Origami recognises.
-        a.req("activate new.create")
-        made = a.wait("the machine", lambda: "irix" in a.state()["library"], 120, 1)
-        a.wait("the download to end", lambda: a.req("widget new.dialog").get("found") is False, 1200, 5)
-        if made:
-            a.req("open irix")
-            a.wait("the System card", lambda: len((a.machine("irix") or {}).get("cards") or []) == 3, 120, 1)
-            time.sleep(2)
-            doc_shot("linux-system-card")
-            check("a machine made from a ready-made disk has a System card", len((a.machine("irix") or {}).get("cards") or []) == 3, (a.machine("irix") or {}).get("cards"))
-            a.req("invoke window.close-tab irix")
-        else:
-            a.req("activate new.dialog")
-        time.sleep(1)
-        # The Install IRIX assistant at its Software step; the media is only chosen here, not fetched.
-        a.req("invoke machine.install-irix octane2")
-        for step in ("Release", "Discs"):
-            a.wait(step, lambda: a.req("activate install.step").get("text") == step, 60, 0.5)
-            a.wait("Continue", lambda: a.req("widget install.continue").get("sensitive"), 60, 0.5)
-            a.req("activate install.continue")
-        a.wait("Software", lambda: a.req("activate install.step").get("text") == "Software", 60, 0.5)
-        a.wait("the packages", lambda: a.req("widget install.addon.mipspro").get("found"), 60, 0.5)
-        time.sleep(2)
-        doc_shot("linux-install-assistant")
-        a.req("activate install.window")
         time.sleep(1)
         a.req("invoke app.about")
         time.sleep(3)

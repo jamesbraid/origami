@@ -207,18 +207,23 @@ func runDocsShots(library: String, out: String) {
     // The same sheet with a ready-made disk picked: the list comes from origami-dist.
     func chooseReady() {
         choose()
+        spin(5)   // choosing the model asks the server again, which resets the pick
         guard waitFor(60, { !nm.readyDisks.isEmpty }) else { fail("origami-dist listed no ready-made disk for \(nm.name)") }
         nm.disk = .ready
+        nm.readyPick = nm.readyDisks.firstIndex { $0.label.contains("6.5.30, 1.1") } ?? 0
     }
     let readyWin = window("New machine", NewMachineSheet(model: nm), 460, 560)
     capture(readyWin, "macos-ready-disk", after: { chooseReady(); readyWin.setContentSize(NSSize(width: 460, height: min(nm.sheetHeight, NewMachineSheet.screenRoom))) })
-    nm.disk = .noDisk
 
+    // The machine is made from that choice, as a user makes it: the disk is downloaded once and cached between runs.
     #if !FAKE
-    choose()
+    let madeAt = Date()
     var created: Bool?
     nm.create { created = $0 }
-    guard waitFor(300, { created != nil }), created == true else { fail("creating the machine failed: \(nm.error ?? "?")") }
+    guard waitFor(2400, { created != nil }), created == true else { fail("creating the machine failed: \(nm.error ?? "?")") }
+    emit(["step": "ready-disk-created", "seconds": Int(Date().timeIntervalSince(madeAt))])
+    // The library names the disk's system once it has read it, which the System card and the row then show.
+    guard waitFor(120, { app.rescanNow(); return app.models.first?.record.systemDisk != nil }) else { fail("the new machine's system disk was not recognised") }
     #endif
     guard let model = app.models.first else { fail("no machine in \(library)") }
     app.select(model.id)
@@ -237,13 +242,14 @@ func runDocsShots(library: String, out: String) {
         app.forgetInstall(model.id)
     } else { fail("no install assistant for \(model.name)") }
     // Settings at Network, with Bridged chosen and its fields open. The sheet reloads when it appears, which closes the fields.
+    MachineSettings.height = 556
     let settings = SettingsModel(machine: model)
     func chooseBridged() {
         _ = waitFor(30) { settings.settings != nil && !settings.working }
         guard let bridged = settings.networkChoices.first(where: { $0.label == "Bridged" }) else { fail("the machine's settings offer no Bridged mode") }
         settings.chooseNetwork(bridged.mode)
     }
-    capture(window("\(model.name) Settings", MachineSettings(model: model, pane: .network, edit: settings), 700, 460), "macos-network", after: chooseBridged)
+    capture(window("\(model.name) Settings", MachineSettings(model: model, pane: .network, edit: settings), 700, 596), "macos-network", after: chooseBridged)
 
     var started = false
     model.start { _ in started = true }
@@ -252,8 +258,24 @@ func runDocsShots(library: String, out: String) {
     try? host.core.fakeAdvanceFrame(key: model.record.key)
     #endif
     guard waitFor(120, { model.state == .running }) else { fail("the machine did not reach Running (\(model.state.word))") }
-    // The PROM takes a while to draw its menu.
-    spin(90)
+    #if !FAKE
+    // IRIX boots from the disk: wait until the guest's picture has stopped changing for a minute.
+    let bootedAt = Date()
+    var last: Data?, still = 0
+    let probe = URL(fileURLWithPath: "\(out)/settle.png")
+    while Date().timeIntervalSince(bootedAt) < 1800 {
+        spin(20)
+        var saved = false
+        model.screenshot(to: probe) { _ in saved = true }
+        _ = waitFor(30) { saved }
+        let now = try? Data(contentsOf: probe)
+        still = (now != nil && now == last) ? still + 1 : 0
+        last = now
+        if still >= 3 && Date().timeIntervalSince(bootedAt) > 180 { break }
+    }
+    try? FileManager.default.removeItem(at: probe)
+    emit(["step": "irix-settled", "seconds": Int(Date().timeIntervalSince(bootedAt)), "still": still])
+    #endif
     capture(main, "macos-running", settle: 3, hide: false, after: { focusLibrary(main) })
     laidOverPicture(main, model, "macos-running")
     app.showsCpu = true

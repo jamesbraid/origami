@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: docker.io/library/node:22-trixie
-    timeout-minutes: 90
+    timeout-minutes: 150
     env:
       XVFB_SCREEN: 1440x960
       SHOTS_ONLY: '1'
@@ -37,9 +37,19 @@ jobs:
         with:
           name: screenshots-linux
           target: ${{ runner.temp }}/shots/target
-          extra: ${{ runner.temp }}/shots/cache
+      # The ready-made IRIX disk the pictures boot is about 1 GB: kept between runs, saved even when a later step fails.
+      - uses: actions/cache/restore@v4
+        id: disks
+        with:
+          path: ${{ runner.temp }}/shots/cache
+          key: screenshots-cache-linux-v2
       - name: Build the app and take the app's pictures
         run: sh crates/origami-gtk/ci/native.sh "$RUNNER_TEMP/shots" docs
+      - uses: actions/cache/save@v4
+        if: always() && steps.disks.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/shots/cache
+          key: screenshots-cache-linux-v2
       - name: Take the command line's pictures
         run: |
           S="$RUNNER_TEMP/shots"
@@ -93,7 +103,7 @@ jobs:
     if: github.server_url == 'https://github.com'
     needs: windows-native
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 150
     defaults:
       run:
         shell: bash
@@ -116,10 +126,23 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
           cargo xtask runtime --platform windows-x86_64
+      # The ready-made IRIX disk the pictures boot is about 1 GB: kept between runs, saved even when a later step fails.
+      - uses: actions/cache/restore@v4
+        id: disks
+        with:
+          path: ${{ runner.temp }}\origami-cache
+          key: screenshots-cache-windows-v2
       - uses: ./.github/actions/windows-qemu-selftest
         with:
           runtime-dir: target/runtime/windows-x86_64/tree/libexec/origami
           fail-on-selftest: 'false'
+          cache-dir: ${{ runner.temp }}\origami-cache
+          ready-timeout: '3000'
+      - uses: actions/cache/save@v4
+        if: always() && steps.disks.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}\origami-cache
+          key: screenshots-cache-windows-v2
       - run: |
           mkdir set
           cp apps/windows/selftest-out/window.png set/windows-running.png
@@ -157,7 +180,7 @@ jobs:
     # macos-26 and Rust 1.97.1 are what app-macos.yml builds this app with.
     if: github.server_url == 'https://github.com'
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -173,8 +196,19 @@ jobs:
         run: |
           rustup toolchain install 1.97.1 --profile minimal
           rustup default 1.97.1
-      - name: Build the app on the fake engine and render its pictures
+      # The ready-made IRIX disk the pictures boot is about 1 GB: kept between runs, saved even when a later step fails.
+      - uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        id: disks
+        with:
+          path: ~/Library/Caches/origami
+          key: screenshots-cache-macos-v2
+      - name: Build the app on the QEMU engine and render its pictures
         run: apps/macos/screenshots.sh "$RUNNER_TEMP/macos-shots"
+      - uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        if: always() && steps.disks.outputs.cache-hit != 'true'
+        with:
+          path: ~/Library/Caches/origami
+          key: screenshots-cache-macos-v2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: screenshots-macos

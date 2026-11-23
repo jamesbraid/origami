@@ -1572,6 +1572,7 @@ fn new_machine_dialog(
     let combo = adw::ComboRow::builder()
         .title(UiString::Model.text())
         .build();
+    combo.set_widget_name("new.model");
     let fill = {
         let (offerings, engines, shown) =
             (offerings.clone(), engines.clone(), shown_offerings.clone());

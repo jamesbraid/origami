@@ -48,6 +48,9 @@ public static class Selftest
         return cond();
     }
 
+    /// <summary>The screenshots workflow: it boots a downloaded IRIX disk, which a release self-test does not.</summary>
+    static bool Pictures => Environment.GetEnvironmentVariable("ORIGAMI_CAPTURES") == "1";
+
     static async Task Grab(string dir, string name, IntPtr hwnd)
     {
         // Only the capture workflow answers these requests; a release self-test has no one to ask.
@@ -111,6 +114,16 @@ public static class Selftest
             if (await Until(() => FindOpen<NewMachineDialog.DiskList>("new.disk") is { } d && d.Count > plain, 30_000))
             {
                 // The ready-made choice is listed first, so it is already the one selected.
+                if (FindOpen<UIC.ComboBox>("new.model") is { } models)
+                {
+                    var octane = models.Items.Select(i => i as string ?? "").ToList().FindIndex(l => l.StartsWith("Octane2"));
+                    if (octane >= 0) { models.SelectedIndex = octane; await Task.Delay(8000); }
+                }
+                if (FindOpen<UIC.ComboBox>("new.release") is { } rel)
+                {
+                    var at = rel.Items.Select(i => i as string ?? "").ToList().FindIndex(l => l.Contains("6.5.30, 1.1"));
+                    if (at >= 0) rel.SelectedIndex = at;
+                }
                 if (FindOpen<UIC.TextBox>("new.name") is { } typed) typed.Text = "irix";
                 await Task.Delay(1500);
                 // The Disk group's heading is the text above its choices.
@@ -138,9 +151,14 @@ public static class Selftest
             {
                 mode.SelectedIndex = bridgedAt;
                 await Until(() => FindOpen<UIC.TextBox>("settings.bridge.device") != null, 3000);
+                // The window and dialog are taller for the picture, so the Network page's cards end whole.
+                var before = w.AppWindow.Size;
+                w.AppWindow.Resize(new Windows.Graphics.SizeInt32(before.Width, before.Height + 250));
+                if (Find<UIC.NavigationView>().FirstOrDefault() is { } nav) nav.Height = 640;
                 await Task.Delay(1500);
                 parity["settings_tabs"] = MachineSettingsDialog.Pages().Select(p => p.Title).ToList();
                 await Grab(dir, "windows-network", w.Hwnd);
+                w.AppWindow.Resize(before);
             }
             else Add("windows-network.png", false, $"network modes found: {FindOpen<UIC.RadioButtons>("settings.network") != null}, Bridged at {bridgedAt}");
             await CloseDialog();
@@ -182,7 +200,7 @@ public static class Selftest
     {
         _out = outFile;
         var dir = Path.GetDirectoryName(Path.GetFullPath(outFile))!;
-        _ = Task.Run(async () => { await Task.Delay(420_000); w.DispatcherQueue.TryEnqueue(() => Fail("watchdog: 420 s")); });
+        _ = Task.Run(async () => { await Task.Delay(Pictures ? 3_000_000 : 420_000); w.DispatcherQueue.TryEnqueue(() => Fail("watchdog")); });
         try { await Scenario(w, core, dir); }
         catch (Exception e) { Add("exception", false, e.ToString()); }
         // A machine outlives the app by design: do not leave one running behind a failed test.
@@ -205,10 +223,27 @@ public static class Selftest
         string key;
         if (w.LibraryCount == 0)
         {
+            // As a user makes it: the model's ready-made IRIX disk, downloaded once and cached between runs.
+            var made = System.Diagnostics.Stopwatch.StartNew();
             var product = App.ArgValue("--create-product") ?? "octane2";
-            try { key = await Task.Run(() => core.CreateFrom(App.ArgValue("--machine-name") ?? "selftest-" + product, product, App.ArgValue("--graphics"))); }
-            catch (Exception e) { Add("create a machine (firmware download)", false, e.Message); return; }
-            Add("create a machine (firmware download)", key.Length > 0, key);
+            if (!Pictures)
+            {
+                try { key = await Task.Run(() => core.CreateFrom(App.ArgValue("--machine-name") ?? "selftest-" + product, product, App.ArgValue("--graphics"))); }
+                catch (Exception e) { Add("create a machine (firmware download)", false, e.Message); return; }
+                Add("create a machine (firmware download)", key.Length > 0, key);
+            }
+            else
+            {
+                try
+                {
+                    var offer = core.Catalogue().First(o => o.Id.StartsWith("octane2") && o.Engine == "qemu");
+                    var disks = await core.ReadyDisksAsync(offer.Id);
+                    var pick = disks.FirstOrDefault(d => d.Label.Contains("6.5.30, 1.1")) ?? disks.First();
+                    key = await core.CreateMachineAsync(App.ArgValue("--machine-name") ?? "octane2", offer.Id, null, default, new SystemDisk.Ready(pick.Name));
+                }
+                catch (Exception e) { Add("create a machine from the ready-made disk", false, e.Message); return; }
+                Add("create a machine from the ready-made disk", key.Length > 0, $"{key} in {made.Elapsed.TotalSeconds:0} s");
+            }
             w.Reload();
             await Until(() => w.LibraryCount == 1, 5000);
         }
@@ -239,6 +274,23 @@ public static class Selftest
         if (disp.CoreViewCounters() is { } vc)
             Add("core view counters", vc.Presents > 0, $"presents={vc.Presents} take={vc.TakeNs / 1000} us draw={vc.DrawNs / 1000} us present={vc.PresentNs / 1000} us (totals)");
         Add("app counters", true, $"wakes={disp.Wakes} presents={disp.Presents}");
+
+        // IRIX boots from the disk: wait until the guest's picture has stopped changing for a minute.
+        if (Pictures)
+        {
+            var booted = System.Diagnostics.Stopwatch.StartNew();
+            byte[]? last = null; var still = 0;
+            var probe = Path.Combine(dir, "settle.ppm");
+            while (booted.Elapsed.TotalSeconds < 1800 && !(still >= 3 && booted.Elapsed.TotalSeconds > 180))
+            {
+                await Task.Delay(20_000);
+                try { core.Screendump(key, 0, probe); } catch { continue; }
+                var now = File.ReadAllBytes(probe);
+                still = last != null && now.AsSpan().SequenceEqual(last) ? still + 1 : 0;
+                last = now;
+            }
+            Add("IRIX booted to a settled picture", still >= 3, $"{booted.Elapsed.TotalSeconds:0} s");
+        }
 
         // QEMU's own screendump (a QMP call), as the reference picture; the core's view has no readback hook.
         string? dumpError = null; int lit = 0, hw = 0, hh = 0;
@@ -328,6 +380,9 @@ public static class Selftest
             await Until(() => diag.ReportText.Contains("Frame updates"), 5000);
             // The main window is always on top for input; Diagnostics must be in front of it to be photographed.
             if (w.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter top) top.IsAlwaysOnTop = false;
+            // The capture is of the screen where the window is: centred over the main window, only that shows behind the report.
+            var mp = w.AppWindow.Position; var ms = w.AppWindow.Size; var ds = diag.AppWindow.Size;
+            diag.AppWindow.Move(new Windows.Graphics.PointInt32(mp.X + (ms.Width - ds.Width) / 2, mp.Y + (ms.Height - ds.Height) / 2));
             diag.Activate();
             if (diag.AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter dp) dp.IsAlwaysOnTop = true;
             await Task.Delay(2000);

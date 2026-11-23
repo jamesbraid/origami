@@ -69,6 +69,8 @@ struct MachineSettings: View {
     }
 
     static let sidebarWidth: CGFloat = 190
+    /// The sheet's height; the documentation pictures raise it to show a whole page.
+    static var height: CGFloat = 460
 
     enum Pane: String, CaseIterable, Identifiable {
         case general = "General", processor = "Processor & memory", graphics = "Graphics",
@@ -107,7 +109,7 @@ struct MachineSettings: View {
                 Button(ui(.done)) { dismiss() }.keyboardShortcut(.defaultAction)
             }.padding(10)
         }
-        .frame(width: 700, height: 460)
+        .frame(width: 700, height: Self.height)
         .onAppear { edit.load() }
         .sheet(item: $edit.draft) { _ in ShareNameSheet(edit: edit) }
     }
