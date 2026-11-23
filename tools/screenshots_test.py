@@ -21,3 +21,24 @@ def test_a_small_drift_passes_and_a_changed_window_fails():
 
 def test_a_different_size_is_a_mismatch():
     assert tool.judge(Image.new("RGB", (10, 10)), Image.new("RGB", (11, 10))) is None
+
+
+def names(**over):
+    base = {"sidebar_heading": "Machines", "settings_tabs": ["General", "Network"], "new_machine_fields": ["Engine", "Model"], "install_steps": ["Release", "Media"]}
+    return {p: {**base, **over.get(p, {})} for p in ("linux", "macos", "windows")}
+
+
+def test_apps_that_name_things_alike_pass_and_windows_may_show_fewer_tabs():
+    assert tool.differences(names(windows={"settings_tabs": ["Network"]})) == []
+
+
+def test_a_different_heading_field_order_tab_or_step_is_reported():
+    assert tool.differences(names(macos={"sidebar_heading": "Library"}))
+    assert tool.differences(names(windows={"new_machine_fields": ["Model", "Engine"]}))
+    assert tool.differences(names(macos={"settings_tabs": ["General", "System Information", "Network"]}))
+    assert tool.differences(names(windows={"settings_tabs": ["Processor and memory"]}))
+    assert tool.differences(names(linux={"install_steps": ["Release"]}))
+
+
+def test_the_method_step_is_not_compared_because_it_depends_on_the_machine():
+    assert tool.differences(names(linux={"install_steps": ["Release", "Method", "Media"]})) == []

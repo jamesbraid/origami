@@ -61,9 +61,10 @@ and Windows use `--machines DIR` and `--library DIR` respectively.
 
 ![The Origami window with one stopped machine](images/app/linux-library.png)
 
-The library is on the left, one row per machine with its state. Selecting a
-row shows the machine on the right: its picture, name, state and a Start
-button, with Memory, Nodes and Topology below. Double-click a row, or use
+The Machines list is on the left, one row per machine with its state. Selecting a
+row shows the machine on the right: its picture, name and a Start button, with
+Memory, Nodes and Topology below. The machine's state is shown in the title bar
+or toolbar and in its row, and nowhere else. Double-click a row, or use
 Open in New Tab in its right-click menu, to keep several machines open in
 tabs. The toolbar has Start or Power Off, Pause, the pointer mode, the
 Console, Settings and the main menu. The CPU button shows the

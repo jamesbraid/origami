@@ -46,7 +46,7 @@ jobs:
           mkdir -p "$S/work/cli" "$S/out/cli" set
           ORIGAMI_BIN="$S/target/release/origami" WORK="$S/work/cli" ORIGAMI_RUNTIME_DIR="$S/rt/libexec/origami" \
             ORIGAMI_CACHE_DIR="$S/cache" sh tools/screenshots-cli.sh "$S/out/cli"
-          cp "$S"/out/docs/linux-*.png "$S"/out/cli/cli-*.png set/
+          cp "$S"/out/docs/linux-*.png "$S"/out/docs/linux-parity.json "$S"/out/cli/cli-*.png set/
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots-linux
@@ -126,6 +126,7 @@ jobs:
           cp apps/windows/selftest-out/windows-cpu-panel.png apps/windows/selftest-out/windows-diagnostics.png set/
           cp apps/windows/selftest-out/windows-acknowledgements.png apps/windows/selftest-out/windows-licences.png set/
           cp apps/windows/selftest-out/windows-install-assistant.png apps/windows/selftest-out/windows-ready-disk.png apps/windows/selftest-out/windows-network.png set/
+          cp apps/windows/selftest-out/windows-parity.json set/
           # The cube's own readback, which a window capture of the Direct3D child window may miss.
           cp apps/windows/selftest-out/about-cube.png set/windows-about-cube.png
       - uses: actions/upload-artifact@v4
@@ -177,7 +178,9 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: screenshots-macos
-          path: ${{ runner.temp }}/macos-shots/macos-*.png
+          path: |
+            ${{ runner.temp }}/macos-shots/macos-*.png
+            ${{ runner.temp }}/macos-shots/macos-parity.json
           if-no-files-found: error
           retention-days: 14
       - name: The main window matches its stored picture
@@ -191,3 +194,30 @@ jobs:
           name: screenshots-macos-diff
           path: ${{ runner.temp }}/macos-shots/*.diff.png
           if-no-files-found: ignore
+
+  parity:
+    # The three apps must name the sidebar, the Settings tabs, the New Machine fields and the install steps alike.
+    if: github.server_url == 'https://github.com'
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: screenshots-linux
+          path: names/linux
+      - uses: actions/download-artifact@v4
+        with:
+          name: screenshots-windows
+          path: names/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: screenshots-macos
+          path: names/macos
+      - run: |
+          python3 -m venv "$RUNNER_TEMP/pil"
+          "$RUNNER_TEMP/pil/bin/pip" install --quiet pillow
+          "$RUNNER_TEMP/pil/bin/python" tools/screenshots parity --from names

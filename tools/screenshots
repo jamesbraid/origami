@@ -5,7 +5,7 @@
 # ///
 """Regenerate the app screenshots in docs/images/app/: one fixed, named set per platform.
 `pull` takes the release set from GitHub; the other commands make one platform's."""
-import argparse, io, os, pathlib, shutil, subprocess, sys, tempfile
+import argparse, io, json, os, pathlib, shutil, subprocess, sys, tempfile
 
 from PIL import Image, ImageChops
 
@@ -118,6 +118,44 @@ def pull(a):
         for artifact, platforms in (("screenshots-linux", ("linux", "cli")), ("screenshots-windows", ("windows",)), ("screenshots-macos", ("macos",))):
             for platform in platforms:
                 collect(pathlib.Path(t) / artifact, platform)
+        parity(argparse.Namespace(src=t))
+
+
+def differences(names: dict) -> list:
+    """What differs between the names each app's self-test wrote (platform -> its parity JSON). Windows shows Settings
+    as one scrolling page, so its section names need only be among the other apps' tab names."""
+    out = []
+    # Method only shows for a machine that offers an automatic install, and the apps photograph different machines.
+    names = {p: {**got, "install_steps": [s for s in got.get("install_steps", []) if s != "Method"]} for p, got in names.items()}
+    for key in ("sidebar_heading", "new_machine_fields", "install_steps"):
+        for platform, got in names.items():
+            if got.get(key) != names["linux"].get(key):
+                out.append(f"{key}: {platform} has {got.get(key)!r}, linux has {names['linux'].get(key)!r}")
+    if names["macos"].get("settings_tabs") != names["linux"].get("settings_tabs"):
+        out.append(f"settings_tabs: macos has {names['macos'].get('settings_tabs')!r}, linux has {names['linux'].get('settings_tabs')!r}")
+    extra = [t for t in names["windows"].get("settings_tabs", []) if t not in names["linux"].get("settings_tabs", [])]
+    if extra:
+        out.append(f"settings_tabs: windows has {extra!r}, which linux does not")
+    for platform, got in names.items():
+        for key in ("sidebar_heading", "settings_tabs", "new_machine_fields", "install_steps"):
+            if not got.get(key):
+                out.append(f"{key}: {platform} wrote none")
+    return out
+
+
+def parity(a):
+    """Fail when the three apps name the sidebar, the Settings tabs, the New Machine fields or the install steps differently."""
+    found = {}
+    for platform in ("linux", "macos", "windows"):
+        hits = sorted(pathlib.Path(a.src).rglob(f"{platform}-parity.json"))
+        if not hits:
+            sys.exit(f"no {platform}-parity.json under {a.src}")
+        found[platform] = json.loads(hits[0].read_text())
+    problems = differences(found)
+    for p in problems:
+        print(p)
+    print("the apps name these the same" if not problems else f"{len(problems)} difference(s)")
+    sys.exit(1 if problems else 0)
 
 
 def judge(got: Image.Image, want: Image.Image):
@@ -186,6 +224,7 @@ HELP = {
     "compare": "hold each app's main-window picture against tests/screenshots, within a tolerance",
     "baseline": "store a screenshots workflow run's main-window pictures as the known-good ones",
     "macos": "on a Mac build and render the pictures; or collect a folder with --from",
+    "parity": "check the three apps name the sidebar, Settings tabs, New Machine fields and install steps alike",
 }
 
 
@@ -209,13 +248,15 @@ def main():
     c.add_argument("--tmp", help="where to download the artifacts; default .cache/ in the repository")
     c.add_argument("--run", required=True, help="a screenshots workflow run id")
     c.add_argument("--repo", default=GITHUB_REPO, help="GitHub OWNER/NAME; default %(default)s")
+    c = sub.add_parser("parity", help=HELP["parity"])
+    c.add_argument("--from", dest="src", required=True, help="a folder holding the three apps' *-parity.json files, at any depth")
     c = sub.add_parser("windows", help=HELP["windows"])
     c.add_argument("--from", dest="src", required=True, help="the unzipped screenshots-windows artifact")
     c = sub.add_parser("macos", help=HELP["macos"])
     c.add_argument("--from", dest="src", help="the folder OrigamiApp --docs-shots wrote, or the unzipped screenshots-macos artifact")
     c.add_argument("--scratch")
     a = p.parse_args()
-    {"linux": linux, "cli": cli, "windows": windows, "macos": macos, "pull": pull, "compare": compare, "baseline": baseline}[a.cmd](a)
+    {"linux": linux, "cli": cli, "windows": windows, "macos": macos, "pull": pull, "compare": compare, "baseline": baseline, "parity": parity}[a.cmd](a)
 
 
 if __name__ == "__main__":
