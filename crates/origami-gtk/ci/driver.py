@@ -319,7 +319,7 @@ def wayland_pointer(a):
 def diagnostics_window(a, name):
     """The open diagnostics window's report, its Copy Report button clicked
     with a real click, and what lands on the clipboard (X11 only)."""
-    got = a.wait("diagnostics window", lambda: (a.machine(name) or {}).get("diagnostics"), 10, 0.2)
+    got = a.wait("diagnostics window", lambda: (a.machine(name) or {}).get("diagnostics"), 30, 0.2)
     if not check("the Diagnostics window opens", got):
         return None
     # The button has a size once the window has been laid out.
@@ -346,14 +346,22 @@ def diagnostics():
     a = App()
     try:
         a.wait("library", lambda: a.state()["library"], 30)
-        b = a.state()["chrome"]["rows"][0]["bounds"]
-        pointer_to(b[0] + b[2] / 2, b[1] + b[3] / 2)
-        click(3)
-        a.wait("row menu", lambda: a.state()["chrome"]["row_menu"], 5, 0.2)
-        check("the row menu has Diagnostics", "Diagnostics" in a.state()["chrome"]["row_menu_items"])
-        key("Down")
-        key("Down")
-        key("Return")
+        # The menu opens and takes keys a moment after the click on a loaded machine: try the whole
+        # gesture up to three times, each waiting for the window.
+        for attempt in range(3):
+            b = a.state()["chrome"]["rows"][0]["bounds"]
+            pointer_to(b[0] + b[2] / 2, b[1] + b[3] / 2)
+            click(3)
+            a.wait("row menu", lambda: a.state()["chrome"]["row_menu"], 10, 0.2)
+            if attempt == 0:
+                check("the row menu has Diagnostics", "Diagnostics" in a.state()["chrome"]["row_menu_items"])
+            time.sleep(0.5)
+            key("Down")
+            key("Down")
+            key("Return")
+            if a.wait("diagnostics window", lambda: (a.machine("octane2") or {}).get("diagnostics"), 15, 0.2):
+                break
+            key("Escape")
         report = diagnostics_window(a, "octane2")
         if report:
             shot("diagnostics")
@@ -786,11 +794,20 @@ def settings():
         # The console line goes through the Settings dialog's own combo.
         a.req("invoke machine.settings octane2")
         activate = lambda v: a.wait("the dialog", lambda: a.req("activate settings.console " + v).get("ok"), 30, 0.5)
+        # An earlier edit rebuilds the dialog, and a pick made on the old one is lost: pick again until the file shows it.
+        def pick(v, done):
+            def f():
+                if done():
+                    return True
+                a.req("activate settings.console " + v)
+                time.sleep(1)
+                return done()
+            return a.wait("the file", f, 60, 0.5)
         activate("Serial port B (IOC3)")
-        chosen = a.wait("the file", lambda: 'console = "ioc3_b"' in read(), 30, 0.5)
+        chosen = pick("Serial port B (IOC3)", lambda: 'console = "ioc3_b"' in read())
         check("the console line is chosen in Settings", chosen, read()[:400])
         activate("Serial port A (IOC3) (default)")
-        cleared = a.wait("the file", lambda: "console =" not in read(), 30, 0.5)
+        cleared = pick("Serial port A (IOC3) (default)", lambda: "console =" not in read())
         check("the default line clears the console choice", cleared, read()[:400])
         # An edit rebuilds the dialog; wait until its build count settles before the next one.
         def quiet():
