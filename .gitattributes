@@ -7,3 +7,4 @@ crates/*/tests/data/** text eol=lf
 # Compared byte for byte with generated output, so no CRLF checkout.
 tests/fixtures/*.json text eol=lf
 tests/fixtures/machines/*.toml text eol=lf
+tests/fixtures/guests/*.txt text eol=lf
