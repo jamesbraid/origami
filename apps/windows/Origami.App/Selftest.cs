@@ -158,8 +158,8 @@ public static class Selftest
 
         // --- new machine: the catalogue, a create, and the core's refusal of a bad name ---
         var offers = core.Catalogue();
-        Check("new machine: the catalogue offers machines", offers.Count > 0 && NewMachine.DefaultIndex(offers) < offers.Count, string.Join(",", offers.Select(NewMachine.Label)));
-        var made = await core.CreateMachineAsync("Selftest created", offers[NewMachine.DefaultIndex(offers)].Id);
+        Check("new machine: the catalogue offers machines", offers.Count > 0 && core.DefaultOffering(offers) < offers.Count, string.Join(",", offers.Select(NewMachine.Label)));
+        var made = await core.CreateMachineAsync("Selftest created", offers[core.DefaultOffering(offers)].Id);
         w.Reload();
         Check("new machine: create returns a key and the library lists the machine", made.Length > 0 && w.LibraryCount == 3 && core.Machines().Any(m => m.Key == made && m.Name == "Selftest created"), $"key={made} count={w.LibraryCount}");
         string refused = "";
@@ -297,7 +297,7 @@ public static class Selftest
         Check("disks: the ready-made choice is worded by the core and the downloads can be listed",
             core.Labels().Ready.Length > 0 && DiskChoices.Ready == core.Labels().Choices.Count && core.CachedDisks() is not null, core.Labels().Ready);
         // The CD: attached in Settings while stopped, then swapped and ejected on the running machine, whose file keeps the first.
-        var cdKey = await core.CreateMachineAsync("Disk cd", offers[NewMachine.DefaultIndex(offers)].Id);
+        var cdKey = await core.CreateMachineAsync("Disk cd", offers[core.DefaultOffering(offers)].Id);
         var (cdOne, cdTwo) = (Path.Combine(dir, "one.iso"), Path.Combine(dir, "two.iso"));
         foreach (var cdFile in new[] { cdOne, cdTwo }) File.WriteAllBytes(cdFile, new byte[2048]);
         w.Reload();

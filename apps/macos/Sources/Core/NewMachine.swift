@@ -163,7 +163,7 @@ final class NewMachineModel: ObservableObject {
                     switch result {
                     case .success(let o):
                         self.offerings = o
-                        self.selected = o.firstIndex { $0.id == "octane2-vpro" } ?? 0
+                        self.selected = Int(origamiDefaultOffering(offerings: o.map { OrigamiOfferingKey(id: $0.id, product: $0.product) }) ?? 0)
                         self.engine = o.indices.contains(self.selected) ? o[self.selected].engine : nil
                     case .failure(let e): self.error = "The machines could not be listed: \(e)"
                     }

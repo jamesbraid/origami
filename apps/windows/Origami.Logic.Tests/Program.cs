@@ -192,14 +192,12 @@ Test("commands: menu by id prefix", () =>
     Eq("File", new CommandInfo("app.quit", "Quit", null).Menu);
 });
 
-Test("new machine: labels, default model and when Create is offered", () =>
+Test("new machine: labels and when Create is offered", () =>
 {
     var a = new Offering("indy-r4400", "qemu", "Indy", "ip24", 1, 1, Label: "Indy, 1 CPU");
     var b = new Offering("octane2-vpro", "qemu", "Octane2", "ip30", 1, 2, Label: "Octane2, 2 CPUs");
     Eq("Indy, 1 CPU", NewMachine.Label(a), "the core's label");
     Eq("Octane2, 2 CPUs", NewMachine.Label(b), "not rebuilt from the id");
-    Eq(1, NewMachine.DefaultIndex(new[] { a, b }), "octane2-vpro first choice");
-    Eq(0, NewMachine.DefaultIndex(new[] { a }), "else the first");
     Eq(false, NewMachine.CanCreate("   ", 0), "blank name");
     Eq(false, NewMachine.CanCreate("x", -1), "no model");
     Eq(true, NewMachine.CanCreate(" x ", 0), "name and model");

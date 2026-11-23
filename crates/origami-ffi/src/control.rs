@@ -385,6 +385,24 @@ pub fn origami_image_verdict(check: OrigamiDiskImageCheck, copy: bool) -> Origam
     }
 }
 
+/// What picking the default model needs of an offering.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiOfferingKey {
+    pub id: String,
+    pub product: String,
+}
+
+/// The index of the model New Machine selects among `offerings`, or none when empty.
+#[uniffi::export]
+pub fn origami_default_offering(offerings: Vec<OrigamiOfferingKey>) -> Option<u32> {
+    f::default_offering(
+        offerings
+            .iter()
+            .map(|o| (o.id.as_str(), o.product.as_str())),
+    )
+    .map(|i| i as u32)
+}
+
 #[uniffi::export]
 pub fn origami_disk_labels() -> OrigamiDiskLabels {
     let l = f::disk_labels();

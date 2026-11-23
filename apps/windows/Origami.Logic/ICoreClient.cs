@@ -59,6 +59,8 @@ public interface ICoreClient : IDisposable
     /// <summary>The modes this computer can run, in picker order.</summary>
     IReadOnlyList<NetworkChoice> NetworkModes();
     BridgedSetup HostBridgedSetup();
+    /// <summary>The index in <paramref name="offerings"/> of the model New Machine selects, 0 when empty.</summary>
+    int DefaultOffering(IReadOnlyList<Offering> offerings);
     /// <summary>The share name to offer for a host folder: its own name, made valid.</summary>
     string SuggestShareName(string dir);
     /// <summary>Why the guest cannot use <paramref name="name"/> as a share name, in the core's words, or null.</summary>

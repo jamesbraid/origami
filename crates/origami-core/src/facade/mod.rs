@@ -27,7 +27,8 @@ mod settings;
 
 pub use commands::{Command, EnabledWhen, Platform, Shortcut};
 pub use core::{
-    Config, Core, CreateRequest, EngineSummary, MachineSummary, OfferingSummary, SystemDisk,
+    default_offering, Config, Core, CreateRequest, EngineSummary, MachineSummary, OfferingSummary,
+    SystemDisk,
 };
 pub use cpu::{CpuLoadReport, CpuLoadSource};
 pub use disks::{disk_labels, image_verdict, size_label, DiskImageCheck, DiskLabels, ImageVerdict};

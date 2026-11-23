@@ -74,6 +74,32 @@ pub struct OfferingSummary {
     pub memory_accepted_mib: Vec<u32>,
 }
 
+/// The index, among `(id, product)` pairs, of the model New Machine selects:
+/// `octane2-vpro`, else the first Octane2, else the first.
+pub fn default_offering<'a>(offers: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<usize> {
+    let offers: Vec<_> = offers.into_iter().collect();
+    let at = |f: &dyn Fn(&(&str, &str)) -> bool| offers.iter().position(f);
+    at(&|o| o.0 == "octane2-vpro")
+        .or_else(|| at(&|o| o.1 == "Octane2"))
+        .or(if offers.is_empty() { None } else { Some(0) })
+}
+
+#[cfg(test)]
+mod default_offering_tests {
+    use super::default_offering;
+
+    #[test]
+    fn prefers_the_vpro_then_any_octane2_then_the_first() {
+        let fuel = ("fuel-1", "Fuel");
+        let plain = ("octane2-v12", "Octane2");
+        let vpro = ("octane2-vpro", "Octane2");
+        assert_eq!(default_offering([fuel, plain, vpro]), Some(2));
+        assert_eq!(default_offering([fuel, plain]), Some(1));
+        assert_eq!(default_offering([fuel]), Some(0));
+        assert_eq!(default_offering([]), None);
+    }
+}
+
 /// One entry of the machine library.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MachineSummary {

@@ -17,7 +17,7 @@ public static class NewMachineDialog
         if (offerings.Count == 0) { await Message(root, "Cannot list the machines", "No engine offers a machine."); return null; }
 
         var models = NewMachine.Models(offerings);
-        var model = new ComboBox { Header = Labels.NewMachine.Model, HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = models.Select(NewMachine.Label).ToList(), SelectedIndex = NewMachine.DefaultIndex(models) };
+        var model = new ComboBox { Header = Labels.NewMachine.Model, HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = models.Select(NewMachine.Label).ToList(), SelectedIndex = core.DefaultOffering(models) };
         var engine = new ComboBox { Header = Labels.NewMachine.Engine, HorizontalAlignment = HorizontalAlignment.Stretch };
         IReadOnlyList<string> engines = Array.Empty<string>();
         void SyncEngines()

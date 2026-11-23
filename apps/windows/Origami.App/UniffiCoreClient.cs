@@ -276,6 +276,7 @@ public sealed class UniffiCoreClient : ICoreClient
         return new BridgedSetup(b.Field, b.Example, b.Steps, b.Commands);
     }
 
+    public int DefaultOffering(IReadOnlyList<Offering> offerings) => (int)(OrigamiFfiMethods.OrigamiDefaultOffering(offerings.Select(o => new OrigamiOfferingKey(o.Id, o.Product)).ToArray()) ?? 0);
     public string SuggestShareName(string dir) => OrigamiFfiMethods.OrigamiSuggestShareName(dir);
 
     public string? CheckShareName(string name)

@@ -652,8 +652,8 @@ func runSelfTest(library: String, out: String) {
         nm.load()
         check("new-machine-catalogue-loads", waitFor(30) { !nm.loading && !nm.offerings.isEmpty },
               ["offerings": nm.offerings.map(\.id), "selected": nm.offerings.indices.contains(nm.selected) ? nm.offerings[nm.selected].id : "none"])
-        let expectedDefault = nm.offerings.firstIndex { $0.id == "octane2-vpro" } ?? 0
-        check("new-machine-defaults-to-octane2-vpro-when-offered", nm.selected == expectedDefault, ["selected": nm.selected])
+        let expectedDefault = Int(origamiDefaultOffering(offerings: nm.offerings.map { OrigamiOfferingKey(id: $0.id, product: $0.product) }) ?? 0)
+        check("new-machine-selects-the-core-default", nm.selected == expectedDefault, ["selected": nm.selected])
         // Advanced: the ID is prefilled with the next free one, and a bad one stops Create with the core's sentence.
         let prefilled = waitFor(30) { !nm.idText.isEmpty && nm.identity?.mac.isEmpty == false }
         check("new-machine-advanced-prefills-the-id-and-address", prefilled, ["id": nm.idText, "mac": nm.identity?.mac ?? ""])

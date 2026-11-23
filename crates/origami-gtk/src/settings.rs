@@ -1392,11 +1392,10 @@ fn new_machine_dialog(
             let list = for_engine(&offerings, id);
             let labels: Vec<&str> = list.iter().map(|o| o.label.as_str()).collect();
             combo.set_model(Some(&gtk::StringList::new(&labels)));
-            combo.set_selected(
-                list.iter()
-                    .position(|o| o.id == "octane2-vpro")
-                    .unwrap_or(0) as u32,
+            let at = origami_core::facade::default_offering(
+                list.iter().map(|o| (o.id.as_str(), o.product.as_str())),
             );
+            combo.set_selected(at.unwrap_or(0) as u32);
             *shown.borrow_mut() = list;
         }
     };
