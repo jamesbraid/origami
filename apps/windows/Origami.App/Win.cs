@@ -22,6 +22,7 @@ internal static class Win
     [DllImport("user32")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("kernel32")] static extern uint GetCurrentThreadId();
     [DllImport("user32")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
+    [DllImport("user32")] static extern bool PostMessage(IntPtr h, uint msg, UIntPtr w, IntPtr l);
     [DllImport("user32")] static extern bool BringWindowToTop(IntPtr h);
     [DllImport("user32")] static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
@@ -39,6 +40,9 @@ internal static class Win
 
     public static IntPtr ForegroundHandle() => GetForegroundWindow();
     public static bool IsForeground(IntPtr h) => GetForegroundWindow() == h;
+
+    /// <summary>Closes a window as the close button does; Window.Close() skips AppWindow.Closing, so a quit prompt would never show.</summary>
+    public static void RequestClose(IntPtr h) => PostMessage(h, 0x0010, UIntPtr.Zero, IntPtr.Zero);
 
     public static void Foreground(IntPtr h)
     {

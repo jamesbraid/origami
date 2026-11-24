@@ -601,7 +601,7 @@ public sealed partial class MainWindow : Window
             case "view.scale2x": LastViewCommand = id; SizeWindowForPicture(2, "scale 2x"); break;
             case "view.actual-size": LastViewCommand = id; SizeWindowForPicture(1 / Root.XamlRoot.RasterizationScale, "actual size"); break;
             case "app.about": OpenAbout(); break;
-            case "app.quit": Close(); break;
+            case "app.quit": Win.RequestClose(Hwnd); break;
         }
     }
 

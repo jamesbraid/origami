@@ -358,6 +358,25 @@ public static class Selftest
             Add("resume: the same command resumes", await Until(() => core.Status(key).State == MachineState.Running, 30_000), core.Status(key).State.ToString());
         }
         else Add("resume: the same command resumes", false, "not tested: the machine never paused");
+        // Quit with a machine up must ask, not close the window; hiding the prompt cancels.
+        {
+            UIC.ContentDialog? In(UI.DependencyObject o)
+            {
+                if (o is UIC.ContentDialog d) return d;
+                for (var i = 0; i < UIM.VisualTreeHelper.GetChildrenCount(o); i++) if (In(UIM.VisualTreeHelper.GetChild(o, i)) is { } hit) return hit;
+                return null;
+            }
+            UIC.ContentDialog? Asked()
+            {
+                if (w.XamlRootForTest is not { } root) return null;
+                foreach (var p in UIM.VisualTreeHelper.GetOpenPopupsForXamlRoot(root)) if (p.Child is { } c && In(c) is { } found) return found;
+                return null;
+            }
+            w.Invoke("app.quit");
+            var asked = await Until(() => w.XamlRootForTest is null || Asked() != null, 10_000) && w.XamlRootForTest is not null;
+            Add("quit with a machine running asks first", asked, asked ? "prompt open" : "the window closed without asking");
+            if (asked) { Asked()!.Hide(); await Until(() => Asked() == null, 3000); }
+        }
         // A clean stop waits for the guest (and a PROM menu never answers); force-quit ends QEMU at once.
         w.Invoke("machine.force-quit");
         Add("force quit settles as Stopped, not stopped unexpectedly", await Until(() => core.Status(key).State == MachineState.Stopped, 60_000), core.Status(key).State + " " + core.Status(key).Reason);
