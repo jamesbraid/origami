@@ -19,9 +19,14 @@ platform asks for it. A difference that is in neither place is a bug.
 
 Shortcuts are behaviour, not tokens: they stay in the core command table.
 
+The design system in [`design/`](../design/README.md) shows every token,
+colour role and element, and its check stops new hard-coded colours.
+
 ## Decided
 
-- The tab bar is always visible.
+- The tab bar shows only when two or more machines are open. The status bar
+  shows only while a machine runs. Each platform keeps its own toolbar
+  layout. [`design/`](../design/README.md) draws all three.
 - Paused is amber.
 - "No picture" appears after 30 s on every platform.
 - A fixed scale that does not fit falls back to the same smooth Fit everywhere.

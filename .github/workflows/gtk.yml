@@ -46,6 +46,8 @@ jobs:
           name: gtk
           target: ${{ runner.temp }}/gtk/target
           extra: ${{ runner.temp }}/gtk/cache
+      - name: Check the design tokens and hard-coded colours
+        run: cargo xtask tokens --check
       - name: Lint, build, unit-test and run the scenarios
         run: sh crates/origami-gtk/ci/native.sh "$RUNNER_TEMP/gtk"
       - name: Keep the screenshots and results

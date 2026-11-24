@@ -12,6 +12,7 @@ art_summary = 72
 card = { w = 140, h = 104 }
 art_gallery = { w = 120, h = 90 }
 art_hero = { w = 240, h = 180 }
+status_bar_height = 24
 
 [colour]
 # Used now: macOS and GTK granite_neutral (the machine pane's granite, the start card's gradient).
@@ -27,3 +28,30 @@ tab_selected_stroke = 0.5
 tint_top_alpha = 0.35
 tint_bottom_alpha = 0.0
 product_line_alpha = 0.70
+
+# Spacing on a 4-unit grid. Not yet used.
+[space]
+xs = 4
+s = 8
+m = 12
+l = 20
+xl = 24
+
+# Corner radii. Not yet used.
+[radius]
+control = 6
+card = 10
+sheet = 12
+dot = 3.5
+
+# Icon and mark sizes. Not yet used.
+[icon]
+toolbar = 16
+row_dot = 7
+empty_state = 64
+
+# Durations in milliseconds. Not yet used.
+[motion]
+toast_ms = 4000
+capture_hint_ms = 3000
+fade_ms = 200

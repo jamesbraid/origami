@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Origami design system</title>
+<style>
+:root { --page:#f6f6f4; --ink:#1d1d1f; --muted:#66666b; --rule:#d9d9d6; --chip:#ffffff; --do:#1f7a3a; --dont:#b3261e; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --page:#18181a; --ink:#f2f2f2; --muted:#a0a0a6; --rule:#333336; --chip:#232326; --do:#5fd47e; --dont:#ff8a80; }
+}
+:root[data-theme="dark"] { --page:#18181a; --ink:#f2f2f2; --muted:#a0a0a6; --rule:#333336; --chip:#232326; --do:#5fd47e; --dont:#ff8a80; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--page); color:var(--ink); font:15px/1.5 -apple-system,"Segoe UI","Adwaita Sans",Cantarell,system-ui,sans-serif; }
+header.top { position:sticky; top:0; z-index:5; background:var(--page); border-bottom:1px solid var(--rule); }
+header.top .in { max-width:1320px; margin:0 auto; padding:10px 16px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+header.top b { font-size:16px; }
+nav a { color:var(--muted); text-decoration:none; font-size:13px; margin-right:10px; white-space:nowrap; }
+nav a:hover { color:var(--ink); }
+main { max-width:1320px; margin:0 auto; padding:8px 16px 80px; }
+h1 { font-size:28px; margin:24px 0 4px; }
+h2 { font-size:21px; margin:48px 0 6px; padding-top:18px; border-top:1px solid var(--rule); }
+h3 { font-size:16px; margin:22px 0 6px; }
+p.lead, p.note { color:var(--muted); max-width:820px; margin:4px 0 12px; }
+code { font-family:ui-monospace,"SF Mono",Consolas,monospace; font-size:.9em; }
+.scroll { overflow-x:auto; }
+table.t { border-collapse:collapse; font-size:13px; margin:6px 0 8px; }
+table.t th, table.t td { text-align:left; padding:5px 12px 5px 0; border-bottom:1px solid var(--rule); vertical-align:top; }
+table.t th { color:var(--muted); font-weight:600; }
+.sw { display:inline-flex; align-items:center; gap:8px; }
+.chipc { width:34px; height:22px; border-radius:5px; box-shadow:inset 0 0 0 1px rgba(128,128,128,.35); flex:none; }
+.ratio { font-size:11px; color:var(--muted); }
+.ratio.bad { color:var(--dont); font-weight:600; }
+.grid { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start; }
+.cell { min-width:0; }
+.cap { font-size:11.5px; color:var(--muted); margin:0 0 5px; }
+.dd { display:grid; grid-template-columns:1fr 1fr; gap:6px 24px; max-width:980px; margin:10px 0 0; font-size:13.5px; }
+.dd div::before { font-weight:700; margin-right:6px; }
+.dd .do::before { content:"Do"; color:var(--do); }
+.dd .dont::before { content:"Don't"; color:var(--dont); }
+@media (max-width:700px) { .dd { grid-template-columns:1fr; } }
+.ramp td { padding:6px 14px 6px 0; }
+.bar { height:14px; background:var(--muted); opacity:.55; border-radius:2px; }
+
+/* One stage per platform and mode. Variables are set inline from the data. */
+.stage { background:var(--window); color:var(--text); font-family:var(--font); font-size:var(--body); border-radius:10px; padding:14px; box-shadow:0 0 0 1px rgba(0,0,0,.12),0 4px 14px rgba(0,0,0,.10); }
+.stage .sec { color:var(--text2); font-size:var(--secondary); }
+.stage .mono { font-family:var(--monofont); }
+.btn { font:inherit; border:0; border-radius:var(--r-control); padding:4px 14px; background:var(--surface); color:var(--text); box-shadow:inset 0 0 0 1px var(--sep); cursor:default; }
+.btn.def { background:var(--accent); color:var(--onaccent); box-shadow:none; }
+.btn.danger { background:var(--critical); color:var(--ondanger); box-shadow:none; }
+.win .btn { border-radius:4px; padding:5px 14px; }
+.gnome .btn { border-radius:6px; font-weight:700; box-shadow:none; background:color-mix(in srgb, var(--text) 10%, transparent); }
+.gnome .btn.def { background:var(--accent); }
+.gnome .btn.danger { background:var(--critical); }
+.dot { display:inline-block; width:var(--dot); height:var(--dot); border-radius:50%; background:var(--c); flex:none; }
+.state { display:inline-flex; align-items:center; gap:var(--s-xs); color:var(--text2); font-size:var(--secondary); }
+.tbar { display:flex; align-items:center; gap:var(--s-s); background:var(--sidebar); border-radius:8px; padding:6px 8px; }
+.tb { width:30px; height:28px; display:grid; place-items:center; border-radius:6px; color:var(--text2); }
+.tb.on { background:color-mix(in srgb, var(--text) 12%, transparent); color:var(--text); }
+.tb svg { width:var(--icon); height:var(--icon); }
+.tb.lbl { width:auto; padding:0 10px; gap:6px; display:flex; align-items:center; } .tb.lbl span { font-size:var(--secondary); }
+.tgrp { display:flex; gap:2px; } .tgrp + .tgrp { margin-left:var(--s-s); }
+.tcap { font-size:var(--caption); color:var(--text2); margin:8px 0 3px; }
+.skel { display:flex; border-radius:8px; overflow:hidden; box-shadow:inset 0 0 0 1px var(--sep); width:330px; height:112px; }
+.skel .sb { width:96px; background:var(--sidebar); padding:8px; font-size:var(--secondary); color:var(--text2); flex:none; }
+.skel .ct { flex:1; display:flex; flex-direction:column; min-width:0; }
+.skel .scr { flex:1; background:#0d0d0f; color:#d8d8d8; display:grid; place-items:center; font-size:var(--secondary); }
+.skel .scr.none { background:var(--surface); color:var(--text2); }
+.sbar { height:var(--status-h); display:flex; align-items:center; justify-content:space-between; padding:0 10px; background:var(--sidebar); border-top:1px solid var(--sep); font-size:var(--caption); color:var(--text2); }
+.gnome .sbar { background:var(--window); }
+.tbtext { padding:4px 12px; border-radius:6px; font-weight:700; background:var(--accent); color:var(--onaccent); }
+.row { display:flex; align-items:center; gap:var(--s-s); padding:5px 8px; border-radius:6px; width:230px; }
+.row.sel { background:var(--selbg); }
+.row.sel .name { color:var(--selfg); } .row.sel .state, .row.sel .model { color:var(--selfg2); }
+.win .row.sel { position:relative; } .win .row.sel::before { content:""; position:absolute; left:0; top:50%; height:16px; margin-top:-8px; width:3px; border-radius:2px; background:var(--accent); }
+.art { width:var(--art); height:var(--art); flex:none; display:grid; place-items:center; }
+.art i { width:62%; height:86%; border-radius:4px; background:var(--chassis); box-shadow:inset -6px 0 rgba(0,0,0,.18), inset 0 4px rgba(255,255,255,.18); }
+.rt { min-width:0; flex:1; }
+.name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.win .name { font-weight:600; }
+.model { color:var(--text2); font-size:var(--secondary); }
+.tabs { display:flex; gap:4px; border-bottom:1px solid var(--sep); padding-bottom:4px; }
+.tab { display:flex; align-items:center; gap:6px; padding:3px 10px; border-radius:6px; font-size:var(--secondary); }
+.tab.on { background:var(--surface); box-shadow:inset 0 0 0 1px var(--sep); }
+.titlebar { display:flex; align-items:center; gap:10px; background:var(--sidebar); padding:8px 12px; border-radius:8px; min-width:300px; }
+.lights { display:flex; gap:6px; } .lights i { width:11px; height:11px; border-radius:50%; background:#ff5f57; } .lights i:nth-child(2) { background:#febc2e; } .lights i:nth-child(3) { background:#28c840; }
+.ttl b { display:block; font-size:var(--body); } .ttl span { font-size:var(--secondary); color:var(--text2); }
+.win .ttl b { display:inline; font-weight:400; } .win .ttl span { margin-left:8px; }
+.gnome .titlebar { justify-content:center; } .gnome .ttl { text-align:center; } .gnome .ttl b { font-weight:700; }
+.form { background:var(--surface); border-radius:var(--r-card); box-shadow:inset 0 0 0 1px var(--sep); width:320px; }
+.win .form { background:transparent; box-shadow:none; }
+.fr { display:flex; align-items:center; gap:var(--s-m); padding:7px 10px; min-height:34px; }
+.form .fr + .fr { border-top:1px solid var(--sep); }
+.win .form .fr + .fr { border-top:0; }
+.win .fr { flex-direction:column; align-items:stretch; gap:4px; padding:4px 0; }
+.fr .ctl { margin-left:auto; display:inline-flex; align-items:center; gap:6px; }
+.win .fr .ctl { margin-left:0; }
+.field { background:var(--field); box-shadow:inset 0 0 0 1px var(--sep); border-radius:5px; padding:2px 8px; min-width:120px; display:inline-flex; justify-content:space-between; gap:8px; }
+.win .field { border-radius:4px; padding:5px 10px; box-shadow:inset 0 0 0 1px var(--sep), inset 0 -1px var(--text2); width:100%; }
+.gnome .field { background:transparent; box-shadow:none; padding:0; min-width:0; }
+.field.num { min-width:56px; }
+.win .field.num { width:110px; }
+.chev { color:var(--text2); font-size:10px; }
+.adv { display:flex; align-items:center; gap:8px; padding:8px 10px; }
+.win .adv { justify-content:space-between; box-shadow:inset 0 0 0 1px var(--sep); border-radius:4px; background:var(--surface); }
+.gnome .adv { justify-content:space-between; }
+.radio { display:flex; gap:9px; padding:7px 10px; align-items:flex-start; }
+.form .radio + .radio { border-top:1px solid var(--sep); }
+.win .form .radio + .radio { border-top:0; }
+.win .radio { padding:4px 0; }
+.rb { width:15px; height:15px; border-radius:50%; box-shadow:inset 0 0 0 1.5px var(--text2); flex:none; margin-top:2px; }
+.rb.on { box-shadow:inset 0 0 0 4.5px var(--accent); }
+.sheet { background:var(--window); border-radius:var(--r-sheet); box-shadow:0 0 0 1px var(--sep),0 10px 30px rgba(0,0,0,.25); width:330px; padding:16px; }
+.win .sheet { border-radius:8px; padding:0; }
+.win .sheet .bd { padding:20px 20px 16px; } .win .sheet .ft { background:var(--sidebar); padding:14px 20px; display:flex; gap:8px; } .win .sheet .ft .btn { flex:1; }
+.sheet h4 { margin:0 0 6px; font-size:var(--title); }
+.mac .sheet h4 { font-size:var(--heading); }
+.ft { display:flex; justify-content:flex-end; gap:8px; margin-top:14px; }
+.gnome .sheet .ft { justify-content:stretch; } .gnome .sheet .ft .btn { flex:1; }
+.mac .alert { text-align:center; width:260px; }
+.mac .alert .ft { flex-direction:column; } .mac .alert .ft .btn { width:100%; }
+.toast { display:inline-flex; align-items:center; gap:12px; padding:8px 14px; border-radius:var(--r-card); background:var(--toastbg); color:var(--toastfg); font-size:var(--body); box-shadow:0 4px 14px rgba(0,0,0,.2); }
+.win .toast { border-radius:4px; background:var(--surface); color:var(--text); box-shadow:inset 3px 0 var(--accent), inset 0 0 0 1px var(--sep); }
+.gnome .toast { border-radius:999px; }
+.toast .act { color:var(--accentlink); font-weight:600; }
+.empty { width:300px; text-align:center; padding:20px 10px; display:flex; flex-direction:column; align-items:center; gap:6px; }
+.empty .ic { width:var(--empty); height:var(--empty); border-radius:14px; display:grid; place-items:center; color:var(--text2); }
+.empty .ic svg { width:60%; height:60%; }
+.empty b { font-size:var(--title); }
+.card { background:var(--surface); border-radius:var(--r-card); box-shadow:inset 0 0 0 1px var(--sep); width:var(--card-w); height:var(--card-h); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; }
+.card b { font-size:var(--heading); }
+.console { background:#0d0d0f; color:#d8d8d8; border-radius:6px; padding:10px 12px; font-family:var(--monofont); font-size:var(--mono); line-height:1.45; white-space:pre; width:360px; overflow:hidden; }
+.osview { background:#bfbfbf; padding:6px 8px 8px; width:360px; font:italic 700 12px Helvetica,Arial,sans-serif; color:#000; }
+.osview .strip { height:16px; background:#000; border:2px solid #000; border-bottom-width:5px; display:flex; margin-top:3px; }
+.osview .strip i { display:block; height:100%; }
+.osview small { font:400 11px var(--font); font-style:normal; display:block; margin-top:4px; color:#333; }
+.pane { width:300px; background:var(--sidebar); border-radius:8px; padding:10px 8px; }
+.st { display:flex; gap:9px; padding:5px 6px; border-radius:7px; align-items:flex-start; }
+.stepn { flex:none; width:19px; height:19px; border-radius:50%; display:grid; place-items:center; font-size:10.5px; font-weight:700; box-shadow:inset 0 0 0 1.5px var(--text2); color:var(--text2); }
+.st.done .stepn { background:var(--success); box-shadow:none; color:#fff; }
+.st.now { background:var(--surface); box-shadow:0 0 0 1px var(--sep); padding:9px; margin:3px 0; }
+.st.now .stepn { background:var(--accent); box-shadow:none; color:var(--onaccent); }
+.st.later { color:var(--text2); }
+.kv { display:grid; grid-template-columns:66px 1fr; gap:5px 8px; margin-top:7px; align-items:center; }
+.kv .k { color:var(--text2); font-size:var(--caption); }
+.watch { background:color-mix(in srgb, var(--text) 9%, transparent); border-radius:5px; padding:1px 7px; font-size:var(--secondary); }
+.val { font-weight:700; background:var(--field); box-shadow:inset 0 0 0 1px var(--sep); border-radius:5px; padding:1px 7px; }
+.key { font-size:10.5px; border:1px solid var(--sep); border-bottom-width:2px; border-radius:4px; padding:0 4px; color:var(--text2); }
+.copyf { display:flex; align-items:center; gap:8px; background:var(--field); box-shadow:inset 0 0 0 1px var(--sep); border-radius:6px; padding:5px 6px 5px 10px; width:330px; }
+.copyf .mono { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.prog { height:6px; border-radius:3px; background:color-mix(in srgb, var(--text) 12%, transparent); overflow:hidden; }
+.prog i { display:block; height:100%; width:42%; background:var(--accent); }
+.granite { image-rendering:pixelated; border-radius:6px; box-shadow:0 0 0 1px var(--rule); }
+.space-row { display:flex; align-items:center; gap:12px; font-size:13px; margin:4px 0; }
+</style>
+</head>
+<body>
+<header class="top"><div class="in"><b>Origami design system</b>
+<nav id="nav"></nav></div></header>
+<main>
+<h1>Origami design system</h1>
+<p class="lead">The shared rules for the macOS, Windows and GTK apps. This page draws itself from <code>resources/identity/tokens.toml</code>, <code>design/platform.toml</code> and the stills manifest, which <code>cargo xtask tokens</code> copies into the data block at the end of this file. Each element appears in its macOS, Windows and GNOME form, light and dark, with what to do and what not to do. Platform glyphs are stand-ins: the apps use the named icon from each platform's own set.</p>
+<p class="note">How the apps use the tokens, the review checklist and how to add an element are in <code>design/README.md</code>.</p>
+<div id="app"></div>
+</main>
+<script id="design-data" type="application/json">
+{
+  "chassis": {
+    "fuel": {
+      "colour": "#8e3738",
+      "name": "Fuel (R14000, R16000)"
+    },
+    "indigo2-impact": {
+      "colour": "#7e6a76",
+      "name": "Indigo2 IMPACT (R10000, purple)"
+    },
+    "indy": {
+      "colour": "#5e7d93",
+      "name": "Indy (R4000, R4600, R5000)"
+    },
+    "o2": {
+      "colour": "#3d5a6d",
+      "name": "O2 (R5000, R10000, R12000; first marks: cube and SiliconGraphics, O2 badge)"
+    },
+    "octane": {
+      "colour": "#2a6574",
+      "name": "Octane (R10000, R12000; MXI, SI, SSI, MXE)"
+    },
+    "octane2": {
+      "colour": "#2e354e",
+      "name": "Octane2 (R12000, R14000; VPro V6, V8, V10, V12)"
+    },
+    "onyx2-deskside": {
+      "colour": "#2c2632",
+      "name": "Onyx2 deskside"
+    },
+    "onyx2-rack": {
+      "colour": "#43424a",
+      "name": "Onyx2 rackmount (InfiniteReality graphics module)"
+    },
+    "onyx3000": {
+      "colour": "#55595b",
+      "name": "Onyx 3200 (V-brick, short rack)"
+    },
+    "onyx350": {
+      "colour": "#a2a4a6",
+      "name": "Onyx 350"
+    },
+    "origin200-tower": {
+      "colour": "#080e1e",
+      "name": "Origin 200 (tower)"
+    },
+    "origin2000-deskside": {
+      "colour": "#303953",
+      "name": "Origin 2000 deskside"
+    },
+    "origin2000-rack": {
+      "colour": "#48494d",
+      "name": "Origin 2000 rackmount"
+    },
+    "origin300": {
+      "colour": "#a7aaad",
+      "name": "Origin 300"
+    },
+    "origin3000": {
+      "colour": "#343638",
+      "name": "Origin 3400"
+    },
+    "origin3200": {
+      "colour": "#37383c",
+      "name": "Origin 3200 (short rack)"
+    },
+    "origin350": {
+      "colour": "#a2a4a6",
+      "name": "Origin 350"
+    },
+    "origin3900": {
+      "colour": "#35373a",
+      "name": "Origin 3900"
+    },
+    "tezro-tower": {
+      "colour": "#4c629c",
+      "name": "Tezro (tower)"
+    }
+  },
+  "granite_png": "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",
+  "platform": {
+    "colour": {
+      "accent": {
+        "gnome": {
+          "dark": "#3584e4",
+          "light": "#3584e4",
+          "name": "@accent_bg_color"
+        },
+        "mac": {
+          "dark": "#0a84ff",
+          "light": "#007aff",
+          "name": "NSColor.controlAccentColor"
+        },
+        "use": "the user's accent: default button, selection, focus. Never fixed by Origami.",
+        "windows": {
+          "dark": "#60cdff",
+          "light": "#005fb8",
+          "name": "AccentFillColorDefaultBrush"
+        }
+      },
+      "caution": {
+        "gnome": {
+          "dark": "#ffc252",
+          "light": "#9c6e03",
+          "name": "@warning_color"
+        },
+        "mac": {
+          "dark": "#ff9f0a",
+          "light": "#ff9500",
+          "name": "NSColor.systemOrange"
+        },
+        "use": "Starting, Paused, Saving, Left running, Installing, Needs upgrade",
+        "windows": {
+          "dark": "#fce100",
+          "light": "#9d5d00",
+          "name": "SystemFillColorCautionBrush"
+        }
+      },
+      "critical": {
+        "gnome": {
+          "dark": "#ff938c",
+          "light": "#c30000",
+          "name": "@error_color"
+        },
+        "mac": {
+          "dark": "#ff453a",
+          "light": "#ff3b30",
+          "name": "NSColor.systemRed"
+        },
+        "use": "No picture, Stopped unexpectedly, Can't open, errors",
+        "windows": {
+          "dark": "#ff99a4",
+          "light": "#c42b1c",
+          "name": "SystemFillColorCriticalBrush"
+        }
+      },
+      "separator": {
+        "gnome": {
+          "dark": "#3a3a3e",
+          "light": "#e0e0e3",
+          "name": "@borders"
+        },
+        "mac": {
+          "dark": "#3d3d3d",
+          "light": "#e0e0e0",
+          "name": "NSColor.separatorColor"
+        },
+        "use": "lines between rows and groups",
+        "windows": {
+          "dark": "#3a3a3a",
+          "light": "#e5e5e5",
+          "name": "DividerStrokeColorDefaultBrush"
+        }
+      },
+      "sidebar": {
+        "gnome": {
+          "dark": "#2e2e32",
+          "light": "#ebebed",
+          "name": "@sidebar_bg_color"
+        },
+        "mac": {
+          "dark": "#2b2b2e",
+          "light": "#e8e7ea",
+          "name": "sidebar material"
+        },
+        "use": "the library and settings sidebars",
+        "windows": {
+          "dark": "#202020",
+          "light": "#f3f3f3",
+          "name": "NavigationViewDefaultPaneBackground"
+        }
+      },
+      "success": {
+        "gnome": {
+          "dark": "#78e9ab",
+          "light": "#1b8553",
+          "name": "@success_color"
+        },
+        "mac": {
+          "dark": "#30d158",
+          "light": "#34c759",
+          "name": "NSColor.systemGreen"
+        },
+        "use": "Running",
+        "windows": {
+          "dark": "#6ccb5f",
+          "light": "#0f7b0f",
+          "name": "SystemFillColorSuccessBrush"
+        }
+      },
+      "surface": {
+        "gnome": {
+          "dark": "#38383c",
+          "light": "#ffffff",
+          "name": "@card_bg_color"
+        },
+        "mac": {
+          "dark": "#1e1e1e",
+          "light": "#ffffff",
+          "name": "NSColor.controlBackgroundColor"
+        },
+        "use": "cards, grouped form sections, dialogs",
+        "windows": {
+          "dark": "#2b2b2b",
+          "light": "#ffffff",
+          "name": "CardBackgroundFillColorDefaultBrush"
+        }
+      },
+      "text": {
+        "gnome": {
+          "dark": "#ffffff",
+          "light": "#323235",
+          "name": "@window_fg_color"
+        },
+        "mac": {
+          "dark": "#f5f5f7",
+          "light": "#1d1d1f",
+          "name": "NSColor.labelColor"
+        },
+        "use": "body text",
+        "windows": {
+          "dark": "#ffffff",
+          "light": "#1a1a1a",
+          "name": "TextFillColorPrimaryBrush"
+        }
+      },
+      "text_secondary": {
+        "gnome": {
+          "dark": "#9a9a9f",
+          "light": "#77767b",
+          "name": ".dim-label"
+        },
+        "mac": {
+          "dark": "#98989d",
+          "light": "#6e6e73",
+          "name": "NSColor.secondaryLabelColor"
+        },
+        "use": "row subtitles, captions, the state word",
+        "windows": {
+          "dark": "#c5c5c5",
+          "light": "#5d5d5d",
+          "name": "TextFillColorSecondaryBrush"
+        }
+      },
+      "window": {
+        "gnome": {
+          "dark": "#222226",
+          "light": "#fafafb",
+          "name": "@window_bg_color"
+        },
+        "mac": {
+          "dark": "#323232",
+          "light": "#ececec",
+          "name": "NSColor.windowBackgroundColor"
+        },
+        "use": "window background",
+        "windows": {
+          "dark": "#202020",
+          "light": "#f3f3f3",
+          "name": "SolidBackgroundFillColorBaseBrush"
+        }
+      }
+    },
+    "font": {
+      "gnome": "'Adwaita Sans', Cantarell, Inter, sans-serif",
+      "mac": "-apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+      "mono": "ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace",
+      "windows": "'Segoe UI Variable Text', 'Segoe UI', sans-serif"
+    },
+    "icon": {
+      "console": {
+        "gnome": "utilities-terminal-symbolic",
+        "mac": "terminal",
+        "tip": "Open the machine's console",
+        "windows": "lucide:terminal"
+      },
+      "cpu": {
+        "gnome": "lucide:cpu",
+        "mac": "cpu",
+        "tip": "Show or hide the emulated CPU load",
+        "windows": "lucide:cpu"
+      },
+      "diagnostics": {
+        "gnome": "lucide:activity",
+        "mac": "waveform.path.ecg",
+        "tip": "Open the diagnostics report",
+        "windows": "lucide:activity"
+      },
+      "library": {
+        "gnome": "sidebar-show-symbolic",
+        "mac": "sidebar.left",
+        "tip": "Show or hide the library",
+        "windows": "GlobalNavigationButton"
+      },
+      "more": {
+        "gnome": "open-menu-symbolic",
+        "mac": "(the menu bar)",
+        "tip": "More commands",
+        "windows": "More"
+      },
+      "pause": {
+        "gnome": "media-playback-pause-symbolic",
+        "mac": "pause.fill",
+        "tip": "Pause or resume the machine",
+        "windows": "Pause"
+      },
+      "pointer": {
+        "gnome": "input-mouse-symbolic",
+        "mac": "cursorarrow",
+        "tip": "Pointer mode: follow my mouse or capture on click",
+        "windows": "lucide:mouse-pointer"
+      },
+      "power": {
+        "gnome": "system-shutdown-symbolic",
+        "mac": "power",
+        "tip": "Power off, reset or force quit the machine",
+        "windows": "PowerButton"
+      },
+      "settings": {
+        "gnome": "emblem-system-symbolic",
+        "mac": "gearshape",
+        "tip": "Open the machine's settings",
+        "windows": "Setting"
+      },
+      "start": {
+        "gnome": "media-playback-start-symbolic",
+        "mac": "play.fill",
+        "tip": "Start the machine",
+        "windows": "Play"
+      }
+    },
+    "status_bar": {
+      "gnome": "a flat bottom bar in the content's AdwToolbarView; GNOME has no status-bar widget",
+      "leading": "1280 × 1024",
+      "mac": "a status bar under the content, not under the sidebar",
+      "trailing": "Follows mouse",
+      "trailing_captured": "Captured, press ⌃⌥ to release",
+      "windows": "a status bar under the content, not under the pane"
+    },
+    "toolbar": {
+      "gnome": {
+        "convention": "Header bar",
+        "end": [
+          "settings",
+          "console",
+          "pointer"
+        ],
+        "menu": "Main menu: CPU load, Diagnostics, Screenshot, Keyboard shortcuts, Preferences, About",
+        "start": [
+          "library",
+          "start",
+          "pause"
+        ],
+        "title": "the name, with the state under it"
+      },
+      "mac": {
+        "convention": "Unified toolbar",
+        "leading": [
+          "library"
+        ],
+        "menu": "Menu bar: Pause, Reset and Force quit are in the Power menu",
+        "title": "the name, with the state as its subtitle",
+        "trailing": [
+          [
+            "start"
+          ],
+          [
+            "pointer"
+          ],
+          [
+            "console",
+            "cpu",
+            "diagnostics"
+          ],
+          [
+            "settings"
+          ]
+        ]
+      },
+      "windows": {
+        "command_bar": [
+          [
+            "start"
+          ],
+          [
+            "console",
+            "pointer"
+          ],
+          [
+            "settings"
+          ]
+        ],
+        "convention": "Title bar, navigation pane and command bar",
+        "header": "the name in the title style, the state word under it",
+        "labels": {
+          "console": "Console",
+          "pointer": "Capture mouse",
+          "settings": "Settings",
+          "start": "Start"
+        },
+        "menu": "More: CPU load, Diagnostics, Screenshot, Keyboard shortcuts, Preferences, About",
+        "pane": [
+          "library"
+        ],
+        "title_bar": "The title bar holds the app icon and Origami, nothing else"
+      }
+    },
+    "type": {
+      "body": {
+        "gnome": {
+          "name": "default",
+          "size": 14.7,
+          "weight": 400
+        },
+        "mac": {
+          "name": ".body",
+          "size": 13,
+          "weight": 400
+        },
+        "use": "body text, row titles, controls",
+        "windows": {
+          "name": "BodyTextBlockStyle",
+          "size": 14,
+          "weight": 400
+        }
+      },
+      "caption": {
+        "gnome": {
+          "name": ".caption",
+          "size": 12,
+          "weight": 400
+        },
+        "mac": {
+          "name": ".caption",
+          "size": 10,
+          "weight": 400
+        },
+        "use": "help under a field",
+        "windows": {
+          "name": "CaptionTextBlockStyle",
+          "size": 12,
+          "weight": 400
+        }
+      },
+      "heading": {
+        "gnome": {
+          "name": ".heading",
+          "size": 14.7,
+          "weight": 700
+        },
+        "mac": {
+          "name": ".headline",
+          "size": 13,
+          "weight": 600
+        },
+        "use": "group headings, card values",
+        "windows": {
+          "name": "BodyStrongTextBlockStyle",
+          "size": 14,
+          "weight": 600
+        }
+      },
+      "mono": {
+        "gnome": {
+          "name": ".monospace",
+          "size": 13,
+          "weight": 400
+        },
+        "mac": {
+          "name": ".monospaced",
+          "size": 12,
+          "weight": 400
+        },
+        "use": "the console and text the user types",
+        "windows": {
+          "name": "Cascadia Mono",
+          "size": 13,
+          "weight": 400
+        }
+      },
+      "secondary": {
+        "gnome": {
+          "name": ".caption",
+          "size": 12,
+          "weight": 400
+        },
+        "mac": {
+          "name": ".subheadline",
+          "size": 11,
+          "weight": 400
+        },
+        "use": "row subtitles, the state word",
+        "windows": {
+          "name": "CaptionTextBlockStyle",
+          "size": 12,
+          "weight": 400
+        }
+      },
+      "title": {
+        "gnome": {
+          "name": ".title-3",
+          "size": 20,
+          "weight": 700
+        },
+        "mac": {
+          "name": ".title3",
+          "size": 15,
+          "weight": 600
+        },
+        "use": "page and step titles",
+        "windows": {
+          "name": "SubtitleTextBlockStyle",
+          "size": 20,
+          "weight": 600
+        }
+      }
+    },
+    "version": 1
+  },
+  "tokens": {
+    "chassis": {
+      "tab_selected_fill": 0.22,
+      "tab_selected_stroke": 0.5
+    },
+    "colour": {
+      "granite_neutral": [
+        "#282a30",
+        "#1f2126"
+      ]
+    },
+    "icon": {
+      "empty_state": 64,
+      "row_dot": 7,
+      "toolbar": 16
+    },
+    "motion": {
+      "capture_hint_ms": 3000,
+      "fade_ms": 200,
+      "toast_ms": 4000
+    },
+    "pane": {
+      "product_line_alpha": 0.7,
+      "tint_bottom_alpha": 0.0,
+      "tint_top_alpha": 0.35
+    },
+    "radius": {
+      "card": 10,
+      "control": 6,
+      "dot": 3.5,
+      "sheet": 12
+    },
+    "size": {
+      "art_gallery": {
+        "h": 90,
+        "w": 120
+      },
+      "art_hero": {
+        "h": 180,
+        "w": 240
+      },
+      "art_sidebar": 34,
+      "art_summary": 72,
+      "art_tab": 20,
+      "card": {
+        "h": 104,
+        "w": 140
+      },
+      "status_bar_height": 24,
+      "tab_bar_height": 34,
+      "tab_height": 26
+    },
+    "space": {
+      "l": 20,
+      "m": 12,
+      "s": 8,
+      "xl": 24,
+      "xs": 4
+    },
+    "version": 1
+  }
+}
+</script>
+<script>
+const D = JSON.parse(document.getElementById("design-data").textContent);
+const T = D.tokens, P = D.platform;
+const PLATS = [["mac", "macOS"], ["windows", "Windows"], ["gnome", "GNOME"]];
+const MODES = ["light", "dark"];
+const STATES = [
+  ["Stopped", null], ["Starting", "caution"], ["Running", "success"], ["Paused", "caution"], ["Saving", "caution"],
+  ["Left running", "caution"], ["Installing", "caution"], ["No picture", "critical"],
+  ["Stopped unexpectedly", "critical"], ["Needs upgrade", "caution"], ["Can't open", "critical"],
+];
+const SIZE_KEY = { mac: "mac", windows: "windows", gnome: "gnome" };
+
+// ---- colour maths ----
+function lum(hex) {
+  const c = hex.replace("#", "").match(/../g).slice(0, 3).map(h => parseInt(h, 16) / 255)
+    .map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+function ratio(a, b) { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); }
+const col = (role, plat, mode) => P.colour[role][plat][mode];
+const hex = n => "#" + n.toString(16).padStart(6, "0");
+
+// ---- stage variables per platform and mode ----
+function vars(plat, mode) {
+  const c = r => col(r, plat, mode);
+  const ty = r => P.type[r][plat].size + "px";
+  const dark = mode === "dark";
+  const onaccent = plat === "windows" && dark ? "#000000" : "#ffffff";
+  const field = plat === "gnome" ? "transparent" : (dark ? "#3a3a3c" : "#ffffff");
+  const sel = plat === "mac" ? [c("accent"), "#ffffff", "rgba(255,255,255,.82)"]
+    : [dark ? "rgba(255,255,255,.08)" : "rgba(0,0,0,.06)", c("text"), c("text_secondary")];
+  return [
+    ["--window", c("window")], ["--sidebar", c("sidebar")], ["--surface", c("surface")], ["--sep", c("separator")],
+    ["--text", c("text")], ["--text2", c("text_secondary")], ["--accent", c("accent")], ["--onaccent", onaccent],
+    ["--accentlink", c("accent")], ["--ondanger", dark && plat !== "mac" ? "#1d1d1f" : "#ffffff"],
+    ["--success", c("success")], ["--caution", c("caution")], ["--critical", c("critical")], ["--field", field],
+    ["--selbg", sel[0]], ["--selfg", sel[1]], ["--selfg2", sel[2]],
+    ["--toastbg", dark ? "#f2f2f2" : "#2b2b2e"], ["--toastfg", dark ? "#1d1d1f" : "#ffffff"],
+    ["--font", P.font[plat]], ["--monofont", P.font.mono],
+    ["--body", ty("body")], ["--secondary", ty("secondary")], ["--caption", ty("caption")], ["--title", ty("title")],
+    ["--heading", ty("heading")], ["--mono", ty("mono")],
+    ["--s-xs", T.space.xs + "px"], ["--s-s", T.space.s + "px"], ["--s-m", T.space.m + "px"],
+    ["--r-control", T.radius.control + "px"], ["--r-card", T.radius.card + "px"], ["--r-sheet", T.radius.sheet + "px"],
+    ["--dot", T.icon.row_dot + "px"], ["--icon", T.icon.toolbar + "px"], ["--empty", T.icon.empty_state + "px"],
+    ["--art", T.size.art_sidebar + "px"], ["--status-h", T.size.status_bar_height + "px"], ["--card-w", T.size.card.w + "px"], ["--card-h", T.size.card.h + "px"],
+  ].map(([k, v]) => `${k}:${v}`).join(";");
+}
+function stage(plat, mode, inner, style = "") {
+  const cls = plat === "windows" ? "win" : plat;
+  return `<div class="cell"><p class="cap">${PLATS.find(p => p[0] === plat)[1]}, ${mode}</p><div class="stage ${cls}" style="${vars(plat, mode)};${style}">${inner(plat, mode)}</div></div>`;
+}
+function allStages(inner, style) {
+  return `<div class="grid">${PLATS.map(([p]) => MODES.map(m => stage(p, m, inner, style)).join("")).join("")}</div>`;
+}
+const dd = (dos, donts) => `<div class="dd">${dos.map(d => `<div class="do">${d}</div>`).join("")}${donts.map(d => `<div class="dont">${d}</div>`).join("")}</div>`;
+const stateHtml = ([word, tone], extra = "") => `<span class="state">${tone ? `<span class="dot" style="--c:var(--${tone})"></span>` : ""}${word}${extra}</span>`;
+
+// ---- stand-in glyphs (24px line icons) ----
+const G = {
+  library: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  start: '<path d="M7 5l12 7-12 7z" fill="currentColor"/>',
+  power: '<path d="M12 3v8"/><path d="M6.3 7.5a8 8 0 1 0 11.4 0"/>',
+  pause: '<rect x="6" y="5" width="4" height="14" fill="currentColor"/><rect x="14" y="5" width="4" height="14" fill="currentColor"/>',
+  pointer: '<path d="M5 3l13 7-6 1.5L9.5 18z"/>',
+  console: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="1"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  diagnostics: '<path d="M2 12h4l3-8 6 16 3-8h4"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
+  more: '<circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/>',
+  machine: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M9 7h6"/>',
+  folder: '<path d="M3 6h6l2 2h10v11H3z"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V4h12"/>',
+};
+const glyph = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${G[k] || G.more}</svg>`;
+
+// ---- sections ----
+const S = [];
+function section(id, title, intro, body) { S.push({ id, title, html: `<section id="${id}"><h2>${title}</h2>${intro ? `<p class="note">${intro}</p>` : ""}${body}</section>` }); }
+
+// Palettes
+(function () {
+  let html = "";
+  for (const [role, def] of Object.entries(P.colour)) {
+    html += `<h3>${role.replace("_", " ")}</h3><p class="note">${def.use}</p><div class="scroll"><table class="t"><tr><th>Platform</th><th>Name in code</th><th>Light</th><th>Dark</th></tr>`;
+    for (const [p, label] of PLATS) {
+      const cell = mode => {
+        const v = def[p][mode];
+        const bgRole = ["text", "text_secondary", "success", "caution", "critical", "accent"].includes(role) ? (["text", "text_secondary"].includes(role) ? "window" : "surface") : null;
+        let r = "";
+        if (bgRole) {
+          const k = ratio(v, col(bgRole, p, mode));
+          const need = ["text", "text_secondary"].includes(role) ? 4.5 : 3;
+          r = `<span class="ratio${k < need ? " bad" : ""}">${k.toFixed(2)}:1 on ${bgRole}${k < need ? `, below ${need}:1` : ""}</span>`;
+        }
+        return `<td><span class="sw"><span class="chipc" style="background:${v}"></span><code>${v}</code></span><br>${r}</td>`;
+      };
+      html += `<tr><td>${label}</td><td><code>${def[p].name}</code></td>${cell("light")}${cell("dark")}</tr>`;
+    }
+    html += `</table></div>`;
+  }
+  html += `<p class="note">Contrast is WCAG 2 against the platform's own background. Text needs 4.5:1. A status dot needs 3:1 against the surface it sits on, and the state word beside it carries the meaning anyway. A figure marked below its target is a reason to use the platform colour as it is, never to tune a hex value in an app.</p>`;
+  section("palette", "Colour roles", "The apps use the platform's named colour for every role, so light, dark, high contrast and the user's accent follow the system. The values here are reference copies for these swatches.", html);
+})();
+
+// Chassis and granite
+(function () {
+  let html = `<div class="grid">`;
+  for (const [k, v] of Object.entries(D.chassis)) {
+    html += `<div style="width:210px"><span class="sw"><span class="chipc" style="background:${v.colour};width:46px;height:30px"></span><span><b style="font-size:13px">${k}</b><br><code style="font-size:11px">${v.colour}</code></span></span><div class="ratio">${v.name}</div></div>`;
+  }
+  html += `</div><h3>Granite</h3><p class="note">The IRIX desktop granite tile, drawn in the two <code>colour.granite_neutral</code> tones and doubled pixel for pixel, never smoothed. It is used only around the guest screen and on the start card.</p>
+    <div class="grid"><canvas id="granite" class="granite" width="512" height="256"></canvas>
+    <div>${T.colour.granite_neutral.map(h => `<div class="sw" style="margin:4px 0"><span class="chipc" style="background:${h}"></span><code>${h}</code></div>`).join("")}</div></div>`;
+  html += dd(["Take chassis colours from the stills manifest through the core.", "Show a machine's colour on its art and the page tint only."],
+    ["Write a chassis colour in app code (Windows draws Octane2 in a different blue today).", "Use a chassis colour for status or as text."]);
+  section("chassis", "Chassis colours and granite", "Identity colours, measured from each machine's photograph and kept in <code>resources/identity/stills/manifest.json</code>.", html);
+})();
+
+// Type
+(function () {
+  let html = `<div class="scroll"><table class="t ramp"><tr><th>Role</th><th>Use</th>${PLATS.map(p => `<th>${p[1]}</th>`).join("")}</tr>`;
+  for (const [role, def] of Object.entries(P.type)) {
+    html += `<tr><td><b>${role}</b></td><td class="ratio">${def.use}</td>`;
+    for (const [p] of PLATS) {
+      const t = def[p];
+      const font = role === "mono" ? P.font.mono : P.font[p];
+      html += `<td><div style="font-family:${font};font-size:${t.size}px;font-weight:${t.weight}">${role === "mono" ? "fx: ctlr# = (0)" : "Octane2 running"}</div><code style="font-size:11px">${t.name}, ${t.size}, ${t.weight}</code></td>`;
+    }
+    html += `</tr>`;
+  }
+  html += `</table></div>` + dd(["Use the platform's text style by its name.", "Use the secondary colour, not a smaller size, to make text quieter."],
+    ["Set a point size in app code.", "Use bold for emphasis inside a sentence."]);
+  section("type", "Type", "Each platform's own text styles, by role. Sizes are the platform defaults and change with the user's text size settings.", html);
+})();
+
+// Spacing, radii, icons, motion
+(function () {
+  let html = `<h3>Spacing</h3>`;
+  for (const [k, v] of Object.entries(T.space)) html += `<div class="space-row"><code style="width:70px">space.${k}</code><div class="bar" style="width:${v * 4}px"></div><span>${v}</span></div>`;
+  html += `<h3>Radii</h3><div class="grid">`;
+  for (const [k, v] of Object.entries(T.radius)) html += `<div style="text-align:center;font-size:12px"><div style="width:64px;height:44px;border:2px solid var(--muted);border-radius:${v}px"></div><code>radius.${k}</code> ${v}</div>`;
+  html += `</div><h3>Sizes</h3><table class="t"><tr><th>Token</th><th>Value</th></tr>`;
+  for (const sect of ["size", "icon"]) for (const [k, v] of Object.entries(T[sect])) html += `<tr><td><code>${sect}.${k}</code></td><td>${typeof v === "object" ? `${v.w} by ${v.h}` : v}</td></tr>`;
+  html += `</table><h3>Motion</h3><table class="t"><tr><th>Token</th><th>Milliseconds</th></tr>`;
+  for (const [k, v] of Object.entries(T.motion)) html += `<tr><td><code>motion.${k}</code></td><td>${v}</td></tr>`;
+  html += `</table><p class="note">Reduce Motion (macOS), Animation effects off (Windows) and reduced motion (GNOME) stop the cube's spin and replace fades with a cut.</p>`;
+  html += dd(["Use the generated constants: <code>Tokens.Space.S</code>, <code>tokens::space::S</code>."], ["Type a spacing number the tokens already name."]);
+  section("spacing", "Spacing, radii, sizes and motion", "Layout units: points on macOS, effective pixels on Windows, logical pixels on GNOME.", html);
+})();
+
+// Buttons
+section("buttons", "Buttons", "One default action per window, drawn with the platform's default style. Labels are verbs from the core.",
+  allStages(() => `<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn">Cancel</button><button class="btn def">Create</button><button class="btn danger">Erase</button></div>`) +
+  dd(["Make the default action the accent button: Return triggers it.", "Use the destructive style only for actions that lose data."],
+     ["Colour a button with a chassis or status colour.", "Put two accent buttons in one window."]));
+
+// Toolbar
+(function () {
+  const tip = k => P.icon[k].tip;
+  const btn = (k, label = "", on = false) => `<span class="tb${label ? " lbl" : ""}${on ? " on" : ""}" title="${tip(k)}">${glyph(k)}${label ? `<span>${label}</span>` : ""}</span>`;
+  const groups = (gs, labels = {}) => gs.map(g => `<span class="tgrp">${g.map(k => btn(k, labels[k], k === "pointer")).join("")}</span>`).join("");
+  const TB = P.toolbar;
+  const title = (name, state) => `<span class="ttl"><b>${name}</b><span>${state}</span></span>`;
+  const draw = p => {
+    if (p === "mac") {
+      const m = TB.mac;
+      return `<div class="tbar"><span class="lights"><i></i><i></i><i></i></span>${m.leading.map(k => btn(k)).join("")}${title("octane2-vpro", "Running")}<span style="flex:1"></span>${groups(m.trailing)}</div>
+        <p class="tcap">${m.convention}. ${m.menu}.</p>`;
+    }
+    if (p === "windows") {
+      const w = TB.windows;
+      return `<div class="tbar"><span class="tb">${glyph("machine")}</span><span>Origami</span></div>
+        <div style="display:flex;gap:10px;margin-top:8px"><div class="pane" style="width:118px;padding:8px 6px;flex:none">${w.pane.map(k => btn(k, "Machines")).join("")}</div>
+        <div style="flex:1;min-width:0"><div>${title("octane2-vpro", "Running")}</div><div class="tbar" style="margin-top:8px;padding:2px 4px">${groups(w.command_bar, w.labels)}<span class="tb">${glyph("more")}</span></div></div></div>
+        <p class="tcap">${w.convention}. ${w.title_bar}. ${w.menu}.</p>`;
+    }
+    const g = TB.gnome;
+    return `<div class="tbar">${btn(g.start[0])}<span class="tbtext">Start</span>${g.start.slice(2).map(k => btn(k)).join("")}<span style="flex:1"></span>${title("octane2-vpro", "Running")}<span style="flex:1"></span>${g.end.map(k => btn(k, "", k === "pointer")).join("")}<span class="tb">${glyph("more")}</span></div>
+      <p class="tcap">${g.convention}. ${g.menu}.</p>`;
+  };
+  section("toolbar", "Toolbar", "The commands, their order, tooltips and shortcuts come from the core and are the same everywhere. Where they sit follows each platform: macOS's unified toolbar, Windows's title bar with a command bar in the content, GNOME's header bar. Each icon is from the platform's own set.",
+    allStages(p => draw(p), "min-width:420px") +
+    `<div class="scroll"><table class="t"><tr><th>Command</th><th>Tooltip (plus the shortcut)</th>${PLATS.map(p => `<th>${p[1]}</th>`).join("")}</tr>${Object.entries(P.icon).map(([k, v]) => `<tr><td>${k}</td><td>${v.tip}</td><td><code>${v.mac}</code></td><td><code>${v.windows}</code></td><td><code>${v.gnome}</code></td></tr>`).join("")}</table></div>` +
+    dd(["Follow the platform's own toolbar conventions: Apple's HIG, Fluent and the GNOME HIG.", "End each tooltip with the platform's shortcut.", "Leave out commands that need a machine when none is selected."],
+       ["Force one toolbar layout on all three apps.", "Use a speech bubble for Console or a calculator for CPU.", "Show Start and Power off side by side; one control changes with the state."]));
+})();
+
+// Status bar
+(function () {
+  const sb = P.status_bar;
+  const skel = (running, p) => `<div class="skel"><div class="sb">Library</div><div class="ct"><div class="scr${running ? "" : " none"}">${running ? "The guest's picture" : "A card, not the picture"}</div>${running ? `<div class="sbar"><span>${sb.leading}</span><span>${sb.trailing}</span></div>` : ""}</div></div>`;
+  section("statusbar", "Status bar", `Two items about the live picture and nothing else: its size at the leading side, the pointer mode at the trailing side. Its height is <code>size.status_bar_height</code>, ${T.size.status_bar_height}. It shows only while the machine runs and spans the content, not the sidebar. While the machine is stopped or showing a card there is no bar, so a card's words are never repeated there.`,
+    allStages(p => `<p class="tcap" style="margin-top:0">Running</p>${skel(true, p)}<p class="tcap">Stopped</p>${skel(false, p)}`) +
+    `<table class="t"><tr><th>Platform</th><th>Drawn as</th></tr>${PLATS.map(([p, l]) => `<tr><td>${l}</td><td>${sb[p]}</td></tr>`).join("")}</table>` +
+    dd(["Hide the bar when the machine is stopped or shows a card.", "Show how to release a captured pointer: <code>" + sb.trailing_captured + "</code>."],
+       ["Show the state or a card's words in the bar.", "Let the bar run under the sidebar."]));
+})();
+
+// Status
+section("status", "Status: dot and word", "One form for every state, in four places only: the library row, the title bar's subtitle, the tab and the Diagnostics header.",
+  allStages(() => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px">${STATES.map(s => stateHtml(s)).join("")}</div>`) +
+  dd(["Put the word next to every dot.", "Take the word and tone from the core's state table."],
+     ["Draw status as a capsule, chip or badge.", "Show the state in the status bar or on the machine page."]));
+
+// Library rows
+(function () {
+  const rows = [["octane2-vpro-installed", "Octane2", "#2e354e", ["Running", "success"], true], ["octane-si-installed", "Octane", "#2a6574", null, false],
+    ["o2-installed", "O2", "#3d5a6d", ["Needs upgrade", "caution"], false], ["indy-iris", "Indy", "#3c6f9c", ["Stopped unexpectedly", "critical"], false]];
+  section("rows", "Library rows", "Name on line 1, middle-truncated. Line 2 is the model while stopped, otherwise the state. Nothing trails the text.",
+    allStages(() => rows.map(([n, m, c, s, sel]) => `<div class="row${sel ? " sel" : ""}"><span class="art"><i style="--chassis:${c}"></i></span><div class="rt"><div class="name">${n}</div>${s ? stateHtml(s) : `<div class="model">${m}</div>`}</div></div>`).join("")) +
+    dd(["Truncate the name in the middle; put the full name, model, state and OS in the tooltip and accessible name.", "Show the OS release on the machine page's System card."],
+       ["Show \"Stopped\" in the row; the model takes its place.", "Add pills, badges or icons after the name.", "Show \"Unknown\"."]));
+})();
+
+// Tabs and title bar
+section("titlebar", "Title and tabs", "The window title is the machine's name, and its subtitle is the state word. Windows keeps its title bar to the app icon and Origami and puts the name and state in the content's header. Tabs show only when two or more machines are open, each with a dot.",
+  allStages(p => {
+    const ttl = `<div class="ttl"><b>octane2-vpro</b><span>Running</span></div>`;
+    const bar = p === "windows" ? `<div class="titlebar"><div class="ttl"><b>Origami</b></div></div><div style="padding:8px 4px 0">${ttl}</div>`
+      : `<div class="titlebar">${p === "mac" ? `<span class="lights"><i></i><i></i><i></i></span>` : ""}${ttl}</div>`;
+    return `<p class="tcap" style="margin-top:0">Two machines open</p>${bar}
+    <div class="tabs" style="margin-top:10px"><span class="tab on"><span class="dot" style="--c:var(--success)"></span>octane2-vpro</span><span class="tab"><span class="dot" style="--c:var(--caution)"></span>fuel</span></div>
+    <p class="tcap">One machine open: no tab bar</p>${bar}`;
+  }) +
+  dd(["Use the platform's subtitle: <code>navigationSubtitle</code>, <code>AdwWindowTitle</code> subtitle, the content header's secondary text on Windows.", "Hide the tab bar until a second machine opens."],
+     ["Float a state capsule in the toolbar.", "Show the tab bar for a single machine.", "Repeat the name as a heading on the machine page."]));
+
+// Forms
+section("forms", "Form rows", "Every field has a label. macOS uses a grouped form, Windows puts the label above, GNOME uses boxed lists.",
+  allStages(() => `<div class="form"><div class="fr"><span>Model</span><span class="ctl"><span class="field">Octane2, 1 CPU <span class="chev">&#8964;</span></span></span></div>
+    <div class="fr"><span>Name</span><span class="ctl"><span class="field">octane2</span></span></div>
+    <div class="fr"><span>Disk size</span><span class="ctl"><span class="field num">4</span><span>GB</span></span></div></div>`) +
+  dd(["Put units after the value as a word.", "Put help under the field in caption style.", "Apply each change at once in Settings."],
+     ["Leave a field unlabelled.", "Add Apply buttons to Settings.", "Write a unit into the label (\"Disk size: 4 GB\")."]));
+
+// Advanced and radio lists
+section("advanced", "Advanced disclosure and radio lists", "The whole header row opens Advanced. Up to five choices with descriptions are a radio list; longer lists are a pop-up.",
+  allStages(p => `<div class="form"><div class="radio"><i class="rb on"></i><div>Ready-made IRIX disk<div class="sec">IRIX installed and ready to start.</div></div></div>
+    <div class="radio"><i class="rb"></i><div>Install IRIX from discs<div class="sec">Start with an empty disk.</div></div></div>
+    <div class="radio"><i class="rb"></i><div>No disk</div></div></div>
+    <div class="form" style="margin-top:10px"><div class="adv">${p === "mac" ? `<span class="chev">&#8964;</span><span>Advanced</span>` : `<span>Advanced</span><span class="chev">&#8963;</span>`}</div>
+    <div class="fr"><span>Machine ID</span><span class="ctl"><span class="field num">6</span></span></div>
+    <div class="fr" style="padding-top:0;min-height:0"><span class="sec">Sets the serial number, host ID and Ethernet address.</span></div></div>`) +
+  dd(["Open Advanced from anywhere on its header.", "Use two radios for a choice with its own field, and keep the field visible."],
+     ["Hide the field a checkbox would enable.", "Use a pop-up for three described choices."]));
+
+// Sheets and alerts
+section("dialogs", "Sheets and alerts", "A task on a machine is a sheet. A question before something happens is an alert, with at most three buttons.",
+  allStages(p => p === "windows"
+    ? `<div class="sheet"><div class="bd"><h4>Power off octane2 while IRIX is running?</h4><div class="sec">IRIX may need to check its disks at the next start.</div></div><div class="ft"><button class="btn def">Shut down IRIX first</button><button class="btn">Cancel</button></div></div>`
+    : `<div class="sheet ${p === "mac" ? "alert" : ""}"><h4>Power off octane2 while IRIX is running?</h4><div class="sec">IRIX may need to check its disks at the next start.</div><div class="ft">${p === "mac" ? `<button class="btn def">Shut down IRIX first</button><button class="btn">Power off anyway</button><button class="btn">Cancel</button>` : `<button class="btn">Cancel</button><button class="btn danger">Power off</button><button class="btn def">Shut down</button>`}</div></div>`) +
+  dd(["Title an alert with the question; one sentence of consequence below.", "Follow the platform's button order."],
+     ["Repeat the window title as a heading inside a sheet.", "Show errors after the fact inside a sheet; use an alert."]));
+
+// Toasts
+section("toasts", "Toasts", `Short-lived results. They leave after ${T.motion.toast_ms / 1000} seconds and never hold the only copy of anything important.`,
+  allStages(() => `<span class="toast">octane2 upgraded</span>`) +
+  dd(["Use a toast for results the user can ignore: upgraded, disc ejected."], ["Leave result text on the page, as the upgrade notes do today.", "Offer an action in a toast that the app can't do, such as undoing an upgrade."]));
+
+// Empty states
+section("empty", "Empty states", "An image, a title, one sentence and at most one button.",
+  allStages(() => `<div class="empty"><span class="ic">${glyph("machine")}</span><b>No machines yet</b><span class="sec">Create one to start using Origami.</span><button class="btn def">New machine</button></div>`) +
+  dd(["Say what to do next in one sentence."], ["Point at the command line from the app."]));
+
+// Cards
+section("cards", "Cards", "The machine page's facts: Memory, Model and System. A card is left out when its value is not known.",
+  allStages(() => `<div style="display:flex;gap:8px;flex-wrap:wrap"><div class="card"><b>256 MB</b><span class="sec">Memory</span></div><div class="card"><b>Octane2</b><span class="sec">Model</span></div><div class="card"><b>IRIX 6.5.30</b><span class="sec">System</span></div></div>`) +
+  dd(["Order cards Memory, Model, System."], ["Show a card that says Unknown."]));
+
+// Console and CPU panel
+section("console", "Console and CPU load panel", "The console is the guest's own text and keeps a dark terminal look on every platform. The CPU panel is IRIX's gr_osview, kept inside its own strip as a tribute.",
+  allStages(() => `<div class="console">IRIX Release 6.5 IP30
+octane2 console login: <span style="background:#d8d8d8"> </span></div>
+    <div class="osview" style="margin-top:10px">CPU 0 host time: <span style="color:#0000ff">user</span> <span style="color:#ff0000">sys</span> <span style="color:#00b000">spare</span>
+      <div class="strip"><i style="width:55%;background:#0000ff"></i><i style="width:10%;background:#ff0000"></i><i style="width:35%;background:#00ff00"></i></div>
+      <small>Emulated CPU load, measured on the host, not the guest</small></div>`) +
+  dd(["Take the panel's colours from the core's osview constants."], ["Use the gr_osview look anywhere outside this panel."]));
+
+// Install assistant
+section("install", "Install assistant and progress", "The guide takes the leading sidebar in the library's place, like a table of contents, and a toolbar button switches back to the library without stopping the install. Done steps fold; the current step shows what to watch for, what to type and a note. The machine's screen or console is the content beside it.",
+  allStages(p => `<div style="display:flex;gap:10px"><div class="pane"><span class="tb lbl" style="padding:0 6px;margin-bottom:4px" title="Back to the library, without stopping the install">${glyph("library")}<span>Library</span></span><div class="sec" style="padding:0 6px 6px">Install IRIX, step 6 of 9</div>
+    <div class="st done"><span class="stepn">&#10003;</span><span>Open the command monitor <span class="sec">Seen</span></span></div>
+    <div class="st now"><span class="stepn">4</span><div style="flex:1"><b>Choose the disk</b>
+      <div class="kv"><span class="k">Watch for</span><span><span class="watch mono">ctlr#</span></span><span class="k">Type</span><span><span class="val mono">0</span> <span class="key">&#9166;</span></span></div>
+      <div class="sec" style="margin-top:6px">This is system.qcow2.</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px"><span class="sec">Waiting for <span class="mono">fx&gt;</span></span><button class="btn">Type it</button></div></div></div>
+    <div class="st later"><span class="stepn">5</span><span>Label the disk</span></div>
+    <div style="padding:8px 6px 2px"><div class="sec" style="margin-bottom:4px">Installing packages</div><div class="prog"><i></i></div></div></div>
+    <div class="skel" style="width:120px;height:auto;min-height:100%"><div class="ct"><div class="scr">Console</div></div></div></div>`) +
+  dd(["Show the exact text before its Copy button.", "Put the guide in the leading sidebar and keep a button back to the library.", "Confirm steps from the console when Origami can read it; offer Done when it can't."],
+     ["Make the user copy text they can't see.", "Open the guide, the console and the machine as three windows.", "Add a second sidebar for the guide."]));
+
+// Copy fields
+section("copy", "Copy fields", "Text the user must type somewhere else: shown whole, in monospace, with Copy after it.",
+  allStages(() => `<div class="copyf"><span class="mono">mount 10.0.2.2:/share /mnt/share</span><button class="btn">Copy</button></div>`) +
+  dd(["Let the text wrap or scroll; the user must be able to read all of it."], ["Hide the text behind the button."]));
+
+// ---- page ----
+document.getElementById("app").innerHTML = S.map(s => s.html).join("");
+document.getElementById("nav").innerHTML = S.map(s => `<a href="#${s.id}">${s.title}</a>`).join("");
+(function drawGranite() {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.getElementById("granite"), x = c.getContext("2d");
+    const t = document.createElement("canvas"); t.width = img.width; t.height = img.height;
+    const tx = t.getContext("2d"); tx.drawImage(img, 0, 0);
+    const d = tx.getImageData(0, 0, t.width, t.height), p = d.data;
+    const [a, b] = T.colour.granite_neutral.map(h => h.match(/[0-9a-f]{2}/gi).map(v => parseInt(v, 16)));
+    for (let i = 0; i < p.length; i += 4) { const light = p[i] + p[i + 1] + p[i + 2] > 382; const q = light ? a : b; p[i] = q[0]; p[i + 1] = q[1]; p[i + 2] = q[2]; p[i + 3] = 255; }
+    tx.putImageData(d, 0, 0);
+    x.imageSmoothingEnabled = false;
+    for (let yy = 0; yy < c.height; yy += t.height * 2) for (let xx = 0; xx < c.width; xx += t.width * 2) x.drawImage(t, xx, yy, t.width * 2, t.height * 2);
+  };
+  img.src = "data:image/png;base64," + D.granite_png;
+})();
+</script>
+</body>
+</html>

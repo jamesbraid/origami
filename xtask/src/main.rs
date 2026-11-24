@@ -14,6 +14,7 @@
 
 mod app;
 mod archive;
+mod design;
 mod instigator;
 mod lock;
 mod notices;

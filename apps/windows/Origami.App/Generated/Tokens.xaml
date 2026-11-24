@@ -5,9 +5,19 @@
     <x:Double x:Key="Chassis.TabSelectedStroke">0.5</x:Double>
     <Color x:Key="Colour.GraniteNeutral.0">#282A30</Color>
     <Color x:Key="Colour.GraniteNeutral.1">#1F2126</Color>
+    <x:Double x:Key="Icon.EmptyState">64</x:Double>
+    <x:Double x:Key="Icon.RowDot">7</x:Double>
+    <x:Double x:Key="Icon.Toolbar">16</x:Double>
+    <x:Double x:Key="Motion.CaptureHintMs">3000</x:Double>
+    <x:Double x:Key="Motion.FadeMs">200</x:Double>
+    <x:Double x:Key="Motion.ToastMs">4000</x:Double>
     <x:Double x:Key="Pane.ProductLineAlpha">0.7</x:Double>
     <x:Double x:Key="Pane.TintBottomAlpha">0</x:Double>
     <x:Double x:Key="Pane.TintTopAlpha">0.35</x:Double>
+    <x:Double x:Key="Radius.Card">10</x:Double>
+    <x:Double x:Key="Radius.Control">6</x:Double>
+    <x:Double x:Key="Radius.Dot">3.5</x:Double>
+    <x:Double x:Key="Radius.Sheet">12</x:Double>
     <x:Double x:Key="Size.ArtGalleryW">120</x:Double>
     <x:Double x:Key="Size.ArtGalleryH">90</x:Double>
     <x:Double x:Key="Size.ArtHeroW">240</x:Double>
@@ -17,6 +27,12 @@
     <x:Double x:Key="Size.ArtTab">20</x:Double>
     <x:Double x:Key="Size.CardW">140</x:Double>
     <x:Double x:Key="Size.CardH">104</x:Double>
+    <x:Double x:Key="Size.StatusBarHeight">24</x:Double>
     <x:Double x:Key="Size.TabBarHeight">34</x:Double>
     <x:Double x:Key="Size.TabHeight">26</x:Double>
+    <x:Double x:Key="Space.L">20</x:Double>
+    <x:Double x:Key="Space.M">12</x:Double>
+    <x:Double x:Key="Space.S">8</x:Double>
+    <x:Double x:Key="Space.Xl">24</x:Double>
+    <x:Double x:Key="Space.Xs">4</x:Double>
 </ResourceDictionary>

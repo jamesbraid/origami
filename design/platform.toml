@@ -1,0 +1,221 @@
+# What each platform calls the things the design system names. The apps use
+# the names; the light and dark values are reference copies for the design
+# page's swatches and contrast figures, never for app code.
+#
+# Reference values come from Apple's HIG colour tables, the WinUI 3 theme
+# resources and libadwaita 1.6's named colours. They have not been checked
+# against the toolkit versions the apps build with; the named colour wins
+# wherever they differ.
+version = 1
+
+# ---- colour roles -------------------------------------------------------------
+
+[colour.success]
+use = "Running"
+mac = { name = "NSColor.systemGreen", light = "#34c759", dark = "#30d158" }
+windows = { name = "SystemFillColorSuccessBrush", light = "#0f7b0f", dark = "#6ccb5f" }
+gnome = { name = "@success_color", light = "#1b8553", dark = "#78e9ab" }
+
+[colour.caution]
+use = "Starting, Paused, Saving, Left running, Installing, Needs upgrade"
+mac = { name = "NSColor.systemOrange", light = "#ff9500", dark = "#ff9f0a" }
+windows = { name = "SystemFillColorCautionBrush", light = "#9d5d00", dark = "#fce100" }
+gnome = { name = "@warning_color", light = "#9c6e03", dark = "#ffc252" }
+
+[colour.critical]
+use = "No picture, Stopped unexpectedly, Can't open, errors"
+mac = { name = "NSColor.systemRed", light = "#ff3b30", dark = "#ff453a" }
+windows = { name = "SystemFillColorCriticalBrush", light = "#c42b1c", dark = "#ff99a4" }
+gnome = { name = "@error_color", light = "#c30000", dark = "#ff938c" }
+
+[colour.accent]
+use = "the user's accent: default button, selection, focus. Never fixed by Origami."
+mac = { name = "NSColor.controlAccentColor", light = "#007aff", dark = "#0a84ff" }
+windows = { name = "AccentFillColorDefaultBrush", light = "#005fb8", dark = "#60cdff" }
+gnome = { name = "@accent_bg_color", light = "#3584e4", dark = "#3584e4" }
+
+[colour.text]
+use = "body text"
+mac = { name = "NSColor.labelColor", light = "#1d1d1f", dark = "#f5f5f7" }
+windows = { name = "TextFillColorPrimaryBrush", light = "#1a1a1a", dark = "#ffffff" }
+gnome = { name = "@window_fg_color", light = "#323235", dark = "#ffffff" }
+
+[colour.text_secondary]
+use = "row subtitles, captions, the state word"
+mac = { name = "NSColor.secondaryLabelColor", light = "#6e6e73", dark = "#98989d" }
+windows = { name = "TextFillColorSecondaryBrush", light = "#5d5d5d", dark = "#c5c5c5" }
+gnome = { name = ".dim-label", light = "#77767b", dark = "#9a9a9f" }
+
+[colour.window]
+use = "window background"
+mac = { name = "NSColor.windowBackgroundColor", light = "#ececec", dark = "#323232" }
+windows = { name = "SolidBackgroundFillColorBaseBrush", light = "#f3f3f3", dark = "#202020" }
+gnome = { name = "@window_bg_color", light = "#fafafb", dark = "#222226" }
+
+[colour.sidebar]
+use = "the library and settings sidebars"
+mac = { name = "sidebar material", light = "#e8e7ea", dark = "#2b2b2e" }
+windows = { name = "NavigationViewDefaultPaneBackground", light = "#f3f3f3", dark = "#202020" }
+gnome = { name = "@sidebar_bg_color", light = "#ebebed", dark = "#2e2e32" }
+
+[colour.surface]
+use = "cards, grouped form sections, dialogs"
+mac = { name = "NSColor.controlBackgroundColor", light = "#ffffff", dark = "#1e1e1e" }
+windows = { name = "CardBackgroundFillColorDefaultBrush", light = "#ffffff", dark = "#2b2b2b" }
+gnome = { name = "@card_bg_color", light = "#ffffff", dark = "#38383c" }
+
+[colour.separator]
+use = "lines between rows and groups"
+mac = { name = "NSColor.separatorColor", light = "#e0e0e0", dark = "#3d3d3d" }
+windows = { name = "DividerStrokeColorDefaultBrush", light = "#e5e5e5", dark = "#3a3a3a" }
+gnome = { name = "@borders", light = "#e0e0e3", dark = "#3a3a3e" }
+
+# ---- type roles -----------------------------------------------------------------
+# size in points (macOS), effective pixels (Windows) and pixels at the default
+# 11 pt font (GNOME); weight in CSS terms.
+
+[type.title]
+use = "page and step titles"
+mac = { name = ".title3", size = 15, weight = 600 }
+windows = { name = "SubtitleTextBlockStyle", size = 20, weight = 600 }
+gnome = { name = ".title-3", size = 20, weight = 700 }
+
+[type.heading]
+use = "group headings, card values"
+mac = { name = ".headline", size = 13, weight = 600 }
+windows = { name = "BodyStrongTextBlockStyle", size = 14, weight = 600 }
+gnome = { name = ".heading", size = 14.7, weight = 700 }
+
+[type.body]
+use = "body text, row titles, controls"
+mac = { name = ".body", size = 13, weight = 400 }
+windows = { name = "BodyTextBlockStyle", size = 14, weight = 400 }
+gnome = { name = "default", size = 14.7, weight = 400 }
+
+[type.secondary]
+use = "row subtitles, the state word"
+mac = { name = ".subheadline", size = 11, weight = 400 }
+windows = { name = "CaptionTextBlockStyle", size = 12, weight = 400 }
+gnome = { name = ".caption", size = 12, weight = 400 }
+
+[type.caption]
+use = "help under a field"
+mac = { name = ".caption", size = 10, weight = 400 }
+windows = { name = "CaptionTextBlockStyle", size = 12, weight = 400 }
+gnome = { name = ".caption", size = 12, weight = 400 }
+
+[type.mono]
+use = "the console and text the user types"
+mac = { name = ".monospaced", size = 12, weight = 400 }
+windows = { name = "Cascadia Mono", size = 13, weight = 400 }
+gnome = { name = ".monospace", size = 13, weight = 400 }
+
+[font]
+mac = "-apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif"
+windows = "'Segoe UI Variable Text', 'Segoe UI', sans-serif"
+gnome = "'Adwaita Sans', Cantarell, Inter, sans-serif"
+mono = "ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Consolas, monospace"
+
+# ---- icons ----------------------------------------------------------------------
+# Each platform's own set. "lucide:" names an icon Origami ships because the set
+# has none. Segoe names are the WinUI Symbol enum where one fits.
+
+[icon.library]
+tip = "Show or hide the library"
+mac = "sidebar.left"
+windows = "GlobalNavigationButton"
+gnome = "sidebar-show-symbolic"
+
+[icon.start]
+tip = "Start the machine"
+mac = "play.fill"
+windows = "Play"
+gnome = "media-playback-start-symbolic"
+
+[icon.power]
+tip = "Power off, reset or force quit the machine"
+mac = "power"
+windows = "PowerButton"
+gnome = "system-shutdown-symbolic"
+
+[icon.pause]
+tip = "Pause or resume the machine"
+mac = "pause.fill"
+windows = "Pause"
+gnome = "media-playback-pause-symbolic"
+
+[icon.pointer]
+tip = "Pointer mode: follow my mouse or capture on click"
+mac = "cursorarrow"
+windows = "lucide:mouse-pointer"
+gnome = "input-mouse-symbolic"
+
+[icon.console]
+tip = "Open the machine's console"
+mac = "terminal"
+windows = "lucide:terminal"
+gnome = "utilities-terminal-symbolic"
+
+[icon.cpu]
+tip = "Show or hide the emulated CPU load"
+mac = "cpu"
+windows = "lucide:cpu"
+gnome = "lucide:cpu"
+
+[icon.diagnostics]
+tip = "Open the diagnostics report"
+mac = "waveform.path.ecg"
+windows = "lucide:activity"
+gnome = "lucide:activity"
+
+[icon.settings]
+tip = "Open the machine's settings"
+mac = "gearshape"
+windows = "Setting"
+gnome = "emblem-system-symbolic"
+
+[icon.more]
+tip = "More commands"
+mac = "(the menu bar)"
+windows = "More"
+gnome = "open-menu-symbolic"
+
+# ---- toolbars ---------------------------------------------------------------------
+# Each platform lays out its commands its own way; the page draws these. Names are
+# the icon keys above. A command in no list is in the menu.
+
+[toolbar.mac]
+convention = "Unified toolbar"
+leading = ["library"]
+title = "the name, with the state as its subtitle"
+trailing = [["start"], ["pointer"], ["console", "cpu", "diagnostics"], ["settings"]]
+menu = "Menu bar: Pause, Reset and Force quit are in the Power menu"
+
+[toolbar.windows]
+convention = "Title bar, navigation pane and command bar"
+title_bar = "The title bar holds the app icon and Origami, nothing else"
+pane = ["library"]
+header = "the name in the title style, the state word under it"
+command_bar = [["start"], ["console", "pointer"], ["settings"]]
+labels = { start = "Start", console = "Console", pointer = "Capture mouse", settings = "Settings" }
+menu = "More: CPU load, Diagnostics, Screenshot, Keyboard shortcuts, Preferences, About"
+
+[toolbar.gnome]
+convention = "Header bar"
+start = ["library", "start", "pause"]
+title = "the name, with the state under it"
+end = ["settings", "console", "pointer"]
+menu = "Main menu: CPU load, Diagnostics, Screenshot, Keyboard shortcuts, Preferences, About"
+
+# ---- status bar -------------------------------------------------------------------
+# Two items about the live picture, shown only while the machine runs. Its height
+# is size.status_bar_height in tokens.toml. The words are examples; the core owns
+# them, including the release keys.
+
+[status_bar]
+leading = "1280 × 1024"
+trailing = "Follows mouse"
+trailing_captured = "Captured, press ⌃⌥ to release"
+mac = "a status bar under the content, not under the sidebar"
+windows = "a status bar under the content, not under the pane"
+gnome = "a flat bottom bar in the content's AdwToolbarView; GNOME has no status-bar widget"

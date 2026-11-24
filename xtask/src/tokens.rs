@@ -1,5 +1,6 @@
 //! `cargo xtask tokens [--check]`: turns `resources/identity/tokens.toml`
-//! into the constants each app compiles, so a shared number lives once.
+//! into the constants each app compiles, so a shared number lives once, and
+//! keeps the design reference and its colour guard current (`design.rs`).
 
 use crate::archive::Result;
 use std::fs;
@@ -184,10 +185,14 @@ pub fn run(root: &Path, check: bool) -> Result<()> {
             fs::write(&path, text)?;
         }
     }
-    if stale.is_empty() {
+    let mut problems = crate::design::run(root, check)?;
+    if !stale.is_empty() {
+        problems.insert(0, format!("stale, run `cargo xtask tokens`: {stale:?}"));
+    }
+    if problems.is_empty() {
         return Ok(());
     }
-    Err(format!("stale, run `cargo xtask tokens`: {stale:?}").into())
+    Err(problems.join("\n").into())
 }
 
 #[cfg(test)]
