@@ -280,7 +280,8 @@ jobs:
           if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } elseif (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" }
           foreach ($f in "app.log","stderr.log") { if (Test-Path "$out\$f") { "--- $f"; Get-Content "$out\$f" -Tail 60 } }
           "exit code: $($p.ExitCode)"
-          exit $p.ExitCode
+          & apps\windows\ci\selftest-verdict.ps1 -Out $out -ExitCode $p.ExitCode
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         with:
           name: origami-app-windows-x86_64
@@ -347,12 +348,14 @@ jobs:
           foreach ($f in "app.log","stderr.log") { if (Test-Path "$out\$f") { "--- $f"; Get-Content "$out\$f" -Tail 60 } }
           "exit code: $($p.ExitCode)"
           # This runner's desktop session never gives the app the foreground or keyboard focus,
-          # which the x64 runner does, so the checks that need them are not held against it.
-          $json = if (Test-Path "$out\selftest.json") { "$out\selftest.json" } else { "$out\selftest.json.partial" }
-          $steps = (Get-Content -Raw $json | ConvertFrom-Json).steps
-          $needsFocus = '^(window is the foreground window|about: (the right arrow|typing))'
-          $failed = @($steps | Where-Object { -not $_.Ok -and $_.Name -notmatch $needsFocus })
-          if ($failed.Count -gt 0) { "failed: $($failed.Name -join ', ')"; exit 1 }
+          # which the x64 runner does, so exactly these checks are excused here, and printed as such.
+          $excuse = @{
+            'window is the foreground window' = 'the arm64 desktop never gives the app the foreground'
+            'about: the right arrow steps to the next scene' = 'needs keyboard focus'
+            'about: typing hinv slides the host inventory over the credits' = 'needs keyboard focus'
+          }
+          & apps\windows\ci\selftest-verdict.ps1 -Out $out -ExitCode $p.ExitCode -Excuse $excuse
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v4
         with:
           name: origami-app-windows-arm64

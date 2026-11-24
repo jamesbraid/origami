@@ -82,7 +82,11 @@ runs:
         if (-not $p.HasExited) { "self-test did not exit"; $p.Kill(); $code = 99 } else { $code = $p.ExitCode }
         if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } else { "no selftest.json written"; if (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" } }
         "exit code: $code"
-        if ($env:FAIL_ON_SELFTEST -eq 'true') { exit $code }
+        if ($env:FAIL_ON_SELFTEST -eq 'true') {
+          if ($code -eq 99) { exit 99 }
+          & "$root\apps\windows\ci\selftest-verdict.ps1" -Out $out -ExitCode $code
+          exit $LASTEXITCODE
+        }
     - name: Machine logs, then stop what is still running (machines outlive the app, and a running one locks its files)
       if: always()
       shell: powershell

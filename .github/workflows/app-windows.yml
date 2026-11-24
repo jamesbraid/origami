@@ -216,7 +216,9 @@ jobs:
           if (-not $p.WaitForExit(580000)) { "self-test did not exit"; $p.Kill(); $code = 99 } else { $code = $p.ExitCode }
           if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } else { "no selftest.json written"; if (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" } }
           "exit code: $code"
-          exit $code
+          if ($code -eq 99) { exit 99 }
+          & ci\selftest-verdict.ps1 -Out $out -ExitCode $code
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v3
         if: always()
         with:

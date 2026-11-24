@@ -110,7 +110,8 @@ jobs:
           if (Test-Path "$out\selftest.json") { Get-Content "$out\selftest.json" } elseif (Test-Path "$out\selftest.json.partial") { Get-Content "$out\selftest.json.partial" }
           foreach ($f in "app.log","stderr.log") { if (Test-Path "$out\$f") { "--- $f"; Get-Content "$out\$f" -Tail 60 } }
           "exit code: $($p.ExitCode)"
-          exit $p.ExitCode
+          & apps\windows\ci\selftest-verdict.ps1 -Out $out -ExitCode $p.ExitCode
+          exit $LASTEXITCODE
       - uses: actions/upload-artifact@v3
         if: always()
         with:
