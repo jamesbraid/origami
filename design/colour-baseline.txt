@@ -28,9 +28,6 @@ apps/macos/Sources/Core/Library.swift	0x8e3738	1
 apps/macos/Sources/Core/Library.swift	0xa2a4a6	1
 apps/macos/Sources/Views/CpuPanel.swift	0xbfbfbf	1
 apps/windows/Origami.App/AboutWindow.cs	Color.FromArgb(255,dark?(byte)	1
-apps/windows/Origami.App/App.xaml	#3f46a8	1
-apps/windows/Origami.App/App.xaml	#4a52c4	1
-apps/windows/Origami.App/App.xaml	#7c83f2	1
 apps/windows/Origami.App/ConsoleWindow.cs	0x0c0c0c	1
 apps/windows/Origami.App/ConsoleWindow.cs	0x7f7f7f	2
 apps/windows/Origami.App/ConsoleWindow.cs	0xcccccc	1
@@ -39,12 +36,10 @@ apps/windows/Origami.App/ConsoleWindow.cs	Color.FromArgb(255,(byte)	1
 apps/windows/Origami.App/ConsoleWindow.cs	Color.FromArgb(90,0x4A,0x52,0xC4)	1
 apps/windows/Origami.App/DisplayView.xaml	#16161c	1
 apps/windows/Origami.App/DisplayView.xaml	#5a5a66	1
-apps/windows/Origami.App/MachineSettingsDialog.cs	Color.FromArgb(60,128,128,128)	1
 apps/windows/Origami.App/MainWindow.xaml	#333333	1
 apps/windows/Origami.App/MainWindow.xaml	#bfbfbf	1
 apps/windows/Origami.App/MainWindow.xaml.cs	0x000000	3
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb((byte)	2
-apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(24,128,128,128)	1
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(255,(byte)	3
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(255,0x1B,0xA3,0x9C)	1
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(255,0x3B,0x6F,0xD1)	1
@@ -53,13 +48,8 @@ apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(255,0x55,0x58,0x60)	1
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(255,0x6B,0x5B,0xD6)	1
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(255,0x80,0x4B,0xB0)	1
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(255,0xC8,0x3B,0x3B)	1
-apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(48,128,128,128)	1
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(PaneTint.BottomAlpha,chassis.R,chassis.G,chassis.B)	1
 apps/windows/Origami.App/MainWindow.xaml.cs	Color.FromArgb(PaneTint.TopAlpha,chassis.R,chassis.G,chassis.B)	1
-apps/windows/Origami.App/Tones.cs	Color.FromArgb(255,0x2E,0x8B,0x57)	1
-apps/windows/Origami.App/Tones.cs	Color.FromArgb(255,0x6E,0x6E,0x78)	1
-apps/windows/Origami.App/Tones.cs	Color.FromArgb(255,0xB5,0x7A,0x00)	1
-apps/windows/Origami.App/Tones.cs	Color.FromArgb(255,0xC0,0x39,0x2B)	1
 apps/windows/Origami.Logic/Identity.cs	0x1f2126	1
 apps/windows/Origami.Logic/Identity.cs	0x282a30	1
 apps/windows/Origami.Logic/Osview.cs	0x000000	1
