@@ -82,6 +82,17 @@ when a second machine is open. A status bar under a running machine shows the
 picture's size and the pointer. Help > Keyboard shortcuts lists every shortcut,
 the keys that release the mouse first.
 
+On Windows the title bar holds only the icon and name. The pane at the left
+has a toggle at its top and New machine at its foot, and Delete… in a row's
+menu (or the Delete key) sends a stopped machine to the Recycle Bin after
+asking. The machine's name and state head the page, with a command bar:
+Start, which becomes a Power off button with Pause, Reset and Force quit
+beside it, then Console, Capture mouse and Settings. More has CPU load,
+Diagnostics, Screenshot, Install IRIX, Keyboard shortcuts, Preferences and
+About. Settings has eight pages. While an install runs the pane shows its
+steps instead of the machines. Drop a CD image on the page to change the CD,
+or a disk image on the pane to start a new machine from it.
+
 ## Machines from an older Origami
 
 A machine made by an older release shows a **Needs upgrade** pill in the
@@ -216,8 +227,7 @@ Choose Screenshot from the Machine menu while a machine runs (Save Screenshot,
 Cmd+Shift+S, on macOS). The app saves the guest's screen as a PNG in your
 Pictures folder, named like `octane2 2026-11-18 at 14.30.05.png`. It is the
 guest's own picture, not a capture of your window. Linux shows a toast with a
-Show in Files button. Windows puts the file name in the status bar with a
-button that opens Explorer, and macOS announces the file and can reveal it in
+Show in Files button. Windows shows a toast with a Show in Explorer button, and macOS announces the file and can reveal it in
 Finder.
 
 ## Diagnostics
