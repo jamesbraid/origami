@@ -630,8 +630,10 @@ func runSelfTest(library: String, out: String) {
         w.contentView = NSView()
         // The photographs are embedded in the core, so a bundle needs no file for them; each reaches the chrome as its own colours.
         let means = Set(stats.map { $0.c.mean.map { Int($0 / 4) } })
-        check("about-scenes-reach-the-chrome", stats.count == Int(origami_cube_scene_count()) && means.count >= stats.count - 2,
-              ["scenes": stats.map { $0.id }, "distinct_means": means.count])
+        // The scenes come up in a shuffled order that can repeat one, and a repeat has the colours of its first showing.
+        let shown = Set(stats.map { $0.id })
+        check("about-scenes-reach-the-chrome", stats.count == Int(origami_cube_scene_count()) && means.count >= shown.count - 2,
+              ["scenes": stats.map { $0.id }, "distinct_means": means.count, "distinct_scenes": shown.count])
         // Chrome: the cube covers a good part of its view, spans dark to bright and is neither black nor white.
         let bad = stats.filter { $0.c.covered < 0.3 || $0.c.covered > 0.55 || $0.c.spread < 60 || $0.c.mean.contains { $0 < 30 || $0 > 220 } }
         check("about-cube-pixels-are-chrome", !stats.isEmpty && bad.isEmpty, ["outside_range": bad.map { $0.id }, "measured": stats.map { "\($0.id) covered=\(String(format: "%.3f", $0.c.covered)) spread=\(String(format: "%.1f", $0.c.spread)) mean=\($0.c.mean.map { Int($0) })" }])
