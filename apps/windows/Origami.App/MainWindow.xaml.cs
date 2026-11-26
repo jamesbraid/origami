@@ -1526,7 +1526,9 @@ public sealed partial class MainWindow : Window
         var bar = key is null || _prefsOpen ? null : _core.StatusBar(key, Display.Mode != PointerMode.Capture, Display.Captured);
         PictureSize.Text = bar?.Picture ?? "";
         PointerStatus.Text = bar?.Pointer ?? "";
-        StatusBar.Visibility = bar is { Picture: not null } or { Pointer: not null } ? Visibility.Visible : Visibility.Collapsed;
+        // Its row is there from the moment the picture shows, so the pane the window is sized from
+        // does not lose 24 pixels when the core's first line arrives.
+        StatusBar.Visibility = bar is { Picture: not null } or { Pointer: not null } || Display.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public bool StatusBarShownForTest => StatusBar.Visibility == Visibility.Visible;
