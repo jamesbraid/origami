@@ -87,13 +87,8 @@ crates/origami-gtk/src/cpu_panel.rs	0xbfbfbf	1
 crates/origami-gtk/src/cube.rs	0x2a6574	1
 crates/origami-gtk/src/library.rs	0x2e354e	1
 crates/origami-gtk/src/library.rs	0x7b7b84	1
-crates/origami-gtk/src/machine.rs	0x33d17a	1
-crates/origami-gtk/src/machine.rs	0x8d8d93	1
-crates/origami-gtk/src/machine.rs	0xe01b24	1
-crates/origami-gtk/src/machine.rs	0xe5a50a	1
 crates/origami-gtk/src/style.rs	#1c1c20	1
 crates/origami-gtk/src/style.rs	#1f2126	1
 crates/origami-gtk/src/style.rs	#282a30	1
 crates/origami-gtk/src/style.rs	#7b7b84	1
 crates/origami-gtk/src/style.rs	#f2f3f5	1
-crates/origami-gtk/src/window.rs	0x7b7b84	1
