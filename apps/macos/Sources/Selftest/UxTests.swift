@@ -19,13 +19,6 @@ func hosted<V: View>(_ view: V, size: CGSize) -> (NSHostingView<V>, NSWindow) {
 }
 
 #if FAKE
-/// A machine summary that is in no library, for rows in every state.
-func syntheticSummary(_ name: String) -> OrigamiMachineSummary {
-    OrigamiMachineSummary(key: "/synthetic/\(name)", name: name, product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", cards: [],
-                          hasDisplay: true, runsIrix: true, nodes: 1, memoryPerNodeMib: 512, state: .notRunning, problem: nil,
-                          needsUpgrade: false, systemDisk: nil)
-}
-
 /// The checks that need machines at rest.
 @MainActor
 func uxChecksAtRest(app: AppModel, host: CoreHost, library: String, out: String, check: (String, Bool, [String: Any]) -> Void) {
@@ -63,6 +56,27 @@ func uxChecksAtRest(app: AppModel, host: CoreHost, library: String, out: String,
         check("cancel-start-is-the-core-command-and-replaces-power-off-while-starting",
               CommandID.cancelStart.title == origamiUiString(id: .cancelStart) && CommandID.cancelStart.coreID == "machine.cancel-start"
               && CommandID.cpuLoad.title == origamiUiString(id: .cpuLoad), ["title": CommandID.cancelStart.title])
+    }
+
+    // A start that failed with a fix: the card offers the fix first, then Try again, and has Show details.
+    do {
+        let m = MachineModel(summary: syntheticSummary("fixtest"), host: host, defaultPointer: .follow)
+        m.failStartForTest(OrigamiErrorInfo(kind: .invalid, message: "Its graphics board is set to a slot this model doesn't have.",
+                                            detail: "graphics slot 7", fix: .openSettings))
+        _ = waitFor(10) { m.state == .stoppedUnexpectedly }
+        let card = origamiMachineCard(state: m.shown, error: m.startError, name: m.name, platform: .macos)
+        check("couldnt-start-card-has-the-fix-first-then-try-again-and-details",
+              m.startError?.fix == .openSettings && card?.actions.map(\.kind) == [.openSettings, .tryAgain] && card?.details == "graphics slot 7",
+              ["actions": "\(String(describing: card?.actions.map(\.label)))", "details": card?.details ?? "none"])
+    }
+
+    // Each command is in the menus once.
+    do {
+        let titles = CommandID.allCases.map { "\($0.info.menu.rawValue)/\($0.title)" }
+        let dup = Dictionary(grouping: titles, by: { $0 }).filter { $1.count > 1 }.keys.sorted()
+        let names = CommandID.allCases.map(\.title)
+        let repeated = Dictionary(grouping: names, by: { $0 }).filter { $1.count > 1 }.keys.sorted()
+        check("each-command-is-in-the-menus-once", dup.isEmpty && repeated.isEmpty, ["duplicates": dup, "repeated": repeated])
     }
 
     // A long name is middle-truncated: two names that differ only at their end draw differently in a narrow row.
@@ -162,6 +176,12 @@ func uxChecksAtRest(app: AppModel, host: CoreHost, library: String, out: String,
         nm.load(); _ = waitFor(30) { !nm.loading }
         let first = origamiDiskOptions(readyAvailable: !nm.readyDisks.isEmpty).first?.choice
         check("new-machine-starts-on-the-core's-first-disk-choice", first != nil && nm.disk == DiskChoice(first!), ["first": "\(String(describing: first))"])
+        // The sheet sizes to its content so no disk choice falls below the fold, and the one-engine picker is left out.
+        let fit = NSHostingView(rootView: NewMachineSheet(model: nm).environmentObject(app))
+        fit.layoutSubtreeIfNeeded()
+        check("new-machine-sheet-fits-its-content-and-hides-a-single-engine",
+              fit.fittingSize.height >= min(nm.sheetHeight, NewMachineSheet.screenRoom) - 1 && nm.canPickEngine == (nm.engines.count > 1),
+              ["fitting": "\(fit.fittingSize)", "wanted": nm.sheetHeight, "engines": nm.engines.count])
         let (_, win) = hosted(NewMachineSheet(model: nm).environmentObject(app), size: CGSize(width: 460, height: 640))
         for dark in [false, true] { _ = snapshotRetina(NewMachineSheet(model: nm).environmentObject(app), size: CGSize(width: 460, height: 640), dark: dark, to: "\(out)/ux-new-machine-\(dark ? "dark" : "light").png") }
         // Every field's label is a core word, never empty; Advanced is a model flag the header toggles.

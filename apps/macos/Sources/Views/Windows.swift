@@ -24,6 +24,7 @@ struct DiagnosticsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(model.name).font(.headline)
+                        Circle().fill(model.tone.colour).frame(width: 8, height: 8).accessibilityHidden(true)
                         Text(model.word).foregroundStyle(.secondary)
                         Spacer()
                         Button(ui(.copyReport)) {

@@ -12,7 +12,7 @@ enum CommandID: String, CaseIterable {
     case showLibrary, fit, actualSize, pointScale, doubleScale
     case nextTab, previousTab, keyboardShortcuts
 
-    enum Menu: String { case file = "File", machine = "Machine", view = "View", window = "Window", help = "Help" }
+    enum Menu: String, CaseIterable { case file = "File", machine = "Machine", view = "View", window = "Window", help = "Help" }
 
     struct Info {
         let title: String

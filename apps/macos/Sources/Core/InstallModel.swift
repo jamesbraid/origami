@@ -418,22 +418,33 @@ final class InstallModel: ObservableObject {
     /// The flow's pages follow the list: a page ends when its last step is done. The automatic method's
     /// install page ends when the install does, not by the list.
     private func advanceWithProgress() {
-        guard let g = guide else { return }
-        let prepare = g.prepare.count, installer = prepare + g.installer.count
-        let packages = installer + g.packages.count + g.restart.count
-        while true {
-            let end: Int
-            switch step {
-            case .prepare: end = prepare
-            case .installer: end = installer
-            case .packages: end = flow.automatic() ? Int.max : packages
-            default: return
-            }
-            guard progress >= end else { return }
+        while let end = pageEnd, progress >= end {
             edit { $0.next() }
             entered()
         }
     }
+
+    /// The step number the current page ends at: its last step done ends it. None for a page the list does not end.
+    private var pageEnd: Int? {
+        guard let g = guide else { return nil }
+        let prepare = g.prepare.count, installer = prepare + g.installer.count
+        switch step {
+        case .prepare: return prepare
+        case .installer: return installer
+        case .packages: return flow.automatic() ? nil : installer + g.packages.count + g.restart.count
+        default: return nil
+        }
+    }
+
+    /// Continue in the guide: the steps of this page count as done and the next page opens; Finish and the
+    /// automatic install go by the flow's own rules.
+    func continueGuide() {
+        guard canContinue else { return }
+        if let end = pageEnd { for i in 0..<end { doneSteps.insert(i) }; advanceWithProgress() } else { next() }
+    }
+
+    /// For the self-test: the console has shown `n` steps done.
+    func markSeenForTest(_ n: Int, serial isSerial: Bool = true) { serial = isSerial; seen = n }
 
     /// The machine ended while the guide was being followed.
     var stoppedBySelf: Bool {

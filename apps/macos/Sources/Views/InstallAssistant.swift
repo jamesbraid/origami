@@ -264,16 +264,15 @@ struct InstallGuideSidebar: View {
             } else if let text = model.installFooter {
                 Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
-            if let reason = model.continueReason, model.step == .finish || (model.step == .packages && model.flow.automatic()) {
+            if let reason = model.continueReason {
                 Text(reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Button(ui(.cancel)) { model.requestClose() }
                 Spacer()
-                // Continue only where the guide cannot tell the step is over: the automatic install, and Finish.
-                if model.step == .finish || (model.step == .packages && model.flow.automatic()) {
-                    Button(model.flow.continueLabel()) { model.next() }.keyboardShortcut(.defaultAction).disabled(!model.canContinue)
-                }
+                // Continue is always there, as in the other apps: the core says why it is off.
+                Button(model.flow.continueLabel()) { model.continueGuide() }
+                    .buttonStyle(.borderedProminent).tint(.accentColor).keyboardShortcut(.defaultAction).disabled(!model.canContinue)
             }
         }
         .padding(10)

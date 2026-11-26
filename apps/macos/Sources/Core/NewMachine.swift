@@ -88,8 +88,20 @@ final class NewMachineModel: ObservableObject {
     /// The offerings the picked engine can run, as indexes into `offerings`.
     var visible: [Int] { offerings.indices.filter { engine == nil || offerings[$0].engine == engine } }
 
-    /// More than one engine to choose between; with one the picker is shown but cannot be changed.
+    /// More than one engine to choose between; with one the picker is left out.
     var canPickEngine: Bool { engines.count > 1 }
+
+    /// The sheet's height: its content, so no choice falls below the fold. The Form scrolls only past the screen.
+    var sheetHeight: CGFloat {
+        // The Machine group (model, picture, name), the Disk group (a row per choice and what the chosen one adds),
+        // the Advanced row and the buttons.
+        var h: CGFloat = 270 + 40 + 52 * CGFloat(options.count) + 70 + 56 + 30
+        if canPickEngine { h += 44 }
+        if disk == .ready || disk == .empty { h += 44 }
+        if disk == .image { h += 150 }
+        if advancedOpen { h += 300 }
+        return h
+    }
 
     /// The core's disk choices in listing order; the first is the default.
     var options: [OrigamiDiskOption] { origamiDiskOptions(readyAvailable: !readyDisks.isEmpty) }

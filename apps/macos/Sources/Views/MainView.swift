@@ -288,7 +288,7 @@ struct MachineToolbar: ToolbarContent {
         }
         ToolbarItem(placement: .primaryAction) {
             Toggle(isOn: $app.showsCpu) { Label(ui(.cpuLoad), systemImage: "cpu") }
-                .toggleStyle(.button).help(CommandID.cpuLoad.tooltip ?? "")
+                .toggleStyle(.button).disabled(!app.isEnabled(.cpuLoad)).help(CommandID.cpuLoad.tooltip ?? "")
         }
         ToolbarItem(placement: .primaryAction) {
             Button { app.invoke(.diagnostics) } label: { Label(ui(.diagnostics), systemImage: "waveform.path.ecg") }

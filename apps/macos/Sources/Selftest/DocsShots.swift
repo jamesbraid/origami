@@ -17,12 +17,13 @@ func runDocsShots(library: String, out: String) {
     guard let host = app.host else { fail(app.launchError ?? "the core did not start") }
     NSApp.activate(ignoringOtherApps: true)
 
-    func window<V: View>(_ title: String, _ view: V, _ w: CGFloat, _ h: CGFloat, fit: Bool = false) -> NSWindow {
-        let controller = NSHostingController(rootView: view.environmentObject(app))
+    func window<V: View>(_ title: String, _ view: V, _ w: CGFloat, _ h: CGFloat, fit: Bool = false, dark: Bool = false, using model: AppModel? = nil) -> NSWindow {
+        let controller = NSHostingController(rootView: view.environmentObject(model ?? app))
         let win = NSWindow(contentViewController: controller)
         win.styleMask = [.titled, .closable, .resizable]
         win.title = title
         win.isReleasedWhenClosed = false
+        if dark { win.appearance = NSAppearance(named: .darkAqua) }
         win.setContentSize(fit ? controller.view.fittingSize : NSSize(width: w, height: h))
         win.center()
         return win
@@ -85,6 +86,95 @@ func runDocsShots(library: String, out: String) {
         if let content = win.contentView, let t = table(content) { win.makeFirstResponder(t) }
     }
 
+    /// The pictures the visual sign-off asks for, with the machines stopped: real windows, light and dark.
+    func uxShots() {
+        let fixtures = ProcessInfo.processInfo.environment["ORIGAMI_FIXTURES"] ?? ""
+        // A machine with a recognised system disk: its page has the System card.
+        func fresh() -> NewMachineModel {
+            let m = NewMachineModel(app: app)
+            m.load()
+            _ = waitFor(60) { !m.loading }
+            #if !FAKE
+            m.engine = "qemu"
+            if let pick = m.offerings.firstIndex(where: { $0.id.hasPrefix("octane2") && $0.engine == "qemu" }) { m.selected = pick }
+            #endif
+            return m
+        }
+        let sys = fresh()
+        sys.name = "octane2-irix"
+        sys.disk = .image
+        sys.image.set(URL(fileURLWithPath: fixtures + "/disk-irix-6.5.30.img"))
+        guard waitFor(60, { sys.image.check != nil }) else { fail("the fixture disk image was not read (\(fixtures))") }
+        var madeSys: Bool?
+        sys.create { madeSys = $0 }
+        guard waitFor(300, { madeSys != nil }), madeSys == true else { fail("creating the machine with a disk failed: \(sys.error ?? "?")") }
+        guard waitFor(120, { app.rescanNow(); return app.model(named: "octane2-irix")?.record.systemDisk != nil }),
+              let withDisk = app.model(named: "octane2-irix") else { fail("the system disk was not recognised") }
+        app.select(withDisk.id)
+        let main = window("Origami", MainView(), 1100, 720)
+        capture(main, "macos-system-card", hide: false, after: { focusLibrary(main) })
+        main.appearance = NSAppearance(named: .darkAqua)
+        capture(main, "macos-system-card-dark", hide: false, after: { focusLibrary(main) })
+        main.orderOut(nil)
+
+        // The cards for each state, on machines that are in no library; light, and dark for the first and last.
+        func card(_ name: String, _ state: MachineState, dark: Bool = false, problem: String? = nil, prepare: (MachineModel) -> Void = { _ in }) {
+            let m = MachineModel(summary: syntheticSummary("octane2", problem: problem), host: host, defaultPointer: .follow)
+            prepare(m)
+            m.injectStaleState(state)
+            capture(window("octane2", MachineTab(model: m), 700, 460, dark: dark), "macos-card-\(name)\(dark ? "-dark" : "")")
+        }
+        let slot = OrigamiErrorInfo(kind: .invalid, message: "Its graphics board is set to a slot this model doesn't have.", detail: "graphics slot 7", fix: .openSettings)
+        for dark in [false, true] {
+            card("couldnt-start", .stoppedUnexpectedly, dark: dark) { m in m.failStartForTest(slot); _ = waitFor(10) { m.state == .stoppedUnexpectedly } }
+            card("no-picture", .noPicture, dark: dark)
+            card("saving", .stopping, dark: dark)
+            card("left-running", .leftRunning, dark: dark)
+            card("needs-upgrade", .needsUpgrade, dark: dark)
+            card("cant-open", .stopped, dark: dark, problem: "machine.toml could not be read")
+        }
+        let rows = VStack(alignment: .leading, spacing: 4) {
+            LibraryRow(model: MachineModel(summary: syntheticSummary("octane2", problem: "machine.toml could not be read"), host: host, defaultPointer: .follow))
+            LibraryRow(model: MachineModel(summary: syntheticSummary("fuel"), host: host, defaultPointer: .follow))
+        }.padding(10).frame(width: 260)
+        capture(window("Library", rows, 260, 100), "macos-row-cant-open")
+        let emptyRoot = URL(fileURLWithPath: out).appendingPathComponent("empty-library")
+        let empty = AppModel(root: emptyRoot)
+        capture(window("Origami", MainView(), 1100, 720, using: empty), "macos-empty-library", hide: true)
+
+        // Each alert, with its default button.
+        let alerts: [(String, OrigamiAlertKind)] = [
+            ("power-off", .powerOff(name: "octane2")), ("reset", .reset(name: "octane2")), ("force-quit", .forceQuit(name: "octane2")),
+            ("quit-running", .quitRunning(names: ["octane2"])), ("remove", .remove(name: "octane2", diskLeft: [])),
+        ]
+        for (name, kind) in alerts {
+            let alert = Alerts.make(origamiAlert(kind: kind, platform: thisPlatform))
+            alert.layout()
+            capture(alert.window, "macos-alert-\(name)")
+        }
+
+        // The Keyboard shortcuts window, and the menu bar's commands as the app lists them.
+        capture(window(ui(.keyboardShortcuts), ShortcutsView(), 440, 520), "macos-shortcuts")
+        capture(window("Menus", MenuSummary(), 760, 440), "macos-menus")
+
+        // New machine with Advanced open and an error under the ID.
+        // The sheet reloads the catalogue when it appears, so the choices are made once it is up.
+        let adv = NewMachineModel(app: app)
+        let advWin = window("New machine", NewMachineSheet(model: adv), 460, 560)
+        capture(advWin, "macos-new-machine-advanced", after: {
+            _ = waitFor(60) { !adv.loading }
+            #if !FAKE
+            adv.engine = "qemu"
+            if let pick = adv.offerings.firstIndex(where: { $0.id.hasPrefix("octane2") && $0.engine == "qemu" }) { adv.selected = pick }
+            #endif
+            adv.name = "octane2"
+            adv.advancedOpen = true
+            adv.idText = "0"
+            _ = waitFor(30) { adv.identityProblem(for: .id) != nil }
+            advWin.setContentSize(NSSize(width: 460, height: min(adv.sheetHeight, NewMachineSheet.screenRoom)))
+        })
+    }
+
     #if FAKE
     if let e = makeFakeMachine(host, library: library, name: "octane2") { fail("creating the machine failed: \(e)") }
     app.rescanNow()
@@ -107,8 +197,12 @@ func runDocsShots(library: String, out: String) {
         nm.name = "octane2"
     }
 
+    // The pictures show the whole sheet, even on a runner whose screen is shorter than it.
+    NewMachineSheet.roomLimit = 1000
+
     // New Machine, with the model picked and a name typed, before the machine exists.
-    capture(window("New machine", NewMachineSheet(model: nm), 460, 340), "macos-new-machine", after: choose)
+    let newWin = window("New machine", NewMachineSheet(model: nm), 460, 560)
+    capture(newWin, "macos-new-machine", after: { choose(); newWin.setContentSize(NSSize(width: 460, height: min(nm.sheetHeight, NewMachineSheet.screenRoom))) })
 
     // The same sheet with a ready-made disk picked: the list comes from origami-dist.
     func chooseReady() {
@@ -116,7 +210,8 @@ func runDocsShots(library: String, out: String) {
         guard waitFor(60, { !nm.readyDisks.isEmpty }) else { fail("origami-dist listed no ready-made disk for \(nm.name)") }
         nm.disk = .ready
     }
-    capture(window("New machine", NewMachineSheet(model: nm), 460, 400), "macos-ready-disk", after: chooseReady)
+    let readyWin = window("New machine", NewMachineSheet(model: nm), 460, 560)
+    capture(readyWin, "macos-ready-disk", after: { chooseReady(); readyWin.setContentSize(NSSize(width: 460, height: min(nm.sheetHeight, NewMachineSheet.screenRoom))) })
     nm.disk = .noDisk
 
     #if !FAKE
@@ -165,6 +260,19 @@ func runDocsShots(library: String, out: String) {
     capture(main, "macos-cpu-panel", settle: 4, hide: false, after: { focusLibrary(main) })
     laidOverPicture(main, model, "macos-cpu-panel")
     app.showsCpu = false
+    // The status bar while the mouse is captured, and the same window in dark mode.
+    model.pointerMode = .capture
+    model.captureChanged(true)
+    _ = waitFor(20) { model.statusBar?.pointer?.hasPrefix("Captured") == true }
+    capture(main, "macos-status-captured", settle: 3, hide: false, after: { focusLibrary(main) })
+    laidOverPicture(main, model, "macos-status-captured")
+    model.captureChanged(false)
+    model.pointerMode = .follow
+    _ = waitFor(20) { model.statusBar?.pointer?.hasPrefix("Follows") == true }
+    main.appearance = NSAppearance(named: .darkAqua)
+    capture(main, "macos-running-dark", settle: 3, hide: false, after: { focusLibrary(main) })
+    laidOverPicture(main, model, "macos-running-dark")
+    main.appearance = nil
     capture(window("Diagnostics", DiagnosticsView(), 640, 400), "macos-diagnostics")
     let about = window("About Origami", AboutView(), 360, 0, fit: true)
     capture(about, "macos-about", settle: 4, hide: false)
@@ -179,6 +287,8 @@ func runDocsShots(library: String, out: String) {
     var stopped = false
     app.stopAll(force: true) { _ in stopped = true }
     _ = waitFor(120) { stopped }
+    uxShots()
+
     // The names the other apps must match: tools/screenshots parity compares these files.
     let names: [String: Any] = ["platform": "macos", "sidebar_heading": Labels.sidebarHeading,
                                 "settings_tabs": MachineSettings.Pane.allCases.map(\.rawValue),
@@ -191,4 +301,24 @@ func runDocsShots(library: String, out: String) {
     }
     emit(["step": "docs-shots", "ok": true, "out": out])
     exit(0)
+}
+
+/// The commands in each menu, as the app's command table lists them: each one once.
+struct MenuSummary: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 24) {
+            ForEach(CommandID.Menu.allCases, id: \.rawValue) { menu in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(menu.rawValue).font(.headline)
+                    ForEach(CommandID.commands(in: menu), id: \.rawValue) { c in
+                        HStack(spacing: 6) {
+                            Text(c.title)
+                            Text(c.tooltip.flatMap { $0.hasSuffix(")") ? $0.components(separatedBy: " (").last : nil } ?? "").foregroundStyle(.secondary).font(.caption)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+    }
 }

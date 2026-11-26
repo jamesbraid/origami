@@ -285,6 +285,12 @@ final class MachineModel: ObservableObject, Identifiable {
         finished(NSError(domain: "origami", code: 1, userInfo: [NSLocalizedDescriptionKey: message]), failureState: .stoppedUnexpectedly, done: nil)
     }
 
+    /// For tests: a start that failed with the core's own error, fix and detail included.
+    func failStartForTest(_ info: OrigamiErrorInfo) {
+        busy = "Starting…"; set(.starting)
+        finished(InfoError(info: info), failureState: .stoppedUnexpectedly, done: nil)
+    }
+
     /// For tests: pretend the UI is stale.
     func injectStaleState(_ s: MachineState) { set(s) }
 

@@ -22,7 +22,10 @@ extension OrigamiTone {
 enum Alerts {
     /// Show one of the core's alerts and return the index of the button pressed. Return takes the first button
     /// that is not destructive, so a stray key never does the harm; the destructive one is drawn as such.
-    static func run(_ a: OrigamiAlert) -> Int {
+    static func run(_ a: OrigamiAlert) -> Int { make(a).runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue }
+
+    /// The alert as a native one, not yet shown: the docs pictures show it without running it modally.
+    static func make(_ a: OrigamiAlert) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = a.title
         alert.informativeText = a.body
@@ -32,6 +35,6 @@ enum Alerts {
             alert.buttons[i].hasDestructiveAction = b.role == .destructive
             alert.buttons[i].keyEquivalent = i == first ? "\r" : b.role == .cancel ? "\u{1b}" : ""
         }
-        return alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        return alert
     }
 }

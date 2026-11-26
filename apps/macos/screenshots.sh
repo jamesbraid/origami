@@ -36,7 +36,7 @@ rm -f $work/stderr.log $out/want-*.txt(N) $out/got-*.txt(N) $out/done.txt
     done
 ) &
 loop=$!
-open -W -n --stdout $work/stdout.log --stderr $work/stderr.log $work/Origami.app --args --docs-shots $work/machines $out
+open -W -n --env ORIGAMI_FIXTURES=$root/tests/fixtures/machines --stdout $work/stdout.log --stderr $work/stderr.log $work/Origami.app --args --docs-shots $work/machines $out
 touch $out/done.txt
 wait $loop
 cat $work/stdout.log $work/stderr.log

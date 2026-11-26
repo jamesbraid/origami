@@ -104,3 +104,11 @@ func edgeQuality(side: Int, scene: UInt32) -> (levels: Int, error: Double)? {
     } } }
     return (levels.count, Double(sum) / Double(side * side * 4))
 }
+
+/// A machine summary that is in no library, for rows in every state.
+func syntheticSummary(_ name: String, problem: String? = nil, systemDisk: String? = nil) -> OrigamiMachineSummary {
+    OrigamiMachineSummary(key: "/synthetic/\(name)", name: name, product: "o2", productLabel: "O2", topology: "o2", topologyName: "O2", cards: [],
+                          hasDisplay: true, runsIrix: true, nodes: 1, memoryPerNodeMib: 512, state: .notRunning, problem: problem,
+                          needsUpgrade: false, systemDisk: systemDisk)
+}
+

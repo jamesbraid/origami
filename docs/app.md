@@ -116,6 +116,7 @@ The dialog asks for three things.
 **Engine** is the emulator that runs the machine. QEMU runs every machine
 Origami knows. Iris is a second, experimental engine for the Indy, Indigo2
 and Octane2. When a model is offered by one engine only, the list has one entry.
+On macOS the list is left out when there is only one engine.
 
 ![New machine with Iris chosen, the Indy model and a name typed](images/app/linux-new-machine.png)
 
@@ -303,7 +304,7 @@ a sheet; once the install starts the sheet closes and the guide takes the sideba
 beside the machine's screen or, on a serial console, its console. A toolbar button
 switches the sidebar between the guide and the library. Each step names what to watch
 for and what to type, and a serial console marks it done when the prompt shows;
-a graphics console has a Done button.
+a graphics console has a Done button. Continue is always at the foot, as in the other apps, with the reason beside it when it is off; pressing it counts the page's steps as done.
 New Machine can open it for you: with an empty disk chosen, tick Install IRIX
 after creating. It is the app's version of
 [Install IRIX](usage.md#install-irix) from the command line. The assistant

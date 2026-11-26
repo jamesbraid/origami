@@ -29,11 +29,16 @@ struct NewMachineSheet: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
         }
-        .frame(width: 460).frame(minHeight: 420, maxHeight: 660)
+        .frame(width: 460, height: min(model.sheetHeight, Self.screenRoom))
         .onAppear { model.load() }
     }
 
     private func create() { model.create { ok in if ok { dismiss() } } }
+
+    /// The most height the sheet may take: the screen less its menu bar and a margin.
+    static var screenRoom: CGFloat { roomLimit ?? max(520, (NSScreen.main?.visibleFrame.height ?? 900) - 80) }
+    /// The docs pictures ask for the whole sheet on a runner whose screen is small.
+    static var roomLimit: CGFloat?
 
     /// A line under a field, red when it is the problem.
     private func under(_ text: String, bad: Bool = false) -> some View {
@@ -42,10 +47,11 @@ struct NewMachineSheet: View {
 
     @ViewBuilder private var machine: some View {
         Section(ui(.machine)) {
-            Picker(Labels.NewMachine.engine, selection: $model.engine) {
-                ForEach(model.engines, id: \.self) { Text(model.engineName($0)).tag(String?.some($0)) }
+            if model.canPickEngine {
+                Picker(Labels.NewMachine.engine, selection: $model.engine) {
+                    ForEach(model.engines, id: \.self) { Text(model.engineName($0)).tag(String?.some($0)) }
+                }
             }
-            .disabled(!model.canPickEngine)
             Picker(Labels.NewMachine.model, selection: $model.selected) {
                 ForEach(model.visible, id: \.self) { Text(model.label(model.offerings[$0])).tag($0) }
             }

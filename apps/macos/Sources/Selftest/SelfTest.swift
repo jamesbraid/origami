@@ -26,6 +26,7 @@ func snapshotRetina<V: View>(_ view: V, size: CGSize, dark: Bool, to path: Strin
     // A list draws its rows only inside a window; this one is never ordered front.
     let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
+    window.appearance = host.appearance   // the window's own background follows, so dark is dark all through
     window.contentView = host
     // A window left open keeps the view alive, and it would take a later machine's one-time fit.
     defer { window.contentView = nil; window.close() }
@@ -1688,7 +1689,13 @@ func runSelfTest(library: String, out: String) {
                     if let typedAt = listed.firstIndex(where: { !$0.typed.isEmpty }), let typed = listed[typedAt].typed.first?.text {
                         for i in 0..<typedAt { im.markDone(i) }
                         let (_, sideWindow) = hosted(InstallGuideSidebar(model: im).environmentObject(app), size: CGSize(width: 280, height: 640))
+                        let wasSerial = im.serial
                         for dark in [false, true] { _ = snapshotRetina(InstallGuideSidebar(model: im).environmentObject(app), size: CGSize(width: 280, height: 640), dark: dark, to: "\(out)/ux-install-guide-\(dark ? "dark" : "light").png") }
+                        // Steps the serial console has confirmed read "Seen".
+                        im.markSeenForTest(typedAt + 3)
+                        for dark in [false, true] { _ = snapshotRetina(InstallGuideSidebar(model: im).environmentObject(app), size: CGSize(width: 280, height: 640), dark: dark, to: "\(out)/ux-install-guide-seen-\(dark ? "dark" : "light").png") }
+                        check("install-guide-marks-confirmed-steps-seen", im.isDone(typedAt + 2) && !im.isDone(typedAt + 3), ["progress": im.progress])
+                        im.markSeenForTest(0, serial: wasSerial)
                         // The step the guide marks as next is the one with the text to type, and it hands the core's text to the row.
                         check("install-guide-shows-the-text-to-type",
                               im.progress == typedAt && listed[typedAt].typed.first?.text == typed && !listed[typedAt].title.isEmpty,
@@ -1716,7 +1723,10 @@ func runSelfTest(library: String, out: String) {
                         }
                         check("install-type-it-reaches-the-console", send != nil && reached, ["send": send ?? "none"])
                     }
-                    im.next(); im.next()
+                    im.continueGuide()
+                    check("install-guide-continue-opens-the-next-page", im.step == .installer && im.progress >= (im.guide?.prepare.count ?? 0),
+                          ["step": "\(im.step)", "progress": im.progress])
+                    im.next()
                     if automatic {
                         // The fake engine has no console runner, so Install ends Failed with the core's sentence and Continue stays off.
                         check("install-automatic-offers-install-and-blocks-continue",

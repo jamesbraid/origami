@@ -88,7 +88,7 @@ struct PausedOverlay: View {
             Color.black.opacity(0.45)
             ForEach(card?.actions ?? [], id: \.label) { a in
                 Button(a.label) { app.invoke(.resume) }
-                    .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent).tint(.accentColor).controlSize(.large).keyboardShortcut(.defaultAction)
             }
         }
     }
@@ -330,7 +330,8 @@ struct StateCard: View {
                 HStack {
                     ForEach(Array(buttons(card).enumerated()), id: \.offset) { i, a in
                         if i == 0 {
-                            Button(a.label) { perform(a) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                            Button(a.label) { perform(a) }.buttonStyle(.borderedProminent).tint(.accentColor)
+                                .controlSize(.large).keyboardShortcut(.defaultAction)
                         } else {
                             Button(a.label) { perform(a) }
                         }
