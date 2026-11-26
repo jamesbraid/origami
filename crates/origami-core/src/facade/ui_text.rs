@@ -26,8 +26,10 @@ ui_strings! {
     AboutOrigami => "About Origami",
     Acknowledgements => "Acknowledgements",
     Add => "Add",
+    AddADiskImage => "Add a disk image…",
     AddAPackage => "Add a package",
     AddAPackage2 => "Add a package…",
+    AddAPortForward => "Add a port forward…",
     Address => "Address",
     AddressForSharedFolders => "Address for shared folders",
     Advanced => "Advanced",
@@ -44,9 +46,11 @@ ui_strings! {
     CheckAgain => "Check again",
     CheckNow => "Check now",
     CheckThoroughlyAlsoReadsThe => "Check thoroughly (also reads the downloaded discs)",
+    Choose => "Choose…",
     ChooseAnImage => "Choose an image…",
     ChooseFile => "Choose file…",
     ChooseFolder => "Choose folder…",
+    ChooseTheFolderThatHoldsYourMachines => "Choose the folder that holds your machines",
     Console => "Console",
     ConsoleSerialLine => "Console serial line",
     Copy => "Copy",
@@ -63,12 +67,14 @@ ui_strings! {
     DownloadThem => "Download them",
     DownloadedDisks => "Downloaded disks",
     Drives => "Drives",
+    Eject => "Eject",
     EraseThisDiskAndInstall => "Erase this disk and install onto it",
     EthernetAddress => "Ethernet address",
     Folder => "Folder",
     FollowMyMouse => "Follow my mouse",
     ForceQuitInstead => "Force quit instead",
     FromTheMachineId => "From the machine ID",
+    Gb => "GB",
     General => "General",
     Graphics => "Graphics",
     GuestPort => "Guest port",
@@ -77,6 +83,7 @@ ui_strings! {
     HowToSetThisUp => "How to set this up",
     IFixedItAtInst => "I fixed it at Inst>",
     Input => "Input",
+    InsertACdImage => "Insert a CD image…",
     Install => "Install",
     InstallIrix => "Install IRIX",
     InstallIrixAfterCreating => "Install IRIX after creating",
@@ -101,12 +108,14 @@ ui_strings! {
     OpenConsole => "Open console",
     OpenInNewTab => "Open in new tab",
     OpenTheMainMenu => "Open the main menu",
+    PackagesToInstallOnePerLine => "Packages to install, one per line",
     Pause => "Pause",
     Photographs => "Photographs",
     Pointer => "Pointer",
     PortForwards => "Port forwards",
     PowerOff => "Power off",
     PowerOffToChangeHardwareSettings => "Power off to change hardware settings.",
+    PoweringOff => "Powering off",
     Preferences => "Preferences",
     Processor => "Processor",
     ProcessorsPerNode => "Processors per node",
@@ -119,6 +128,7 @@ ui_strings! {
     Screen => "Screen",
     SearchComponentsAndLicences => "Search components and licences",
     Seen => "Seen",
+    SelectAMachineFirst => "Select a machine first.",
     SetTheAddressInNetwork => "Set the address in Network",
     Settings => "Settings",
     ShareAFolder => "Share a folder…",
@@ -133,6 +143,7 @@ ui_strings! {
     StartingUpTheSystem => "Starting up the system…",
     StartupFirmware => "Startup & firmware",
     StartupMessagesOn => "Startup messages on",
+    StopSharing => "Stop sharing",
     Storage => "Storage",
     Thanks => "Thanks",
     TheConsoleWindowAndA => "The Console window and a headless machine's tab use this line. On a machine with graphics, the PROM may print on the screen instead.",
@@ -153,6 +164,25 @@ pub fn machine_id_caption(next: u32) -> String {
     format!("Sets the machine's serial number, host ID and Ethernet address. {next} is the next free ID.")
 }
 
+/// The pointer hint over the picture while the mouse is captured.
+pub fn capture_hint(platform: super::Platform) -> String {
+    let keys = if platform == super::Platform::Macos {
+        "⌃⌥"
+    } else {
+        "Ctrl+Alt"
+    };
+    format!("Mouse captured. Press {keys} to release.")
+}
+
+/// The line shown while a machine powers off; `force` is a force quit.
+pub fn power_off_progress(name: &str, force: bool) -> String {
+    if force {
+        format!("Force quitting {name}…")
+    } else {
+        format!("Powering off {name}…")
+    }
+}
+
 /// The About version line, such as `Version 0.6.2`, from a bare version or a
 /// tag (`v0.6.2`).
 pub fn version_line(version: &str) -> String {
@@ -167,6 +197,21 @@ mod tests {
     fn the_version_line_is_the_same_for_a_tag_and_a_number() {
         assert_eq!(version_line("0.6.2"), "Version 0.6.2");
         assert_eq!(version_line("v0.6.2"), "Version 0.6.2");
+    }
+
+    #[test]
+    fn the_hints_name_the_platforms_release_keys() {
+        use super::super::Platform;
+        assert_eq!(
+            capture_hint(Platform::Macos),
+            "Mouse captured. Press ⌃⌥ to release."
+        );
+        assert_eq!(
+            capture_hint(Platform::Linux),
+            "Mouse captured. Press Ctrl+Alt to release."
+        );
+        assert_eq!(power_off_progress("Fuel", false), "Powering off Fuel…");
+        assert_eq!(power_off_progress("Fuel", true), "Force quitting Fuel…");
     }
 
     #[test]

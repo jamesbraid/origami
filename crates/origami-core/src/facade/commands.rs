@@ -258,6 +258,20 @@ pub fn commands_for(platform: Platform) -> Vec<Command> {
             ["Cmd+Backspace", "Delete", "Delete"],
         ),
         command(
+            "window.next-machine",
+            "Show next machine",
+            "Show the next open machine",
+            Always,
+            ["Ctrl+Tab", "", ""],
+        ),
+        command(
+            "window.close-machine",
+            "Close machine",
+            "Close this machine's tab",
+            MachineSelected,
+            ["Cmd+W", "", ""],
+        ),
+        command(
             "view.shortcuts",
             UiString::KeyboardShortcuts.text(),
             "Show the keyboard shortcuts",
@@ -340,6 +354,8 @@ pub fn shortcut_groups(platform: Platform) -> Vec<ShortcutGroup> {
             from(&[
                 "window.console",
                 "window.diagnostics",
+                "window.next-machine",
+                "window.close-machine",
                 "machine.new",
                 "app.quit",
             ]),

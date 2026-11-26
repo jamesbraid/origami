@@ -581,7 +581,8 @@ impl Machine {
 
     /// Move the stopped machine to `mode`. `device` is the Bridged field's
     /// text; the core builds the change from the machine's file, so a mode keeps
-    /// only what it uses. Off the UI thread.
+    /// only what it uses. The device and share address go in together, as one
+    /// edit, so a settings pane has one Apply. Off the UI thread.
     pub fn set_network(
         &self,
         mode: crate::NetworkMode,

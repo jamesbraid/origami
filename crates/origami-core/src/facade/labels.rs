@@ -329,6 +329,9 @@ mod tests {
                 AlertKind::CloseTab {
                     name: "Fuel".into(),
                 },
+                AlertKind::PowerOffFailed {
+                    names: vec!["Fuel".into()],
+                },
                 AlertKind::Remove {
                     name: "Fuel".into(),
                     disk_left: vec![],
@@ -348,6 +351,7 @@ mod tests {
                 },
                 ToastKind::ScreenshotSaved,
                 ToastKind::DiscEjected,
+                ToastKind::PictureSize { name: "Fit".into() },
             ] {
                 let t = toast(&kind, platform);
                 all.extend(std::iter::once(t.text).chain(t.action));

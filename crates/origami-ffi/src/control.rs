@@ -1095,8 +1095,10 @@ mirror!(
     AboutOrigami,
     Acknowledgements,
     Add,
+    AddADiskImage,
     AddAPackage,
     AddAPackage2,
+    AddAPortForward,
     Address,
     AddressForSharedFolders,
     Advanced,
@@ -1113,9 +1115,11 @@ mirror!(
     CheckAgain,
     CheckNow,
     CheckThoroughlyAlsoReadsThe,
+    Choose,
     ChooseAnImage,
     ChooseFile,
     ChooseFolder,
+    ChooseTheFolderThatHoldsYourMachines,
     Console,
     ConsoleSerialLine,
     Copy,
@@ -1132,12 +1136,14 @@ mirror!(
     DownloadThem,
     DownloadedDisks,
     Drives,
+    Eject,
     EraseThisDiskAndInstall,
     EthernetAddress,
     Folder,
     FollowMyMouse,
     ForceQuitInstead,
     FromTheMachineId,
+    Gb,
     General,
     Graphics,
     GuestPort,
@@ -1146,6 +1152,7 @@ mirror!(
     HowToSetThisUp,
     IFixedItAtInst,
     Input,
+    InsertACdImage,
     Install,
     InstallIrix,
     InstallIrixAfterCreating,
@@ -1170,12 +1177,14 @@ mirror!(
     OpenConsole,
     OpenInNewTab,
     OpenTheMainMenu,
+    PackagesToInstallOnePerLine,
     Pause,
     Photographs,
     Pointer,
     PortForwards,
     PowerOff,
     PowerOffToChangeHardwareSettings,
+    PoweringOff,
     Preferences,
     Processor,
     ProcessorsPerNode,
@@ -1188,6 +1197,7 @@ mirror!(
     Screen,
     SearchComponentsAndLicences,
     Seen,
+    SelectAMachineFirst,
     SetTheAddressInNetwork,
     Settings,
     ShareAFolder,
@@ -1202,6 +1212,7 @@ mirror!(
     StartingUpTheSystem,
     StartupFirmware,
     StartupMessagesOn,
+    StopSharing,
     Storage,
     Thanks,
     TheConsoleWindowAndA,
@@ -1442,6 +1453,19 @@ pub fn origami_install_media_folder(
     })
 }
 
+/// Under the fake engine "trashing" deletes the folder and records its path.
+#[cfg(feature = "fake")]
+static TRASHED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(feature = "fake")]
+fn fake_trash(path: &std::path::Path) -> Result<(), String> {
+    TRASHED
+        .lock()
+        .unwrap()
+        .push(path.to_string_lossy().into_owned());
+    std::fs::remove_dir_all(path).map_err(|e| e.to_string())
+}
+
 /// The core. Make one per process.
 #[derive(uniffi::Object)]
 pub struct OrigamiCore {
@@ -1462,6 +1486,11 @@ impl OrigamiCore {
         let observer = observer.map(|o| Arc::new(ObserverBridge(o)) as Arc<dyn f::Observer>);
         let mut config = f::Config::new(library_root);
         config.instigator = engines.instigator;
+        // Self-tests never reach the host's real trash.
+        #[cfg(feature = "fake")]
+        {
+            config.trash = fake_trash;
+        }
         let core = f::Core::new(config, engines.list, observer)?;
         Ok(Arc::new(OrigamiCore {
             core,
@@ -1848,6 +1877,11 @@ impl OrigamiCore {
 #[cfg(feature = "fake")]
 #[uniffi::export]
 impl OrigamiCore {
+    /// The folders `remove_machine` has moved to the "trash" so far, in order.
+    pub fn fake_trashed(&self) -> Vec<String> {
+        TRASHED.lock().unwrap().clone()
+    }
+
     /// Give the started machine `key` a new picture.
     pub fn fake_advance_frame(&self, key: String) -> Res<()> {
         let machine = self.core.open_machine(&key)?;

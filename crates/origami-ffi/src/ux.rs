@@ -230,6 +230,9 @@ pub enum OrigamiAlertKind {
     CloseTab {
         name: String,
     },
+    PowerOffFailed {
+        names: Vec<String>,
+    },
     Remove {
         name: String,
         disk_left: Vec<String>,
@@ -245,6 +248,7 @@ pub fn origami_alert(kind: OrigamiAlertKind, platform: OrigamiPlatform) -> Origa
         K::Reset { name } => f::AlertKind::Reset { name },
         K::ForceQuit { name } => f::AlertKind::ForceQuit { name },
         K::CloseTab { name } => f::AlertKind::CloseTab { name },
+        K::PowerOffFailed { names } => f::AlertKind::PowerOffFailed { names },
         K::Remove { name, disk_left } => f::AlertKind::Remove { name, disk_left },
     };
     let a = f::alert(&kind, platform.into());
@@ -268,6 +272,7 @@ pub enum OrigamiToastKind {
     Removed { name: String },
     ScreenshotSaved,
     DiscEjected,
+    PictureSize { name: String },
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -283,6 +288,7 @@ pub fn origami_toast(kind: OrigamiToastKind, platform: OrigamiPlatform) -> Origa
         OrigamiToastKind::Removed { name } => f::ToastKind::Removed { name },
         OrigamiToastKind::ScreenshotSaved => f::ToastKind::ScreenshotSaved,
         OrigamiToastKind::DiscEjected => f::ToastKind::DiscEjected,
+        OrigamiToastKind::PictureSize { name } => f::ToastKind::PictureSize { name },
     };
     let t = f::toast(&kind, platform.into());
     OrigamiToast {
@@ -312,6 +318,24 @@ pub fn origami_empty_state(kind: OrigamiEmptyKind) -> OrigamiEmptyState {
 #[uniffi::export]
 pub fn origami_file_manager(platform: OrigamiPlatform) -> String {
     f::file_manager(platform.into()).into()
+}
+
+/// `Show in Finder`, `Show in Explorer` or `Show in Files`.
+#[uniffi::export]
+pub fn origami_show_in_label(platform: OrigamiPlatform) -> String {
+    f::show_in_label(platform.into())
+}
+
+/// The hint over the picture while the mouse is captured, with the platform's release keys.
+#[uniffi::export]
+pub fn origami_capture_hint(platform: OrigamiPlatform) -> String {
+    f::capture_hint(platform.into())
+}
+
+/// The line shown while a machine powers off or is force quit.
+#[uniffi::export]
+pub fn origami_power_off_progress(name: String, force: bool) -> String {
+    f::power_off_progress(&name, force)
 }
 
 /// `Trash` or `Recycle Bin`.
@@ -450,6 +474,20 @@ pub struct OrigamiStepTitle {
 
 #[uniffi::export]
 impl OrigamiInstallFlow {
+    /// Why Continue is off on this step, or none when it is on.
+    pub fn continue_reason(&self, machine_up: bool) -> Option<String> {
+        self.0
+            .lock()
+            .unwrap()
+            .continue_reason(machine_up)
+            .map(Into::into)
+    }
+
+    /// What the Check step says while it runs or after it passes.
+    pub fn check_status(&self) -> Option<String> {
+        self.0.lock().unwrap().check_status().map(Into::into)
+    }
+
     /// The numbered step list, with the current page marked.
     pub fn step_titles(&self) -> Vec<OrigamiStepTitle> {
         f::step_titles(&self.0.lock().unwrap())
@@ -499,6 +537,16 @@ impl OrigamiCore {
             io_prom.as_deref().map(std::path::Path::new),
         )?;
         Ok(crate::control::report_lines(report))
+    }
+
+    /// What `remove_machine` would move and leave, for the alert that asks
+    /// first. Changes nothing.
+    pub fn remove_plan(&self, key: String) -> Result<OrigamiRemoved, CoreError> {
+        let r = self.core.remove_plan(&key)?;
+        Ok(OrigamiRemoved {
+            name: r.name,
+            disk_left: r.disk_left,
+        })
     }
 
     /// Move a stopped machine's folder to the trash. `Busy` while it runs.

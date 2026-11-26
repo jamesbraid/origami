@@ -186,6 +186,11 @@ pub fn row(summary: &MachineSummary, installing: bool) -> Row {
     }
 }
 
+/// `Show in Finder`, `Show in Explorer` or `Show in Files`.
+pub fn show_in_label(platform: Platform) -> String {
+    format!("Show in {}", file_manager(platform))
+}
+
 /// The file manager's name, for "Show in …".
 pub fn file_manager(platform: Platform) -> &'static str {
     match platform {
@@ -290,7 +295,7 @@ pub fn machine_card(
             "Upgrade this machine once to use it. Its disks, firmware settings, network and Ethernet address stay the same.",
             vec![
                 act(Upgrade, UiString::Upgrade.text()),
-                act(ShowInFolder, &format!("Show in {}", file_manager(platform))),
+                act(ShowInFolder, &show_in_label(platform)),
             ],
         ),
         ShownState::Paused => card(String::new(), "", vec![act(Resume, "Resume")]),
@@ -300,9 +305,10 @@ pub fn machine_card(
             ..card(
                 format!("{name} can't be opened"),
                 "Origami couldn't read this machine's settings.",
-                vec![act(ShowInFolder, &format!("Show in {}", file_manager(platform)))],
+                vec![act(ShowInFolder, &show_in_label(platform))],
             )
         },
+        // Installing has a state word but no card: the guide sits beside the picture.
         _ => return None,
     })
 }
@@ -491,6 +497,7 @@ mod tests {
         assert_eq!(upgrade.actions[1].label, "Show in Explorer");
         assert_eq!(card(ShownState::Paused).unwrap().actions[0].label, "Resume");
         assert_eq!(card(ShownState::Running), None);
+        assert_eq!(card(ShownState::Installing), None);
     }
 
     #[test]

@@ -780,12 +780,11 @@ impl Core {
         })
     }
 
-    /// Move the stopped machine at `key` to the platform's trash: its library
-    /// entry (the link, for a symlinked folder) and everything in it. Disk
-    /// images used in place outside the folder stay, and are reported.
-    pub fn remove_machine(&self, key: &str) -> CoreResult<Removed> {
+    /// The library entry for the machine at `key`, its real folder, and what a
+    /// removal would leave behind. Only a machine the library lists, never a
+    /// folder a path happens to name.
+    fn removal(&self, key: &str) -> CoreResult<(PathBuf, PathBuf, Removed)> {
         let target = self.resolve(key)?;
-        // Only a machine the library lists is removed, never a folder a path happens to name.
         let entry = std::fs::read_dir(self.inner.root())
             .into_iter()
             .flatten()
@@ -798,7 +797,31 @@ impl Core {
             .ok_or_else(|| {
                 CoreError::new(ErrorKind::NotFound, format!("there is no machine {key}"))
             })?;
+        let mut disk_left = Vec::new();
+        for drive in origami_machine::read_machine(&target).map_or(vec![], |f| f.drive) {
+            let image = origami_machine::resolve(&target, &drive.image);
+            let image = dunce::canonicalize(&image).unwrap_or(image);
+            let image = image.to_string_lossy().into_owned();
+            if !Path::new(&image).starts_with(&target) && !disk_left.contains(&image) {
+                disk_left.push(image);
+            }
+        }
         let name = entry_name(&entry);
+        Ok((entry, target, Removed { name, disk_left }))
+    }
+
+    /// What [`Core::remove_machine`] would move and leave, for the alert that
+    /// asks first. Changes nothing.
+    pub fn remove_plan(&self, key: &str) -> CoreResult<Removed> {
+        self.removal(key).map(|(_, _, plan)| plan)
+    }
+
+    /// Move the stopped machine at `key` to the platform's trash: its library
+    /// entry (the link, for a symlinked folder) and everything in it. Disk
+    /// images used in place outside the folder stay, and are reported.
+    pub fn remove_machine(&self, key: &str) -> CoreResult<Removed> {
+        let (entry, target, removed) = self.removal(key)?;
+        let name = &removed.name;
         let held = self
             .inner
             .machines
@@ -816,15 +839,6 @@ impl Core {
                 format!("{name} is running. Power off to remove it."),
             ));
         }
-        let mut disk_left = Vec::new();
-        for drive in origami_machine::read_machine(&target).map_or(vec![], |f| f.drive) {
-            let image = origami_machine::resolve(&target, &drive.image);
-            let image = dunce::canonicalize(&image).unwrap_or(image);
-            let image = image.to_string_lossy().into_owned();
-            if !Path::new(&image).starts_with(&target) && !disk_left.contains(&image) {
-                disk_left.push(image);
-            }
-        }
         (self.inner.config.trash)(&entry).map_err(|error| {
             CoreError::new(
                 ErrorKind::Io,
@@ -834,7 +848,7 @@ impl Core {
         })?;
         self.inner.machines.lock().unwrap().remove(&target);
         self.inner.slot.raise(&[EventKind::Library]);
-        Ok(Removed { name, disk_left })
+        Ok(removed)
     }
 
     /// The machine at `key`: a key from [`Core::list_machines`], a directory

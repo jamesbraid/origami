@@ -501,6 +501,43 @@ impl InstallFlow {
         }
     }
 
+    /// Why Continue is off on this step, or none when it is on.
+    pub fn continue_reason(&self, machine_up: bool) -> Option<&'static str> {
+        if self.can_continue(machine_up) {
+            return None;
+        }
+        Some(match self.step {
+            InstallStep::Media => "Choose a folder that has every disc.",
+            InstallStep::Packages => match self.apply {
+                ApplyState::Running => "Origami is typing the packages.",
+                ApplyState::Failed(InstallFailure::Login | InstallFailure::Shutdown) => {
+                    "Power off the machine first."
+                }
+                _ => "Press Install and wait for it to finish.",
+            },
+            InstallStep::Disk => match self.disk {
+                DiskState::Unknown => "Reading the machine's disks…",
+                DiskState::Present(_) => "Tick the box to erase this disk.",
+                DiskState::None => "Choose a disk size of at least 1 GB.",
+            },
+            InstallStep::Check if self.check == CheckState::Running => {
+                "Checking the install files…"
+            }
+            InstallStep::Check => "Check the install files to continue.",
+            _ => "Power off the machine to finish.",
+        })
+    }
+
+    /// What the Check step says about its progress: none before it starts and
+    /// after it fails, when the failure's own message shows instead.
+    pub fn check_status(&self) -> Option<&'static str> {
+        match self.check {
+            CheckState::Running => Some(texts::CHECKING),
+            CheckState::Passed => Some("Every disc checked out."),
+            CheckState::Ready | CheckState::Failed => None,
+        }
+    }
+
     pub fn continue_label(&self) -> &'static str {
         if self.step == InstallStep::Finish {
             "Finish"
@@ -673,6 +710,41 @@ mod tests {
             (InstallStep::Finish, "Finish")
         );
         assert!(!f.can_continue(true) && f.can_continue(false));
+    }
+
+    #[test]
+    fn a_continue_that_is_off_says_why_and_one_that_is_on_says_nothing() {
+        let mut f = flow();
+        assert_eq!(f.continue_reason(false), None);
+        f.next();
+        f.set_use_folder(true);
+        assert_eq!(
+            f.continue_reason(false),
+            Some("Choose a folder that has every disc.")
+        );
+        f.set_use_folder(false);
+        f.next();
+        f.next();
+        assert_eq!(
+            f.continue_reason(false),
+            Some("Reading the machine's disks…")
+        );
+        f.set_disk(DiskState::None);
+        assert_eq!(f.continue_reason(false), None);
+        f.set_new_disk_gb(0);
+        assert!(f.continue_reason(false).unwrap().contains("1 GB"));
+        f.set_new_disk_gb(4);
+        f.next();
+        assert_eq!(f.check_status(), None);
+        assert_eq!(
+            f.continue_reason(false),
+            Some("Check the install files to continue.")
+        );
+        f.set_check(CheckState::Running);
+        assert_eq!(f.check_status(), Some("Checking the install media…"));
+        f.set_check(CheckState::Passed);
+        assert_eq!(f.check_status(), Some("Every disc checked out."));
+        assert_eq!(f.continue_reason(false), None);
     }
 
     #[test]

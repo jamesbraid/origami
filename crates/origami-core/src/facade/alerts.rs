@@ -2,7 +2,7 @@
 //! a count or the platform. The apps lay them out and write nothing of their own.
 
 use super::commands::Platform;
-use super::shown::file_manager;
+use super::shown::show_in_label;
 use super::ui_text::UiString;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +44,10 @@ pub enum AlertKind {
     },
     CloseTab {
         name: String,
+    },
+    /// A clean stop that did not finish; the answer is Force quit.
+    PowerOffFailed {
+        names: Vec<String>,
     },
     /// `disk_left` are disk images that stay where they are.
     Remove {
@@ -105,6 +109,15 @@ pub fn alert(kind: &AlertKind, platform: Platform) -> Alert {
             "Changes not yet saved to its disk may be lost.".into(),
             vec![cancel(), button("Force quit", Destructive)],
         ),
+        AlertKind::PowerOffFailed { names } => (
+            match names.as_slice() {
+                [one] => format!("{one} did not power off"),
+                many => format!("{} machines did not power off", many.len()),
+            },
+            "A clean stop can take a while when a disk is saving its changes. Force quit ends the machine at once, and changes not yet saved to its disk may be lost."
+                .into(),
+            vec![cancel(), button("Force quit", Destructive)],
+        ),
         AlertKind::CloseTab { name } => (
             format!("Close {name}'s tab?"),
             format!("{name} can keep running without a tab."),
@@ -146,10 +159,18 @@ pub fn alert(kind: &AlertKind, platform: Platform) -> Alert {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToastKind {
-    Upgraded { name: String },
-    Removed { name: String },
+    Upgraded {
+        name: String,
+    },
+    Removed {
+        name: String,
+    },
     ScreenshotSaved,
     DiscEjected,
+    /// The picture was resized to `name`, such as `Fit`.
+    PictureSize {
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,11 +187,9 @@ pub fn toast(kind: &ToastKind, platform: Platform) -> Toast {
             format!("{name} moved to the {}", trash_name(platform)),
             None,
         ),
-        ToastKind::ScreenshotSaved => (
-            "Screenshot saved".into(),
-            Some(format!("Show in {}", file_manager(platform))),
-        ),
+        ToastKind::ScreenshotSaved => ("Screenshot saved".into(), Some(show_in_label(platform))),
         ToastKind::DiscEjected => ("Disc ejected".into(), None),
+        ToastKind::PictureSize { name } => (format!("Picture size: {name}"), None),
     };
     Toast { text, action }
 }
@@ -285,7 +304,34 @@ mod tests {
     }
 
     #[test]
+    fn a_power_off_that_did_not_finish_offers_force_quit() {
+        let one = alert(
+            &AlertKind::PowerOffFailed {
+                names: vec!["Fuel".into()],
+            },
+            Platform::Linux,
+        );
+        assert_eq!(one.title, "Fuel did not power off");
+        assert_eq!(labels(&one), ["Cancel", "Force quit"]);
+        let two = AlertKind::PowerOffFailed {
+            names: vec!["a".into(), "b".into()],
+        };
+        assert_eq!(
+            alert(&two, Platform::Linux).title,
+            "2 machines did not power off"
+        );
+    }
+
+    #[test]
     fn toasts_name_the_platforms_own_places() {
+        assert_eq!(
+            toast(
+                &ToastKind::PictureSize { name: "Fit".into() },
+                Platform::Linux
+            )
+            .text,
+            "Picture size: Fit"
+        );
         let removed = ToastKind::Removed {
             name: "fuel".into(),
         };

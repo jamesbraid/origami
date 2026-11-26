@@ -77,11 +77,11 @@ pub use settings::{
     DriveSetting, MachineSettings, PipeSetting, ShareSetting,
 };
 pub use shown::{
-    file_manager, library_line, library_line_for, machine_card, row, row_description, state_label,
-    status_bar, ActionKind, Card, CardAction, LibraryLine, Row, ShownState, StateLabel, StatusBar,
-    Tone,
+    file_manager, library_line, library_line_for, machine_card, row, row_description,
+    show_in_label, state_label, status_bar, ActionKind, Card, CardAction, LibraryLine, Row,
+    ShownState, StateLabel, StatusBar, Tone,
 };
-pub use ui_text::{machine_id_caption, version_line, UiString};
+pub use ui_text::{capture_hint, machine_id_caption, power_off_progress, version_line, UiString};
 
 pub use origami_engine::{
     Control, CpuLoad, CursorInfo, Frame, FrameStats, FrameUpdate, InputEvent, Key, PointerButton,

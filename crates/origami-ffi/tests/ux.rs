@@ -140,3 +140,53 @@ fn the_console_marks_a_guide_step_seen() {
     }
     panic!("the prompt was never seen");
 }
+
+#[test]
+fn a_fixture_machine_is_removed_without_the_real_trash() {
+    let lab = Lab::new(None);
+    let plan = lab.core.remove_plan(lab.key.clone()).unwrap();
+    assert!(plan.disk_left.is_empty() && std::path::Path::new(&lab.key).exists());
+    let removed = lab.core.remove_machine(lab.key.clone()).unwrap();
+    assert_eq!(removed.name, plan.name);
+    assert!(lab.core.list_machines().unwrap().is_empty());
+    assert!(lab
+        .core
+        .fake_trashed()
+        .iter()
+        .any(|p| p.ends_with(&removed.name)));
+}
+
+#[test]
+fn the_apps_ask_the_core_for_the_words_they_wrote_themselves() {
+    let flow = OrigamiInstallFlow::new(None);
+    assert_eq!(flow.continue_reason(false), None);
+    assert_eq!(flow.check_status(), None);
+    assert_eq!(
+        origami_ui_string(OrigamiUiString::SelectAMachineFirst),
+        "Select a machine first."
+    );
+    assert_eq!(
+        origami_capture_hint(OrigamiPlatform::Macos),
+        "Mouse captured. Press ⌃⌥ to release."
+    );
+    assert_eq!(
+        origami_power_off_progress("Fuel".into(), false),
+        "Powering off Fuel…"
+    );
+    assert_eq!(
+        origami_show_in_label(OrigamiPlatform::Windows),
+        "Show in Explorer"
+    );
+    let failed = origami_alert(
+        OrigamiAlertKind::PowerOffFailed {
+            names: vec!["Fuel".into()],
+        },
+        OrigamiPlatform::Linux,
+    );
+    assert_eq!(failed.buttons[1].role, OrigamiButtonRole::Destructive);
+    let toast = origami_toast(
+        OrigamiToastKind::PictureSize { name: "Fit".into() },
+        OrigamiPlatform::Linux,
+    );
+    assert_eq!(toast.text, "Picture size: Fit");
+}

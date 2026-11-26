@@ -39,6 +39,12 @@ const CONST_OK: &[&str] = &[
     "Machine ID",
     "Type it",
     "Disk",
+    "Eject",
+    "Packages to install, one per line",
+    "Powering off",
+    "Select a machine first.",
+    "Choose…",
+    "Stop sharing",
 ];
 
 /// The calls and properties that put a literal in front of a person.

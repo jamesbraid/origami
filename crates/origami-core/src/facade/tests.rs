@@ -2162,7 +2162,11 @@ fn a_machine_moves_to_the_trash_unless_it_runs() {
             overlay: false,
         }))
         .unwrap();
+    // The alert asks first, so the plan is known before anything moves.
+    let plan = f.core.remove_plan(&key).unwrap();
+    assert!(Path::new(&key).exists());
     let removed = f.core.remove_machine(&key).unwrap();
+    assert_eq!(removed, plan);
     assert_eq!(removed.name, "idle");
     let left: Vec<_> = removed.disk_left.iter().map(Path::new).collect();
     let want: Vec<_> = disks
@@ -2554,4 +2558,27 @@ fn the_error_of_a_failed_start_stays_in_the_view_until_the_next_start() {
     assert!(error.message.contains("drive image"), "{error}");
     assert!(machine.start().unwrap().wait(Some(WAIT)) == OperationState::Succeeded);
     assert_eq!(machine.view().start_error, None);
+}
+
+#[test]
+fn a_bridged_machines_device_and_share_address_change_in_one_call() {
+    let f = fixture();
+    let key = f.create("fuel", "fake.1");
+    let machine = f.core.open_machine(&key).unwrap();
+    let bridge = |device: &str, address: &str| {
+        machine
+            .set_network(NetworkMode::Tap, device, Some(address), None)
+            .unwrap();
+        let n = machine.settings().unwrap().network;
+        (n.mode, n.device, n.share_address.unwrap())
+    };
+    assert_eq!(
+        bridge("tap0", "192.168.1.5/24"),
+        ("tap".into(), "tap0".into(), "192.168.1.5/24".into())
+    );
+    // Same mode, both fields new: one edit, one report.
+    assert_eq!(
+        bridge("tap1", "192.168.1.9/24"),
+        ("tap".into(), "tap1".into(), "192.168.1.9/24".into())
+    );
 }
