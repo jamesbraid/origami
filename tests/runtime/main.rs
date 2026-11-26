@@ -229,11 +229,12 @@ fn check_preset(root: &Path, name: &str, offering: &origami_machine::Offering) -
             }
         })
         .and_then(|_| {
-            // QEMU maps all guest RAM up front: a preset whose smallest
-            // memory exceeds what the host has cannot start.
-            let too_big = available_mib().filter(|have| u64::from(min_memory) > *have);
+            // QEMU maps all guest RAM up front, every node's: a preset whose
+            // smallest total exceeds what the host has cannot start.
+            let total = u64::from(min_memory) * u64::from(offering.nodes);
+            let too_big = available_mib().filter(|have| total > *have);
             if let Some(have) = too_big {
-                eprintln!("{name}: not started, needs {min_memory} MiB and the host has {have}");
+                eprintln!("{name}: not started, needs {total} MiB and the host has {have}");
                 Ok(())
             } else if builds_machine_type(offering) {
                 start_and_stop(root, &machine)
