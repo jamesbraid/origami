@@ -6,7 +6,7 @@ use crate::app::App;
 use crate::machine::MachineUi;
 use adw::prelude::*;
 use gtk::glib;
-use origami_core::facade::UiString;
+use origami_core::facade::{Tone, UiString};
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -17,19 +17,17 @@ pub struct Window {
     pub copy: gtk::Button,
 }
 
-fn refresh(m: &MachineUi, w: &Window, name: &gtk::Label, pill: &gtk::Label) {
-    let (word, class) = m.state.get().pill();
+fn refresh(m: &MachineUi, w: &Window, name: &gtk::Label, state: &(gtk::Box, gtk::Label)) {
+    let label = m.label();
+    let word = label.word;
     let v = m.machine.view();
     let (wakes, presents) = {
         let st = m.stats.borrow();
         (st.wakes, st.presents)
     };
     name.set_label(&v.name);
-    for c in ["pill-grey", "pill-green", "pill-amber", "pill-red"] {
-        pill.remove_css_class(c);
-    }
-    pill.add_css_class(class);
-    pill.set_label(word);
+    crate::style::set_dot(&state.0, label.tone);
+    state.1.set_label(word);
     w.report
         .set_label(&m.machine.diagnostics_report(word, wakes, presents));
 }
@@ -55,13 +53,16 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
         .label(UiString::CopyReport.text())
         .build();
     let name = gtk::Label::builder().css_classes(["heading"]).build();
-    let pill = gtk::Label::builder()
-        .css_classes(["pill", "pill-grey"])
-        .valign(gtk::Align::Center)
-        .build();
-    let title = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let state = (
+        crate::style::dot(Tone::None),
+        gtk::Label::builder()
+            .css_classes(["caption", "dim-label"])
+            .build(),
+    );
+    let title = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     title.append(&name);
-    title.append(&pill);
+    title.append(&state.0);
+    title.append(&state.1);
     let header = adw::HeaderBar::new();
     header.set_title_widget(Some(&title));
     header.pack_end(&copy);
@@ -91,7 +92,7 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
             glib::Propagation::Proceed
         });
     }
-    refresh(m, &w, &name, &pill);
+    refresh(m, &w, &name, &state);
     *m.diagnostics.borrow_mut() = Some(w.clone());
     w.win.present();
     let m = m.clone();
@@ -99,7 +100,7 @@ pub fn present(app: &Rc<App>, m: &Rc<MachineUi>) {
         if m.diagnostics.borrow().is_none() {
             return glib::ControlFlow::Break;
         }
-        refresh(&m, &w, &name, &pill);
+        refresh(&m, &w, &name, &state);
         glib::ControlFlow::Continue
     });
 }

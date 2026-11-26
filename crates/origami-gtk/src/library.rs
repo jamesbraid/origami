@@ -2,6 +2,7 @@
 //! `machine.toml`. This is the app's own scan until the core facade owns the
 //! library; it reads the same files and the same format the CLI writes.
 
+use origami_core::facade::{MachineSummary, ShownState};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
@@ -22,12 +23,29 @@ pub struct Entry {
     pub runs_irix: bool,
     /// The tiles under the name, as the core words them.
     pub cards: Vec<origami_core::facade::SummaryCard>,
+    /// What the core listed, for the state words and the row's description.
+    pub summary: Option<MachineSummary>,
 }
 
 /// The grey a machine with no still is tinted with.
 const NO_ART: u32 = 0x7b7b84;
 
 impl Entry {
+    /// The model the library row shows under the name of a stopped machine.
+    pub fn model(&self) -> &str {
+        match &self.summary {
+            Some(m) => m.topology_name.as_deref().unwrap_or(&m.product_label),
+            None => &self.product_label,
+        }
+    }
+
+    /// The state the core shows for a machine that is not open.
+    pub fn shown(&self) -> ShownState {
+        self.summary
+            .as_ref()
+            .map_or(ShownState::Stopped, |m| m.shown(false))
+    }
+
     /// The machine's measured body colour, for tints and washes.
     pub fn colour(&self) -> u32 {
         self.art.map_or(NO_ART, crate::art::colour)
@@ -44,19 +62,26 @@ pub fn entries(core: &origami_core::facade::Core) -> Vec<Entry> {
         .into_iter()
         .map(|m| {
             let mut e = read(Path::new(&m.key));
-            e.name = m.name;
+            e.name = m.name.clone();
             e.needs_upgrade = m.needs_upgrade;
-            e.system_disk = m.system_disk;
+            e.system_disk = m.system_disk.clone();
             e.runs_irix = m.runs_irix;
-            e.cards = m.cards;
-            if let Some(p) = m.problem {
-                e.error = Some(p);
-            }
+            e.cards = m.cards.clone();
+            e.error = m.problem.clone();
+            e.summary = Some(m);
             e
         })
         .collect();
     out.sort_by_key(|e| e.name.to_lowercase());
     out
+}
+
+/// One machine as the core lists it now, for a refresh after an edit.
+pub fn fresh(core: &origami_core::facade::Core, dir: &Path) -> Entry {
+    entries(core)
+        .into_iter()
+        .find(|e| e.dir == dir)
+        .unwrap_or_else(|| read(dir))
 }
 
 pub fn read(dir: &Path) -> Entry {
@@ -77,6 +102,7 @@ pub fn read(dir: &Path) -> Entry {
                 system_disk: None,
                 runs_irix: true,
                 cards: Vec::new(),
+                summary: None,
             }
         }
         Err(e) => Entry {
@@ -89,6 +115,7 @@ pub fn read(dir: &Path) -> Entry {
             system_disk: None,
             runs_irix: true,
             cards: Vec::new(),
+            summary: None,
         },
     }
 }
@@ -122,6 +149,14 @@ mod tests {
         );
         assert_ne!((&ea.dir, &ea.name), (&eb.dir, &eb.name));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_row_with_no_summary_is_stopped_and_names_its_product() {
+        let mut e = read(Path::new("/nonexistent"));
+        assert_eq!(e.shown(), ShownState::Stopped);
+        e.product_label = "Fuel".into();
+        assert_eq!(e.model(), "Fuel");
     }
 
     #[test]

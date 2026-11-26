@@ -14,8 +14,8 @@ use crate::{input, window};
 use adw::prelude::*;
 use gtk::glib;
 use origami_core::facade::NetworkSetting;
-use origami_core::facade::UiString;
-use origami_core::facade::{CreateRequest, OperationState, SystemDisk};
+use origami_core::facade::{empty_state, EmptyKind, UiString};
+use origami_core::facade::{CreateRequest, DiskChoice, IdentityField, OperationState, SystemDisk};
 use origami_core::{Change, Line, NetworkMode};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -28,13 +28,11 @@ pub fn builds() -> u32 {
 }
 
 fn value_row(title: &str, value: &str) -> adw::ActionRow {
-    let r = adw::ActionRow::builder()
+    adw::ActionRow::builder()
         .title(title)
         .subtitle(value)
         .subtitle_selectable(true)
-        .build();
-    r.add_css_class("property");
-    r
+        .build()
 }
 
 fn group(title: &str, rows: Vec<adw::ActionRow>) -> adw::PreferencesGroup {
@@ -56,6 +54,10 @@ struct Loaded {
     cd_target: Option<u32>,
     network: NetworkSetting,
     shares: Vec<origami_core::facade::ShareSetting>,
+    /// Each drive's title and caption, as the core words them.
+    rows: Vec<origami_core::facade::DriveRow>,
+    /// Where the PROM prints its startup messages.
+    boot: Option<origami_core::facade::BootConsole>,
 }
 
 /// Through the machine's own engine, so an iris machine is read by iris.
@@ -71,6 +73,8 @@ fn load(machine: &origami_core::facade::Machine, dir: &std::path::Path) -> Resul
         cd_target: settings.cd_target,
         network: settings.network,
         shares: settings.shares,
+        rows: machine.drive_rows().map_err(|e| e.to_string())?,
+        boot: machine.boot_console().ok(),
         file,
     })
 }
@@ -164,11 +168,40 @@ fn reopen(
     dialog: &Prefs,
     notes: Vec<Line>,
 ) {
-    *m.entry.borrow_mut() = library::read(&m.dir);
+    *m.entry.borrow_mut() = library::fresh(&app.core, &m.dir);
     crate::window::rebuild_hero(m);
     crate::window::refresh(app);
     dialog.close();
     present_with(app, parent, m, notes);
+}
+
+/// While the machine runs, the line at the top of a page that says why its hardware is locked,
+/// with the way out beside it.
+fn add_locked(app: &Rc<App>, dialog: &Prefs, page: &adw::PreferencesPage, running: bool) {
+    if !running {
+        return;
+    }
+    let locked = adw::ActionRow::builder()
+        .title(UiString::PowerOffToChangeHardwareSettings.text())
+        .title_lines(0)
+        .build();
+    locked.set_widget_name("settings.locked");
+    let power_off = gtk::Button::builder()
+        .label(UiString::PowerOff.text())
+        .valign(gtk::Align::Center)
+        .build();
+    power_off.set_widget_name("settings.power-off");
+    let (app, dialog) = (app.clone(), dialog.clone());
+    power_off.connect_clicked(move |_| {
+        dialog.close();
+        if let Some(w) = window::active(&app) {
+            window::run(&app, &w, "machine.stop");
+        }
+    });
+    locked.add_suffix(&power_off);
+    let g = adw::PreferencesGroup::new();
+    g.add(&locked);
+    page.add(&g);
 }
 
 fn build_machine_dialog(
@@ -187,13 +220,7 @@ fn build_machine_dialog(
         .title(UiString::General.text())
         .icon_name("preferences-system-symbolic")
         .build();
-    if running {
-        general.add(
-            &adw::PreferencesGroup::builder()
-                .description(UiString::ThisMachineIsRunningHardware.text())
-                .build(),
-        );
-    }
+    add_locked(app, &dialog, &general, running);
     general.add(&group(
         "Machine",
         vec![
@@ -208,11 +235,12 @@ fn build_machine_dialog(
         Ok(l) => {
             let f = &l.file;
             let hw = adw::PreferencesPage::builder()
-                .title("Processor & memory")
+                .title("Processor and memory")
                 .icon_name("system-run-symbolic")
                 .build();
+            add_locked(app, &dialog, &hw, running);
             let g = adw::PreferencesGroup::builder()
-                .title("Processor & memory")
+                .title("Processor and memory")
                 .build();
             if let Some(p) = &f.machine.processor {
                 g.add(&value_row(UiString::Processor.text(), p));
@@ -262,7 +290,11 @@ fn build_machine_dialog(
                 .title(UiString::MemoryPerNode.text())
                 .sensitive(!running)
                 .build();
-            let labels: Vec<String> = l.memory.iter().map(|v| format!("{v} MiB")).collect();
+            let labels: Vec<String> = l
+                .memory
+                .iter()
+                .map(|v| origami_core::facade::memory_label(*v))
+                .collect();
             mem.set_model(Some(&gtk::StringList::new(
                 &labels.iter().map(String::as_str).collect::<Vec<_>>(),
             )));
@@ -309,46 +341,36 @@ fn build_machine_dialog(
             } else {
                 f.pipe
                     .iter()
-                    .map(|p| {
-                        value_row(
-                            &format!("Pipe in slot {}", p.slot),
-                            &format!("{} ({})", p.product, p.family),
-                        )
-                    })
+                    .map(|p| value_row(&p.product, &p.family))
                     .collect()
             };
-            gfx.add(&group("Graphics pipes", rows));
+            gfx.add(&group(UiString::Graphics.text(), rows));
             dialog.add(&gfx);
 
             let drives = adw::PreferencesPage::builder()
                 .title(UiString::Drives.text())
                 .icon_name("drive-harddisk-symbolic")
                 .build();
+            add_locked(app, &dialog, &drives, running);
             let g = adw::PreferencesGroup::builder()
                 .title(UiString::Drives.text())
                 .build();
-            if f.drive.is_empty() {
-                g.add(&value_row(UiString::Drives.text(), "None"));
-            }
-            for d in &f.drive {
-                let r = value_row(
-                    &format!("{} ({}, bus {} target {})", d.name, d.kind, d.bus, d.target),
-                    &format!(
-                        "{}{}",
-                        d.image,
-                        if d.read_only { " (read-only)" } else { "" }
-                    ),
-                );
-                if d.kind == "disk" {
-                    let badge = disks::badge(&format!("disk.badge.{}", d.name));
-                    let (machine, name) = (m.machine.clone(), d.name.clone());
-                    disks::fill_badge(&badge, move || {
-                        machine.drive_info(&name).map_err(|e| e.to_string())
-                    });
-                    r.add_suffix(&badge);
-                }
-                if d.kind == "cdrom" {
-                    cd_buttons(app, parent, m, &dialog, &r, &d.name);
+            for d in &l.rows {
+                let cd = f
+                    .drive
+                    .iter()
+                    .any(|x| x.name == d.name && x.kind == "cdrom");
+                // A disc swapped while the machine runs is not in its file; the tab remembers it.
+                let live = cd.then(|| m.media.borrow().get(&d.name).cloned()).flatten();
+                let caption = match &live {
+                    Some(Some(file)) => file.clone(),
+                    Some(None) => String::new(),
+                    None => d.caption.clone(),
+                };
+                let r = value_row(&d.title, &caption);
+                r.set_widget_name(&format!("drive.row.{}", d.name));
+                if cd {
+                    cd_buttons(app, parent, m, &dialog, &r, &d.name, live != Some(None));
                 }
                 let b = gtk::Button::builder()
                     .icon_name("list-remove-symbolic")
@@ -359,7 +381,7 @@ fn build_machine_dialog(
                     .build();
                 b.update_property(&[gtk::accessible::Property::Label(&format!(
                     "Detach {}",
-                    d.name
+                    d.title
                 ))]);
                 let (app, parent, m, dlg, name) = (
                     app.clone(),
@@ -376,13 +398,13 @@ fn build_machine_dialog(
             }
             let mut adds = vec![(
                 "drive.add-image",
-                "Add a disk image…",
+                UiString::AddADiskImage.text(),
                 l.disk_target.filter(|_| !running),
             )];
             if !f.drive.iter().any(|d| d.kind == "cdrom") {
                 adds.push((
                     "drive.insert-cd",
-                    "Insert a CD-ROM image…",
+                    UiString::InsertACdImage.text(),
                     l.cd_target.filter(|_| !running),
                 ));
             }
@@ -424,6 +446,7 @@ fn build_machine_dialog(
                 .title("Network")
                 .icon_name("network-wired-symbolic")
                 .build();
+            add_locked(app, &dialog, &net, running);
             if !notes.is_empty() {
                 net.add(&notes_group(&notes, dialog.dialog.upcast_ref()));
             }
@@ -464,7 +487,7 @@ fn build_machine_dialog(
                 fg.add(&r);
             }
             let add = adw::ActionRow::builder()
-                .title("Add a forward…")
+                .title(UiString::AddAPortForward.text())
                 .activatable(!running)
                 .sensitive(!running)
                 .build();
@@ -475,6 +498,8 @@ fn build_machine_dialog(
                 add.connect_activated(move |_| add_forward(&app, &parent, &m, &dlg));
             }
             fg.add(&add);
+            // Forwards do nothing with the network off.
+            fg.set_visible(l.network.mode != "none");
             net.add(&fg);
             dialog.add(&net);
             if !notes.is_empty() {
@@ -491,7 +516,7 @@ fn build_machine_dialog(
                 .icon_name("system-shutdown-symbolic")
                 .build();
             let g = adw::PreferencesGroup::builder()
-                .title(UiString::StartupFirmware.text())
+                .title(glib::markup_escape_text(UiString::StartupFirmware.text()))
                 .description(UiString::TheConsoleWindowAndA.text())
                 .build();
             let line = adw::ComboRow::builder()
@@ -525,6 +550,14 @@ fn build_machine_dialog(
                         }
                     }
                 });
+            }
+            if let Some(boot) = l.boot {
+                let row = value_row(
+                    UiString::StartupMessagesOn.text(),
+                    origami_core::facade::startup_value(boot),
+                );
+                row.set_widget_name("settings.startup-messages");
+                g.add(&row);
             }
             g.add(&line);
             startup.add(&g);
@@ -590,18 +623,21 @@ fn build_machine_dialog(
 fn list_downloaded(
     core: &origami_core::facade::Core,
     group: &adw::PreferencesGroup,
-    rows: Rc<RefCell<Vec<adw::ActionRow>>>,
+    rows: Rc<RefCell<Vec<gtk::Widget>>>,
 ) {
     for row in rows.borrow_mut().drain(..) {
         group.remove(&row);
     }
     let found = core.cached_disks().unwrap_or_default();
     if found.is_empty() {
-        let row = adw::ActionRow::builder()
-            .title(UiString::NoDownloadedDisks.text())
+        let e = empty_state(EmptyKind::NoDownloadedDisks);
+        let page = adw::StatusPage::builder()
+            .title(e.title)
+            .description(e.sentence)
+            .css_classes(["compact"])
             .build();
-        group.add(&row);
-        rows.borrow_mut().push(row);
+        group.add(&page);
+        rows.borrow_mut().push(page.upcast());
     }
     for disk in found {
         let row = adw::ActionRow::builder()
@@ -620,7 +656,7 @@ fn list_downloaded(
             list_downloaded(&again, &group_again, rows_again.clone());
         });
         group.add(&row);
-        rows.borrow_mut().push(row);
+        rows.borrow_mut().push(row.upcast());
     }
 }
 
@@ -661,12 +697,37 @@ fn copy_button(root: &Prefs, text: String) -> gtk::Button {
 fn entry(title: &str, id: &str, text: &str, running: bool) -> adw::EntryRow {
     let row = adw::EntryRow::builder()
         .title(title)
-        .show_apply_button(true)
         .sensitive(!running)
         .build();
     row.set_widget_name(id);
     row.set_text(text);
     row
+}
+
+/// Run `f` with the row when its text is committed: Return, or the field losing focus
+/// with a change in it. The `apply` signal is kept for the self-test's `activate`.
+fn on_commit(row: &adw::EntryRow, f: impl Fn(&adw::EntryRow) + 'static) {
+    let f = Rc::new(f);
+    let last = Rc::new(RefCell::new(row.text().to_string()));
+    let commit = {
+        let (f, last) = (f.clone(), last.clone());
+        move |r: &adw::EntryRow| {
+            if *last.borrow() != r.text().as_str() {
+                *last.borrow_mut() = r.text().to_string();
+                f(r);
+            }
+        }
+    };
+    row.connect_entry_activated(commit.clone());
+    let focus = gtk::EventControllerFocus::new();
+    let weak = row.downgrade();
+    focus.connect_leave(move |_| {
+        if let Some(r) = weak.upgrade() {
+            commit(&r);
+        }
+    });
+    row.add_controller(focus);
+    row.connect_apply(move |r| f(r));
 }
 
 /// The shared folders, each with the commands that mount it in IRIX, and the button that adds one.
@@ -689,7 +750,7 @@ fn shares_group(
         let r = value_row(&sh.name, &sh.host_dir);
         let b = gtk::Button::builder()
             .icon_name("list-remove-symbolic")
-            .tooltip_text("Stop sharing")
+            .tooltip_text(UiString::StopSharing.text())
             .valign(gtk::Align::Center)
             .sensitive(!running)
             .css_classes(["flat"])
@@ -734,18 +795,40 @@ fn shares_group(
         }
         g.add(&mount);
     }
-    let add = adw::ActionRow::builder()
-        .title(UiString::ShareAFolder.text())
-        .activatable(!running)
-        .sensitive(!running)
-        .build();
-    add.set_widget_name("share.add-folder");
-    add.add_prefix(&gtk::Image::from_icon_name("list-add-symbolic"));
-    {
+    let go = {
         let (app, parent, m, dlg) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
-        add.connect_activated(move |_| share_folder(&app, &parent, &m, &dlg));
+        move || share_folder(&app, &parent, &m, &dlg)
+    };
+    if shares.is_empty() {
+        // Nothing shared yet: the core's empty state, with its button.
+        let e = empty_state(EmptyKind::NoSharedFolders);
+        let button = gtk::Button::builder()
+            .label(e.button.unwrap_or_default())
+            .halign(gtk::Align::Center)
+            .sensitive(!running)
+            .css_classes(["suggested-action", "pill"])
+            .build();
+        button.set_widget_name("share.add-folder");
+        button.connect_clicked(move |_| go());
+        g.add(
+            &adw::StatusPage::builder()
+                .title(e.title)
+                .description(e.sentence)
+                .child(&button)
+                .css_classes(["compact"])
+                .build(),
+        );
+    } else {
+        let add = adw::ActionRow::builder()
+            .title(UiString::ShareAFolder.text())
+            .activatable(!running)
+            .sensitive(!running)
+            .build();
+        add.set_widget_name("share.add-folder");
+        add.add_prefix(&gtk::Image::from_icon_name("list-add-symbolic"));
+        add.connect_activated(move |_| go());
+        g.add(&add);
     }
-    g.add(&add);
     page.add(&g);
 }
 
@@ -765,26 +848,34 @@ fn network_groups(
     let current = choices.iter().position(|c| c.mode.as_str() == n.mode);
     let host_mode = choices.iter().map(|c| c.mode).find(|m| is_bridged(*m));
     let g = adw::PreferencesGroup::builder().title("Network").build();
-    let mode = adw::ComboRow::builder()
-        .title(UiString::Mode.text())
-        .sensitive(!running)
-        .build();
-    mode.set_widget_name("settings.network");
-    let labels: Vec<&str> = choices.iter().map(|c| c.label.as_str()).collect();
-    mode.set_model(Some(&gtk::StringList::new(&labels)));
-    match current {
-        Some(i) => {
-            mode.set_selected(i as u32);
-            mode.set_subtitle(&choices[i].detail);
+    // One radio row per mode, each with its caption; choosing applies at once.
+    let mut radios: Vec<(usize, gtk::CheckButton)> = Vec::new();
+    let mut first: Option<gtk::CheckButton> = None;
+    for (i, c) in choices.iter().enumerate() {
+        let radio = gtk::CheckButton::builder()
+            .valign(gtk::Align::Center)
+            .build();
+        radio.set_widget_name(&format!("settings.network.{}", c.mode.as_str()));
+        match &first {
+            Some(f) => radio.set_group(Some(f)),
+            None => first = Some(radio.clone()),
         }
-        // A mode this computer cannot run: nothing is selected, so any choice is a change.
-        None => {
-            mode.set_selected(gtk::INVALID_LIST_POSITION);
-            mode.set_subtitle(&format!("Currently {}", n.mode));
-        }
+        // A mode this computer cannot run leaves nothing selected, so any choice is a change.
+        radio.set_active(current == Some(i));
+        let row = adw::ActionRow::builder()
+            .title(&c.label)
+            .subtitle(&c.detail)
+            .activatable_widget(&radio)
+            .sensitive(!running)
+            .build();
+        row.set_widget_name(&format!("settings.network-row.{}", c.mode.as_str()));
+        row.add_prefix(&radio);
+        g.add(&row);
+        radios.push((i, radio));
     }
-    let start = mode.selected();
-    g.add(&mode);
+    if current.is_none() {
+        g.set_description(Some(&format!("Currently {}", n.mode)));
+    }
     page.add(&g);
 
     // Bridged shows its fields before anything is saved: the core needs the device with the mode.
@@ -845,10 +936,10 @@ fn network_groups(
                 );
             }
         };
-        device.connect_apply(send.clone());
-        share.connect_apply(send);
+        on_commit(&device, send.clone());
+        on_commit(&share, send);
     }
-    {
+    for (i, radio) in &radios {
         let (app, parent, m, d, host) = (
             app.clone(),
             parent.clone(),
@@ -856,15 +947,14 @@ fn network_groups(
             dialog.clone(),
             host.clone(),
         );
-        let choices = choices.clone();
-        mode.connect_selected_notify(move |c| {
-            let Some(choice) = choices.get(c.selected() as usize) else {
+        let (choice, same) = (choices[*i].clone(), current == Some(*i));
+        radio.connect_toggled(move |r| {
+            if !r.is_active() {
                 return;
-            };
-            c.set_subtitle(&choice.detail);
+            }
             // Choosing the mode the machine has leaves the fields as the file shows them.
             host.set_visible(is_bridged(choice.mode));
-            if c.selected() != start && !is_bridged(choice.mode) {
+            if !same && !is_bridged(choice.mode) {
                 apply_network(
                     &app,
                     &parent,
@@ -876,10 +966,11 @@ fn network_groups(
         });
     }
 
-    let id = adw::PreferencesGroup::builder()
-        .title(UiString::EthernetAddress.text())
-        .build();
-    let address = value_row(n.mac.as_deref().unwrap_or("None"), &n.mac_note);
+    let id = adw::PreferencesGroup::new();
+    let address = value_row(
+        UiString::EthernetAddress.text(),
+        &format!("{}\n{}", n.mac.as_deref().unwrap_or("None"), n.mac_note),
+    );
     address.set_widget_name("network.mac");
     if let Some(mac) = n.mac.clone() {
         address.add_suffix(&copy_button(dialog, mac));
@@ -901,7 +992,7 @@ fn network_groups(
             running,
         );
         let (app, parent, m, d) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
-        subnet.connect_apply(move |row| {
+        on_commit(&subnet, move |row| {
             let subnet = Some(row.text().to_string());
             apply_network(&app, &parent, &m, &d, (mode, String::new(), None, subnet));
         });
@@ -920,11 +1011,15 @@ fn cd_buttons(
     dialog: &Prefs,
     row: &adw::ActionRow,
     drive: &str,
+    has_disc: bool,
 ) {
     for (icon, tip, change) in [
-        ("media-optical-symbolic", "Change CD", true),
-        ("media-eject-symbolic", "Eject CD", false),
+        ("media-optical-symbolic", UiString::ChangeCd.text(), true),
+        ("media-eject-symbolic", UiString::Eject.text(), false),
     ] {
+        if !change && !has_disc {
+            continue;
+        }
         let b = gtk::Button::builder()
             .icon_name(icon)
             .tooltip_text(tip)
@@ -973,6 +1068,13 @@ fn media(
 ) {
     let (machine, name) = (m.machine.clone(), drive.to_string());
     let (app, parent, m, dialog) = (app.clone(), parent.clone(), m.clone(), dialog.clone());
+    let (drive, shown) = (
+        drive.to_string(),
+        image
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned()),
+    );
     glib::spawn_future_local(async move {
         let r = gtk::gio::spawn_blocking(move || {
             machine
@@ -981,7 +1083,16 @@ fn media(
         })
         .await;
         match r {
-            Ok(Ok(())) => reopen(&app, &parent, &m, &dialog, vec![]),
+            Ok(Ok(())) => {
+                // A running machine's swap is not in its file: remember it for the Drives list.
+                if m.state.get().is_up() {
+                    m.media.borrow_mut().insert(drive, shown.clone());
+                }
+                if shown.is_none() {
+                    window::toast_for(&app, &origami_core::facade::ToastKind::DiscEjected, || {});
+                }
+                reopen(&app, &parent, &m, &dialog, vec![])
+            }
             Ok(Err(e)) => {
                 eprintln!("origami-gtk: CD change refused: {e}");
                 dialog.add_toast(adw::Toast::new(&e))
@@ -1264,7 +1375,7 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         &app.core.root().display().to_string(),
     );
     let choose = gtk::Button::builder()
-        .label("Choose…")
+        .label(UiString::Choose.text())
         .valign(gtk::Align::Center)
         .build();
     folder.add_suffix(&choose);
@@ -1273,7 +1384,7 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
         choose.connect_clicked(move |_| {
             let (app, folder) = (app.clone(), folder.clone());
             gtk::FileDialog::builder()
-                .title("Choose the library folder")
+                .title(UiString::ChooseTheFolderThatHoldsYourMachines.text())
                 .build()
                 .select_folder(Some(&parent), gtk::gio::Cancellable::NONE, move |r| {
                     if let Some(path) = r.ok().and_then(|f| f.path()) {
@@ -1343,6 +1454,19 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
 }
 
 pub fn new_machine(app: &Rc<App>, parent: &adw::ApplicationWindow) {
+    open_new_machine(app, parent, None);
+}
+
+/// New machine with this disk image already chosen, for one dropped on the library.
+pub fn new_machine_from(app: &Rc<App>, parent: &adw::ApplicationWindow, image: std::path::PathBuf) {
+    open_new_machine(app, parent, Some(image));
+}
+
+fn open_new_machine(
+    app: &Rc<App>,
+    parent: &adw::ApplicationWindow,
+    image: Option<std::path::PathBuf>,
+) {
     let (app, parent) = (app.clone(), parent.clone());
     glib::spawn_future_local(async move {
         // The first catalogue call may start the engine's program.
@@ -1352,7 +1476,7 @@ pub fn new_machine(app: &Rc<App>, parent: &adw::ApplicationWindow) {
                 .await
                 .unwrap_or_else(|_| Err("the catalogue could not be read".into()));
         match offerings {
-            Ok(o) => new_machine_dialog(&app, &parent, o),
+            Ok(o) => new_machine_dialog(&app, &parent, o, image),
             Err(e) => {
                 let d = adw::AlertDialog::new(Some("Cannot list the machines"), Some(&e));
                 d.add_response("ok", "OK");
@@ -1378,6 +1502,7 @@ fn new_machine_dialog(
     app: &Rc<App>,
     parent: &adw::ApplicationWindow,
     offerings: Vec<origami_core::facade::OfferingSummary>,
+    image: Option<std::path::PathBuf>,
 ) {
     let dialog = adw::Dialog::builder()
         .title(UiString::NewMachine.text())
@@ -1386,7 +1511,9 @@ fn new_machine_dialog(
         .build();
     dialog.set_widget_name("new.dialog");
     let page = adw::PreferencesPage::new();
-    let g = adw::PreferencesGroup::new();
+    let g = adw::PreferencesGroup::builder()
+        .title(UiString::Machine.text())
+        .build();
     // The engine comes first: it decides which models are offered, and the
     // machine keeps it for life.
     let known = app.core.engines();
@@ -1453,24 +1580,68 @@ fn new_machine_dialog(
     g.add(&engine);
     g.add(&combo);
     g.add(&name);
-    // Install from discs joins this list later; a ready-made disk is added while one fits.
-    let labels = origami_core::facade::disk_labels();
-    let disk_model = gtk::StringList::new(
-        &labels
-            .choices
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-    );
-    let base_choices = disk_model.n_items();
-    let disk = adw::ComboRow::builder()
-        .title("Disk")
-        .model(&disk_model)
+    page.add(&g);
+
+    // The disk: one radio row per way to get one, in the core's order and words.
+    let disk_group = adw::PreferencesGroup::builder()
+        .title(UiString::Disk.text())
         .build();
-    disk.set_widget_name("new.disk");
+    let labels = origami_core::facade::disk_labels();
+    let choice = Rc::new(std::cell::Cell::new(DiskChoice::Install));
+    let mut radios: Vec<(DiskChoice, adw::ActionRow, gtk::CheckButton)> = Vec::new();
+    let mut first: Option<gtk::CheckButton> = None;
+    for o in origami_core::facade::disk_options(true) {
+        let id = match o.choice {
+            DiskChoice::Ready => "ready",
+            DiskChoice::Install => "install",
+            DiskChoice::Image => "image",
+            DiskChoice::NoDisk => "none",
+        };
+        let radio = gtk::CheckButton::builder()
+            .valign(gtk::Align::Center)
+            .build();
+        radio.set_widget_name(&format!("new.disk.{id}"));
+        match &first {
+            Some(f) => radio.set_group(Some(f)),
+            None => first = Some(radio.clone()),
+        }
+        let row = adw::ActionRow::builder()
+            .title(&o.title)
+            .subtitle(&o.caption)
+            .activatable_widget(&radio)
+            .build();
+        row.set_widget_name(&format!("new.disk-row.{id}"));
+        row.add_prefix(&radio);
+        if o.recommended {
+            row.add_suffix(
+                &gtk::Label::builder()
+                    .label(UiString::Recommended.text())
+                    .css_classes(["caption", "dim-label"])
+                    .build(),
+            );
+        }
+        disk_group.add(&row);
+        radios.push((o.choice, row, radio));
+    }
+    let row_of = |c: DiskChoice| {
+        radios
+            .iter()
+            .find(|r| r.0 == c)
+            .map(|r| r.1.clone())
+            .unwrap()
+    };
+    let ready_row = row_of(DiskChoice::Ready);
+    let install_row = row_of(DiskChoice::Install);
+    ready_row.set_visible(false);
     let size = adw::SpinRow::with_range(1.0, 2048.0, 1.0);
-    size.set_title(UiString::DiskSizeGb.text());
-    size.set_value(f64::from(origami_core::facade::disk_labels().default_gb));
+    size.set_title(UiString::DiskSize.text());
+    size.add_suffix(
+        &gtk::Label::builder()
+            .label(UiString::Gb.text())
+            .css_classes(["dim-label"])
+            .build(),
+    );
+    size.set_value(f64::from(labels.default_gb));
     size.set_widget_name("new.size");
     size.set_visible(false);
     let choose = adw::ActionRow::builder()
@@ -1481,44 +1652,18 @@ fn new_machine_dialog(
     choose.set_widget_name("new.image");
     let release = adw::ComboRow::builder()
         .title(&labels.release)
+        .use_subtitle(true)
         .visible(false)
         .build();
     release.set_widget_name("new.release");
-    let after = gtk::CheckButton::builder()
-        .valign(gtk::Align::Center)
-        .build();
-    after.set_widget_name("new.install");
-    let sync_after = Rc::new(RefCell::new(None::<Box<dyn Fn()>>));
-    let after_row = adw::ActionRow::builder()
-        .title(UiString::InstallIrixAfterCreating.text())
-        .activatable_widget(&after)
-        .visible(false)
-        .build();
-    after_row.add_prefix(&after);
-    g.add(&disk);
-    g.add(&release);
-    g.add(&size);
-    g.add(&after_row);
-    {
-        let combo2 = combo.clone();
-        let (disk, combo, offerings, row) = (
-            disk.clone(),
-            combo.clone(),
-            offerings.clone(),
-            after_row.clone(),
-        );
-        let sync = Rc::new(move || {
-            let irix = offerings
-                .borrow()
-                .get(combo.selected() as usize)
-                .is_some_and(|o| o.runs_irix);
-            row.set_visible(disk.selected() == 1 && irix);
-        });
-        let s = sync.clone();
-        combo2.connect_selected_notify(move |_| s());
-        *sync_after.borrow_mut() = Some(Box::new(move || sync()));
+    for w in [
+        release.upcast_ref::<gtk::Widget>(),
+        size.upcast_ref(),
+        choose.upcast_ref(),
+    ] {
+        disk_group.add(w);
     }
-    g.add(&choose);
+    page.add(&disk_group);
     let image_ok = Rc::new(std::cell::Cell::new(false));
     let identity = IdentityForm::new();
     let create = gtk::Button::builder()
@@ -1528,16 +1673,18 @@ fn new_machine_dialog(
         .build();
     create.set_widget_name("new.create");
     let ready = {
-        let (create, name, disk, image_ok, id_ok) = (
+        let (create, name, choice, image_ok, id_ok) = (
             create.clone(),
             name.clone(),
-            disk.clone(),
+            choice.clone(),
             image_ok.clone(),
             identity.ok.clone(),
         );
         Rc::new(move || {
             let named = !name.text().trim().is_empty();
-            create.set_sensitive(named && id_ok.get() && (disk.selected() != 2 || image_ok.get()));
+            create.set_sensitive(
+                named && id_ok.get() && (choice.get() != DiskChoice::Image || image_ok.get()),
+            );
         })
     };
     // The preview follows the model, the engine and what is typed in Advanced.
@@ -1584,26 +1731,62 @@ fn new_machine_dialog(
         })
     };
     form.group.set_visible(false);
-    {
-        let (size, choose, form, ready, release, sync_after) = (
+    // Which rows the chosen way shows; the rows' own radios set it.
+    let sync = {
+        let (choice, release, size, choose, form, ready) = (
+            choice.clone(),
+            release.clone(),
             size.clone(),
             choose.clone(),
             form.clone(),
             ready.clone(),
-            release.clone(),
-            sync_after.clone(),
         );
-        disk.connect_selected_notify(move |d| {
-            release.set_visible(d.selected() == base_choices);
-            size.set_visible(d.selected() == 1);
-            if let Some(f) = &*sync_after.borrow() {
-                f();
-            }
-            choose.set_visible(d.selected() == 2);
-            form.group.set_visible(d.selected() == 2);
+        Rc::new(move || {
+            let c = choice.get();
+            release.set_visible(c == DiskChoice::Ready);
+            size.set_visible(c == DiskChoice::Install);
+            choose.set_visible(c == DiskChoice::Image);
+            form.group.set_visible(c == DiskChoice::Image);
             ready();
+        })
+    };
+    // Whether the person has picked a way, so a ready-made disk arriving late does not override it.
+    let touched = Rc::new(std::cell::Cell::new(false));
+    let auto = Rc::new(std::cell::Cell::new(false));
+    for (c, _, radio) in &radios {
+        let (choice, sync, c, touched, auto) = (
+            choice.clone(),
+            sync.clone(),
+            *c,
+            touched.clone(),
+            auto.clone(),
+        );
+        radio.connect_toggled(move |r| {
+            if r.is_active() {
+                choice.set(c);
+                if !auto.get() {
+                    touched.set(true);
+                }
+                sync();
+            }
         });
     }
+    // The first way offered is the default.
+    let set_default = {
+        let (radios, auto) = (radios.clone(), auto.clone());
+        Rc::new(move || {
+            let at = radios
+                .iter()
+                .find(|(_, row, _)| row.is_visible())
+                .map(|(_, _, r)| r.clone());
+            auto.set(true);
+            if let Some(r) = at {
+                r.set_active(true);
+            }
+            auto.set(false);
+        })
+    };
+    set_default();
     {
         let (form, parent) = (form.clone(), parent.clone());
         choose.connect_activated(move |_| form.choose(&parent));
@@ -1611,6 +1794,23 @@ fn new_machine_dialog(
     // The disks that fit the chosen model, asked of the server off the UI thread.
     let ready_disks = Rc::new(RefCell::new(Vec::<origami_core::facade::ReadyDisk>::new()));
     let asked = Rc::new(std::cell::Cell::new(0u32));
+    // The ready-made row says what the chosen release costs to get.
+    let ready_caption = {
+        let (ready_row, release, ready_disks) =
+            (ready_row.clone(), release.clone(), ready_disks.clone());
+        Rc::new(move || {
+            let disks = ready_disks.borrow();
+            if let Some(d) = disks.get(release.selected() as usize) {
+                let base = origami_core::facade::disk_options(true)[0].caption.clone();
+                let tail = origami_core::facade::ready_caption(d.bytes, d.cached);
+                ready_row.set_subtitle(&format!("{base} {tail}"));
+            }
+        })
+    };
+    release.connect_selected_notify({
+        let c = ready_caption.clone();
+        move |_| c()
+    });
     let refresh = {
         let (app, offerings, ready_disks, asked) = (
             app.clone(),
@@ -1618,30 +1818,34 @@ fn new_machine_dialog(
             ready_disks.clone(),
             asked.clone(),
         );
-        let (disk, disk_model, release, ready_label) = (
-            disk.clone(),
-            disk_model.clone(),
+        let (release, ready_row, install_row, radios, choice, touched) = (
             release.clone(),
-            labels.ready.clone(),
+            ready_row.clone(),
+            install_row.clone(),
+            radios.clone(),
+            choice.clone(),
+            touched.clone(),
         );
+        let (set_default, ready_caption) = (set_default.clone(), ready_caption.clone());
         move |combo: &adw::ComboRow| {
-            let Some(id) = offerings
-                .borrow()
-                .get(combo.selected() as usize)
-                .map(|o| o.id.clone())
-            else {
+            let Some(offering) = offerings.borrow().get(combo.selected() as usize).cloned() else {
                 return;
             };
+            // Install IRIX applies only to machines that run IRIX.
+            install_row.set_visible(offering.runs_irix);
+            let id = offering.id;
             asked.set(asked.get() + 1);
             let (turn, core) = (asked.get(), app.core.clone());
-            let (asked, ready_disks, disk, disk_model, release, ready_label) = (
+            let (asked, ready_disks, release, ready_row, radios, choice, touched) = (
                 asked.clone(),
                 ready_disks.clone(),
-                disk.clone(),
-                disk_model.clone(),
                 release.clone(),
-                ready_label.clone(),
+                ready_row.clone(),
+                radios.clone(),
+                choice.clone(),
+                touched.clone(),
             );
+            let (set_default, ready_caption) = (set_default.clone(), ready_caption.clone());
             glib::spawn_future_local(async move {
                 let found =
                     gtk::gio::spawn_blocking(move || core.ready_disks(&id).unwrap_or_default())
@@ -1651,20 +1855,19 @@ fn new_machine_dialog(
                 if turn != asked.get() {
                     return;
                 }
-                let extra = disk_model.n_items().saturating_sub(base_choices);
-                if disk.selected() >= base_choices {
-                    disk.set_selected(0);
-                }
-                let label: Vec<&str> = if found.is_empty() {
-                    vec![]
-                } else {
-                    vec![ready_label.as_str()]
-                };
-                disk_model.splice(base_choices, extra, &label);
+                ready_row.set_visible(!found.is_empty());
                 release.set_model(Some(&gtk::StringList::new(
                     &found.iter().map(|d| d.label.as_str()).collect::<Vec<_>>(),
                 )));
                 *ready_disks.borrow_mut() = found;
+                ready_caption();
+                let gone = radios
+                    .iter()
+                    .any(|(c, row, _)| *c == choice.get() && !row.is_visible());
+                // A ready-made disk leads once it is offered, unless the person chose; a way that went away falls back.
+                if gone || !touched.get() {
+                    set_default();
+                }
             });
         }
     };
@@ -1677,7 +1880,6 @@ fn new_machine_dialog(
         .xalign(0.0)
         .build();
     g.add(&err);
-    page.add(&g);
     page.add(&identity.group);
     page.add(&form.group);
     let progress = adw::PreferencesGroup::new();
@@ -1697,16 +1899,34 @@ fn new_machine_dialog(
     }
     page.add(&progress);
     {
-        let ready = ready.clone();
-        name.connect_changed(move |_| ready());
+        let (ready, name) = (ready.clone(), name.clone());
+        name.connect_changed(move |n| {
+            n.remove_css_class("error");
+            ready();
+        });
     }
-    let header = adw::HeaderBar::new();
+    let header = adw::HeaderBar::builder()
+        .show_start_title_buttons(false)
+        .show_end_title_buttons(false)
+        .build();
+    let cancel = gtk::Button::builder()
+        .label(UiString::Cancel.text())
+        .build();
+    cancel.set_widget_name("new.cancel");
+    {
+        let dialog = dialog.clone();
+        cancel.connect_clicked(move |_| {
+            dialog.close();
+        });
+    }
+    header.pack_start(&cancel);
     header.pack_end(&create);
     let view = adw::ToolbarView::new();
     view.add_top_bar(&header);
     view.set_content(Some(&page));
     dialog.set_child(Some(&view));
     dialog.set_default_widget(Some(&create));
+    dialog.set_focus(Some(&engine));
     {
         let engines = engines.clone();
         let (app, dialog, engine, combo, name, err) = (
@@ -1717,17 +1937,17 @@ fn new_machine_dialog(
             name.clone(),
             err.clone(),
         );
-        let (disk, size, form, identity) =
-            (disk.clone(), size.clone(), form.clone(), identity.clone());
+        let (choice, size, form, identity) =
+            (choice.clone(), size.clone(), form.clone(), identity.clone());
         let (release, ready_disks) = (release.clone(), ready_disks.clone());
         let (bar, line, stop) = (bar.clone(), line.clone(), stop.clone());
-        let (after, parent) = (after.clone(), parent.clone());
+        let parent = parent.clone();
         create.connect_clicked(move |b| {
             let Some(o) = offerings.borrow().get(combo.selected() as usize).cloned() else {
                 return;
             };
             // The list loads in the background: a pick that no longer exists is refused, not made a bare machine.
-            if disk.selected() == base_choices
+            if choice.get() == DiskChoice::Ready
                 && ready_disks
                     .borrow()
                     .get(release.selected() as usize)
@@ -1737,36 +1957,56 @@ fn new_machine_dialog(
                 err.set_visible(true);
                 return;
             }
-            let request = CreateRequest {
-                emu_id: Some(identity.id.text().to_string()),
-                mac: identity.mac(),
-                name: name.text().trim().to_string(),
-                offering: o.id.clone(),
-                engine: engines.get(engine.selected() as usize).cloned(),
-                system_disk: match disk.selected() {
-                    1 => Some(SystemDisk::Empty {
-                        gb: size.value() as u32,
-                    }),
-                    2 => form
-                        .request()
-                        .map(|(file, copy, overlay)| SystemDisk::Image {
-                            file,
-                            copy,
-                            overlay,
+            let request =
+                CreateRequest {
+                    emu_id: Some(identity.id.text().to_string()),
+                    mac: identity.mac(),
+                    name: name.text().trim().to_string(),
+                    offering: o.id.clone(),
+                    engine: engines.get(engine.selected() as usize).cloned(),
+                    system_disk: match choice.get() {
+                        DiskChoice::Install => Some(SystemDisk::Empty {
+                            gb: size.value() as u32,
                         }),
-                    n if n == base_choices => ready_disks
-                        .borrow()
-                        .get(release.selected() as usize)
-                        .map(|d| SystemDisk::Ready {
-                            name: d.name.clone(),
-                        }),
-                    _ => None,
-                },
-                ..Default::default()
-            };
+                        DiskChoice::Image => {
+                            form.request()
+                                .map(|(file, copy, overlay)| SystemDisk::Image {
+                                    file,
+                                    copy,
+                                    overlay,
+                                })
+                        }
+                        DiskChoice::Ready => ready_disks
+                            .borrow()
+                            .get(release.selected() as usize)
+                            .map(|d| SystemDisk::Ready {
+                                name: d.name.clone(),
+                            }),
+                        DiskChoice::NoDisk => None,
+                    },
+                    ..Default::default()
+                };
             b.set_sensitive(false);
-            let (app, dialog, err, b) = (app.clone(), dialog.clone(), err.clone(), b.clone());
-            let (install, parent) = (disk.selected() == 1 && after.is_active(), parent.clone());
+            let (app, dialog, err, b, name) = (
+                app.clone(),
+                dialog.clone(),
+                err.clone(),
+                b.clone(),
+                name.clone(),
+            );
+            let (install, parent) = (choice.get() == DiskChoice::Install, parent.clone());
+            let fail = {
+                let (err, b, name) = (err.clone(), b.clone(), name.clone());
+                move |e: &origami_core::facade::CoreError| {
+                    // A taken name belongs on the Name row; anything else under the group.
+                    if e.message.starts_with("A machine named") {
+                        name.add_css_class("error");
+                    }
+                    err.set_label(&e.message);
+                    err.set_visible(true);
+                    b.set_sensitive(true);
+                }
+            };
             match app.core.create_machine(request) {
                 Ok(op) => {
                     let finished = op.clone();
@@ -1788,21 +2028,21 @@ fn new_machine_dialog(
                             dialog.close();
                         }
                         OperationState::Cancelled => b.set_sensitive(true),
-                        OperationState::Failed(e) => {
-                            err.set_label(&e.to_string());
-                            err.set_visible(true);
-                            b.set_sensitive(true);
-                        }
+                        OperationState::Failed(e) => fail(&e),
                         OperationState::Running => {}
                     });
                 }
-                Err(e) => {
-                    err.set_label(&e.to_string());
-                    err.set_visible(true);
-                    b.set_sensitive(true);
-                }
+                Err(e) => fail(&e),
             }
         });
+    }
+    // A dropped image is answered through the picker's queue, then used as if chosen.
+    if let Some(path) = image {
+        if let Some((_, _, radio)) = radios.iter().find(|r| r.0 == DiskChoice::Image) {
+            disks::queue_pick(path);
+            radio.set_active(true);
+            form.choose(parent);
+        }
     }
     dialog.present(Some(parent));
 }
@@ -1812,9 +2052,12 @@ fn new_machine_dialog(
 struct IdentityForm {
     group: adw::PreferencesGroup,
     id: adw::EntryRow,
+    id_note: gtk::Label,
     shown: adw::ActionRow,
-    custom: adw::SwitchRow,
+    /// From the machine ID, or Custom.
+    address: adw::ComboRow,
     mac: adw::EntryRow,
+    mac_note: gtk::Label,
     /// Whether the ID and address can be used, so Create may be offered.
     ok: Rc<std::cell::Cell<bool>>,
     /// Set while the form writes a row itself, so that is not read as typing.
@@ -1829,28 +2072,49 @@ impl IdentityForm {
             .title(UiString::Advanced.text())
             .build();
         let id = adw::EntryRow::builder()
-            .title(UiString::MachineIdRange.text())
+            .title(UiString::MachineId.text())
             .build();
         id.set_widget_name("new.id");
+        let note = || {
+            gtk::Label::builder()
+                .wrap(true)
+                .xalign(0.0)
+                .margin_start(12)
+                .margin_end(12)
+                .margin_bottom(6)
+                .css_classes(["caption", "dim-label"])
+                .build()
+        };
+        let id_note = note();
+        id_note.set_widget_name("new.id-note");
         let shown = adw::ActionRow::builder()
-            .title(UiString::EthernetAddress.text())
+            .title(UiString::Address.text())
             .subtitle_selectable(true)
             .build();
         shown.set_widget_name("new.mac");
-        let custom = adw::SwitchRow::builder()
-            .title(UiString::UseThisAddressInstead.text())
+        let address = adw::ComboRow::builder()
+            .title(UiString::EthernetAddress.text())
+            .model(&gtk::StringList::new(&[
+                UiString::FromTheMachineId.text(),
+                UiString::Custom.text(),
+            ]))
             .build();
-        custom.set_widget_name("new.mac-custom");
+        address.set_widget_name("new.mac-custom");
         let mac = adw::EntryRow::builder()
             .title("Address (08:00:69:__:__:__)")
             .visible(false)
             .build();
         mac.set_widget_name("new.mac-entry");
+        let mac_note = note();
+        mac_note.set_widget_name("new.mac-note");
+        mac_note.set_visible(false);
         for row in [
             id.upcast_ref::<gtk::Widget>(),
+            id_note.upcast_ref(),
+            address.upcast_ref(),
             shown.upcast_ref(),
-            custom.upcast_ref(),
             mac.upcast_ref(),
+            mac_note.upcast_ref(),
         ] {
             advanced.add_row(row);
         }
@@ -1859,18 +2123,24 @@ impl IdentityForm {
         let this = Self {
             group,
             id,
+            id_note,
             shown,
-            custom,
+            address,
             mac,
+            mac_note,
             ok: Rc::new(std::cell::Cell::new(true)),
             writing: Rc::new(std::cell::Cell::new(false)),
             round: Rc::new(std::cell::Cell::new(0)),
         };
-        this.custom.connect_active_notify({
+        this.address.connect_selected_notify({
             let mac = this.mac.clone();
-            move |c| mac.set_visible(c.is_active())
+            move |c| mac.set_visible(c.selected() == 1)
         });
         this
+    }
+
+    fn custom(&self) -> bool {
+        self.address.selected() == 1
     }
 
     fn watch(&self, refresh: Rc<dyn Fn()>) {
@@ -1886,12 +2156,12 @@ impl IdentityForm {
                 r()
             }
         });
-        self.custom.connect_active_notify(move |_| refresh());
+        self.address.connect_selected_notify(move |_| refresh());
     }
 
     fn mac(&self) -> Option<String> {
         let typed = self.mac.text().trim().to_string();
-        (self.custom.is_active() && !typed.is_empty()).then_some(typed)
+        (self.custom() && !typed.is_empty()).then_some(typed)
     }
 
     fn refresh(
@@ -1909,14 +2179,14 @@ impl IdentityForm {
             let asked = id.clone();
             let preview = gtk::gio::spawn_blocking(move || {
                 core.preview_new_identity(&offering, engine.as_deref(), &id, mac.as_deref())
-                    .map_err(|e| e.to_string())
+                    .map_err(|e| e.message)
             })
             .await;
             // A later change has asked again; its answer is the one to show.
             if this.round.get() != round {
                 return;
             }
-            let (shown, problem) = match preview {
+            let (shown, problem, field, next) = match preview {
                 Ok(Ok(p)) => {
                     // The next free ID fills an empty field, never one the person has started typing.
                     if asked.trim().is_empty() && this.id.text().trim().is_empty() {
@@ -1925,28 +2195,54 @@ impl IdentityForm {
                         this.writing.set(false);
                     }
                     if !p.from_id {
-                        this.custom.set_active(true);
+                        this.address.set_selected(1);
                     }
-                    this.custom.set_sensitive(p.from_id);
+                    this.address.set_sensitive(p.from_id);
                     let shown = if p.mac.is_empty() {
                         "Set by the machine".into()
                     } else {
                         p.mac
                     };
-                    (shown, p.problem)
+                    (shown, p.problem, p.problem_field, Some(p.emu_id))
                 }
-                Ok(Err(e)) => (String::new(), Some(e)),
+                Ok(Err(e)) => (String::new(), Some(e), None, None),
                 Err(_) => (
                     String::new(),
-                    Some("the address could not be checked".into()),
+                    Some("The address could not be checked.".into()),
+                    None,
+                    None,
                 ),
             };
             this.shown.set_subtitle(&shown);
-            this.id.remove_css_class("error");
-            if problem.is_some() {
-                this.id.add_css_class("error");
-            }
-            this.group.set_description(problem.as_deref());
+            let on_id = problem.is_some() && field != Some(IdentityField::Address);
+            let on_address = problem.is_some() && field == Some(IdentityField::Address);
+            let set = |row: &adw::EntryRow, note: &gtk::Label, text: String, bad: bool| {
+                row.remove_css_class("error");
+                note.remove_css_class("error");
+                note.remove_css_class("dim-label");
+                if bad {
+                    row.add_css_class("error");
+                }
+                note.add_css_class(if bad { "error" } else { "dim-label" });
+                note.set_label(&text);
+                note.set_visible(!text.is_empty());
+            };
+            let message = problem.clone().unwrap_or_default();
+            let caption = next
+                .map(origami_core::facade::machine_id_caption)
+                .unwrap_or_default();
+            set(
+                &this.id,
+                &this.id_note,
+                if on_id { message.clone() } else { caption },
+                on_id,
+            );
+            set(
+                &this.mac,
+                &this.mac_note,
+                if on_address { message } else { String::new() },
+                on_address,
+            );
             this.ok.set(problem.is_none());
             ready();
         });

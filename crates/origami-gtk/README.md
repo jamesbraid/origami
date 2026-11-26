@@ -53,6 +53,10 @@ Xvfb, wtype under cage, a virtual pointer under sway):
 - `console`: the Console window under real input, with the PROM's serial output
   on screen: mouse selection, copy, paste, scrollback and one window per machine.
 - `settings`: edits through the core on a stopped machine, refused while it runs.
+- `forms`, `remove`, `shortcuts`, `empty`, `drops`: New machine and Settings as the redesign lays
+  them out, removing a machine to a test trash, the Keyboard shortcuts window, the empty states and
+  what a dropped file does.
+- `install`: the assistant from Release to Finish, with the guide in the sidebar in place of the library.
 - `layout`: Settings (every page) and New Machine at the smallest window; fails on a label cut short
   by an ellipsis, and writes the names the other apps must match.
 - `docs`: one real session photographed under the names `docs/app.md` shows

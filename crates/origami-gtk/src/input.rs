@@ -16,7 +16,6 @@ use gtk::{gdk, glib};
 use origami_engine::{InputEvent, Key, PointerButton};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::time::Duration;
 
 impl MachineUi {
     pub fn send(&self, ev: InputEvent) {
@@ -66,30 +65,9 @@ pub fn set_captured(app: &Rc<App>, m: &Rc<MachineUi>, on: bool) {
         // Whatever ended capture, nothing the guest holds stays held.
         let _ = m.machine.release_all_keys();
     }
-    if on {
-        flash_hud(m, "Input captured. Press Ctrl+Alt to release.");
-    } else {
-        flash_hud(m, "Input released");
-    }
     // App shortcuts would swallow keys the guest should get.
     crate::window::sync_accels(app);
     crate::window::refresh(app);
-}
-
-fn flash_hud(m: &Rc<MachineUi>, text: &str) {
-    m.hud.set_label(text);
-    m.hud.set_visible(true);
-    if let Some(old) = m.hud_timer.borrow_mut().take() {
-        old.remove();
-    }
-    let weak = Rc::downgrade(m);
-    let id = glib::timeout_add_local_once(Duration::from_secs(3), move || {
-        if let Some(m) = weak.upgrade() {
-            m.hud.set_visible(false);
-            m.hud_timer.borrow_mut().take();
-        }
-    });
-    *m.hud_timer.borrow_mut() = Some(id);
 }
 
 pub fn wire(app: &Rc<App>, m: &Rc<MachineUi>) {

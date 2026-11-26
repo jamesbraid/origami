@@ -52,25 +52,11 @@ pub fn pick_folder(parent: &impl IsA<gtk::Window>, title: &str, then: impl Fn(Pa
 pub fn badge(name: &str) -> gtk::Label {
     let b = gtk::Label::builder()
         .label(UiString::Reading.text())
-        .css_classes(["pill", "pill-grey"])
+        .css_classes(["caption", "dim-label"])
         .valign(gtk::Align::Center)
         .build();
     b.set_widget_name(name);
     b
-}
-
-/// Read a disk off the UI thread, then show its OS in `badge`; no badge when it cannot be read.
-pub fn fill_badge(
-    badge: &gtk::Label,
-    read: impl FnOnce() -> Result<String, String> + Send + 'static,
-) {
-    let badge = badge.clone();
-    glib::spawn_future_local(async move {
-        match gtk::gio::spawn_blocking(read).await {
-            Ok(Ok(label)) => badge.set_label(&label),
-            _ => badge.set_visible(false),
-        }
-    });
 }
 
 /// Show a long operation's progress in `bar` and `text` until it ends, with a Cancel button.

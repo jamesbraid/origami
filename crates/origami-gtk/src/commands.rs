@@ -3,7 +3,9 @@
 //! only a GTK front end has. Windows, menus, shortcuts and the automation
 //! socket all go through the identifiers here.
 
-use origami_core::facade::{Command as CoreCommand, Core, EnabledWhen, Platform};
+use origami_core::facade::{
+    show_in_label, Command as CoreCommand, Core, EnabledWhen, Platform, UiString,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Group {
@@ -17,6 +19,8 @@ pub enum Group {
 pub struct Command {
     pub id: String,
     pub title: String,
+    /// What it does, ending with its shortcut, from the core's table.
+    pub tooltip: String,
     /// GTK accelerator strings.
     pub accels: Vec<String>,
     pub group: Group,
@@ -57,6 +61,7 @@ fn from_core(c: CoreCommand) -> Command {
         _ => Group::Machine,
     };
     Command {
+        tooltip: c.tooltip(Platform::Linux),
         accels: c
             .shortcuts
             .iter()
@@ -74,6 +79,7 @@ fn extra(id: &str, title: &str, accels: &[&str], group: Group) -> Command {
     Command {
         id: id.into(),
         title: title.into(),
+        tooltip: String::new(),
         accels: accels.iter().map(|a| (*a).into()).collect(),
         group,
         when: None,
@@ -83,22 +89,26 @@ fn extra(id: &str, title: &str, accels: &[&str], group: Group) -> Command {
 /// The commands, the core's first.
 pub fn table(core: &Core) -> Vec<Command> {
     let mut out: Vec<Command> = core.commands().into_iter().map(from_core).collect();
+    // The core's Capture mouse has no Linux shortcut; this app has had one.
+    if let Some(c) = out.iter_mut().find(|c| c.id == "machine.capture-mouse") {
+        c.accels.push("<Control><Shift>g".into());
+    }
     out.extend([
         extra(
-            "machine.capture",
-            "Capture input",
-            &["<Control><Shift>g"],
-            Group::Machine,
-        ),
-        extra(
             "machine.pointer-follow",
-            "Follow my mouse",
+            UiString::FollowMyMouse.text(),
             &[],
             Group::Machine,
         ),
         extra(
             "machine.pointer-capture",
-            "Capture on click",
+            UiString::CaptureOnClick.text(),
+            &[],
+            Group::Machine,
+        ),
+        extra(
+            "card.show-folder",
+            &show_in_label(Platform::Linux),
             &[],
             Group::Machine,
         ),
@@ -129,12 +139,6 @@ pub fn table(core: &Core) -> Vec<Command> {
             "app.preferences",
             "Preferences",
             &["<Control>comma"],
-            Group::App,
-        ),
-        extra(
-            "app.shortcuts",
-            "Keyboard shortcuts",
-            &["<Control>question"],
             Group::App,
         ),
         extra("app.about", "About Origami", &[], Group::App),

@@ -2,6 +2,7 @@
 //! loop. Everything that touches a widget runs on the main thread; the core's
 //! observer, the engine's frame hook and worker threads post to one channel.
 
+use crate::alerts;
 use crate::config::Config;
 use crate::library::{self, Entry};
 use crate::machine::{MachineUi, State};
@@ -10,7 +11,10 @@ use crate::window::Win;
 use crate::{automation, commands, display, input, style, vk, window};
 use adw::prelude::*;
 use gtk::{gio, glib};
-use origami_core::facade::{Config as CoreConfig, Core, Event, EventKind, Observer, StopKind};
+use origami_core::facade::{
+    AlertKind, ButtonRole, Config as CoreConfig, Core, CoreError, ErrorKind, Event, EventKind,
+    Observer, StopKind,
+};
 use origami_engine::Control;
 use origami_qemu::RunnerEngine;
 use std::cell::RefCell;
@@ -276,21 +280,14 @@ pub fn open(app: &Rc<App>, entry: &Entry) -> Option<Rc<MachineUi>> {
         return Some(m);
     }
     if entry.needs_upgrade {
-        crate::upgrade::present(app, entry);
+        window::show_card(app, entry, None);
         return None;
     }
     let machine = match app.core.open_machine(&entry.dir.to_string_lossy()) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("origami-gtk: {}: {e}", entry.name);
-            if let Some(w) = window::active(app) {
-                let d = adw::AlertDialog::new(
-                    Some(&format!("Cannot open {}", entry.name)),
-                    Some(&e.to_string()),
-                );
-                d.add_response("ok", "OK");
-                d.present(Some(&w.win));
-            }
+            window::show_card(app, entry, Some(e));
             return None;
         }
     };
@@ -372,7 +369,7 @@ pub fn start(app: &Rc<App>, m: &Rc<MachineUi>) {
     m.started_at.set(Some(std::time::Instant::now()));
     match m.machine.start() {
         Ok(op) => *m.op.borrow_mut() = Some(op),
-        Err(e) => *m.error.borrow_mut() = Some(e.to_string()),
+        Err(e) => *m.error.borrow_mut() = Some(e),
     }
     m.apply_state();
     window::refresh(app);
@@ -384,7 +381,7 @@ pub fn stop(app: &Rc<App>, m: &Rc<MachineUi>, how: StopKind) {
             m.stop_requested.set(true);
             *m.op.borrow_mut() = Some(op);
         }
-        Err(e) => *m.error.borrow_mut() = Some(e.to_string()),
+        Err(e) => *m.error.borrow_mut() = Some(e),
     }
     m.apply_state();
     window::refresh(app);
@@ -402,8 +399,13 @@ pub fn control(app: &Rc<App>, m: &Rc<MachineUi>, c: Control) {
         let machine = m.machine.clone();
         match gio::spawn_blocking(move || machine.control(c)).await {
             Ok(Ok(())) => {}
-            Ok(Err(e)) => *m.error.borrow_mut() = Some(e.to_string()),
-            Err(_) => *m.error.borrow_mut() = Some("the control call panicked".into()),
+            Ok(Err(e)) => *m.error.borrow_mut() = Some(e),
+            Err(_) => {
+                *m.error.borrow_mut() = Some(CoreError::new(
+                    ErrorKind::Internal,
+                    "The machine did not answer.",
+                ))
+            }
         }
         m.apply_state();
         m.busy.set(false);
@@ -529,27 +531,12 @@ fn quit_machines(app: &Rc<App>) {
         return;
     }
     let names: Vec<_> = running.iter().map(|m| m.name.clone()).collect();
-    let dialog = adw::AlertDialog::new(
-        Some("Quit with machines running?"),
-        Some(&format!(
-            "Still running: {}. They keep running without the app unless you power them off.",
-            names.join(", ")
-        )),
-    );
-    dialog.add_responses(&[
-        ("cancel", "Cancel"),
-        ("keep", "Keep running"),
-        ("stop", "Power off all"),
-    ]);
-    dialog.set_response_appearance("stop", adw::ResponseAppearance::Destructive);
-    dialog.set_default_response(Some("keep"));
-    dialog.set_close_response("cancel");
     let app = app.clone();
     glib::spawn_future_local(async move {
-        match dialog.choose_future(Some(&win)).await.as_str() {
-            "keep" => app.app.quit(),
-            "stop" => quit_stopping(&app),
-            _ => {}
+        match alerts::ask(&win, &AlertKind::QuitRunning { names }).await {
+            ButtonRole::Safe => app.app.quit(),
+            ButtonRole::Destructive => quit_stopping(&app),
+            ButtonRole::Cancel => {}
         }
     });
 }

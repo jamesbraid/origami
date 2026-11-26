@@ -95,9 +95,9 @@ or a disk image on the pane to start a new machine from it.
 
 ## Machines from an older Origami
 
-A machine made by an older release shows a **Needs upgrade** pill in the
-library and cannot start. Open it and choose Upgrade (on Linux, opening it
-shows an Upgrade dialog). This is [`origami upgrade`](usage.md#upgrading-a-machine):
+A machine made by an older release says **Needs upgrade** in the library and
+cannot start. Open it and choose Upgrade (on Linux, its card in the window
+offers Upgrade, and a toast says when it is done). This is [`origami upgrade`](usage.md#upgrading-a-machine):
 flash, NVRAM, drives, network settings and the Ethernet address are kept, and
 what the guest will notice at its next boot is listed when it is done. A
 machine that needs firmware to be rebuilt downloads it. If that fails, the
@@ -219,7 +219,7 @@ installed.
 
 Pause (Ctrl+P on Linux and Windows; on macOS use the Machine menu) freezes
 the machine in place. Its state reads Paused and the toolbar button becomes
-Resume. Resume carries on where it left off.
+Resume (on Linux the picture is dimmed with a Resume button over it). Resume carries on where it left off.
 
 ## Screenshots
 
@@ -247,7 +247,7 @@ When a machine stops unexpectedly, the report's Details and Last error say why.
 
 ![The CPU panel under a running machine's picture](images/app/linux-cpu-panel.png)
 
-The CPU button shows a bar for each emulated CPU under the picture, drawn in
+CPU load (in the main menu on Linux) shows a bar for each emulated CPU under the picture, drawn in
 the style of IRIX's `gr_osview`: a title and a coloured legend over a framed
 bar cut into user (blue), sys (red) and spare (green), with a ruler marked in
 tenths. The numbers are measured on your computer, not inside the guest, so

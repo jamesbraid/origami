@@ -145,7 +145,11 @@ fn machine(app: &App, name: Option<&str>) -> Option<Rc<MachineUi>> {
     }
 }
 
-fn descendants(w: &gtk::Widget, keep: &dyn Fn(&gtk::Widget) -> bool, out: &mut Vec<gtk::Widget>) {
+pub fn descendants(
+    w: &gtk::Widget,
+    keep: &dyn Fn(&gtk::Widget) -> bool,
+    out: &mut Vec<gtk::Widget>,
+) {
     let mut c = w.first_child();
     while let Some(child) = c {
         if keep(&child) {
@@ -154,6 +158,18 @@ fn descendants(w: &gtk::Widget, keep: &dyn Fn(&gtk::Widget) -> bool, out: &mut V
         descendants(&child, keep, out);
         c = child.next_sibling();
     }
+}
+
+/// Every widget named `name`, in any window, the window itself included.
+fn find(name: &str) -> Vec<gtk::Widget> {
+    let mut found = Vec::new();
+    for top in gtk::Window::list_toplevels() {
+        if top.widget_name() == name {
+            found.push(top.clone().upcast());
+        }
+        descendants(top.upcast_ref(), &|c| c.widget_name() == name, &mut found);
+    }
+    found
 }
 
 fn size(w: &gtk::Widget) -> Value {
@@ -187,8 +203,60 @@ fn chrome(app: &App) -> Value {
     });
     let mut tabs = Vec::new();
     descendants(w.bar.upcast_ref(), &|c| c.css_name() == "tab", &mut tabs);
+    let mut pills = Vec::new();
+    descendants(
+        w.list.upcast_ref(),
+        &|c| c.css_classes().iter().any(|k| k.starts_with("pill")),
+        &mut pills,
+    );
+    let names: Vec<Value> = w
+        .rows
+        .borrow()
+        .iter()
+        .map(|r| {
+            json!({"text": r.name.label().as_str(), "mode": format!("{:?}", r.name.ellipsize()).to_lowercase(),
+                   "ellipsized": r.name.layout().is_ellipsized(), "word": r.word.label().as_str(),
+                   "dot": r.dot.is_visible(), "tooltip": r.row.tooltip_text().map(|t| t.to_string())})
+        })
+        .collect();
+    // Each tab's tooltip (the state word first) and the colour at the centre of its dot.
+    let pages = w.tv.pages();
+    let tabs_state: Vec<Value> = (0..pages.n_items())
+        .filter_map(|i| pages.item(i).and_downcast::<adw::TabPage>())
+        .map(|p| {
+            let dot = p
+                .indicator_icon()
+                .and_then(|g| g.downcast::<gtk::gdk::Texture>().ok())
+                .map(|t| {
+                    let mut px = vec![0u8; (t.width() * t.height() * 4) as usize];
+                    t.download(&mut px, (t.width() * 4) as usize);
+                    let at = ((t.height() / 2) * t.width() + t.width() / 2) as usize * 4;
+                    // Premultiplied BGRA to RGB, the dot being opaque at its centre.
+                    json!([px[at + 2], px[at + 1], px[at]])
+                });
+            json!({"title": p.title().as_str(), "tooltip": p.tooltip().map(|t| t.to_string()), "dot": dot})
+        })
+        .collect();
+    let mut pane = Vec::new();
+    descendants(
+        w.side.upcast_ref(),
+        &|c| c.is::<adw::WindowTitle>() && c.is_mapped(),
+        &mut pane,
+    );
+    let guide_header = pane
+        .first()
+        .and_then(|t| t.downcast_ref::<adw::WindowTitle>())
+        .map(|t| t.title().to_string());
     json!({"rows": rows, "selected": selected, "row_menu": w.row_menu.is_visible(), "row_menu_items": row_menu_labels(&w),
-           "tab_bar": size(w.bar.upcast_ref()), "tabs": tabs.iter().map(size).collect::<Vec<_>>()})
+           "tab_bar": size(w.bar.upcast_ref()), "tabs": tabs.iter().map(size).collect::<Vec<_>>(),
+           "tabs_revealed": w.bar.is_tabs_revealed(), "autohide": w.bar.is_autohide(),
+           "row_pills": pills.len(), "row_names": names,
+           "title": [w.title.title().as_str(), w.title.subtitle().as_str()],
+           "bottom_bar": {"revealed": w.content.reveals_bottom_bars(), "size": w.size_label.label().as_str(), "pointer": w.pointer_label.label().as_str()},
+           "power": [w.power_btn.label().map(|l| l.to_string()), w.power_btn.has_css_class("suggested-action")],
+           "sidebar": w.side.visible_child_name().map(|n| n.to_string()),
+           "guide_header": guide_header, "tab_states": tabs_state, "pointer_toggle": w.pointer_btn.is_active(), "toast": window::last_toast(),
+           "card": w.card_for.borrow().as_ref().map(|d| d.display().to_string())})
 }
 
 fn row_menu_labels(w: &window::Win) -> Vec<String> {
@@ -208,7 +276,7 @@ fn describe(m: &MachineUi) -> Value {
         &mut cards,
     );
     json!({
-        "name": m.name, "state": m.state.get().pill().0, "seq": m.seq.get(),
+        "name": m.name, "state": m.label().word, "seq": m.seq.get(),
         "size": [m.size.get().0, m.size.get().1],
         "idle_ms": m.last_frame.get().elapsed().as_millis() as u64,
         "imported": m.stats.borrow().imported, "inputs": m.inputs.get(),
@@ -277,42 +345,10 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                     }).collect::<Vec<_>>()
                 })
                 .collect();
-            let cpu_btn = window::active(app).and_then(|w| {
-                let root = w.cpu_btn.root()?;
-                let b = w.cpu_btn.compute_bounds(root.upcast_ref::<gtk::Widget>())?;
-                Some(json!([b.x(), b.y(), b.width(), b.height()]))
-            });
-            let pills: Vec<String> = app
-                .windows
-                .borrow()
-                .iter()
-                .filter(|w| w.has_library)
-                .flat_map(|w| {
-                    w.rows
-                        .borrow()
-                        .iter()
-                        .map(|r| r.pill.label().to_string())
-                        .collect::<Vec<_>>()
-                })
-                .collect();
-            let badges: Vec<String> = app
-                .windows
-                .borrow()
-                .iter()
-                .filter(|w| w.has_library)
-                .flat_map(|w| {
-                    w.rows
-                        .borrow()
-                        .iter()
-                        .map(|r| r.badge.label().to_string())
-                        .collect::<Vec<_>>()
-                })
-                .collect();
-            json!({"machines": ms, "library": lib, "library_pills": pills, "library_badges": badges, "cpu_btn": cpu_btn, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
-                   "enabled": enabled, "cpu_s": cpu_seconds(), "settings_builds": crate::settings::builds(),
+            json!({"machines": ms, "library": lib, "library_rows": rows, "chrome": chrome(app), "windows": app.windows.borrow().len(),
+                   "enabled": enabled, "trashed": trashed(), "cpu_s": cpu_seconds(), "settings_builds": crate::settings::builds(),
                    "toolbar_tips": window::active(app).map(|w| w.toolbar.iter().map(|b| b.tooltip_text().map(|t| t.to_string())).collect::<Vec<_>>()),
-                   "pause_tip": window::active(app).and_then(|w| w.pause_btn.tooltip_text()).map(|t| t.to_string()),
-                   "status_pills": app.windows.borrow().iter().map(|w| w.pill.label().to_string()).collect::<Vec<_>>()})
+                   "pause_tip": window::active(app).and_then(|w| w.pause_btn.tooltip_text()).map(|t| t.to_string())})
         }
         "open" | "select" => {
             let Some(name) = a1 else {
@@ -470,7 +506,7 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 }
             };
             let r = origami_core::apply_change(&*app.engine, &m.dir, &change);
-            *m.entry.borrow_mut() = crate::library::read(&m.dir);
+            *m.entry.borrow_mut() = crate::library::fresh(&app.core, &m.dir);
             window::rebuild_hero(&m);
             match r {
                 Ok(_) => json!({"ok": true}),
@@ -490,10 +526,7 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             let Some(name) = a1 else {
                 return json!({"error": "activate WIDGET [VALUE]"});
             };
-            let mut found = Vec::new();
-            for top in gtk::Window::list_toplevels() {
-                descendants(top.upcast_ref(), &|c| c.widget_name() == name, &mut found);
-            }
+            let found = find(name);
             let Some(widget) = found.first() else {
                 return json!({"error": format!("no widget {name}")});
             };
@@ -504,6 +537,8 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             // An alert's response, as its button gives it.
             if let (Some(alert), Some(id)) = (widget.downcast_ref::<adw::AlertDialog>(), value) {
                 alert.emit_by_name::<()>("response", &[&id]);
+                // The answer is given; a real button would have closed it.
+                alert.force_close();
                 return json!({"ok": true});
             }
             if let (Some(row), Some(value)) = (widget.downcast_ref::<adw::EntryRow>(), value) {
@@ -564,6 +599,7 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             }
             let (mut labels, mut rows, mut pages) = (Vec::new(), Vec::new(), Vec::new());
             let (mut cut, mut steps, mut own) = (Vec::new(), Vec::new(), Vec::new());
+            let mut current = Vec::new();
             for r in &roots {
                 if let Some(l) = r.downcast_ref::<gtk::Label>() {
                     own.push(l.label().to_string());
@@ -583,6 +619,11 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                     &mut pages,
                 );
                 descendants(r, &|c| c.widget_name() == "install.step-row", &mut steps);
+                descendants(
+                    r,
+                    &|c| c.widget_name() == "install.step-row" && c.has_css_class("current"),
+                    &mut current,
+                );
             }
             for l in labels.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()) {
                 if l.layout().is_ellipsized() {
@@ -603,7 +644,8 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                    "labels": labels.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>(),
                    "fields": rows.iter().filter_map(|w| w.downcast_ref::<adw::PreferencesRow>()).map(|r| r.title().to_string()).collect::<Vec<_>>(),
                    "pages": pages.iter().map(text).collect::<Vec<_>>(),
-                   "steps": steps.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>()})
+                   "steps": steps.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>(),
+                   "current": current.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>()})
         }
         "about-text" => {
             // What the About window and the dialog titles say, for the parity check.
@@ -613,15 +655,83 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                    "dialog_titles": [U::NewMachine.text(), U::Settings.text(), U::Diagnostics.text(), U::InstallIrix.text()],
                    "toolbar_tooltips": [U::ShowOrHideTheEmulated.text(), U::OpenTheMainMenu.text()]})
         }
-        "widget" => {
+        "alert" => {
+            // The open alert's words, buttons and defaults, as the self-test checks them.
+            let Some(d) = find("alert.dialog")
+                .first()
+                .and_then(|w| w.clone().downcast::<adw::AlertDialog>().ok())
+            else {
+                return json!({"found": false});
+            };
+            let label = |id: Option<gtk::glib::GString>| {
+                id.filter(|i| !i.is_empty())
+                    .map(|i| d.response_label(&i).to_string())
+            };
+            let labels: Vec<String> = (0..6)
+                .map(|i| i.to_string())
+                .filter(|id| d.has_response(id))
+                .map(|id| d.response_label(&id).to_string())
+                .collect();
+            json!({"found": true, "heading": d.heading().map(|h| h.to_string()), "body": d.body().to_string(),
+                   "default": label(d.default_response()), "close": label(Some(d.close_response())), "buttons": labels})
+        }
+        "rows" => {
+            // The rows whose widget names start with a prefix: name, title and subtitle.
+            let prefix = a1.unwrap_or_default();
+            let mut rows = Vec::new();
+            for top in gtk::Window::list_toplevels() {
+                descendants(
+                    top.upcast_ref(),
+                    &|c| c.is::<adw::ActionRow>() && c.widget_name().starts_with(prefix),
+                    &mut rows,
+                );
+            }
+            let rows: Vec<Value> = rows
+                .iter()
+                .filter_map(|r| r.downcast_ref::<adw::ActionRow>())
+                .map(|r| json!({"name": r.widget_name().as_str(), "title": r.title().as_str(), "subtitle": r.subtitle().map(|s| s.to_string())}))
+                .collect();
+            json!({"rows": rows})
+        }
+        "drop" => {
+            // What a drop does, without a drag: drop page|library PATH.
+            let (Some(w), Some(path)) = (window::active(app), a2) else {
+                return json!({"error": "drop page|library PATH"});
+            };
+            let files = vec![std::path::PathBuf::from(path)];
+            let ok = match a1 {
+                Some("page") => window::drop_on_page(app, &w, files),
+                Some("library") => window::drop_on_library(app, &w, files),
+                _ => false,
+            };
+            json!({"ok": ok})
+        }
+        "about" => {
+            // The About dialog's version and the inventory the hinv egg gave it.
             let mut found = Vec::new();
             for top in gtk::Window::list_toplevels() {
                 descendants(
                     top.upcast_ref(),
-                    &|c| Some(c.widget_name().as_str()) == a1,
+                    &|c| c.is::<adw::AboutDialog>(),
                     &mut found,
                 );
             }
+            match found
+                .first()
+                .and_then(|d| d.downcast_ref::<adw::AboutDialog>())
+            {
+                Some(d) => {
+                    json!({"found": true, "version": d.version().as_str(), "debug_info": d.debug_info().as_str(), "name": d.application_name().as_str()})
+                }
+                None => json!({"found": false}),
+            }
+        }
+        "alerts" => {
+            crate::alerts::show_in_automation(a1 == Some("on"));
+            json!({"ok": true})
+        }
+        "widget" => {
+            let found = find(a1.unwrap_or(""));
             match found.first() {
                 Some(w) => {
                     json!({"found": true, "mapped": w.is_mapped(), "sensitive": w.is_sensitive(),
@@ -740,4 +850,12 @@ fn screendump(port: u16, to: &Path) -> Result<(u32, u32, Vec<u8>), String> {
     field(); // the maximum value
     at += 1;
     Ok((w, h, ppm[at..].to_vec()))
+}
+
+/// What the core's self-test "trash" has taken so far.
+fn trashed() -> Vec<String> {
+    #[cfg(feature = "selftest")]
+    return origami_core::facade::selftest_trashed();
+    #[cfg(not(feature = "selftest"))]
+    Vec::new()
 }

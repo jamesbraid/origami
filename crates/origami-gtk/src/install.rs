@@ -3,15 +3,17 @@
 
 use crate::app::{self, App};
 use crate::machine::MachineUi;
+use crate::window::Win;
 use crate::{disks, library, window};
 use adw::prelude::*;
 use gtk::glib;
 use origami_core::facade::UiString;
 use origami_core::facade::{
-    disk_labels, install_media_folder, install_releases, texts, ApplyState, BootConsole,
-    CheckState, CloseAction, CloseQuestion, Core, CoreResult, DiskState, GuideStep, InstallFailure,
-    InstallFlow, InstallGuide, InstallMethod, InstallPlan, InstallStep, MachineState, MediaFolder,
-    Operation, OperationState, StopKind,
+    disk_labels, guide_header, install_footer, install_media_folder, install_releases, step_titles,
+    texts, waiting_for, ApplyState, BootConsole, CheckState, CloseAction, CloseQuestion, Core,
+    CoreResult, DiskState, GuideStep, InstallFailure, InstallFlow, InstallGuide, InstallMethod,
+    InstallPlan, InstallStep, MachineState, MediaFolder, Operation, OperationState, StepState,
+    StopKind,
 };
 use origami_core::{Change, Kind};
 use std::cell::{Cell, RefCell};
@@ -35,6 +37,13 @@ pub fn install_running(key: Option<&str>) -> bool {
         .any(|a| key.is_none_or(|k| a.m.machine.key() == k) && a.server_running())
 }
 
+/// Whether the install guide is on screen for the machine `key`.
+pub fn guide_running(key: &str) -> bool {
+    assistants()
+        .iter()
+        .any(|a| a.m.machine.key() == key && a.step() >= InstallStep::Prepare)
+}
+
 /// End the running installs (all, or the one for `key`): the server, then the machine.
 pub fn stop_installs(app: &Rc<App>, key: Option<&str>) {
     for a in assistants() {
@@ -50,6 +59,17 @@ pub fn stop_installs(app: &Rc<App>, key: Option<&str>) {
     }
 }
 
+/// One guide step's row: where its Seen mark or Done button and its waiting line go.
+struct GuideMark {
+    /// The step's place in the whole guide, from 0.
+    index: usize,
+    seen: gtk::Label,
+    done: Option<gtk::Button>,
+    waiting: gtk::Label,
+    /// Whether the person pressed Done (graphics consoles).
+    pressed: Rc<Cell<bool>>,
+}
+
 enum Server {
     Off,
     Running(Operation),
@@ -59,7 +79,10 @@ enum Server {
 struct Asst {
     app: Rc<App>,
     m: Rc<MachineUi>,
-    win: adw::Window,
+    /// The window the assistant belongs to: its dialog and the guide's sidebar go there.
+    parent: adw::ApplicationWindow,
+    /// The set-up steps, in a dialog; closed while the guide is in the sidebar.
+    dialog: RefCell<Option<adw::Dialog>>,
     flow: RefCell<InstallFlow>,
     plan_line: RefCell<Option<String>>,
     /// The PROM prints on a serial line, so Type It makes sense.
@@ -80,7 +103,17 @@ struct Asst {
     busy: Cell<bool>,
     closing: Cell<bool>,
     content: gtk::Box,
-    rows: Vec<gtk::Label>,
+    /// The numbered step list beside the set-up pages.
+    steps_list: gtk::Box,
+    /// Everything right of the list: the banner, the page and the buttons. It moves
+    /// between the dialog and the sidebar.
+    right: gtk::Box,
+    /// The sidebar's header, which counts the guide's steps.
+    pane_title: adw::WindowTitle,
+    /// Why Continue is off, beside it.
+    reason: gtk::Label,
+    /// The guide's per-step marks, refreshed as the console moves.
+    marks: RefCell<Vec<GuideMark>>,
     error: gtk::Label,
     banner: adw::Banner,
     footer: gtk::Label,
@@ -138,6 +171,17 @@ fn note(s: &str) -> gtk::Label {
     l.add_css_class("dim-label");
     l.set_margin_start(28);
     l
+}
+
+/// Text to type, in monospace and selectable.
+fn mono(s: &str) -> gtk::Label {
+    gtk::Label::builder()
+        .label(s)
+        .selectable(true)
+        .xalign(0.0)
+        .wrap(true)
+        .css_classes(["monospace"])
+        .build()
 }
 
 fn named<W: IsA<gtk::Widget>>(w: W, name: &str) -> W {
@@ -220,17 +264,13 @@ pub async fn stop_install(parent: &impl IsA<gtk::Widget>, tab: bool) -> bool {
 }
 
 /// Open the assistant on `m`, or bring its window forward if it is open.
-pub fn open(app: &Rc<App>, parent: &impl IsA<gtk::Window>, m: &Rc<MachineUi>) {
+pub fn open(app: &Rc<App>, parent: &adw::ApplicationWindow, m: &Rc<MachineUi>) {
     let key = m.machine.key().to_string();
     let existing = assistants().into_iter().find(|a| a.m.machine.key() == key);
     if let Some(a) = existing {
-        return a.win.present();
+        return a.place();
     }
-    let (app, parent, m) = (
-        app.clone(),
-        parent.clone().upcast::<gtk::Window>(),
-        m.clone(),
-    );
+    let (app, parent, m) = (app.clone(), parent.clone(), m.clone());
     glib::spawn_future_local(async move {
         let (core, machine) = (app.core.clone(), m.machine.clone());
         let r = gtk::gio::spawn_blocking(move || {
@@ -251,7 +291,7 @@ pub fn open(app: &Rc<App>, parent: &impl IsA<gtk::Window>, m: &Rc<MachineUi>) {
                 }
                 let a = Asst::new(&app, &parent, &m, plan, serial, pending);
                 OPEN.with(|o| o.borrow_mut().push(a.clone()));
-                a.win.present();
+                a.place();
             }
             Err(e) => {
                 let d = adw::AlertDialog::new(Some("Cannot start the assistant"), Some(&e));
@@ -265,7 +305,7 @@ pub fn open(app: &Rc<App>, parent: &impl IsA<gtk::Window>, m: &Rc<MachineUi>) {
 impl Asst {
     fn new(
         app: &Rc<App>,
-        parent: &gtk::Window,
+        parent: &adw::ApplicationWindow,
         m: &Rc<MachineUi>,
         plan: Option<InstallPlan>,
         serial: bool,
@@ -277,35 +317,9 @@ impl Asst {
             flow.set_prepared();
         }
         flow.set_serial(serial);
-        let title = format!("Install IRIX: {}", m.name);
-        let win = named(
-            adw::Window::builder()
-                .title(&title)
-                .default_width(860)
-                .default_height(600)
-                .transient_for(parent)
-                .build(),
-            "install.window",
-        );
-        let list = col(2);
-        let rows: Vec<gtk::Label> = flow
-            .steps()
-            .iter()
-            .enumerate()
-            .map(|(i, s)| {
-                let l = gtk::Label::builder()
-                    .label(format!("{}. {}", i + 1, s.title()))
-                    .xalign(0.0)
-                    .margin_top(4)
-                    .margin_bottom(4)
-                    .build();
-                l.set_widget_name("install.step-row");
-                list.append(&l);
-                l
-            })
-            .collect();
-        margins(&list, 18, 0, 18, 12);
-        list.set_width_request(190);
+        let steps_list = col(2);
+        margins(&steps_list, 18, 0, 18, 12);
+        steps_list.set_width_request(190);
         let content = col(12);
         margins(&content, 18, 12, 18, 18);
         let error = named(text(""), "install.error");
@@ -324,28 +338,22 @@ impl Asst {
             .vexpand(true)
             .hscrollbar_policy(gtk::PolicyType::Never)
             .build();
-        let right = col(0);
-        right.set_hexpand(true);
-        append(
-            &right,
-            &[banner.upcast_ref(), error.upcast_ref(), scroll.upcast_ref()],
-        );
-        let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        append(
-            &body,
-            &[
-                list.upcast_ref(),
-                gtk::Separator::new(gtk::Orientation::Vertical).upcast_ref(),
-                right.upcast_ref(),
-            ],
-        );
         let footer = named(
             gtk::Label::builder()
                 .xalign(0.0)
                 .hexpand(true)
                 .wrap(true)
+                .css_classes(["caption", "dim-label"])
                 .build(),
             "install.footer",
+        );
+        let reason = named(
+            gtk::Label::builder()
+                .xalign(0.0)
+                .wrap(true)
+                .css_classes(["caption", "dim-label"])
+                .build(),
+            "install.reason",
         );
         let restart = button(UiString::Restart.text(), "install.restart");
         let start_over = button(UiString::StartOver.text(), "install.start-over");
@@ -353,32 +361,47 @@ impl Asst {
         let back = button(UiString::Back.text(), "install.back");
         let next = button("Continue", "install.continue");
         next.add_css_class("suggested-action");
-        let bar = row();
-        margins(&bar, 8, 8, 18, 18);
+        // The footer on its own line, then the reason Continue is off, then the buttons, so the
+        // bar holds in a sidebar as well as in the dialog.
+        let bar = col(6);
+        margins(&bar, 8, 12, 18, 18);
+        let status = row();
+        append(&status, &[footer.upcast_ref(), restart.upcast_ref()]);
+        let buttons = row();
+        buttons.set_halign(gtk::Align::End);
         append(
-            &bar,
+            &buttons,
             &[
-                footer.upcast_ref(),
-                restart.upcast_ref(),
                 start_over.upcast_ref(),
                 cancel.upcast_ref(),
                 back.upcast_ref(),
                 next.upcast_ref(),
             ],
         );
-        let view = adw::ToolbarView::new();
-        view.add_top_bar(
-            &adw::HeaderBar::builder()
-                .title_widget(&adw::WindowTitle::new(&title, ""))
-                .build(),
+        append(
+            &bar,
+            &[
+                status.upcast_ref(),
+                reason.upcast_ref(),
+                buttons.upcast_ref(),
+            ],
         );
-        view.set_content(Some(&body));
-        view.add_bottom_bar(&bar);
-        win.set_content(Some(&view));
+        let right = col(0);
+        right.set_hexpand(true);
+        append(
+            &right,
+            &[
+                banner.upcast_ref(),
+                error.upcast_ref(),
+                scroll.upcast_ref(),
+                bar.upcast_ref(),
+            ],
+        );
         let a = Rc::new(Asst {
             app: app.clone(),
             m: m.clone(),
-            win,
+            parent: parent.clone(),
+            dialog: RefCell::new(None),
             set_up: Cell::new(plan.is_some()),
             plan_line: RefCell::new(plan.map(|p| p.summary)),
             flow: RefCell::new(flow),
@@ -396,7 +419,11 @@ impl Asst {
             busy: Cell::new(false),
             closing: Cell::new(false),
             content,
-            rows,
+            steps_list,
+            right,
+            pane_title: adw::WindowTitle::new("", ""),
+            reason,
+            marks: RefCell::new(Vec::new()),
             error,
             banner,
             footer,
@@ -409,6 +436,135 @@ impl Asst {
         a.wire();
         a.go();
         a
+    }
+
+    /// The window to ask questions and choose files over.
+    fn over(&self) -> adw::ApplicationWindow {
+        self.parent.clone()
+    }
+
+    /// Show the assistant where its step belongs: the set-up steps in a dialog, the
+    /// guide in the sidebar in place of the library.
+    fn place(self: &Rc<Self>) {
+        let guide = self.step() >= InstallStep::Prepare;
+        let host = self.host();
+        if guide {
+            if let Some(w) = host {
+                self.in_sidebar(&w);
+            }
+            if let Some(d) = self.dialog.take() {
+                d.set_can_close(true);
+                d.force_close();
+            }
+        } else {
+            self.out_of_sidebar();
+            let open = self.dialog.borrow().clone();
+            match open {
+                Some(d) => {
+                    d.present(Some(&self.parent));
+                }
+                None => self.open_dialog(),
+            }
+        }
+        self.update_nav();
+        window::refresh(&self.app);
+    }
+
+    /// The main window that holds this machine's tab.
+    fn host(&self) -> Option<Rc<Win>> {
+        let w = window::active(&self.app).filter(|w| w.has_library);
+        w.or_else(|| {
+            self.app
+                .windows
+                .borrow()
+                .iter()
+                .find(|w| w.has_library)
+                .cloned()
+        })
+    }
+
+    fn open_dialog(self: &Rc<Self>) {
+        let dialog = named(
+            adw::Dialog::builder()
+                .title(format!("Install IRIX: {}", self.m.name))
+                .content_width(860)
+                .content_height(600)
+                .can_close(false)
+                .build(),
+            "install.window",
+        );
+        let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        append(
+            &body,
+            &[
+                self.steps_list.upcast_ref(),
+                gtk::Separator::new(gtk::Orientation::Vertical).upcast_ref(),
+                self.right.upcast_ref(),
+            ],
+        );
+        let view = adw::ToolbarView::new();
+        view.add_top_bar(&adw::HeaderBar::new());
+        view.set_content(Some(&body));
+        dialog.set_child(Some(&view));
+        let w = Rc::downgrade(self);
+        dialog.connect_close_attempt(move |_| {
+            if let Some(a) = w.upgrade() {
+                a.request_close();
+            }
+        });
+        *self.dialog.borrow_mut() = Some(dialog.clone());
+        dialog.present(Some(&self.parent));
+    }
+
+    /// Move the page and its buttons into the library's place in the main window.
+    fn in_sidebar(self: &Rc<Self>, w: &Rc<Win>) {
+        if self
+            .right
+            .parent()
+            .is_some_and(|p| p.is::<adw::ToolbarView>())
+        {
+            return;
+        }
+        if let Some(p) = self
+            .right
+            .parent()
+            .and_then(|p| p.downcast::<gtk::Box>().ok())
+        {
+            p.remove(&self.right);
+        }
+        let head = adw::HeaderBar::builder()
+            .show_end_title_buttons(false)
+            .show_start_title_buttons(false)
+            .title_widget(&self.pane_title)
+            .build();
+        let pane = adw::ToolbarView::new();
+        pane.add_top_bar(&head);
+        pane.set_content(Some(&self.right));
+        pane.set_widget_name("install.pane");
+        if let Some(old) = w.side.child_by_name("guide") {
+            w.side.remove(&old);
+        }
+        w.side.add_named(&pane, Some("guide"));
+    }
+
+    /// Back from the sidebar to a dialog's body, for Start over.
+    fn out_of_sidebar(&self) {
+        let Some(pane) = self
+            .right
+            .parent()
+            .and_then(|p| p.downcast::<adw::ToolbarView>().ok())
+        else {
+            return;
+        };
+        pane.set_content(gtk::Widget::NONE);
+        if let Some(w) = self.host() {
+            if w.side.child_by_name("guide").is_some() {
+                w.side.set_visible_child_name("library");
+                if let Some(old) = w.side.child_by_name("guide") {
+                    w.side.remove(&old);
+                }
+            }
+        }
     }
 
     fn wire(self: &Rc<Self>) {
@@ -431,14 +587,6 @@ impl Asst {
             if let Some(a) = w2.upgrade() {
                 a.start_machine();
             }
-        });
-        let w2 = w.clone();
-        self.win.connect_close_request(move |_| match w2.upgrade() {
-            Some(a) if !a.closing.get() => {
-                a.request_close();
-                glib::Propagation::Stop
-            }
-            _ => glib::Propagation::Proceed,
         });
         glib::timeout_add_local(Duration::from_millis(500), move || match w.upgrade() {
             Some(a) if !a.closing.get() => {
@@ -543,7 +691,7 @@ impl Asst {
     }
 
     fn refresh_machine(&self) {
-        *self.m.entry.borrow_mut() = library::read(&self.m.dir);
+        *self.m.entry.borrow_mut() = library::fresh(&self.app.core, &self.m.dir);
         window::rebuild_hero(&self.m);
         window::refresh(&self.app);
     }
@@ -562,12 +710,13 @@ impl Asst {
             self.content.remove(&c);
         }
         self.type_buttons.borrow_mut().clear();
-        let steps = self.flow.borrow().steps();
-        for (i, r) in self.rows.iter().enumerate() {
-            let on = steps.get(i) == Some(&step);
-            r.set_css_classes(&[if on { "heading" } else { "dim-label" }]);
-        }
-        let title = named(text(step.title()), "install.step");
+        let titles = step_titles(&self.flow.borrow());
+        self.rebuild_steps(&titles);
+        let heading = titles
+            .iter()
+            .find(|t| t.step == step)
+            .map_or(step.title(), |t| t.title);
+        let title = named(text(heading), "install.step");
         title.add_css_class("title-2");
         self.content.append(&title);
         match step {
@@ -584,16 +733,76 @@ impl Asst {
             _ if self.guide.borrow().is_some() => self.guide_page(step),
             _ => self.enter_prepare(),
         }
-        self.update_nav();
+        self.place();
+    }
+
+    /// The numbered list beside the set-up pages, from the core's step list.
+    fn rebuild_steps(&self, titles: &[origami_core::facade::StepTitle]) {
+        while let Some(c) = self.steps_list.first_child() {
+            self.steps_list.remove(&c);
+        }
+        for t in titles {
+            let l = gtk::Label::builder()
+                .label(format!("{}. {}", t.number, t.title))
+                .xalign(0.0)
+                .margin_top(4)
+                .margin_bottom(4)
+                .css_classes(match t.state {
+                    StepState::Current => ["heading", "current"],
+                    StepState::Done => ["body", "done"],
+                    StepState::Later => ["dim-label", "later"],
+                })
+                .build();
+            l.set_widget_name("install.step-row");
+            self.steps_list.append(&l);
+        }
+    }
+
+    /// The machine ended partway through the install.
+    fn died(&self) -> bool {
+        let flow = self.flow.borrow();
+        let up = self.machine_up();
+        let crashed = self.m.state.get() == crate::machine::State::Crashed;
+        let over = matches!(
+            flow.apply(),
+            ApplyState::Done | ApplyState::Failed(InstallFailure::Login | InstallFailure::Shutdown)
+        );
+        (self.seen_up.get() || crashed)
+            && !up
+            && !over
+            && matches!(
+                flow.step(),
+                InstallStep::Prepare | InstallStep::Installer | InstallStep::Packages
+            )
+    }
+
+    /// Why Continue is off, in the core's words.
+    fn why_not(&self) -> String {
+        if self.busy.get() {
+            return String::new();
+        }
+        if self.died() {
+            return UiString::TheMachineStopped.text().into();
+        }
+        self.flow
+            .borrow()
+            .continue_reason(self.machine_up())
+            .unwrap_or_default()
+            .into()
     }
 
     fn update_nav(&self) {
-        let (flow, busy) = (self.flow.borrow(), self.busy.get());
+        let busy = self.busy.get();
+        let died = self.died();
+        let flow = self.flow.borrow();
         self.back.set_sensitive(flow.can_back() && !busy);
         self.next.set_label(flow.continue_label());
-        self.next
-            .set_sensitive(flow.can_continue(self.machine_up()) && !busy);
+        let on = flow.can_continue(self.machine_up()) && !busy && !died;
+        self.next.set_sensitive(on);
         self.start_over.set_visible(flow.resumed());
+        drop(flow);
+        self.reason
+            .set_label(&if on { String::new() } else { self.why_not() });
     }
 
     fn back_clicked(self: &Rc<Self>) {
@@ -712,14 +921,16 @@ impl Asst {
             (f.use_folder(), f.folder().cloned())
         };
         let mut group = None;
+        self.content
+            .append(&text(UiString::WhereShouldTheDiscsComeFrom.text()));
         let download = radio(
-            "Download them from the Origami server",
+            UiString::DownloadThem.text(),
             "install.media.download",
             !folder,
             &mut group,
         );
         let own = radio(
-            texts::MEDIA_FOLDER,
+            UiString::UseDiscsIAlreadyHave.text(),
             "install.media.folder",
             folder,
             &mut group,
@@ -774,7 +985,7 @@ impl Asst {
         });
         let me = self.clone();
         choose.connect_clicked(move |_| {
-            let (me, parent) = (me.clone(), me.win.clone());
+            let (me, parent) = (me.clone(), me.over());
             disks::pick_folder(&parent, "Choose the Folder of Discs", move |dir| {
                 me.media.take();
                 me.read_folder(dir);
@@ -785,7 +996,7 @@ impl Asst {
             &self.content,
             &[
                 download.upcast_ref(),
-                note(texts::MEDIA_DOWNLOAD).upcast_ref(),
+                note(UiString::NeedsAnInternetConnection.text()).upcast_ref(),
                 own.upcast_ref(),
                 picker.upcast_ref(),
             ],
@@ -932,7 +1143,7 @@ impl Asst {
         let (me, s) = (self.clone(), source.clone());
         pick.connect_clicked(move |_| {
             let s = s.clone();
-            disks::pick_path(&me.win, "Choose a package", move |p| {
+            disks::pick_path(&me.over(), "Choose a package", move |p| {
                 s.set_text(&p.display().to_string())
             });
         });
@@ -952,7 +1163,7 @@ impl Asst {
             &page,
             &[
                 group.upcast_ref(),
-                text("Packages to install, one per line").upcast_ref(),
+                text(UiString::PackagesToInstallOnePerLine.text()).upcast_ref(),
                 frame.upcast_ref(),
             ],
         );
@@ -961,7 +1172,7 @@ impl Asst {
         view.add_top_bar(&header);
         view.set_content(Some(&page));
         dialog.set_child(Some(&view));
-        dialog.present(Some(&self.win));
+        dialog.present(Some(&self.parent));
     }
 
     // ---- step 4: the disk ---------------------------------------------------
@@ -996,8 +1207,13 @@ impl Asst {
                             adw::SpinRow::with_range(1.0, 2048.0, 1.0),
                             "install.disk.size",
                         );
-                        size.set_title("Create a disk");
-                        size.set_subtitle("Size in GB");
+                        size.set_title(UiString::DiskSize.text());
+                        size.add_suffix(
+                            &gtk::Label::builder()
+                                .label(UiString::Gb.text())
+                                .css_classes(["dim-label"])
+                                .build(),
+                        );
                         size.set_value(f64::from(me.flow.borrow().new_disk_gb()));
                         let m2 = me.clone();
                         size.connect_value_notify(move |r| {
@@ -1029,12 +1245,9 @@ impl Asst {
     // ---- step 5: check ------------------------------------------------------
 
     fn check_page(self: &Rc<Self>) {
-        let passed = self.flow.borrow().check() == CheckState::Passed;
+        let words = self.flow.borrow().check_status().unwrap_or_default();
         self.content.append(&text(texts::CHECK_INTRO));
-        let status = named(
-            text(if passed { texts::PASSED } else { "Ready." }),
-            "install.check.status",
-        );
+        let status = named(text(words), "install.check.status");
         let infoline = named(text(""), "install.check.info");
         infoline.set_visible(false);
         let now = button(UiString::CheckNow.text(), "install.check.now");
@@ -1069,7 +1282,7 @@ impl Asst {
             let prepare = !me.set_up.get();
             me.flow.borrow_mut().set_check(CheckState::Running);
             b.set_sensitive(false);
-            status.set_label(texts::CHECKING);
+            status.set_label(me.flow.borrow().check_status().unwrap_or_default());
             bar.set_visible(true);
             stop.set_visible(true);
             me.update_nav();
@@ -1112,20 +1325,21 @@ impl Asst {
                         b.set_sensitive(true);
                         bar.set_visible(false);
                         stop.set_visible(false);
-                        let (result, words) = match state {
-                            OperationState::Succeeded => {
-                                (CheckState::Passed, texts::PASSED.to_string())
-                            }
-                            OperationState::Failed(e) => (CheckState::Failed, e.to_string()),
-                            _ => (CheckState::Ready, "Ready.".to_string()),
+                        let (result, failure) = match state {
+                            OperationState::Succeeded => (CheckState::Passed, None),
+                            OperationState::Failed(e) => (CheckState::Failed, Some(e.message)),
+                            _ => (CheckState::Ready, None),
                         };
-                        status.set_label(&words);
-                        if result == CheckState::Failed {
-                            b.set_label(UiString::CheckAgain.text());
-                        }
                         if let Some(me) = weak.upgrade() {
                             me.flow.borrow_mut().set_check(result);
+                            let words = failure.unwrap_or_else(|| {
+                                me.flow.borrow().check_status().unwrap_or_default().into()
+                            });
+                            status.set_label(&words);
                             me.update_nav();
+                        }
+                        if result == CheckState::Failed {
+                            b.set_label(UiString::CheckAgain.text());
                         }
                         glib::ControlFlow::Break
                     });
@@ -1140,9 +1354,18 @@ impl Asst {
     fn enter_prepare(self: &Rc<Self>) {
         self.content.append(&text("Starting the install server…"));
         self.call(
-            |core, key| Ok((core.install_guide(key)?, core.install_serve(key))),
-            |me, (guide, serve)| {
+            |core, key| {
+                Ok((
+                    core.install_guide(key)?,
+                    core.install_serve(key),
+                    core.install_plan(key).ok().flatten(),
+                ))
+            },
+            |me, (guide, serve, plan)| {
                 *me.guide.borrow_mut() = Some(guide);
+                if let Some(plan) = plan {
+                    *me.plan_line.borrow_mut() = Some(plan.summary);
+                }
                 me.set_server(serve.map_err(|e| e.to_string()));
                 me.start_machine();
                 me.go();
@@ -1289,11 +1512,13 @@ impl Asst {
         let Some(guide) = self.guide.borrow().clone() else {
             return;
         };
-        let (mut steps, tail) = match step {
-            InstallStep::Prepare => (guide.prepare, None),
-            InstallStep::Installer => (guide.installer, None),
-            InstallStep::Packages => (guide.packages, Some(guide.package_note)),
-            _ => (guide.finish, None),
+        let total = guide.steps.len();
+        let (p, i) = (guide.prepare.len(), guide.installer.len());
+        let (mut steps, tail, offset) = match step {
+            InstallStep::Prepare => (guide.prepare, None, 0),
+            InstallStep::Installer => (guide.installer, None, p),
+            InstallStep::Packages => (guide.packages, Some(guide.package_note), p + i),
+            _ => (guide.finish, None, 0),
         };
         if step == InstallStep::Packages {
             if self.flow.borrow().by_hand() {
@@ -1301,89 +1526,203 @@ impl Asst {
             }
             steps.extend(guide.restart);
         }
+        let offset = if step == InstallStep::Finish {
+            total.saturating_sub(steps.len())
+        } else {
+            offset
+        };
+        *self.marks.borrow_mut() = Vec::new();
         if step != InstallStep::Finish {
-            let r = row();
-            let show = gtk::Button::with_label(UiString::ShowMachine.text());
             let console = named(
                 gtk::Button::with_label(UiString::OpenConsole.text()),
                 "install.open-console",
             );
+            console.set_halign(gtk::Align::Start);
             let (app, m) = (self.app.clone(), self.m.clone());
-            let (app2, m2) = (app.clone(), m.clone());
-            show.connect_clicked(move |_| window::select(&app2, &m2));
             console.connect_clicked(move |_| crate::console::present(&app, &m));
-            append(&r, &[show.upcast_ref(), console.upcast_ref()]);
-            self.content.append(&r);
+            self.content.append(&console);
         }
-        self.content.append(&self.checklist(step as usize, &steps));
+        self.content
+            .append(&self.checklist(step as usize, offset, &steps));
         if let Some(t) = tail {
             self.content.append(&note(&t));
         }
+        self.refresh_marks();
     }
 
-    fn checklist(self: &Rc<Self>, section: usize, steps: &[GuideStep]) -> gtk::Box {
+    /// One card per guide step: what to watch for, what to type, and whether it is done.
+    fn checklist(self: &Rc<Self>, section: usize, offset: usize, steps: &[GuideStep]) -> gtk::Box {
         let list = col(10);
         for (i, st) in steps.iter().enumerate() {
-            let r = row();
-            let tick = check(
-                "",
-                &format!("install.tick.{section}.{i}"),
-                self.ticks.borrow().contains(&(section, i)),
+            let card = col(6);
+            card.add_css_class("card");
+            margins(&card, 0, 0, 0, 0);
+            let inner = col(6);
+            margins(&inner, 10, 10, 12, 12);
+            card.append(&inner);
+            let head = row();
+            let title = gtk::Label::builder()
+                .label(format!("{}. {}", offset + i + 1, st.title))
+                .css_classes(["heading"])
+                .xalign(0.0)
+                .hexpand(true)
+                .wrap(true)
+                .build();
+            head.append(&title);
+            let seen = named(
+                gtk::Label::builder()
+                    .label(UiString::Seen.text())
+                    .css_classes(["caption", "success"])
+                    .visible(false)
+                    .build(),
+                &format!("install.seen.{section}.{i}"),
             );
-            tick.set_valign(gtk::Align::Start);
-            let me = self.clone();
-            tick.connect_toggled(move |b| {
-                let mut t = me.ticks.borrow_mut();
-                if b.is_active() {
-                    t.insert((section, i));
-                } else {
-                    t.remove(&(section, i));
-                }
+            head.append(&seen);
+            let pressed = Rc::new(Cell::new(self.ticks.borrow().contains(&(section, i))));
+            // Graphics consoles show no text to follow, so the person says when it is done.
+            let done = (!self.serial).then(|| {
+                let b = named(
+                    gtk::Button::with_label(UiString::Done.text()),
+                    &format!("install.done.{section}.{i}"),
+                );
+                let (me, pressed) = (self.clone(), pressed.clone());
+                b.connect_clicked(move |_| {
+                    pressed.set(true);
+                    me.ticks.borrow_mut().insert((section, i));
+                    me.refresh_marks();
+                });
+                head.append(&b);
+                b
             });
-            let body = col(2);
-            body.set_hexpand(true);
-            body.append(&text(&st.text));
-            if let Some(c) = &st.command {
-                body.append(
+            inner.append(&head);
+            let mut watch_line = None;
+            if let Some(w) = &st.watch {
+                let r = row();
+                r.append(
                     &gtk::Label::builder()
-                        .label(c)
-                        .selectable(true)
-                        .xalign(0.0)
-                        .wrap(true)
-                        .css_classes(["monospace"])
+                        .label(UiString::WatchFor.text())
+                        .css_classes(["caption", "dim-label"])
                         .build(),
                 );
+                r.append(&mono(w));
+                inner.append(&r);
+                let waiting = gtk::Label::builder()
+                    .label(waiting_for(w))
+                    .css_classes(["caption", "dim-label"])
+                    .xalign(0.0)
+                    .visible(false)
+                    .build();
+                inner.append(&waiting);
+                watch_line = Some(waiting);
             }
-            append(&r, &[tick.upcast_ref(), body.upcast_ref()]);
-            let side = |label: &str, kind: &str| {
-                let b = named(
-                    gtk::Button::with_label(label),
-                    &format!("install.{kind}.{section}.{i}"),
+            for (k, t) in st.typed.iter().enumerate() {
+                // The prompt it answers, unless the Watch for line already says so.
+                if let Some(prompt) = t.prompt.as_ref().filter(|p| st.watch.as_ref() != Some(*p)) {
+                    inner.append(
+                        &gtk::Label::builder()
+                            .label(prompt)
+                            .css_classes(["caption", "dim-label", "monospace"])
+                            .xalign(0.0)
+                            .build(),
+                    );
+                }
+                let r = row();
+                r.append(
+                    &gtk::Label::builder()
+                        .label(UiString::TypeLabel.text())
+                        .css_classes(["caption", "dim-label"])
+                        .build(),
                 );
-                b.set_valign(gtk::Align::Start);
-                r.append(&b);
-                b
-            };
-            if let Some(c) = st.command.clone() {
-                side("Copy", "copy").connect_clicked(move |_| {
+                let m = mono(&t.text);
+                m.set_hexpand(true);
+                r.append(&m);
+                let copy = named(
+                    gtk::Button::with_label(UiString::Copy.text()),
+                    &format!("install.copy.{section}.{i}.{k}"),
+                );
+                let text = t.text.clone();
+                copy.connect_clicked(move |_| {
                     if let Some(d) = gtk::gdk::Display::default() {
-                        d.clipboard().set_text(&c);
+                        d.clipboard().set_text(&text);
                     }
                 });
+                r.append(&copy);
+                inner.append(&r);
             }
             if let (true, Some(send)) = (self.serial, st.send.clone()) {
-                let type_it = side("Type it", "type");
+                let type_it = named(
+                    gtk::Button::with_label(UiString::TypeIt.text()),
+                    &format!("install.type.{section}.{i}"),
+                );
+                type_it.set_halign(gtk::Align::Start);
                 let me = self.clone();
                 type_it.connect_clicked(move |_| {
                     if let Err(e) = me.m.machine.console_send(send.as_bytes()) {
-                        me.fail(&e.to_string());
+                        me.fail(&e.message);
                     }
                 });
+                inner.append(&type_it);
                 self.type_buttons.borrow_mut().push(type_it);
             }
-            list.append(&r);
+            if let Some(n) = &st.note {
+                let l = note(&n.text);
+                l.set_margin_start(0);
+                if n.warning {
+                    l.remove_css_class("dim-label");
+                    l.add_css_class("warning");
+                }
+                inner.append(&l);
+            }
+            self.marks.borrow_mut().push(GuideMark {
+                index: offset + i,
+                seen,
+                done,
+                waiting: watch_line.unwrap_or_else(|| gtk::Label::new(None)),
+                pressed,
+            });
+            list.append(&card);
         }
         list
+    }
+
+    /// Mark the steps the console shows done (or the person pressed Done on), say what the
+    /// current one waits for, and count them in the sidebar's header.
+    fn refresh_marks(&self) {
+        let Some(guide) = self.guide.borrow().clone() else {
+            return;
+        };
+        let total = guide.steps.len();
+        let seen = if self.serial {
+            self.m.machine.guide_seen(&guide.steps)
+        } else {
+            0
+        };
+        let marks = self.marks.borrow();
+        let done = |m: &GuideMark| {
+            if self.serial {
+                m.index < seen
+            } else {
+                m.pressed.get()
+            }
+        };
+        let current = marks
+            .iter()
+            .find(|m| !done(m))
+            .map_or_else(|| marks.last().map_or(seen, |m| m.index + 1), |m| m.index);
+        for m in marks.iter() {
+            m.seen.set_visible(self.serial && done(m));
+            if let Some(b) = &m.done {
+                b.set_visible(!m.pressed.get());
+            }
+            if !self.serial && m.pressed.get() {
+                m.seen.set_label(UiString::Done.text());
+                m.seen.set_visible(true);
+            }
+            m.waiting
+                .set_visible(self.serial && m.index == current && !done(m));
+        }
+        let shown = (current + 1).min(total.max(1));
+        self.pane_title.set_title(&guide_header(shown, total));
     }
 
     /// The half-second look at the machine and the media server.
@@ -1396,6 +1735,7 @@ impl Asst {
         for b in self.type_buttons.borrow().iter() {
             b.set_visible(up);
         }
+        self.refresh_marks();
         let ended = match &*self.server.borrow() {
             Server::Running(op) => Some(op.state()),
             _ => None,
@@ -1412,7 +1752,15 @@ impl Asst {
             *self.server.borrow_mut() = s;
         }
         let (line, failed) = match &*self.server.borrow() {
-            Server::Running(op) => (op.progress(), false),
+            // The files, never the server's address.
+            Server::Running(_) => (
+                self.plan_line
+                    .borrow()
+                    .as_deref()
+                    .map(install_footer)
+                    .unwrap_or_default(),
+                false,
+            ),
             Server::Failed(e) => (e.clone(), true),
             Server::Off => (self.plan_line.borrow().clone().unwrap_or_default(), false),
         };
@@ -1420,12 +1768,7 @@ impl Asst {
         self.footer
             .set_css_classes(if failed { &["error"] } else { &[] });
         self.restart.set_visible(failed);
-        let step = self.step();
-        self.banner.set_revealed(
-            (InstallStep::Prepare..InstallStep::Finish).contains(&step)
-                && self.seen_up.get()
-                && !self.machine_up(),
-        );
+        self.banner.set_revealed(self.died());
         self.update_nav();
     }
 
@@ -1466,7 +1809,12 @@ impl Asst {
         }
         self.stop_server();
         OPEN.with(|o| o.borrow_mut().retain(|a| !Rc::ptr_eq(a, self)));
-        self.win.destroy();
+        self.out_of_sidebar();
+        if let Some(d) = self.dialog.take() {
+            d.set_can_close(true);
+            d.force_close();
+        }
+        window::refresh(&self.app);
     }
 
     fn ask(self: &Rc<Self>, q: CloseQuestion, then: impl Fn(&Rc<Self>, CloseAction) + 'static) {
@@ -1477,7 +1825,7 @@ impl Asst {
                 .iter()
                 .map(|(label, a)| (action_id(*a), label.as_str()))
                 .collect();
-            let id = question(&me.win, &q.heading, &q.text, &buttons, q.default).await;
+            let id = question(&me.over(), &q.heading, &q.text, &buttons, q.default).await;
             if let Some((_, a)) = q.buttons.iter().find(|(_, a)| action_id(*a) == id) {
                 then(&me, *a);
             }

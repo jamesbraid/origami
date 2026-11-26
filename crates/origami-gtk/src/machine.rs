@@ -11,7 +11,7 @@ use crate::view_scale::{self, Layout, ViewScale};
 use crate::vk;
 use adw::prelude::*;
 use gtk::{gdk, glib};
-use origami_core::facade::UiString;
+use origami_core::facade::{state_label, CoreError, ShownState, StateLabel, UiString};
 use origami_core::facade::{HookId, Machine, MachineState, Operation, OperationState};
 use origami_engine::ImportedUpdate;
 use std::cell::{Cell, RefCell};
@@ -38,27 +38,18 @@ pub enum State {
 }
 
 impl State {
-    /// The pill's words and colour. A colour always comes with a word.
-    pub fn pill(self) -> (&'static str, &'static str) {
+    /// What the core calls this state; `installing` is whether the install guide runs.
+    pub fn shown(self, installing: bool) -> ShownState {
         match self {
-            State::Stopped => ("Stopped", "pill-grey"),
-            State::Starting => ("Starting", "pill-amber"),
-            State::Running => ("Running", "pill-green"),
-            State::NoPicture => ("No picture", "pill-red"),
-            State::Paused => ("Paused", "pill-amber"),
-            State::Stopping => ("Saving", "pill-amber"),
-            State::Crashed => ("Stopped unexpectedly", "pill-red"),
-            State::LeftRunning => ("Left running", "pill-amber"),
-        }
-    }
-
-    /// The tab's dot, the pill's colour.
-    fn dot(self) -> u32 {
-        match self.pill().1 {
-            "pill-green" => 0x33d17a,
-            "pill-amber" => 0xe5a50a,
-            "pill-red" => 0xe01b24,
-            _ => 0x8d8d93,
+            State::Starting | State::Running if installing => ShownState::Installing,
+            State::Stopped => ShownState::Stopped,
+            State::Starting => ShownState::Starting,
+            State::Running => ShownState::Running,
+            State::NoPicture => ShownState::NoPicture,
+            State::Paused => ShownState::Paused,
+            State::Stopping => ShownState::Saving,
+            State::Crashed => ShownState::Exited,
+            State::LeftRunning => ShownState::LeftRunning,
         }
     }
 
@@ -109,7 +100,10 @@ pub struct MachineUi {
     /// A headless machine's console page, and its own update hook.
     pub console_tab: RefCell<Option<crate::console::Open>>,
     pub console_tab_notify: RefCell<Option<Box<dyn Fn()>>>,
-    pub error: RefCell<Option<String>>,
+    /// Why the last start or stop failed, as the machine page's card says it.
+    pub error: RefCell<Option<CoreError>>,
+    /// The disc in each CD drive while a swap made on the running machine holds; none is an empty drive.
+    pub media: RefCell<std::collections::HashMap<String, Option<String>>>,
 
     // widgets
     pub root: gtk::Stack,
@@ -133,11 +127,12 @@ pub struct MachineUi {
     pub pointer_at: Cell<(i32, i32)>,
     place: Cell<Place>,
     pub status: gtk::Label,
-    pub hud: gtk::Label,
+    /// Over the picture: the No picture card, or Resume over a dimmed picture.
+    pub veil: gtk::Box,
     pub cpu: crate::cpu_panel::Panel,
     pub page: RefCell<Option<adw::TabPage>>,
     /// The state the hero card was last built for.
-    pub hero_state: Cell<Option<State>>,
+    pub hero_state: Cell<Option<ShownState>>,
 
     // display
     pub scanout: RefCell<Option<vk::Scanout>>,
@@ -163,7 +158,6 @@ pub struct MachineUi {
     pub motion_total: Cell<(i64, i64)>,
     pub ctrl_alt: Cell<(bool, bool)>,
     pub inputs: Cell<u64>,
-    pub hud_timer: RefCell<Option<glib::SourceId>>,
     /// A control call is in flight on a worker; no second one starts until it ends.
     pub busy: Cell<bool>,
     pub console: RefCell<Option<crate::console::Open>>,
@@ -191,13 +185,10 @@ impl MachineUi {
             .valign(gtk::Align::Center)
             .visible(false)
             .build();
-        let hud = gtk::Label::builder()
-            .css_classes(["hud"])
-            .halign(gtk::Align::Center)
-            .valign(gtk::Align::Start)
-            .margin_top(18)
+        let veil = gtk::Box::builder()
+            .halign(gtk::Align::Fill)
+            .valign(gtk::Align::Fill)
             .visible(false)
-            .can_target(false)
             .build();
         // The offload paints black over its whole area, so it is placed on the
         // picture's rectangle (see `view_scale`) and the letterbox stays granite.
@@ -210,8 +201,8 @@ impl MachineUi {
         let letterbox = crate::granite::Granite::new(crate::granite::neutral());
         letterbox.append(&screen);
         screen.add_overlay(&offload);
+        screen.add_overlay(&veil);
         screen.add_overlay(&status);
-        screen.add_overlay(&hud);
         let cpu = crate::cpu_panel::Panel::new();
         screen.update_property(&[gtk::accessible::Property::Label(&format!(
             "{} screen",
@@ -238,6 +229,7 @@ impl MachineUi {
             .spinning(true)
             .width_request(48)
             .height_request(48)
+            .css_classes(["on-dark"])
             .build()
             .upcast();
         let heading = gtk::Label::builder()
@@ -284,6 +276,7 @@ impl MachineUi {
             console_tab: RefCell::new(None),
             console_tab_notify: RefCell::new(None),
             error: RefCell::new(None),
+            media: RefCell::new(std::collections::HashMap::new()),
             root,
             hero,
             starting_line,
@@ -299,7 +292,7 @@ impl MachineUi {
             pointer_at: Cell::new((-1, -1)),
             place: Cell::new(Place::default()),
             status,
-            hud,
+            veil,
             cpu,
             page: RefCell::new(None),
             hero_state: Cell::new(None),
@@ -321,13 +314,25 @@ impl MachineUi {
             motion_total: Cell::new((0, 0)),
             ctrl_alt: Cell::new((false, false)),
             inputs: Cell::new(0),
-            hud_timer: RefCell::new(None),
             busy: Cell::new(false),
             console: RefCell::new(None),
             diagnostics: RefCell::new(None),
         });
         m.place_picture();
         m
+    }
+
+    /// Whether the install guide runs on this machine.
+    pub fn installing(&self) -> bool {
+        crate::install::guide_running(self.machine.key())
+    }
+
+    pub fn shown(&self) -> ShownState {
+        self.state.get().shown(self.installing())
+    }
+
+    pub fn label(&self) -> StateLabel {
+        state_label(self.shown())
     }
 
     /// The picture's rectangle in the screen widget, once there is a picture.
@@ -604,25 +609,23 @@ impl MachineUi {
         }
         let note = self.machine.view().note().unwrap_or_default().to_string();
         match state {
-            State::NoPicture => {
-                self.status.set_label(&note);
-                self.status.set_visible(!note.is_empty());
-            }
             State::Running => self.status.set_visible(false),
             State::Starting => self.starting_line.set_label(&note),
             _ => {}
         }
+        let label = self.label();
         if let Some(p) = self.page.borrow().as_ref() {
             p.set_title(&self.name);
-            p.set_indicator_icon(Some(&crate::art::dot(state.dot())));
-            // The dot is a colour; the tooltip says the word.
+            p.set_indicator_icon(Some(&crate::art::dot(crate::style::tone_rgb(label.tone))));
+            // The dot is a colour; the tooltip and the accessible name say the word.
             p.set_tooltip(&format!(
                 "{}\n{}",
-                state.pill().0,
+                label.word,
                 glib::markup_escape_text(&self.dir.display().to_string())
             ));
         }
         if matches!(state, State::Stopped | State::Crashed) {
+            self.media.borrow_mut().clear();
             self.size.set((0, 0));
             self.sized.set(false);
             self.release_input();
@@ -635,11 +638,27 @@ impl MachineUi {
         let Some(o) = op.as_ref() else { return };
         match o.state() {
             OperationState::Failed(e) => {
-                *self.error.borrow_mut() = Some(e.to_string());
+                *self.error.borrow_mut() = Some(e);
                 *op = None;
             }
             OperationState::Running => {}
             _ => *op = None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_app_states_read_as_the_cores_words() {
+        let word = |s: State, installing| state_label(s.shown(installing)).word;
+        assert_eq!(word(State::Stopping, false), "Saving");
+        assert_eq!(word(State::Crashed, false), "Stopped unexpectedly");
+        assert_eq!(word(State::Running, true), "Installing");
+        assert_eq!(word(State::Starting, true), "Installing");
+        assert_eq!(word(State::Paused, true), "Paused");
+        assert_eq!(word(State::NoPicture, false), "No picture");
     }
 }

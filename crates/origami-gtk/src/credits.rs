@@ -27,13 +27,30 @@ fn link(url: &str, label: &str) -> gtk::LinkButton {
     b
 }
 
+/// A row for a thing and where it is from. One link makes the whole row open it, with the
+/// external-link icon at the end; two or more stay as link buttons.
 fn row(title: &str, subtitle: &str, links: &[(&str, &str)]) -> adw::ActionRow {
+    let links: Vec<_> = links.iter().filter(|(url, _)| !url.is_empty()).collect();
     let row = adw::ActionRow::builder()
         .title(glib::markup_escape_text(title))
         .subtitle(glib::markup_escape_text(subtitle))
-        .subtitle_selectable(true)
+        .subtitle_selectable(links.len() != 1)
         .build();
-    for (url, label) in links.iter().filter(|(url, _)| !url.is_empty()) {
+    if let [(url, _)] = links.as_slice() {
+        let url = url.to_string();
+        row.set_activatable(true);
+        row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
+        row.connect_activated(move |r| {
+            let parent = r.root().and_downcast::<gtk::Window>();
+            gtk::UriLauncher::new(&url).launch(
+                parent.as_ref(),
+                gtk::gio::Cancellable::NONE,
+                |_| {},
+            );
+        });
+        return row;
+    }
+    for (url, label) in links {
         row.add_suffix(&link(url, label));
     }
     row

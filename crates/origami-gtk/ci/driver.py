@@ -167,7 +167,8 @@ def ocr(png):
 # and the words any hinv has.
 HINV_IDENTITY = ("IP30", "R12000")
 HINV_OTHER = ("MHZ", "PROCESSOR", "MEMORY", "CACHE", "ETHERNET")
-PAUSE_TIP = "Pause or resume the machine (Ctrl+P)"
+PAUSE_TIP = "Pause the machine (Ctrl+P)"
+RESUME_TIP = "Resume the machine (Ctrl+P)"
 
 
 def _like(word, want, ratio):
@@ -293,11 +294,12 @@ def wayland_pointer(a):
         # Cage has no pointer constraints: capture falls back to differencing.
         check("a click captures", a.wait("capture", lambda: a.machine("octane2")["captured"], 5, 0.2) is not None)
         skip("pointer lock", "cage offers no pointer constraints")
-        a.req("invoke machine.capture octane2")
+        a.req("invoke machine.capture-mouse octane2")
         return
     check("a click captures", a.wait("capture", lambda: a.machine("octane2")["captured"], 5, 0.2) is not None, a.machine("octane2"))
     time.sleep(0.5)
     check("the window system's pointer lock is held", a.machine("octane2")["pointer_locked"], a.machine("octane2"))
+    check("the bottom bar says how to release the pointer", a.wait("the words", lambda: a.state()["chrome"]["bottom_bar"]["pointer"] == "Captured, press Ctrl+Alt to release", 5, 0.2) is not None, a.state()["chrome"]["bottom_bar"])
     t0 = a.machine("octane2")["motion_total"]
     vp("move 30 10")
     vp("move -10 -5")
@@ -312,7 +314,7 @@ def wayland_pointer(a):
     t2 = a.machine("octane2")["motion_total"]
     far = (t2[0] - t1[0], t2[1] - t1[1])
     check("capture: motion continues past the window edge", far[0] >= 3000 and far[1] >= 2200, far)
-    a.req("invoke machine.capture octane2")
+    a.req("invoke machine.capture-mouse octane2")
     check("the capture command releases the pointer", a.wait("release", lambda: not a.machine("octane2")["captured"], 5, 0.2) is not None)
 
 
@@ -505,8 +507,16 @@ def first_light(quick=False):
         shot("02-hero")
         r = a.req("invoke machine.start octane2")
         check("start command accepted", r.get("ok"), r)
-        saw_starting = a.wait("Starting", lambda: (a.machine("octane2") or {}).get("state") == "Starting", 15, 0.1)
-        check("tab shows Starting", saw_starting)
+        # A fast host leaves Starting within a second: look at the header while it lasts.
+        cancel = []
+        def starting():
+            if (a.machine("octane2") or {}).get("state") != "Starting":
+                return False
+            cancel.append(a.state()["chrome"]["power"][0])
+            return "Cancel start" in cancel
+        saw_starting = a.wait("Starting", starting, 15, 0.05)
+        check("tab shows Starting", saw_starting or bool(cancel), cancel)
+        check("while starting the header offers Cancel start, not Force quit", "Cancel start" in cancel, cancel)
         shot("03-starting")
         c = prom_ready(a, "octane2")
         check("first picture within 15 min", c is not None)
@@ -514,14 +524,32 @@ def first_light(quick=False):
             return
         shot("04-prom")
         check("picture equals QMP screendump (0 pixels differ)", c["differing_pixels"] == 0, c)
+        bar = lambda: a.state()["chrome"]["bottom_bar"]
+        a.wait("the bottom bar", lambda: bar()["revealed"], 10, 0.2)
+        check("the bottom bar shows the picture size and the pointer while running", bar()["revealed"] and bar()["size"] == "%d × %d" % (c["width"], c["height"]) and bar()["pointer"] == "Follows mouse", bar())
+        check("the header says Power off and the title the state", a.state()["chrome"]["power"] == ["Power off", False] and a.state()["chrome"]["title"][1] == "Running", [a.state()["chrome"]["power"], a.state()["chrome"]["title"]])
         tips = a.state()["toolbar_tips"]
         check("every toolbar button has a tooltip", bool(tips) and all(tips), tips)
         check("the toolbar offers Pause", a.state()["pause_tip"] == PAUSE_TIP, a.state()["pause_tip"])
         a.req("invoke machine.pause octane2")
         check("Pause pauses the machine", a.wait("Paused", lambda: a.machine("octane2")["state"] == "Paused", 15, 0.2) is not None, a.machine("octane2")["state"])
-        check("and its tooltip names both actions", a.state()["pause_tip"] == PAUSE_TIP, a.state()["pause_tip"])
+        time.sleep(1)
+        shot("05-paused")
+        check("a paused picture is dimmed and offers Resume", a.req("widget card.resume").get("mapped"), a.req("widget card.resume"))
+        check("and its tooltip becomes Resume", a.state()["pause_tip"] == RESUME_TIP, a.state()["pause_tip"])
         a.req("invoke machine.resume octane2")
         check("Resume runs it again", a.wait("Running", lambda: a.machine("octane2")["state"] == "Running", 15, 0.2) is not None, a.machine("octane2")["state"])
+        # Power off and Reset ask, with Cancel as the answer Return gives.
+        a.req("alerts on")
+        for command, heading, buttons in (("machine.stop", "Power off octane2?", ["Cancel", "Power off"]), ("machine.reset", "Reset octane2?", ["Cancel", "Reset"])):
+            a.req("invoke %s octane2" % command)
+            al = a.wait("the alert", lambda: a.req("alert") if a.req("alert").get("found") else None, 10, 0.2) or {}
+            check("%s asks with Cancel as the default" % command, al.get("heading") == heading and al.get("default") == "Cancel" and al.get("buttons") == buttons, al)
+            a.req("activate alert.dialog 0")
+            a.wait("the alert to go", lambda: not a.req("alert").get("found"), 10, 0.2)
+            time.sleep(0.5)
+            check("Cancel leaves the machine running", a.machine("octane2")["state"] == "Running", a.machine("octane2")["state"])
+        a.req("alerts off")
         if mode == "x11":
             # Closing the window needs wmctrl; under a compositor it would
             # stay open over the app and take the pointer checks' clicks.
@@ -651,21 +679,19 @@ def first_light(quick=False):
             check("a key held while focus leaves is released", left == 0, left)
             key("Escape")
         if mode == "x11":
-            # The CPU panel: a real click on the toolbar button shows it, and the
+            # The CPU panel: CPU load in the main menu shows it, and the
             # numbers arrive twice a second once two readings exist.
-            b = a.state()["cpu_btn"]
-            pointer_to(b[0] + b[2] / 2, b[1] + b[3] / 2)
-            click()
+            a.req("invoke view.cpu-load octane2")
             got = a.wait("CPU rows", lambda: (a.machine("octane2")["cpu_panel"]["rows"] or None), 20, 0.5)
             panel = a.machine("octane2")["cpu_panel"]
-            check("the CPU button shows one bar per CPU", panel["visible"] and got and [r[0] for r in got] == [0], panel)
+            check("CPU load shows one bar per CPU", panel["visible"] and got and [r[0] for r in got] == [0], panel)
             check("each bar's user, system and spare time are percentages that fill it", all(min(r[1:]) >= 0 and abs(sum(r[1:]) - 100) < 0.1 for r in got or []), panel)
             check("the legend names user, sys and spare", panel["legend"] == ["user", "sys", "spare"], panel)
             check("the panel is titled as measured on the host", panel["title"] == "Emulated CPU load, measured on the host, not the guest")
             shot("cpu-panel")
-            click()
+            a.req("invoke view.cpu-load octane2")
             time.sleep(0.5)
-            check("the button hides it again", not a.machine("octane2")["cpu_panel"]["visible"])
+            check("CPU load again hides it", not a.machine("octane2")["cpu_panel"]["visible"])
         if quick:
             return
         # Idle: the PROM's command monitor is static, so the app should cost
@@ -713,7 +739,11 @@ def new_machine(a, name, disk, picks=(), place=None):
     """New Machine through its real controls; returns once the machine is listed."""
     a.req("invoke machine.new")
     ok = lambda r: r.get("ok")
-    a.wait("the dialog", lambda: ok(a.req("activate new.disk " + disk)), 30, 0.5)
+    radio = {"Empty disk": "install", "Your own image": "image", "No disk": "none", "Ready-made disk": "ready"}[disk]
+    a.wait("the dialog", lambda: a.req("widget new.disk." + radio).get("found"), 30, 0.5)
+    # A ready-made disk, once offered, is the default; let it arrive so the pick below sticks.
+    a.wait("the ready-made disk", lambda: a.req("widget new.disk.ready").get("mapped"), 20, 0.5)
+    a.wait("the choice", lambda: ok(a.req("activate new.disk." + radio)), 30, 0.5)
     for path in picks:
         a.req("pick " + path)
         a.req("activate new.image")
@@ -725,6 +755,11 @@ def new_machine(a, name, disk, picks=(), place=None):
     listed = a.wait("created", lambda: name in a.state()["library"], 120, 0.5)
     # The machine is listed before its disk is made; the dialog closes when that is done.
     a.wait("the dialog to close", lambda: "no widget" in str(a.req("activate disk.note")), 180, 0.5)
+    # An empty disk opens the install assistant; these checks are not about it.
+    if radio == "install":
+        a.wait("the assistant", lambda: a.req("widget install.window").get("found"), 20, 0.5)
+        a.req("activate install.window")
+        a.wait("the assistant to close", lambda: not a.req("widget install.window").get("found"), 20, 0.5)
     return listed, note
 
 
@@ -738,7 +773,8 @@ def disks(a):
     kept, note = new_machine(a, "copybox", "Your own image", [fixture])
     check("copying says the original is safe", "keeps your original safe" in note, note)
     check("a copied image is kept in the machine's folder", kept is not None and "drives/disk-irix-6.5.30.img" in toml("copybox") and os.path.exists(os.path.join(lib, "copybox", "drives", "disk-irix-6.5.30.img")), toml("copybox")[-300:])
-    check("the library row names the OS on the disk", a.wait("the badge", lambda: "IRIX 6.5.30" in a.state()["library_badges"], 60, 0.5) is not None, a.state()["library_badges"])
+    tips = lambda: [r["tooltip"] or "" for r in a.state()["chrome"]["row_names"]]
+    check("the library row's description names the OS on the disk", a.wait("the description", lambda: any("IRIX 6.5.30" in t for t in tips()), 60, 0.5) is not None, tips())
     _, note = new_machine(a, "placebox", "Your own image", [fixture], "Use it where it is")
     text = toml("placebox")
     check("an image used in place warns that IRIX writes into the file", "IRIX will write into this file" in note, note)
@@ -766,9 +802,14 @@ def disks(a):
     a.wait("Change CD", lambda: a.req("activate drive.cd.change").get("ok"), 30, 0.5)
     swapped = a.wait("QEMU", lambda: any(f.endswith("two.iso") for f in qmp_inserted(os.path.join(lib, "octane2"))), 30, 1)
     check("the CD is swapped while the machine runs", swapped, qmp_inserted(os.path.join(lib, "octane2")))
+    drive = lambda: " ".join((r["subtitle"] or "") for r in a.req("rows drive.row.cdrom").get("rows", []))
+    shown = a.wait("the Drives list", lambda: "two.iso" in drive(), 30, 0.5)
+    check("the Drives list shows the swapped disc", shown, drive())
     a.wait("Eject", lambda: a.req("activate drive.cd.eject").get("ok"), 30, 0.5)
     ejected = a.wait("QEMU", lambda: not any(f.endswith(".iso") for f in qmp_inserted(os.path.join(lib, "octane2"))), 30, 1)
     check("the CD is ejected while the machine runs", ejected, qmp_inserted(os.path.join(lib, "octane2")))
+    empty = a.wait("the Drives list", lambda: a.req("rows drive.row.cdrom").get("rows") and ".iso" not in drive(), 30, 0.5)
+    check("the Drives list shows the CD drive empty", empty, drive())
     closed.clear()
     a.wait("the dialog to close", none_left, 30, 0.5)
     a.req("invoke machine.force-quit octane2")
@@ -828,13 +869,13 @@ def settings():
             r = dict(got)
             quiet()
             return r
-        act("settings.network Bridged")
+        act("settings.network.tap")
         check("choosing Bridged only opens its fields", 'mode = "tap"' not in read(), read()[-300:])
         r = act("network.device tap0")
         bridged = a.wait("the file", lambda: 'mode = "tap"' in read() and 'interface = "tap0"' in read(), 30, 0.5)
         check("Bridged and its tap device are set in Settings", bridged, [r, read()[-300:]])
         check("the Ethernet address is the one the machine ID makes", 'mac = "08:00:69:e1:' in read(), read()[-300:])
-        act("settings.network Shared (NAT)")
+        act("settings.network.user")
         check("Shared (NAT) applies and drops the tap device", 'mode = "user"' in read() and "tap0" not in read(), read()[-300:])
         act("network.subnet 10.42.0.0/24")
         check("the private subnet is moved in Settings", "10.42.0.0/24" in read(), read()[-300:])
@@ -882,6 +923,7 @@ def settings():
         key("Tab")
         type_text("irisbox")
         time.sleep(0.5)
+        a.req("activate new.disk.none")
         shot("new-machine-iris")
         key("Return")
         listed = a.wait("created", lambda: "irisbox" in a.state()["library"], 120, 1)
@@ -899,7 +941,12 @@ def settings():
         check("a running machine refuses an edit", "error" in r and "512" in read(), r)
         a.req("invoke machine.force-quit octane2")
         a.wait("down", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
-        r = a.req("change memory 256")
+        # The core may still be finishing the stop when the state first reads Stopped.
+        r = {}
+        def edited():
+            r.update(a.req("change memory 256"))
+            return r.get("ok")
+        a.wait("the edit", edited, 30, 1)
         check("it takes the edit again once stopped", r.get("ok") and "256" in read(), r)
     finally:
         a.stop()
@@ -941,7 +988,7 @@ def install():
         check("Install IRIX opens", r.get("ok") and at("Release"), r)
         check("6.5.30 Standard is the default", widget("install.release.6.5.30").get("active") and widget("install.profile.standard").get("active"))
         press("install.continue")
-        check("Continue moves to media", at("Media"))
+        check("Continue moves to discs", at("Discs"))
         empty = os.path.join(work, "discs")
         os.makedirs(empty, exist_ok=True)
         press("install.media.folder")
@@ -957,6 +1004,11 @@ def install():
         press("install.addon.mipspro")
         press("install.continue")
         check("a serial machine has a Method step, Automatic by default", at("Method") and widget("install.method.auto").get("active"))
+        steps = lambda r: [re.sub(r"^\d+\.\s*", "", x) for x in r]
+        time.sleep(1)
+        shot("install-method")
+        au = a.req("audit install.window")
+        check("the serial install's step list includes Method and highlights the page shown", "Method" in steps(au["steps"]) and steps(au["current"]) == ["Method"], au)
         press("install.method.guided")
         press("install.continue")
         at("Disk")
@@ -965,22 +1017,29 @@ def install():
         press("install.continue")
         check("the disk is made and the check step opens", at("Check") and "drives/" in open(os.path.join(lib, "origin200", "machine.toml")).read())
         press("install.check.now")
-        passed = a.wait("the check", lambda: text("install.check.status") == "All sources answered.", 120, 0.5)
+        passed = a.wait("the check", lambda: text("install.check.status") == "Every disc checked out.", 120, 0.5)
         check("the install media check passes", passed, text("install.check.status"))
         usable("install.continue")
         press("install.continue")
         at("Prepare the disk")
-        line = a.wait("the footer", lambda: (text("install.footer") or "").startswith("10.98.0.2 serving"), 60, 0.5)
-        check("the footer says what is served", line and text("install.footer") == "10.98.0.2 serving 6.5.30, Standard + MIPSpro", text("install.footer"))
+        line = a.wait("the footer", lambda: (text("install.footer") or "").startswith("Install files ready"), 60, 0.5)
+        check("the footer says what is ready, with no address", line and text("install.footer") == "Install files ready: IRIX 6.5.30, Standard + MIPSpro 7.4.4 compiler", text("install.footer"))
+        time.sleep(1)
+        shot("install-guide")
+        chrome = a.state()["chrome"]
+        check("the guide takes the library's place in the sidebar", chrome["sidebar"] == "guide" and (chrome["guide_header"] or "").startswith("Install IRIX, step 1 of"), [chrome["sidebar"], chrome["guide_header"]])
+        check("the set-up dialog is gone", widget("install.window").get("found") is False)
         # Cancel asks first, and Back keeps the server running.
         press("install.cancel")
         asked = a.wait("the question", lambda: ok("activate install.ask stay"), 30, 0.5)
-        check("Cancel at Prepare asks and Back keeps the assistant and its server", asked and text("install.step") == "Prepare the disk" and (text("install.footer") or "").startswith("10.98.0.2 serving"), [text("install.step"), text("install.footer")])
-        up = a.wait("up", lambda: (a.machine("origin200") or {}).get("state") == "Running", 120, 0.5)
-        check("the machine starts", up, a.machine("origin200"))
+        check("Cancel at Prepare asks and Back keeps the assistant and its server", asked and text("install.step") == "Prepare the disk" and (text("install.footer") or "").startswith("Install files ready"), [text("install.step"), text("install.footer")])
+        up = a.wait("up", lambda: (a.machine("origin200") or {}).get("state") in ("Running", "Installing"), 120, 0.5)
+        check("the machine starts, and its state reads Installing while the guide runs", up and a.machine("origin200")["state"] == "Installing" and a.state()["chrome"]["title"][1] == "Installing", [a.machine("origin200")["state"], a.state()["chrome"]["title"]])
         received = lambda: (a.machine("origin200")["console_tab"] or {}).get("received", 0)
         a.wait("serial output", lambda: received() > 0, 600, 3)
         check("a serial machine has Type It", widget("install.type.6.0").get("found"))
+        time.sleep(1)
+        shot("install-guide-running")
         before = received()
         check("Type it sends", ok("activate install.type.6.0"))
         echoed = a.wait("the guest's answer", lambda: received() > before, 60, 1)
@@ -1008,11 +1067,11 @@ def install():
         at("Disk")
         press("install.start-over")
         at("Release")
-        for step in ("Media", "Software", "Method"):
+        for step in ("Discs", "Software", "Method"):
             usable("install.continue")
             press("install.continue")
             at(step)
-        check("Start Over offers Automatic again", widget("install.method.auto").get("active"))
+        check("Start Over offers Automatic again, and the list follows", widget("install.method.auto").get("active") and steps(a.req("audit install.window")["current"]) == ["Method"], a.req("audit install.window"))
         usable("install.continue")
         press("install.continue")
         at("Disk")
@@ -1021,7 +1080,7 @@ def install():
         press("install.continue")
         at("Check")
         press("install.check.now")
-        a.wait("the check", lambda: text("install.check.status") == "All sources answered.", 120, 0.5)
+        a.wait("the check", lambda: text("install.check.status") == "Every disc checked out.", 120, 0.5)
         usable("install.continue")
         press("install.continue")
         for step in ("Prepare the disk", "Start the installer"):
@@ -1029,7 +1088,7 @@ def install():
             usable("install.continue")
             press("install.continue")
         at("Install packages")
-        up = a.wait("up again", lambda: (a.machine("origin200") or {}).get("state") == "Running", 120, 0.5)
+        up = a.wait("up again", lambda: (a.machine("origin200") or {}).get("state") in ("Running", "Installing"), 120, 0.5)
         usable("install.apply")
         check("Automatic shows Install and holds Continue", widget("install.apply").get("found") and widget("install.continue").get("sensitive") is False)
         press("install.apply")
@@ -1037,21 +1096,20 @@ def install():
         check("a failed automatic install shows the core's sentence and keeps Continue off", failed and widget("install.continue").get("sensitive") is False, [failed, text("install.apply.hint")])
         a.req("invoke machine.force-quit origin200")
         a.wait("down", lambda: (a.machine("origin200") or {}).get("state") == "Stopped", 60, 0.5)
+        banner = a.wait("the banner", lambda: widget("install.stopped").get("mapped"), 20, 0.5)
+        check("the assistant says the machine stopped and holds Continue", banner and widget("install.continue").get("sensitive") is False, [banner, widget("install.continue")])
         # New Machine offers the install only with an empty disk.
         a.req("invoke machine.new")
-        a.wait("the dialog", lambda: widget("new.install").get("found"), 30, 0.5)
-        hidden = widget("new.install").get("mapped") is False
-        a.req("activate new.disk Empty disk")
-        shown = widget("new.install").get("mapped")
-        check("Install IRIX after creating shows only with an empty disk", hidden and shown, (hidden, shown))
+        a.wait("the dialog", lambda: widget("new.disk.install").get("found"), 30, 0.5)
+        check("New Machine offers Install IRIX from discs for a machine that runs IRIX", widget("new.disk.install").get("mapped"), widget("new.disk.install"))
         a.req("activate new.dialog")
     finally:
         a.stop()
 
 
 def upgrade():
-    """A machine made by an older Origami lists as needing an upgrade, opens as
-    the upgrade dialog (so it cannot start), and opens as a machine once upgraded."""
+    """A machine made by an older Origami lists as needing an upgrade, shows its card in the
+    content (for that machine, whatever else is open), and opens as a machine once upgraded."""
     create_machine("octane2")
     fixtures = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "fixtures", "machines")
     old = os.path.join(lib, "older")
@@ -1060,18 +1118,209 @@ def upgrade():
     a = App()
     try:
         a.wait("library", lambda: "older" in a.state()["library"], 30)
-        pills = lambda: dict(zip(a.state()["library"], a.state()["library_pills"]))
-        check("the library says Needs upgrade", pills().get("older") == "Needs upgrade", pills())
+        a.req("alerts on")
+        words = lambda: {n: r["word"] for n, r in zip(a.state()["library"], a.state()["chrome"]["row_names"])}
+        check("the library says Needs upgrade", words().get("older") == "Needs upgrade", words())
+        a.req("open octane2")
         a.req("open older")
-        shown = a.wait("the dialog", lambda: a.req("activate upgrade.dialog upgrade").get("ok"), 10, 0.5)
-        check("opening it shows the upgrade dialog and no machine", shown and not a.machine("older"), a.state()["machines"])
+        card = a.wait("the card", lambda: (a.state()["chrome"]["card"] or "").endswith("/older") and a.req("widget card.upgrade").get("found"), 10, 0.5)
+        chrome = a.state()["chrome"]
+        check("opening it shows its own card, not a dialog, over the open machine", card and not a.req("alert").get("found") and not a.machine("older"), [chrome["card"], a.state()["machines"]])
+        check("the highlighted row is the machine whose card shows", chrome["selected"] == "older", chrome["selected"])
+        check("the title says which machine and its state", chrome["title"] == ["older", "Needs upgrade"], chrome["title"])
+        time.sleep(1)
+        shot("cards-needs-upgrade")
+        a.req("activate card.upgrade")
         opened = a.wait("the machine", lambda: a.machine("older"), 60, 0.5)
-        check("the upgraded machine opens", opened, a.req("activate upgrade.error"))
+        check("the upgraded machine opens", opened, a.state()["chrome"])
         text = open(os.path.join(old, "machine.toml")).read()
         check("its file is the current format", text.startswith("format = 5"), text[:80])
-        check("the pill no longer says Needs upgrade", pills().get("older") != "Needs upgrade", pills())
-        notes = a.wait("the notes", lambda: a.req("activate upgrade.notes").get("text"), 10, 0.5) or ""
-        check("the dialog lists the notes", "format 5" in notes, notes)
+        check("the row no longer says Needs upgrade", words().get("older") != "Needs upgrade", words())
+        check("success leaves no dialog or card", not a.req("alert").get("found") and not a.state()["chrome"]["card"], a.state()["chrome"]["card"])
+    finally:
+        a.stop()
+
+
+def remove():
+    """Remove asks first, with Cancel as the default, then moves a stopped machine's folder to
+    the trash (the core's self-test trash here) and says so; the other machines stay."""
+    create_machine("octane2")
+    create_machine("keepme")
+    a = App()
+    try:
+        a.wait("library", lambda: len(a.state()["library"]) == 2, 30)
+        a.req("alerts on")
+        asked = lambda: a.wait("the alert", lambda: a.req("alert") if a.req("alert").get("found") else None, 10, 0.2) or {}
+        a.req("invoke machine.remove octane2")
+        al = asked()
+        check("Remove asks to move it to the Trash, Cancel first and by default", al.get("heading") == "Move octane2 to the Trash?" and al.get("buttons") == ["Cancel", "Move to Trash"] and al.get("default") == "Cancel", al)
+        a.req("activate alert.dialog 0")
+        time.sleep(1)
+        check("Cancel keeps the machine", os.path.isdir(os.path.join(lib, "octane2")) and "octane2" in a.state()["library"], a.state()["library"])
+        a.req("invoke machine.remove octane2")
+        asked()
+        a.req("activate alert.dialog 1")
+        gone = a.wait("the folder to move", lambda: not os.path.exists(os.path.join(lib, "octane2")), 30, 0.5)
+        trashed = a.state()["trashed"]
+        check("Move to Trash takes the machine's folder out of the library and hands it to the trash", gone and [os.path.basename(t) for t in trashed] == ["octane2"], trashed)
+        a.wait("the library", lambda: "octane2" not in a.state()["library"], 30, 0.5)
+        check("the library no longer lists it and keeps the other", a.state()["library"] == ["keepme"], a.state()["library"])
+        check("a toast says it was moved", a.state()["chrome"]["toast"] == "octane2 moved to the Trash", a.state()["chrome"]["toast"])
+        check("a running or closed machine's tab went with it", not a.machine("octane2"), a.state()["machines"])
+    finally:
+        a.stop()
+
+
+def shortcuts():
+    """The Keyboard shortcuts command is enabled and opens the shortcuts window."""
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        check("Keyboard shortcuts is enabled in the menu", a.state()["enabled"]["view.shortcuts"] is True, a.state()["enabled"])
+        r = a.req("invoke view.shortcuts")
+        opened = a.wait("the window", lambda: a.req("widget shortcuts.window").get("found"), 10, 0.2)
+        check("the Keyboard shortcuts window opens", r.get("ok") and opened, r)
+    finally:
+        a.stop()
+
+
+def empty():
+    """The empty states say the core's words: no machines yet, and nothing chosen."""
+    a = App()
+    try:
+        a.wait("the page", lambda: a.req("widget empty.no-machines").get("mapped"), 30, 0.5)
+        check("an empty library says No machines yet, with a New machine button", a.req("widget empty.no-machines").get("mapped") is True, a.req("widget empty.no-machines"))
+    finally:
+        a.stop()
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        check("with machines and none open it says Choose a machine", a.wait("the page", lambda: a.req("widget empty.none-selected").get("mapped"), 10, 0.5) is not None, a.req("widget empty.none-selected"))
+    finally:
+        a.stop()
+
+
+def forms():
+    """New machine, Settings and the shortcuts window as the redesign lays them out, through the real controls."""
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("invoke machine.new")
+        a.wait("the dialog", lambda: a.req("widget new.disk.install").get("found"), 30, 0.5)
+        rows = lambda p: {r["name"]: r for r in a.req("rows " + p).get("rows", [])}
+        disk = rows("new.disk-row")
+        check("the disk choices are rows with the core's captions", disk.get("new.disk-row.install", {}).get("subtitle") == "Start with an empty disk and run the install assistant." and disk.get("new.disk-row.none", {}).get("subtitle") == "Add one later in Settings.", disk)
+        check("a ready-made disk, when offered, is first", "new.disk-row.ready" not in disk or list(disk)[0] == "new.disk-row.ready", list(disk))
+        time.sleep(3)
+        shot("forms-new-machine")
+        r = a.req("activate new.name octane2")
+        a.req("activate new.disk.none")
+        taken = a.wait("Create", lambda: a.req("activate new.create").get("ok"), 20, 0.5)
+        a.req("activate new.name")
+        shot("forms-new-machine-name")
+        a.req("activate new.dialog")
+        time.sleep(1)
+        a.req("invoke machine.settings octane2")
+        a.wait("the dialog", lambda: a.req("widget settings.dialog").get("found"), 30, 0.5)
+        a.req("activate prefs.page.network")
+        time.sleep(1)
+        modes = rows("settings.network-row")
+        check("Network modes are rows with radios and the core's captions", set(modes) >= {"settings.network-row.user", "settings.network-row.private", "settings.network-row.none"} and modes["settings.network-row.user"]["subtitle"] == "Internet through this computer.", modes)
+        shot("forms-settings-network")
+        a.req("activate prefs.page.drives")
+        time.sleep(1)
+        shot("forms-settings-drives")
+        a.req("activate prefs.page.startup-firmware")
+        time.sleep(1)
+        check("Settings says Startup messages on", a.req("rows settings.startup-messages").get("rows", [{}])[0].get("title") == "Startup messages on", a.req("rows settings.startup-messages"))
+        a.req("activate settings.dialog")
+        time.sleep(1)
+    finally:
+        a.stop()
+
+
+def drops():
+    """A CD image dropped on a machine's page changes its disc; a disk image dropped on the library
+    starts New machine with it; anything else is refused."""
+    create_machine("octane2")
+    iso = os.path.join(work, "dropped.iso")
+    open(iso, "wb").write(bytes(2048))
+    img = os.path.join(work, "dropped.img")
+    open(img, "wb").write(bytes(1024 * 1024))
+    other = os.path.join(work, "dropped.txt")
+    open(other, "w").write("not an image")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        toml = lambda: open(os.path.join(lib, "octane2", "machine.toml")).read()
+        r = a.req("drop page " + other)
+        check("a file that is no image is refused", r.get("ok") is False, r)
+        r = a.req("drop page " + iso)
+        check("a CD image dropped on the page is accepted", r.get("ok"), r)
+        check("and becomes the machine's CD", a.wait("the file", lambda: "dropped.iso" in toml(), 30, 0.5), toml()[-300:])
+        r = a.req("drop library " + img)
+        opened = a.wait("New machine", lambda: a.req("widget new.dialog").get("found"), 30, 0.5)
+        check("a disk image dropped on the library opens New machine", r.get("ok") and opened, r)
+        a.req("activate new.dialog")
+    finally:
+        a.stop()
+
+
+def tabs():
+    """A tab's dot takes the colour of the machine's state tone and its tooltip says the word, so colour
+    never comes alone. Starting is caution (amber), Running success (green), Stopped no tone."""
+    for n in ("octane2", "octane2-b"):
+        create_machine(n)
+    a = App()
+    try:
+        a.wait("library", lambda: len(a.state()["library"]) == 2, 30)
+        a.req("open octane2")
+        a.req("open octane2-b")
+        states = lambda: {t["title"]: t for t in a.state()["chrome"]["tab_states"]}
+        check("a stopped machine's tab says Stopped", states()["octane2"]["tooltip"].startswith("Stopped\n"), states())
+        a.req("invoke machine.start octane2")
+        a.wait("Starting", lambda: (a.machine("octane2") or {}).get("state") == "Starting", 15, 0.1)
+        time.sleep(1)
+        # How long Starting lasts depends on the host: judge the dot by the word the tab gives.
+        def tone():
+            t = states()["octane2"]
+            word, dot = t["tooltip"].split("\n")[0], t["dot"]
+            if not dot or word not in ("Starting", "Running"):
+                return None
+            r, g, b = dot
+            ok = (r > b + 60 and g > 80) if word == "Starting" else (g > r + 40 and g > b + 40)
+            return word if ok else None
+        word = a.wait("the dot", tone, 20, 0.3)
+        check("a tab's dot takes its state's tone and the tooltip says the word", bool(word), states()["octane2"])
+        shot("tabs-starting")
+        a.req("invoke machine.force-quit octane2")
+        a.wait("down", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+    finally:
+        a.stop()
+
+
+def cards():
+    """The machine page's cards: a machine that cannot start says why in a sentence with its fix and
+    the detail behind Show details."""
+    create_machine("broken")
+    path = os.path.join(lib, "broken", "machine.toml")
+    gone = '\n[[drive]]\nname = "disk1"\ntype = "disk"\nbus = 0\ntarget = 1\nimage = "drives/gone.qcow2"\nread_only = false\n'
+    open(path, "a").write(gone)
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open broken")
+        a.req("invoke machine.start broken")
+        card = a.wait("the card", lambda: a.req("widget card.details").get("found") or None, 30, 0.5)
+        rows = a.req("rows machine.page").get("rows", [])
+        check("a machine that cannot start shows a card with Show details", bool(card), rows)
+        time.sleep(1)
+        shot("cards-cant-start")
+        check("the machine page is still stopped, with a card instead of a picture", a.machine("broken")["state"] == "Stopped", a.machine("broken")["state"])
     finally:
         a.stop()
 
@@ -1475,11 +1724,12 @@ def sidebar():
     if mode != "x11":
         skip("sidebar", "needs XTest")
         return
-    for n in ("octane2", "octane2-b", "octane2-c"):
+    long_name = "a-long-machine-name-that-cannot-fit-in-a-sidebar-row"
+    for n in ("octane2", "octane2-b", "octane2-c", long_name):
         create_machine(n)
     a = App()
     try:
-        a.wait("library", lambda: len(a.state()["library"]) == 3, 30)
+        a.wait("library", lambda: len(a.state()["library"]) == 4, 30)
         chrome = lambda: a.state()["chrome"]
         opened = lambda: sorted(m["name"] for m in a.state()["machines"])
 
@@ -1493,6 +1743,10 @@ def sidebar():
 
         time.sleep(1)
         shot("sidebar-empty")
+        check("rows carry no pill", chrome()["row_pills"] == 0, chrome()["row_pills"])
+        long = [r for r in chrome()["row_names"] if r["text"] == long_name]
+        check("a long name is middle-ellipsized", bool(long) and long[0]["mode"] == "middle" and long[0]["ellipsized"], long)
+        check("a stopped row says its model, with no dot", all(r["word"] == "Octane2" and not r["dot"] for r in chrome()["row_names"] if r["text"].startswith("octane2")), chrome()["row_names"])
         row("octane2")
         click()
         time.sleep(0.5)
@@ -1501,10 +1755,19 @@ def sidebar():
         click(1, 2)
         a.wait("tab", lambda: opened() == ["octane2-b"], 20, 0.2)
         check("a double click opens the machine in a tab", opened() == ["octane2-b"], opened())
+        check("the highlighted row is the open machine", chrome()["selected"] == "octane2-b", chrome()["selected"])
+        check("the title's subtitle is the state", chrome()["title"] == ["octane2-b", "Stopped"], chrome()["title"])
+        check("the tab bar is hidden with one machine open", chrome()["autohide"] and not chrome()["tabs_revealed"], [chrome()["autohide"], chrome()["tabs_revealed"]])
+        a.req("invoke machine.pointer-capture octane2-b")
+        check("the pointer toggle follows the mode", a.wait("on", lambda: chrome()["pointer_toggle"], 5, 0.2) is not None, chrome()["pointer_toggle"])
+        a.req("invoke machine.pointer-follow octane2-b")
+        check("and goes up again", a.wait("off", lambda: not chrome()["pointer_toggle"], 5, 0.2) is not None, chrome()["pointer_toggle"])
+        check("the bottom bar is hidden while it is stopped", not chrome()["bottom_bar"]["revealed"], chrome()["bottom_bar"])
         row("octane2")
         click(1, 2)
         a.wait("tab", lambda: len(opened()) == 2, 20, 0.2)
         check("a second double click keeps the first tab", opened() == ["octane2", "octane2-b"], opened())
+        check("the tab bar shows with the second", a.wait("tabs", lambda: chrome()["tabs_revealed"], 10, 0.2) is not None, chrome()["tabs_revealed"])
         time.sleep(0.5)
         shot("sidebar-tabs")
         c = chrome()
@@ -1514,7 +1777,7 @@ def sidebar():
         row("octane2-c")
         click(3)
         shown = a.wait("row menu", lambda: chrome()["row_menu"], 20, 0.2)
-        check("a right click shows the row menu with its items", shown and chrome()["row_menu_items"] == ["Open in new tab", "Show in Files", "Diagnostics"], chrome())
+        check("a right click shows the row menu with its items", shown and chrome()["row_menu_items"] == ["Open in new tab", "Show in Files", "Diagnostics", "Move to Trash…"], chrome())
         shot("sidebar-menu")
         key("Return")
         a.wait("tab", lambda: len(opened()) == 3, 20, 0.2)
@@ -1575,9 +1838,8 @@ def about():
 
 
 def hinv():
-    """The About egg: typing hinv slides the host inventory over the credits,
-    Escape puts the credits back and leaves About open. The custom About needs
-    a hardware GPU for its cube."""
+    """The About egg: typing hinv puts the host inventory in About's troubleshooting page. About is
+    libadwaita's own dialog, with the cube in place of its icon where there is a GPU for it."""
     if mode != "x11":
         skip("hinv", "needs XTest")
         return
@@ -1587,18 +1849,12 @@ def hinv():
         a.wait("library", lambda: a.state()["library"], 30)
         a.req("invoke app.about")
         time.sleep(3)
-        if "no cube" in open(os.path.join(out, "app.log")).read():
-            skip("the hinv egg", "no hardware GPU, so About is the stock dialog")
-            return
+        about = a.wait("About", lambda: a.req("about") if a.req("about").get("found") else None, 10, 0.5) or {}
+        check("About names Origami and shows the version without a git hash", about.get("name") == "Origami" and re.fullmatch(r"Version [0-9][0-9.]*", about.get("version", "")), about)
         shot("about-credits")
         type_text("hinv")
-        time.sleep(3)
-        text = ocr(shot("about-hinv"))
-        check("typing hinv shows the host inventory", "Main memory" in text or "Processor" in text, text[-300:])
-        key("Escape")
-        time.sleep(2)
-        text = ocr(shot("about-back"))
-        check("Escape hides the inventory and leaves About open", "About Origami" in text and "Main memory" not in text, text[-300:])
+        got = a.wait("the inventory", lambda: (a.req("about").get("debug_info") or None), 30, 0.5) or ""
+        check("typing hinv gives About the host inventory", "Main memory" in got or "Processor" in got, got[-300:])
     finally:
         a.stop()
 
@@ -1724,7 +1980,7 @@ def audit_dialogs(a, machine, fit):
     a.req("invoke machine.install-irix " + machine)
     a.wait("the install assistant", lambda: a.req("audit install.window").get("steps"), 30, 0.5)
     steps = [re.sub(r"^\d+\.\s*", "", s) for s in a.req("audit install.window")["steps"]]
-    sh("wmctrl", "-c", "Install IRIX")
+    a.req("activate install.window")
     time.sleep(1)
     about = a.req("about-text")
     return {"platform": "linux", "sidebar_heading": heading, "settings_tabs": tabs, "new_machine_fields": fields, "install_steps": steps,
@@ -1824,13 +2080,11 @@ def docs():
         doc_shot("linux-paused")
         a.req("invoke machine.resume octane2")
         a.wait("Running", lambda: a.machine("octane2")["state"] == "Running", 15, 0.2)
-        b = a.state()["cpu_btn"]
-        pointer_to(b[0] + b[2] / 2, b[1] + b[3] / 2)
-        click()
+        a.req("invoke view.cpu-load octane2")
         a.wait("CPU rows", lambda: (a.machine("octane2")["cpu_panel"]["rows"] or None), 20, 0.5)
         time.sleep(2)
         doc_shot("linux-cpu-panel")
-        click()
+        a.req("invoke view.cpu-load octane2")
         a.req("invoke window.diagnostics octane2")
         diagnostics_window(a, "octane2")
         doc_shot("linux-diagnostics", "Diagnostics")
@@ -1855,14 +2109,14 @@ def docs():
         time.sleep(1)
         a.req("invoke machine.settings octane2")
         a.wait("the Network page", lambda: a.req("activate prefs.page.network").get("ok"), 30, 0.5)
-        a.wait("Bridged", lambda: a.req("activate settings.network Bridged").get("ok"), 30, 0.5)
+        a.wait("Bridged", lambda: a.req("activate settings.network.tap").get("ok"), 30, 0.5)
         time.sleep(2)
         doc_shot("linux-network")
         key("Escape")
         time.sleep(1)
         # New Machine with a ready-made disk: the list comes from origami-dist, so the choice appears once it answers.
         a.req("invoke machine.new")
-        a.wait("Ready-made disk", lambda: a.req("activate new.disk Ready-made disk").get("ok"), 60, 1)
+        a.wait("Ready-made disk", lambda: a.req("activate new.disk.ready").get("ok"), 60, 1)
         a.req("activate new.name irix")
         time.sleep(2)
         doc_shot("linux-ready-disk")
@@ -1870,15 +2124,15 @@ def docs():
         time.sleep(1)
         # The Install IRIX assistant at its Software step; the media is only chosen here, not fetched.
         a.req("invoke machine.install-irix octane2")
-        for step in ("Release", "Media"):
+        for step in ("Release", "Discs"):
             a.wait(step, lambda: a.req("activate install.step").get("text") == step, 60, 0.5)
             a.wait("Continue", lambda: a.req("widget install.continue").get("sensitive"), 60, 0.5)
             a.req("activate install.continue")
         a.wait("Software", lambda: a.req("activate install.step").get("text") == "Software", 60, 0.5)
         a.wait("the packages", lambda: a.req("widget install.addon.mipspro").get("found"), 60, 0.5)
         time.sleep(2)
-        doc_shot("linux-install-assistant", "Install IRIX")
-        sh("wmctrl", "-c", "Install IRIX")
+        doc_shot("linux-install-assistant")
+        a.req("activate install.window")
         time.sleep(1)
         a.req("invoke app.about")
         time.sleep(3)
@@ -1902,7 +2156,7 @@ def docs():
         a.stop()
 
 
-SCENARIOS = {"layout": layout, "docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "actual-size-loop": actual_size_loop, "first-light": first_light, "pointer": lambda: first_light(True)}
+SCENARIOS = {"layout": layout, "docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "actual-size-loop": actual_size_loop, "first-light": first_light, "cards": cards, "tabs": tabs, "drops": drops, "forms": forms, "remove": remove, "shortcuts": shortcuts, "empty": empty, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

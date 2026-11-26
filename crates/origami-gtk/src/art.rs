@@ -233,6 +233,11 @@ mod pt {
     }
 }
 
+/// The hero still as a paintable at its size in points, for a status page.
+pub fn hero_paintable(id: &str) -> Option<gdk::Paintable> {
+    texture(id, "hero@2x").map(|t| pt::Pt2x::new(&t).upcast())
+}
+
 /// The framed still, `card` (120 by 90 pt) or `hero` (240 by 180 pt), at that
 /// size and no larger. A picture alone stretches to the room it is offered.
 pub fn framed(id: &str, name: &str) -> Option<gtk::AspectFrame> {

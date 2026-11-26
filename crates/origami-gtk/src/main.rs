@@ -6,9 +6,11 @@
 //! device, or with `--no-import`, the engine copies the changed lines and the
 //! picture is a memory texture.
 
+mod alerts;
 mod app;
 mod art;
 mod automation;
+mod card;
 mod commands;
 mod config;
 mod console;
@@ -29,8 +31,8 @@ mod pointer_lock;
 mod prefs;
 mod prefs_dialog;
 mod settings;
+mod shortcuts;
 mod style;
-mod upgrade;
 mod view_scale;
 mod vk;
 mod window;
