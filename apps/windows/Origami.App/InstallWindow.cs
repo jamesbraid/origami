@@ -11,6 +11,7 @@ namespace Origami.App;
 public sealed class InstallWindow : Window
 {
     readonly UniffiCoreClient _core;
+    readonly MainWindow _host;
     readonly string _key;
     readonly Action _showMachine, _openConsole;
     readonly Func<string, Task> _tell;
@@ -19,51 +20,50 @@ public sealed class InstallWindow : Window
     readonly Grid _root = new();
     readonly StackPanel _steps = new() { Spacing = 6, Padding = new Thickness(16) };
     readonly StackPanel _body = new() { Spacing = 10, Padding = new Thickness(20, 16, 20, 16) };
-    readonly TextBlock _error = new() { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Foreground = new SolidColorBrush(Microsoft.UI.Colors.IndianRed), Margin = new Thickness(20, 12, 20, 0) };
+    readonly TextBlock _error = new() { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed, Foreground = Ui.ToneBrush(Tone.Critical), Margin = new Thickness(20, 12, 20, 0) };
     readonly StackPanel _stopped = new() { Orientation = Orientation.Horizontal, Spacing = 12, Visibility = Visibility.Collapsed, Margin = new Thickness(20, 12, 20, 0) };
+    readonly TextBlock _reason = new() { TextWrapping = TextWrapping.Wrap, Foreground = Ui.Secondary, Visibility = Visibility.Collapsed };
     readonly TextBlock _server = new() { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
     readonly Button _restart, _startOver, _cancel, _back, _continue;
-    readonly HashSet<string> _ticked = new();
-    readonly List<Button> _typeIts = new();
 
     OrigamiInstallFlow? _flow;
     OrigamiInstallGuide? _guide;
     OrigamiOperation? _serve, _check, _apply;
     OrigamiMediaFolder? _found;
-    string _planLine = "", _checkFailure = "", _checkInfo = "", _mediaError = "", _applyError = "";
+    OrigamiInstallPlan? _plan;
+    string _checkFailure = "", _checkInfo = "", _mediaError = "", _applyError = "";
     bool _serial, _noDisk, _busy, _closed, _closeApproved, _asking, _runStarted, _starting, _full;
     // Controls of the step on show that change after it was built.
     TextBlock? _mediaFile, _mediaVerdict, _checkStatus, _checkNote;
     ProgressBar? _checkBar;
     Button? _checkRun, _checkStop, _mediaChoose;
     CheckBox? _checkFull;
-    TextBlock? _applyHint, _applyLine, _applyFail;
-    ProgressBar? _applyBar;
-    Button? _applyRun, _applyStop, _applyFixed;
 
     /// <summary>The question on show, for the self-test.</summary>
     public ContentDialog? OpenDialog { get; private set; }
 
-    public InstallWindow(UniffiCoreClient core, string key, string name, Action showMachine, Action openConsole, Func<string, Task> tell)
+    public InstallWindow(MainWindow host, UniffiCoreClient core, string key, string name, Action showMachine, Action openConsole, Func<string, Task> tell)
     {
-        _core = core; _key = key; _showMachine = showMachine; _openConsole = openConsole; _tell = tell;
+        _host = host; _core = core; _key = key; _showMachine = showMachine; _openConsole = openConsole; _tell = tell;
         Title = "Install IRIX: " + name;
         AppIcon.Apply(this);
         AutomationProperties.SetAutomationId(_error, "install.error");
         AutomationProperties.SetAutomationId(_server, "install.footer.server");
+        AutomationProperties.SetAutomationId(_reason, "install.continue.reason");
         _stopped.Children.Add(new TextBlock { Text = Ui.T(OrigamiUiString.TheMachineStopped), VerticalAlignment = VerticalAlignment.Center });
-        _stopped.Children.Add(Btn("Start again", "install.startagain", () => _ = BusyAsync(() => _core.StartAsync(_key))));
+        _stopped.Children.Add(Btn(Ui.T(OrigamiUiString.StartAgain), "install.startagain", () => _ = BusyAsync(() => _core.StartAsync(_key))));
 
         _restart = Btn("Restart", "install.restart", () => _ = RestartServerAsync());
         _startOver = Btn("Start over", "install.startover", () => _ = StartOverAsync());
-        _cancel = Btn("Cancel", "install.cancel", () => _ = TryCloseAsync());
+        _cancel = Btn(Ui.T(OrigamiUiString.Cancel), "install.cancel", () => _ = TryCloseAsync());
         _back = Btn("Back", "install.back", () => { if (_busy) return; _flow!.Back(); ShowStep(); });
         _continue = Btn("Continue", "install.continue", () => _ = ContinueAsync());
+        _continue.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
         _restart.Visibility = _startOver.Visibility = Visibility.Collapsed;
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _restart, _startOver, _cancel, _back, _continue } };
         var footer = new Grid { Padding = new Thickness(16, 10, 16, 10), ColumnSpacing = 12, ColumnDefinitions = { new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }, new ColumnDefinition { Width = GridLength.Auto } } };
-        footer.Children.Add(_server);
+        footer.Children.Add(new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center, Children = { _server, _reason } });
         Grid.SetColumn(buttons, 1);
         footer.Children.Add(buttons);
 
@@ -87,14 +87,18 @@ public sealed class InstallWindow : Window
         _timer.Tick += (_, _) => Poll();
         _timer.Start();
         AppWindow.Closing += OnClosing;
-        Closed += (_, _) => { _closed = true; _timer.Stop(); _check?.Cancel(); };
+        Closed += (_, _) => { _closed = true; _timer.Stop(); _check?.Cancel(); GuideChanged?.Invoke(); };
         _ = BeginAsync();
     }
 
     // ---- hooks for the self-test and the main window ------------------------------------------
 
     internal OrigamiInstallStep? StepForTest => _flow?.Step();
-    internal List<string> StepNamesForTest => _flow?.Steps().Select(OrigamiFfiMethods.OrigamiInstallStepTitle).ToList() ?? new();
+    internal List<string> StepNamesForTest => _flow?.StepTitles().Select(t => $"{t.Number}. {t.Title}").ToList() ?? new();
+    /// <summary>The numbered title of a step, as the core lists it.</summary>
+    string TitleOf(OrigamiInstallStep s) => _flow!.StepTitles().First(t => t.Step == s).Title;
+    /// <summary>Why Continue is off, as the page says it.</summary>
+    public string ReasonForTest => _reason.Text;
     public string ServerLineForTest => _server.Text;
     public bool Serving => _serve?.State() is OrigamiOperationState.Running || _apply is not null;
 
@@ -132,12 +136,59 @@ public sealed class InstallWindow : Window
             // A machine left on the installation network offers to set it back on close.
             if (pending) _flow.SetPrepared();
             _flow.SetSerial(serial);
-            if (plan is not null)
-                _planLine = plan.Summary;
+            _plan = plan;
         }
         catch (Exception e) { ShowError(e.Message); return; }
         ShowStep();
     }
+
+    // ---- the guide: once the install starts it lives in the main window's pane ----------------
+
+    /// <summary>The steps from the PROM menu to the halt, once the core has read them.</summary>
+    internal OrigamiGuideStep[]? GuideSteps => _guide?.Steps;
+    public bool Serial => _serial;
+    public bool Automatic => _flow?.Automatic() ?? false;
+    /// <summary>The line at the foot: the install files, in the core's words.</summary>
+    public string GuideFooter => _flow is { } f ? Footer(f, f.Step()) : "";
+    public string ApplyHint => _flow?.ApplyHint() ?? "";
+    public bool CanInstall => _flow?.CanInstall(Up()) ?? false;
+    public bool CanFixed => _flow?.CanFixed() ?? false;
+    public bool Applying => _flow?.Apply() is OrigamiApplyState.Running;
+    public string ApplyLine => Applying ? _apply?.Progress() ?? "" : "";
+    public string ApplyFailure => _flow?.Apply() is OrigamiApplyState.Failed ? _applyError : "";
+    public bool CanFinish => _flow is { } f && f.Step() == OrigamiInstallStep.Finish && f.CanContinue(Up());
+    public string ContinueLabel => _flow?.ContinueLabel() ?? "";
+    /// <summary>How many leading guide steps the console shows done; asks the core, which reads the console from where it left off.</summary>
+    internal int GuideSeen() => _guide is { } g && _serial ? (int)_core.Open(_key).GuideSeen(g.Steps) : 0;
+    public bool Busy => _busy;
+    /// <summary>What went wrong while the guide runs, for the pane to show.</summary>
+    public string ErrorText => _error.Visibility == Visibility.Visible ? _error.Text : "";
+    /// <summary>The machine went down in the middle of the install: the pane offers Start again.</summary>
+    public bool MachineStopped => _stopped.Visibility == Visibility.Visible;
+    public void StartAgain() => _ = BusyAsync(() => _core.StartAsync(_key));
+    public bool Closing => _closed;
+    /// <summary>Raised when the guide appears, changes what it offers or goes away; the main window rebuilds its pane.</summary>
+    public event Action? GuideChanged;
+
+    /// <summary>The window's own pages end where the run begins: the machine starts, the guide moves to the pane, and this window steps aside.</summary>
+    void EnterGuide()
+    {
+        var flow = _flow!;
+        if (!_runStarted) { _runStarted = true; _ = EnterRunAsync(); }
+        // The guide lists every step to the halt, so the flow's own pages in between are passed over.
+        var last = flow.Automatic() ? OrigamiInstallStep.Packages : OrigamiInstallStep.Finish;
+        while (flow.Step() < last) flow.Next();
+        AppWindow.Hide();
+        GuideChanged?.Invoke();
+        Poll();
+    }
+
+    public void RunInstall() => _ = RunApplyAsync();
+    public void StopInstall() => _apply?.Cancel();
+    public void InstallFixed() { _flow!.Fixed(); GuideChanged?.Invoke(); }
+    public void FinishInstall() => _ = ContinueAsync();
+    public Task CancelAsync() => TryCloseAsync();
+    public void TypeText(string send) => TypeIt(send);
 
     // ---- the frame ---------------------------------------------------------------------------
 
@@ -176,17 +227,14 @@ public sealed class InstallWindow : Window
         _error.Visibility = Visibility.Collapsed;
         var step = flow.Step();
         _steps.Children.Clear();
-        var listed = flow.Steps().ToList();
-        for (var i = 0; i < listed.Count; i++)
+        foreach (var t in flow.StepTitles())
         {
-            var s = listed[i];
-            var now = s == step;
-            _steps.Children.Add(new TextBlock { Text = $"{i + 1}. " + OrigamiFfiMethods.OrigamiInstallStepTitle(s), FontWeight = now ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal, Opacity = now ? 1 : 0.7 });
+            var now = t.State == OrigamiStepState.Current;
+            _steps.Children.Add(new TextBlock { Text = $"{t.Number}. {t.Title}", FontWeight = now ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal, Opacity = t.State == OrigamiStepState.Later ? 0.7 : 1 });
         }
         _body.Children.Clear();
-        _typeIts.Clear();
-        _applyHint = _applyLine = _applyFail = null; _applyBar = null; _applyRun = _applyStop = _applyFixed = null;
         _mediaFile = _mediaVerdict = _checkStatus = _checkNote = null; _checkBar = null; _checkRun = _checkStop = _mediaChoose = null; _checkFull = null;
+        if (step >= OrigamiInstallStep.Prepare) { EnterGuide(); return; }
         switch (step)
         {
             case OrigamiInstallStep.Release: BuildRelease(); break;
@@ -195,9 +243,7 @@ public sealed class InstallWindow : Window
             case OrigamiInstallStep.Method: BuildMethod(); break;
             case OrigamiInstallStep.Disk: _ = BuildDiskAsync(); break;
             case OrigamiInstallStep.Check: BuildCheck(); break;
-            default: BuildGuide(); break;
         }
-        if (step == OrigamiInstallStep.Prepare && !_runStarted) { _runStarted = true; _ = EnterRunAsync(); }
         Poll();
     }
 
@@ -209,12 +255,11 @@ public sealed class InstallWindow : Window
         var step = flow.Step();
         var inRun = step is >= OrigamiInstallStep.Prepare and <= OrigamiInstallStep.Packages;
         _stopped.Visibility = inRun && _runStarted && !_starting && !Up() && !(flow.Automatic() && flow.Apply() is OrigamiApplyState.Done) ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var b in _typeIts) b.Visibility = _serial && st == MachineState.Running ? Visibility.Visible : Visibility.Collapsed;
 
         var failed = _serve?.State() as OrigamiOperationState.Failed;
         _restart.Visibility = failed is not null ? Visibility.Visible : Visibility.Collapsed;
-        _server.Text = failed?.Message ?? (_serve?.Progress() ?? (flow.Resumed() && step <= OrigamiInstallStep.Check ? _planLine : ""));
-        if (failed is not null) _server.Foreground = new SolidColorBrush(Microsoft.UI.Colors.IndianRed); else _server.ClearValue(TextBlock.ForegroundProperty);
+        _server.Text = failed?.Message ?? Footer(flow, step);
+        if (failed is not null) _server.Foreground = Ui.ToneBrush(Tone.Critical); else _server.ClearValue(TextBlock.ForegroundProperty);
 
         var checking = flow.Check() == OrigamiCheckState.Running;
         _startOver.Visibility = flow.Resumed() && step <= OrigamiInstallStep.Check ? Visibility.Visible : Visibility.Collapsed;
@@ -222,9 +267,15 @@ public sealed class InstallWindow : Window
         _back.IsEnabled = !_busy && flow.CanBack() && !checking;
         _continue.Content = flow.ContinueLabel();
         _continue.IsEnabled = !_busy && flow.CanContinue(Up());
+        _reason.Text = flow.ContinueReason(Up()) ?? "";
+        _reason.Visibility = _reason.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (step == OrigamiInstallStep.Check) UpdateCheck();
-        if (step == OrigamiInstallStep.Packages) UpdateApply();
+        GuideChanged?.Invoke();
     }
+
+    /// <summary>The line at the foot while the install files are served, in the core's words and with no address.</summary>
+    string Footer(OrigamiInstallFlow flow, OrigamiInstallStep step) =>
+        _plan is { } p && (_serve?.State() is OrigamiOperationState.Running || (flow.Resumed() && step <= OrigamiInstallStep.Check)) ? OrigamiFfiMethods.OrigamiInstallFooter(p) : "";
 
     async Task<bool> BusyAsync(Func<Task> work)
     {
@@ -255,10 +306,11 @@ public sealed class InstallWindow : Window
     async Task StartOverAsync()
     {
         if (_flow is not { } flow) return;
-        _serve?.Cancel(); _serve = null; _guide = null; _ticked.Clear(); _runStarted = false;
+        _serve?.Cancel(); _serve = null; _guide = null; _runStarted = false;
+        AppWindow.Show();
         if (!await BusyAsync(() => Task.Run(() => _core.Raw.InstallReset(_key)))) return;
         flow.Restart();
-        _planLine = "";
+        _plan = null;
         ShowStep();
     }
 
@@ -267,7 +319,7 @@ public sealed class InstallWindow : Window
     void BuildRelease()
     {
         var flow = _flow!;
-        _body.Children.Add(Heading("Release"));
+        _body.Children.Add(Heading(TitleOf(OrigamiInstallStep.Release)));
         var list = new StackPanel { Spacing = 6 };
         _body.Children.Add(list);
         void Fill()
@@ -304,14 +356,14 @@ public sealed class InstallWindow : Window
     void BuildMedia()
     {
         var flow = _flow!;
-        _body.Children.Add(Heading("Media"));
-        var download = new RadioButton { Content = "Download them from the Origami server", GroupName = "media", IsChecked = !flow.UseFolder() };
-        var folder = new RadioButton { Content = _t.MediaFolder, GroupName = "media", IsChecked = flow.UseFolder() };
+        _body.Children.Add(Heading(Ui.T(OrigamiUiString.WhereShouldTheDiscsComeFrom)));
+        var download = new RadioButton { Content = Ui.T(OrigamiUiString.DownloadThem), GroupName = "media", IsChecked = !flow.UseFolder() };
+        var folder = new RadioButton { Content = Ui.T(OrigamiUiString.UseDiscsIAlreadyHave), GroupName = "media", IsChecked = flow.UseFolder() };
         AutomationProperties.SetAutomationId(download, "install.media.download");
         AutomationProperties.SetAutomationId(folder, "install.media.folder");
-        var note = Text(_t.MediaDownload, dim: true);
+        var note = Text(Ui.T(OrigamiUiString.NeedsAnInternetConnection), dim: true);
         note.Margin = new Thickness(28, 0, 0, 8);
-        _mediaChoose = Btn("Choose folder…", "install.media.choose", () => _ = ChooseFolderAsync());
+        _mediaChoose = Btn(Ui.T(OrigamiUiString.ChooseFolder), "install.media.choose", () => _ = ChooseFolderAsync());
         _mediaFile = new TextBlock { TextWrapping = TextWrapping.Wrap };
         _mediaVerdict = new TextBlock { TextWrapping = TextWrapping.Wrap };
         AutomationProperties.SetAutomationId(_mediaFile, "install.media.path");
@@ -330,10 +382,10 @@ public sealed class InstallWindow : Window
         if (_flow is not { } flow || _mediaVerdict is null || _mediaFile is null || _mediaChoose is null) return;
         _mediaChoose.Visibility = _mediaFile.Visibility = _mediaVerdict.Visibility = flow.UseFolder() ? Visibility.Visible : Visibility.Collapsed;
         _mediaFile.Text = flow.Folder() ?? "";
-        if (_mediaError.Length > 0) { _mediaVerdict.Text = _mediaError; _mediaVerdict.Foreground = new SolidColorBrush(Tones.For("red")); return; }
+        if (_mediaError.Length > 0) { _mediaVerdict.Text = _mediaError; _mediaVerdict.Foreground = Ui.ToneBrush(Tone.Critical); return; }
         _mediaVerdict.Text = _found?.Verdict ?? (flow.Folder() is null ? "" : "Looking…");
         // Green for all the discs, amber for some, red for none.
-        if (_found is { } m) _mediaVerdict.Foreground = new SolidColorBrush(Tones.For(m.Complete ? "green" : m.Found > 0 ? "amber" : "red"));
+        if (_found is { } m) _mediaVerdict.Foreground = Ui.ToneBrush(m.Complete ? Tone.Success : m.Found > 0 ? Tone.Caution : Tone.Critical);
     }
 
     async Task ChooseFolderAsync()
@@ -363,7 +415,7 @@ public sealed class InstallWindow : Window
     async Task BuildSoftwareAsync()
     {
         var flow = _flow!;
-        _body.Children.Add(Heading("Software"));
+        _body.Children.Add(Heading(TitleOf(OrigamiInstallStep.Software)));
         var list = new StackPanel { Spacing = 8 };
         _body.Children.Add(list);
         try { flow.SetChoices(await Task.Run(() => _core.Raw.InstallAddonChoices(_key, flow.Profile()))); }
@@ -389,22 +441,22 @@ public sealed class InstallWindow : Window
             var at = (uint)i;
             var row = new Grid { ColumnDefinitions = { new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }, new ColumnDefinition { Width = GridLength.Auto } } };
             row.Children.Add(Text(extras[i].Source + (extras[i].Install.Length > 0 ? ": " + string.Join(", ", extras[i].Install) : "")));
-            var remove = Btn("Remove", "install.package.remove", () => { flow.RemoveExtra(at); FillSoftware(list); });
+            var remove = Btn(Ui.T(OrigamiUiString.Remove), "install.package.remove", () => { flow.RemoveExtra(at); FillSoftware(list); });
             Grid.SetColumn(remove, 1);
             row.Children.Add(remove);
             list.Children.Add(row);
         }
-        list.Children.Add(Btn("Add a package…", "install.package.add", () => _ = AddPackageAsync(list)));
+        list.Children.Add(Btn(Ui.T(OrigamiUiString.AddAPackage2), "install.package.add", () => _ = AddPackageAsync(list)));
     }
 
     async Task AddPackageAsync(StackPanel list)
     {
         if (OpenDialog is not null) return;
         var source = new TextBox { Header = Ui.T(OrigamiUiString.SourceAFileOrAn), PlaceholderText = "https://" };
-        var lines = new TextBox { Header = "Packages to install (one per line)", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 90 };
+        var lines = new TextBox { Header = Ui.T(OrigamiUiString.PackagesToInstallOnePerLine), AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 90 };
         AutomationProperties.SetAutomationId(source, "install.package.source");
         AutomationProperties.SetAutomationId(lines, "install.package.lines");
-        var choose = Btn("Choose file…", "install.package.choose", () => _ = ChooseFileAsync(source));
+        var choose = Btn(Ui.T(OrigamiUiString.ChooseFile), "install.package.choose", () => _ = ChooseFileAsync(source));
         var dlg = new ContentDialog
         {
             XamlRoot = _root.XamlRoot, Title = Ui.T(OrigamiUiString.AddAPackage),
@@ -434,7 +486,7 @@ public sealed class InstallWindow : Window
     async Task BuildDiskAsync()
     {
         var flow = _flow!;
-        _body.Children.Add(Heading("Disk"));
+        _body.Children.Add(Heading(TitleOf(OrigamiInstallStep.Disk)));
         OrigamiDiskState disk;
         try { disk = await ReadDiskAsync(); }
         catch (Exception e) { ShowError(e.Message); return; }
@@ -465,10 +517,10 @@ public sealed class InstallWindow : Window
 
     void BuildCheck()
     {
-        _body.Children.Add(Heading("Check"));
+        _body.Children.Add(Heading(TitleOf(OrigamiInstallStep.Check)));
         _body.Children.Add(Text(_t.CheckIntro));
-        _checkRun = Btn("Check now", "install.check.run", () => _ = RunCheckAsync());
-        _checkStop = Btn("Cancel", "install.check.cancel", () => _check?.Cancel());
+        _checkRun = Btn(Ui.T(OrigamiUiString.CheckNow), "install.check.run", () => _ = RunCheckAsync());
+        _checkStop = Btn(Ui.T(OrigamiUiString.Cancel), "install.check.cancel", () => _check?.Cancel());
         _checkFull = Tick("install.check.full", Text("Check thoroughly (also reads the downloaded discs)"), _full, v => _full = v);
         _checkStatus = new TextBlock { TextWrapping = TextWrapping.Wrap };
         _checkNote = Text("", dim: true);
@@ -488,15 +540,9 @@ public sealed class InstallWindow : Window
         var running = state == OrigamiCheckState.Running;
         _checkBar.Visibility = _checkStop.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         _checkRun.IsEnabled = _checkFull.IsEnabled = !running;
-        _checkRun.Content = state == OrigamiCheckState.Failed ? "Check again" : "Check now";
-        _checkStatus.Text = state switch
-        {
-            OrigamiCheckState.Running => _t.Checking,
-            OrigamiCheckState.Passed => _t.Passed,
-            OrigamiCheckState.Failed => _checkFailure,
-            _ => "Ready.",
-        };
-        _checkStatus.Foreground = state == OrigamiCheckState.Failed ? new SolidColorBrush(Tones.For("red")) : state == OrigamiCheckState.Passed ? new SolidColorBrush(Tones.For("green")) : _checkNote.Foreground;
+        _checkRun.Content = Ui.T(state == OrigamiCheckState.Failed ? OrigamiUiString.CheckAgain : OrigamiUiString.CheckNow);
+        _checkStatus.Text = state == OrigamiCheckState.Failed ? _checkFailure : flow.CheckStatus() ?? "";
+        _checkStatus.Foreground = state == OrigamiCheckState.Failed ? Ui.ToneBrush(Tone.Critical) : state == OrigamiCheckState.Passed ? Ui.ToneBrush(Tone.Success) : _checkNote.Foreground;
         _checkNote.Text = _checkInfo;
         _checkNote.Visibility = _checkInfo.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -514,6 +560,7 @@ public sealed class InstallWindow : Window
                 var setup = flow.Setup();
                 var report = await Task.Run(() => _core.Raw.InstallPrepare(_key, setup));
                 flow.SetPrepared();
+                _plan = await Task.Run(() => _core.Raw.InstallPlan(_key));
                 _checkInfo = string.Join(" ", report.Where(l => l.Kind is OrigamiLineKind.Warning or OrigamiLineKind.Advice).Select(l => l.Text));
             }
             var op = _check = await Task.Run(() => _core.Raw.InstallCheck(_key, _full));
@@ -559,7 +606,7 @@ public sealed class InstallWindow : Window
     void BuildMethod()
     {
         var flow = _flow!;
-        _body.Children.Add(Heading("Method"));
+        _body.Children.Add(Heading(TitleOf(OrigamiInstallStep.Method)));
         _body.Children.Add(Text("How should the install run?"));
         foreach (var (m, id, name, note) in new[]
         {
@@ -572,41 +619,6 @@ public sealed class InstallWindow : Window
             radio.Checked += (_, _) => flow.SetMethod(m);
             _body.Children.Add(radio);
         }
-    }
-
-    void BuildApply()
-    {
-        _applyHint = Text("");
-        _applyLine = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        _applyFail = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Tones.For("red")) };
-        _applyBar = new ProgressBar { IsIndeterminate = true };
-        AutomationProperties.SetAutomationId(_applyHint, "install.apply.hint");
-        AutomationProperties.SetAutomationId(_applyFail, "install.apply.error");
-        _applyRun = Btn("Install", "install.apply.run", () => _ = RunApplyAsync());
-        _applyStop = Btn("Cancel install", "install.apply.cancel", () => _apply?.Cancel());
-        _applyFixed = Btn("I fixed it at Inst>", "install.apply.fixed", () => { _flow!.Fixed(); ShowStep(); });
-        _body.Children.Add(_applyHint); _body.Children.Add(_applyFail);
-        _body.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _applyRun, _applyStop, _applyFixed, Btn("Open console", "install.apply.console", _openConsole) } });
-        _body.Children.Add(_applyBar); _body.Children.Add(_applyLine);
-        UpdateApply();
-    }
-
-    void UpdateApply()
-    {
-        if (_flow is not { } flow || _applyHint is null || _applyLine is null || _applyFail is null || _applyBar is null || _applyRun is null || _applyStop is null || _applyFixed is null) return;
-        var apply = flow.Apply();
-        var running = apply is OrigamiApplyState.Running;
-        _applyHint.Text = flow.ApplyHint();
-        _applyRun.IsEnabled = flow.CanInstall(Up());
-        _applyFixed.Visibility = flow.CanFixed() ? Visibility.Visible : Visibility.Collapsed;
-        _applyStop.Visibility = _applyBar.Visibility = _applyLine.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
-        _applyFail.Text = apply is OrigamiApplyState.Failed ? _applyError : "";
-        _applyFail.Visibility = _applyFail.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
-        var line = running ? _apply?.Progress() ?? "" : "";
-        _applyLine.Text = line;
-        var pct = System.Text.RegularExpressions.Regex.Matches(line, @"(\d{1,3})%");
-        _applyBar.IsIndeterminate = pct.Count == 0;
-        if (pct.Count > 0) { _applyBar.Maximum = 100; _applyBar.Value = int.Parse(pct[^1].Groups[1].Value); }
     }
 
     async Task RunApplyAsync()
@@ -636,43 +648,6 @@ public sealed class InstallWindow : Window
         }
         _apply = null;
         if (!_closed) Poll();
-    }
-
-    void BuildGuide()
-    {
-        var step = _flow!.Step();
-        _body.Children.Add(Heading(OrigamiFfiMethods.OrigamiInstallStepTitle(step)));
-        if (_guide is not { } guide) { _body.Children.Add(Text("Reading the steps…", dim: true)); return; }
-        if (step == OrigamiInstallStep.Finish && _flow.Automatic()) { _body.Children.Add(Text("IRIX is installed and the machine is stopped.")); return; }
-        if (step == OrigamiInstallStep.Packages && _flow.Automatic()) { BuildApply(); return; }
-        var steps = step switch { OrigamiInstallStep.Prepare => guide.Prepare, OrigamiInstallStep.Installer => guide.Installer, OrigamiInstallStep.Packages => _flow.ByHand() ? guide.Restart : guide.Packages.Concat(guide.Restart).ToArray(), _ => guide.Finish };
-        var n = 0;
-        foreach (var g in steps)
-        {
-            var id = $"install.guide.{(int)step}.{n++}";
-            _body.Children.Add(Tick(id + ".check", Text(g.Text), _ticked.Contains(id), v => { if (v) _ticked.Add(id); else _ticked.Remove(id); }));
-            if (g.Command is null && g.Send is null) continue;
-            var tools = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(32, 0, 0, 0) };
-            if (g.Command is { } cmd)
-            {
-                _body.Children.Add(new TextBlock { Text = cmd, FontFamily = new FontFamily("Cascadia Mono, Consolas"), IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(32, 0, 0, 0) });
-                tools.Children.Add(Btn("Copy", id + ".copy", () => Copy(cmd)));
-            }
-            if (g.Send is { } send)
-            {
-                var b = Btn("Type it", id + ".typeit", () => TypeIt(send));
-                _typeIts.Add(b);
-                tools.Children.Add(b);
-            }
-            _body.Children.Add(tools);
-        }
-        if (step == OrigamiInstallStep.Packages) _body.Children.Add(Text(guide.PackageNote, dim: true));
-        if (step == OrigamiInstallStep.Finish) return;
-        _body.Children.Add(new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0),
-            Children = { Btn("Show machine", "install.showmachine", _showMachine), Btn("Open console", "install.openconsole", _openConsole) },
-        });
     }
 
     static void Copy(string text)
@@ -761,16 +736,18 @@ public sealed class InstallWindow : Window
     async Task<OrigamiCloseAction> Ask(OrigamiCloseQuestion q)
     {
         var b = q.Buttons;
+        // Once the guide is in the pane this window is hidden, so the question goes on the main window.
+        var shown = AppWindow.IsVisible;
         var dlg = new ContentDialog
         {
-            XamlRoot = _root.XamlRoot, Title = q.Heading, Content = Text(q.Text),
+            XamlRoot = shown ? _root.XamlRoot : _host.XamlRootForTest, Title = q.Heading, Content = Text(q.Text),
             PrimaryButtonText = b[0].Label, SecondaryButtonText = b.Length > 2 ? b[1].Label : "", CloseButtonText = b[^1].Label,
             DefaultButton = q.DefaultButton == 0 ? ContentDialogButton.Primary : q.DefaultButton == b.Length - 1 ? ContentDialogButton.Close : ContentDialogButton.Secondary,
         };
         OpenDialog = dlg;
         try
         {
-            return await dlg.ShowAsync() switch
+            return (shown ? await dlg.ShowAsync() : await _host.ShowDialogAsync(dlg)) switch
             {
                 ContentDialogResult.Primary => b[0].Action,
                 ContentDialogResult.Secondary => b[1].Action,

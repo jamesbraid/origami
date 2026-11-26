@@ -33,18 +33,20 @@ public interface ICoreClient : IDisposable
     /// <summary>The disks downloaded so far.</summary>
     IReadOnlyList<CachedDisk> CachedDisks();
     void RemoveCachedDisk(string key);
-    /// <summary>The OS and release on a disk image, such as "IRIX 6.5.30", or "Unknown".</summary>
-    Task<string> DiskInfoAsync(string path);
+    /// <summary>The OS and release on a disk image, such as "IRIX 6.5.30", or null when it is not recognised.</summary>
+    Task<string?> DiskOsAsync(string path);
     /// <summary>The same for the disk in a machine's drive; the core refuses a running machine it has not read before.</summary>
-    Task<string> DriveInfoAsync(string key, string drive);
+    Task<string?> DriveOsAsync(string key, string drive);
+    /// <summary>Each drive's title and caption for the Drives page, in the core's words.</summary>
+    Task<IReadOnlyList<DriveRow>> DriveRowsAsync(string key);
+    /// <summary>Where the PROM prints, as the core words it after "Startup messages on": "Screen" or "Console".</summary>
+    Task<string> StartupValueAsync(string key);
     /// <summary>What to say about a checked image and whether it can be added, given whether it is copied in.</summary>
     ImageVerdict Verdict(DiskImageCheck check, bool copy);
     /// <summary>The disk choices and how an image is kept, in the core's words.</summary>
     DiskLabels Labels();
     /// <summary>The engine as a person knows it, such as "QEMU (Origami)".</summary>
     string EngineName(string id);
-    /// <summary>The pointer status line, such as "Follows mouse".</summary>
-    string PointerStatus(bool follows, bool captured);
     /// <summary>A byte count as every app shows it, such as "3.3 GB".</summary>
     string SizeLabel(ulong bytes);
     /// <summary>Adds a disk image to a stopped machine, used where it is or copied into its folder.</summary>
@@ -68,6 +70,28 @@ public interface ICoreClient : IDisposable
 
     /// <summary>Upgrades a stopped machine made by an older Origami, off the UI thread; the core's sentence is the exception message.</summary>
     Task<IReadOnlyList<ReportLine>> UpgradeAsync(string key);
+    /// <summary>The same with firmware files the person chose instead of a download.</summary>
+    Task<IReadOnlyList<ReportLine>> UpgradeWithAsync(string key, string? prom, string? ioProm);
+    /// <summary>The disk images a removal would leave where they are, asked before the alert.</summary>
+    Task<IReadOnlyList<string>> RemovePlanAsync(string key);
+    /// <summary>Moves a stopped machine to the Recycle Bin; the core refuses a running one. Returns the disk images that stay where they are.</summary>
+    Task<IReadOnlyList<string>> RemoveAsync(string key);
+
+    // ---- what the core says about a machine's state ----
+    /// <summary>The state a machine shows, from the last pass over the core: reading it never waits on the machine.</summary>
+    ShownState Shown(string key);
+    /// <summary>A library row: the state word, the second line and the tooltip.</summary>
+    RowInfo Row(string key);
+    /// <summary>The card for a machine in <paramref name="state"/>, or for why its last start failed; null where the state has none.</summary>
+    CardInfo? Card(string key, string name, ShownState state);
+    /// <summary>The bar under the picture; null unless the machine runs.</summary>
+    StatusBarInfo? StatusBar(string key, bool follows, bool captured);
+    /// <summary>What went wrong, from any exception a core call threw.</summary>
+    Problem ProblemOf(Exception e);
+    /// <summary>The label of the button that offers <paramref name="p"/>'s fix, such as "Choose firmware files…"; null when it has none.</summary>
+    string? FixLabel(Problem p);
+    /// <summary>Tells the core a machine's install guide is on show, so it words the machine Installing.</summary>
+    void SetInstalling(string key, bool on);
 
     Task StartAsync(string key, CancellationToken ct = default);
     /// <summary>Clean stop. Can take minutes while a disk folds.</summary>

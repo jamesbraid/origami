@@ -16,8 +16,10 @@ public sealed record NetworkChoice(string Mode, string Label, string Detail);
 /// <summary>How to set up the host side of Bridged here: the field's label, an example for it, the steps and the commands to copy.</summary>
 public sealed record BridgedSetup(string Field, string Example, string Steps, string? Commands);
 
-/// <summary>What New Machine shows for the machine ID and Ethernet address; <c>Problem</c> is the core's reason it cannot be used.</summary>
-public sealed record IdentityPreview(uint EmuId, string Mac, bool FromId, string? Problem);
+public enum IdentityField { Id, Address }
+
+/// <summary>What New Machine shows for the machine ID and Ethernet address; <c>Problem</c> is the core's reason it cannot be used, and <c>Field</c> the one it belongs under.</summary>
+public sealed record IdentityPreview(uint EmuId, string Mac, bool FromId, string? Problem, IdentityField? Field = null);
 
 /// <summary>A machine ID and an Ethernet address to give a new machine instead of the next free ones.</summary>
 public sealed record IdentityRequest(string? EmuId, string? Mac);

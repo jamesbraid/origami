@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Origami.Logic;
 using OStep = uniffi.origami_ffi.OrigamiInstallStep;
+using OrigamiUiString = uniffi.origami_ffi.OrigamiUiString;
 
 namespace Origami.App;
 
@@ -98,6 +99,13 @@ public static class Selftest
     /// <summary>A click, as the automation tree would give it.</summary>
     static void Press(Button? b) { if (b != null) new Microsoft.UI.Xaml.Automation.Peers.ButtonAutomationPeer(b).Invoke(); }
 
+    /// <summary>A picture of the window for the design review; a failure to take one never fails the run.</summary>
+    static async Task Capture(MainWindow w, string dir, string name)
+    {
+        try { await Task.Delay(400); await Shot.Window(w.Hwnd, Path.Combine(dir, "shot-" + name + ".png")); Note("picture " + name, "saved"); }
+        catch (Exception e) { Note("picture " + name, "not taken: " + e.Message); }
+    }
+
     static async Task<bool> Until(Func<bool> cond, int ms)
     {
         var t = Environment.TickCount64 + ms;
@@ -139,11 +147,29 @@ public static class Selftest
         Check("window is the foreground window", Win.IsForeground(w.Hwnd), $"fg=0x{Win.ForegroundHandle().ToInt64():x} ours=0x{w.Hwnd.ToInt64():x}");
         Check("library lists two machines", w.LibraryCount == 2, $"count={w.LibraryCount} engines={core.EngineIds}");
         var coreCommands = core.Commands();
-        var missing = coreCommands.Where(c => !w.MenuShortcuts.ContainsKey(c.Id) || w.MenuShortcuts[c.Id] != c.WindowsAccelerator).Select(c => c.Id).ToList();
-        Check("menus carry every core command with its Windows shortcut", coreCommands.Count > 10 && missing.Count == 0,
-            $"{coreCommands.Count} core commands, {w.Commands.Count} in the menus, mismatched: {string.Join(",", missing)}");
+        var missing = coreCommands.Where(c => !w.Shortcuts.ContainsKey(c.Id) || w.Shortcuts[c.Id] != c.WindowsAccelerator).Select(c => c.Id).ToList();
+        Check("shortcuts: the window carries every core command with its Windows shortcut", coreCommands.Count > 10 && missing.Count == 0,
+            $"{coreCommands.Count} core commands, {w.Commands.Count} in the window, mismatched: {string.Join(",", missing)}");
         var key = w.SelectedKey!;
         Check("a machine is selected", !string.IsNullOrEmpty(key), key);
+
+        // --- the top bar, the command bar and the library rows of the 0.6.2 design ---
+        Check("title bar: it holds only the app icon and the title", w.TitleBarTitleForTest == Ui.T(OrigamiUiString.Origami) && !w.TitleBarHasContentForTest, $"title '{w.TitleBarTitleForTest}', content {w.TitleBarHasContentForTest}");
+        var primary = w.PrimaryCommandNamesForTest;
+        var more = w.SecondaryCommandNamesForTest;
+        Check("command bar: Start, Power off, Console, Capture mouse and Settings are on the bar; the rest is under More",
+            primary.SequenceEqual(new[] { "StartButton", "PowerHost", "ConsoleButton", "PointerButton", "SettingsButton" })
+            && more.SequenceEqual(new[] { "CpuButton", "DiagnosticsButton", "ScreenshotButton", "InstallButton", "ShortcutsButton", "PreferencesButton", "AboutButton" }), string.Join(",", primary) + " | " + string.Join(",", more));
+        Check("command bar: CPU load and Cancel start carry the core's words", w.Commands.First(c => c.Id == "view.cpu-load").Title == "CPU load" && w.Commands.First(c => c.Id == "machine.cancel-start").Title == "Cancel start");
+        Check("command bar: Cancel start is on only while the machine starts", core.CommandEnabled("machine.cancel-start", MachineState.Starting) && !core.CommandEnabled("machine.cancel-start", MachineState.Running) && !core.CommandEnabled("machine.cancel-start", MachineState.Stopped));
+        Check("command bar: Capture mouse and Keyboard shortcuts carry the core's words",
+            w.Commands.First(c => c.Id == "machine.capture-mouse").Title == "Capture mouse" && w.Commands.First(c => c.Id == "view.shortcuts").Title == Ui.T(OrigamiUiString.KeyboardShortcuts));
+        Check("rows: no capsule in any row, and a stopped row says its model", w.RowCapsulesForTest == 0 && core.Machines().All(m => w.RowLineForTest(m.Key) == core.Row(m.Key).Line && !w.RowHasDotForTest(m.Key)),
+            string.Join(",", core.Machines().Select(m => w.RowLineForTest(m.Key))));
+        Check("rows: the tooltip and label are the core's description", core.Machines().All(m => w.RowDescriptionForTest(m.Key) == core.Row(m.Key).Description && core.Row(m.Key).Description.StartsWith(m.Name)), w.RowDescriptionForTest(key) ?? "none");
+        Check("page: the header names the machine and its state, the status bar is hidden while stopped",
+            w.PillTextForTest == "Stopped" && !w.StatusBarShownForTest, $"{w.PillTextForTest}, status bar {w.StatusBarShownForTest}");
+        await Capture(w, dir, "main-stopped");
 
         // --- two machines of one product: a real click on each row selects that row ---
         var keys2 = core.Machines().Select(x => x.Key).ToList();
@@ -194,47 +220,64 @@ public static class Selftest
         var st4 = await core.SettingsAsync(made);
         Check("settings: a share is removed and the network mode set", st4.Shares.Count == 0 && st4.Network.Mode == "none", st4.Network.Mode);
 
-        // --- console line: the Settings dialog's own combo, then the file the core wrote ---
+        // --- settings as pages: the eight the other apps have, the console line on Startup & firmware, Bridged on Network ---
         var selected = w.SelectedKey;
         w.SelectForTest(made);
-        w.Invoke("machine.settings");
+        async Task<bool> GoPage(string page)
+        {
+            if (!await Until(() => MachineSettingsDialog.Current is not null, 3000)) return false;
+            var nav = MachineSettingsDialog.Current!;
+            nav.SelectedItem = nav.MenuItems.OfType<NavigationViewItem>().First(i => (string)i.Tag == page);
+            return await Until(() => FindOpen<FrameworkElement>(w, "settings.error") != null, 3000);
+        }
+        w.OpenSettingsForTest(null);
+        await Until(() => MachineSettingsDialog.Current is not null, 3000);
+        var pageNames = MachineSettingsDialog.Current?.MenuItems.OfType<NavigationViewItem>().Select(i => (string)i.Content).ToList() ?? new List<string>();
+        Check("settings: eight pages in the order the other apps list them", pageNames.SequenceEqual(MachineSettingsDialog.Pages().Select(p => p.Title)) && pageNames.Count == 8, string.Join(",", pageNames));
+        await Capture(w, dir, "settings-general");
+        await GoPage("startup");
         ComboBox? line = null;
         await Until(() => (line = FindOpen<ComboBox>(w, "settings.console")) != null, 3000);
         Check("console line: Settings lists the machine's lines with the default marked", line != null && line.Items.Count == 2 && line.SelectedIndex == 0 && (string)line.Items[0] == "ttyS0 (default)", line == null ? "no combo" : string.Join(",", line.Items));
+        Check("console line: the page says where startup messages appear, in the core's words", FindOpen<TextBlock>(w, "settings.startup")?.Text is "Screen" or "Console", FindOpen<TextBlock>(w, "settings.startup")?.Text ?? "none");
         if (line != null)
         {
-            // The dialog is rebuilt after an edit; the combo just set is stale until a new one replaces it.
+            // The page is rebuilt after an edit; the combo just set is stale until a new one replaces it.
             var stale = line;
             stale.SelectedIndex = 1;
             var chosen = await Until(() => core.SettingsAsync(made).Result.ConsolePort == "ttyS1", 3000);
             line = null;
             await Until(() => (line = FindOpen<ComboBox>(w, "settings.console")) is { SelectedIndex: 1 } c && !ReferenceEquals(c, stale), 3000);
             var fresh = line is { SelectedIndex: 1 } && !ReferenceEquals(line, stale);
-            Check("console line: picking the second line is written and the dialog shows it", chosen && fresh, $"file {core.SettingsAsync(made).Result.ConsolePort}, rebuilt combo at {line?.SelectedIndex.ToString() ?? "none"}");
+            Check("console line: picking the second line is written and the page shows it", chosen && fresh, $"file {core.SettingsAsync(made).Result.ConsolePort}, rebuilt combo at {line?.SelectedIndex.ToString() ?? "none"}");
             if (fresh) line!.SelectedIndex = 0;
             var back = await Until(() => core.SettingsAsync(made).Result.ConsolePort == "ttyS0", 3000);
             Check("console line: picking the default line puts the choice back", fresh && back, $"file {core.SettingsAsync(made).Result.ConsolePort}");
         }
-        // The Settings sheet cuts no text short; its section headings are the names the other apps give their tabs.
-        await Task.Delay(300);
-        var cutSettings = CutShort(w);
+        // The Settings dialog cuts no text short on the pages with the most on them.
+        var cutSettings = new List<string>();
+        foreach (var page in new[] { "general", "startup", "network" }) { await GoPage(page); await Task.Delay(300); cutSettings.AddRange(CutShort(w)); }
         Check("layout: no text in Settings is cut short", cutSettings.Count == 0, string.Join(" | ", cutSettings));
-        var sections = AllOpen<TextBlock>(w).Where(t => Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(t).StartsWith("settings.heading.")).Select(t => t.Text).ToList();
-        Check("layout: Settings sections carry the names the other apps use", sections.SequenceEqual(new[] { Labels.Settings.ProcessorMemory, Labels.Settings.StartupFirmware, Labels.Settings.Graphics, Labels.Settings.Drives, Labels.Settings.Network, Labels.Settings.SharedFolders }), string.Join(",", sections));
         // --- network: Bridged opens its fields first, applies with its device; a moved subnet returns the lease advice ---
         var modes = core.NetworkModes().ToList();
         var bridgedAt = modes.FindIndex(c => c.Label == "Bridged");
-        ComboBox? netMode = null;
-        await Until(() => (netMode = FindOpen<ComboBox>(w, "settings.network")) != null, 3000);
+        await GoPage("network");
+        RadioButtons? netMode = null;
+        await Until(() => (netMode = FindOpen<RadioButtons>(w, "settings.network")) != null, 3000);
+        Check("network: the modes are radio buttons with the core's captions and no Apply for them", netMode != null && netMode.Items.Count == modes.Count && FindOpen<Button>(w, "settings.network.apply") == null && modes.All(m => m.Detail.Length > 0));
         if (netMode != null) netMode.SelectedIndex = bridgedAt;
         TextBox? device = null;
         await Until(() => (device = FindOpen<TextBox>(w, "settings.bridge.device")) != null, 3000);
         var beforeApply = core.SettingsAsync(made).Result.Network.Mode;
         Check("network: choosing Bridged opens its fields and saves nothing yet", device != null && beforeApply == "none", $"fields={(device != null)} mode={beforeApply}");
-        if (device != null) { device.Text = "tap0"; Press(FindOpen<Button>(w, "settings.bridge.apply")); }
+        Check("network: Bridged has no Apply button of its own", FindOpen<Button>(w, "settings.bridge.apply") == null);
+        // The fields apply as one edit when focus leaves them.
+        if (device != null && FindOpen<TextBox>(w, "settings.bridge.share") is { } shareBox) { device.Focus(FocusState.Programmatic); device.Text = "tap0"; shareBox.Focus(FocusState.Programmatic); }
         var bridgedOn = await Until(() => core.SettingsAsync(made).Result.Network is { Mode: "tap" or "vmnet" } n && n.Device == "tap0", 3000);
         var netNow = core.SettingsAsync(made).Result.Network;
         Check("network: Bridged is applied with its device and the Ethernet address is the machine's", bridgedOn && netNow.Mac is { } m0 && m0.StartsWith("08:00:69:") && netNow.MacNote.Contains("ID"), $"{netNow.Mode} {netNow.Device} {netNow.Mac} {netNow.MacNote}");
+        await Capture(w, dir, "settings-network");
+        Check("network: the Ethernet address shows as a value with the core's caption", await Until(() => FindOpen<TextBlock>(w, "settings.mac")?.Text == netNow.Mac, 3000), FindOpen<TextBlock>(w, "settings.mac")?.Text ?? "none");
         FindOpen<ContentDialog>(w, null)?.Hide();
         await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
         await core.ApplyChangeAsync(made, new MachineChange.SetNetwork("user"));
@@ -249,7 +292,14 @@ public static class Selftest
         var irix = Path.Combine(Environment.GetEnvironmentVariable("ORIGAMI_FIXTURES") ?? "", "disk-irix-6.5.30.img");
         Check("disks: the IRIX fixture is found", File.Exists(irix), irix);
         string DiskKey(string n) => core.Machines().FirstOrDefault(m => m.Name == n)?.Key ?? "";
-        async Task<(bool Made, string Note, string Badge)> NewWithDisk(string machineName, int kind, string? file, bool wantCopy)
+        // The disk choice is a list of radio buttons in the core's order; pick the one whose title the core gives to this choice.
+        void PickDisk(uniffi.origami_ffi.OrigamiDiskChoice choice)
+        {
+            var rb = FindOpen<RadioButtons>(w, "new.disk")!;
+            var title = uniffi.origami_ffi.OrigamiFfiMethods.OrigamiDiskOptions(true).First(o => o.Choice == choice).Title;
+            rb.SelectedIndex = rb.Items.OfType<StackPanel>().ToList().FindIndex(i => i.Children.OfType<StackPanel>().First().Children.OfType<TextBlock>().First().Text == title);
+        }
+        async Task<(bool Made, string Note, string Badge)> NewWithDisk(string machineName, uniffi.origami_ffi.OrigamiDiskChoice kind, string? file, bool wantCopy)
         {
             TextBox? nameBox = null;
             // The command is ignored while an earlier dialog is still closing, so ask again.
@@ -259,8 +309,8 @@ public static class Selftest
                 await Until(() => (nameBox = FindOpen<TextBox>(w, "new.name")) != null, 2000);
             }
             if (nameBox == null) return (false, "no dialog", "");
-            FindOpen<ComboBox>(w, "new.disk")!.SelectedIndex = kind;
-            if (kind == DiskChoices.Empty) FindOpen<NumberBox>(w, "new.size")!.Value = 1;
+            PickDisk(kind);
+            if (kind == uniffi.origami_ffi.OrigamiDiskChoice.Install) FindOpen<NumberBox>(w, "new.size")!.Value = 1;
             if (file != null)
             {
                 PathPicker.Answers.Enqueue(file);
@@ -277,25 +327,26 @@ public static class Selftest
             await Until(() => FindOpen<ContentDialog>(w, null) == null, 10_000);
             return (listed, noteText, badgeText);
         }
-        var (emptyMade, _, _) = await NewWithDisk("Disk empty", DiskChoices.Empty, null, true);
+        var (emptyMade, _, _) = await NewWithDisk("Disk empty", uniffi.origami_ffi.OrigamiDiskChoice.Install, null, true);
         var emptyDrives = emptyMade ? (await core.SettingsAsync(DiskKey("Disk empty"))).Drives : new List<Drive>();
         Check("disks: an empty disk is made with the machine at target 1", emptyDrives.Count == 1 && emptyDrives[0].Target == 1, string.Join(",", emptyDrives.Select(d => d.Image)));
-        var (copyMade, copyNote, copyBadge) = await NewWithDisk("Disk copy", DiskChoices.Image, irix, true);
+        var (copyMade, copyNote, copyBadge) = await NewWithDisk("Disk copy", uniffi.origami_ffi.OrigamiDiskChoice.Image, irix, true);
         var copyDrives = copyMade ? (await core.SettingsAsync(DiskKey("Disk copy"))).Drives : new List<Drive>();
         Check("disks: a copied image is kept in the machine's folder",
             copyDrives.Count == 1 && copyDrives[0].Image == "drives/disk-irix-6.5.30.img" && File.Exists(Path.Combine(core.LibraryRoot, "Disk copy", "drives", "disk-irix-6.5.30.img")), string.Join(",", copyDrives.Select(d => d.Image)));
         Check("disks: copying says the original is safe", copyNote.Contains("keeps your original safe"), copyNote);
         Check("disks: the sheet names the OS on the disk", copyBadge == "IRIX 6.5.30", copyBadge);
         core.Relist();
-        Check("disks: the library row names the OS on the disk", await Until(() => { core.Relist(); return w.BadgeForTest(DiskKey("Disk copy")) == "IRIX 6.5.30"; }, 15_000), w.BadgeForTest(DiskKey("Disk copy")) ?? "none");
-        var (placeMade, placeNote, _) = await NewWithDisk("Disk place", DiskChoices.Image, irix, false);
+        Check("disks: the library row's label names the OS on the disk and the row has no badge", await Until(() => { core.Relist(); return w.RowDescriptionForTest(DiskKey("Disk copy"))?.EndsWith("IRIX 6.5.30") == true; }, 15_000), w.RowDescriptionForTest(DiskKey("Disk copy")) ?? "none");
+        var (placeMade, placeNote, _) = await NewWithDisk("Disk place", uniffi.origami_ffi.OrigamiDiskChoice.Image, irix, false);
         var placeDrives = placeMade ? (await core.SettingsAsync(DiskKey("Disk place"))).Drives : new List<Drive>();
         Check("disks: an image used in place stays where it is",
             placeDrives.Count == 1 && placeDrives[0].Image.EndsWith("disk-irix-6.5.30.img") && !File.Exists(Path.Combine(core.LibraryRoot, "Disk place", "drives", "disk-irix-6.5.30.img")), string.Join(",", placeDrives.Select(d => d.Image)));
         Check("disks: an image used in place warns that IRIX writes into it", placeNote.Contains("IRIX will write into this file"), placeNote);
-        // A ready-made disk is a choice after the others, and Preferences can list the downloads.
-        Check("disks: the ready-made choice is worded by the core and the downloads can be listed",
-            core.Labels().Ready.Length > 0 && DiskChoices.Ready == core.Labels().Choices.Count && core.CachedDisks() is not null, core.Labels().Ready);
+        // A ready-made disk, when the catalogue has one, is the first choice and carries the Recommended tag; Preferences can list the downloads.
+        var withReady = uniffi.origami_ffi.OrigamiFfiMethods.OrigamiDiskOptions(true);
+        Check("disks: the ready-made choice comes first with the core's tag and the downloads can be listed",
+            withReady[0].Choice == uniffi.origami_ffi.OrigamiDiskChoice.Ready && withReady[0].Recommended && core.CachedDisks() is not null, withReady[0].Title);
         // The CD: attached in Settings while stopped, then swapped and ejected on the running machine, whose file keeps the first.
         var cdKey = await core.CreateMachineAsync("Disk cd", offers[core.DefaultOffering(offers)].Id);
         var (cdOne, cdTwo) = (Path.Combine(dir, "one.iso"), Path.Combine(dir, "two.iso"));
@@ -306,7 +357,7 @@ public static class Selftest
         {
             for (var tries = 0; tries < 4; tries++)
             {
-                w.Invoke("machine.settings");
+                w.OpenSettingsForTest("drives");
                 if (await Until(() => FindOpen<Button>(w, button) != null, 2000)) return true;
             }
             return false;
@@ -339,7 +390,7 @@ public static class Selftest
         FindOpen<ContentDialog>(w, null)?.Hide();
         await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
         Check("disks: swapping the CD leaves the machine's file alone", (await core.SettingsAsync(cdKey)).Drives.First(d => d.Kind == "cdrom").Image.EndsWith("one.iso"));
-        w.Invoke("machine.stop");
+        w.Invoke("machine.stop", true);
         await Until(() => core.Status(cdKey).State == MachineState.Stopped, 8000);
         if (selected != null) w.SelectForTest(selected);
 
@@ -379,7 +430,8 @@ public static class Selftest
             Press(iw.Find<Button>("install.media.choose"));
             Check("install: an empty media folder is refused in the core's words",
                 await Until(() => iw.Find<TextBlock>("install.media.verdict")?.Text == "That folder has no 6.5.30 or 6.5-base folder.", 5000), iw.Find<TextBlock>("install.media.verdict")?.Text ?? "none");
-            Check("install: Continue waits while the folder is incomplete", iw.Find<Button>("install.continue") is { IsEnabled: false });
+            Check("install: Continue waits while the folder is incomplete and says why", iw.Find<Button>("install.continue") is { IsEnabled: false } && iw.ReasonForTest == "Choose a folder that has every disc.", iw.ReasonForTest);
+            Check("install: the pages list numbered steps in the core's words", iw.StepNamesForTest.Count >= 6 && iw.StepNamesForTest[0] == "1. Release" && iw.StepNamesForTest[1] == "2. Discs", string.Join(",", iw.StepNamesForTest));
             iw.Find<RadioButton>("install.media.download")!.IsChecked = true;
             await Go();
             await OnStep(OStep.Software);
@@ -401,40 +453,39 @@ public static class Selftest
             Check("install: Continue made the disk", (await core.SettingsAsync(instKey)).Drives.Any(d => d.Kind == "disk"));
             await Until(() => iw.Find<Button>("install.check.run") != null, 5000);
             Press(iw.Find<Button>("install.check.run"));
-            Check("install: the check passes", await Until(() => iw.Find<TextBlock>("install.check.status")?.Text == "All sources answered.", 30_000), iw.Find<TextBlock>("install.check.status")?.Text ?? "none");
+            Check("install: the check passes", await Until(() => iw.Find<TextBlock>("install.check.status")?.Text == "Every disc checked out.", 30_000), iw.Find<TextBlock>("install.check.status")?.Text ?? "none");
             await Go();
-            await OnStep(OStep.Prepare);
-            Check("install: the footer says what the server serves", await Until(() => iw.ServerLineForTest == "10.98.0.2 serving 6.5.30, Standard + MIPSpro", 15_000), iw.ServerLineForTest);
+            // The guide takes the pane: the assistant steps aside, the library gives way to the steps, and the footer names the install files.
+            Check("install: the guide takes the pane from the library and the assistant steps aside", await Until(() => w.GuideShownForTest && !iw.AppWindow.IsVisible, 15_000), $"guide {w.GuideShownForTest}, window {iw.AppWindow.IsVisible}");
+            Check("install: the footer says what the install files are, with no address", await Until(() => w.GuideFooterForTest.StartsWith("Install files ready: IRIX 6.5.30, Standard + MIPSpro"), 15_000), w.GuideFooterForTest);
+            var guideSteps = core.Raw.InstallGuide(instKey).Steps;
+            Check("install: the header counts the guide's steps in the core's words", w.GuideHeaderForTest == $"Install IRIX, step 1 of {guideSteps.Length}", w.GuideHeaderForTest);
             Check("install: the machine is running", await Until(() => core.Status(instKey).State == MachineState.Running, 15_000), core.Status(instKey).Reason);
-            Press(iw.Find<Button>("install.cancel"));
+            await Capture(w, dir, "install-guide");
+            Check("install: the machine's row says Installing", await Until(() => w.PillTextForTest == "Installing", 5000), w.PillTextForTest);
+            Press(w.GuideButtonForTest("guide.cancel"));
             Check("install: Cancel while the install runs asks the core's question with a Back button",
                 await Until(() => iw.OpenDialog is { Title: "Stop the machine?", CloseButtonText: "Back" }, 5000), iw.OpenDialog?.Title as string ?? "none");
             iw.OpenDialog?.Hide();
-            Check("install: Back keeps the assistant open with its server line",
-                await Until(() => iw.OpenDialog == null, 5000) && w.InstallForTest(instKey) == iw && iw.ServerLineForTest.Contains("serving"), iw.ServerLineForTest);
+            Check("install: Back keeps the assistant open with its guide",
+                await Until(() => iw.OpenDialog == null, 5000) && w.InstallForTest(instKey) == iw && w.GuideFooterForTest.StartsWith("Install files ready"), w.GuideFooterForTest);
             var serialMachine = core.Open(instKey).BootConsole() == uniffi.origami_ffi.OrigamiBootConsole.Serial;
-            var guide = core.Raw.InstallGuide(instKey);
-            var typed = guide.Prepare.ToList().FindIndex(g => g.Send != null);
-            await Until(() => iw.FindWhere<Button>(b => Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(b).EndsWith(".typeit")) != null || !serialMachine, 8000);
-            var typeIt = typed < 0 ? null : iw.Find<Button>($"install.guide.{(int)OStep.Prepare}.{typed}.typeit");
-            Check("install: Type It shows only on a serial machine", (typeIt != null) == (serialMachine && typed >= 0), $"serial {serialMachine}, step {typed}");
+            var firstStep = guideSteps[0];
+            var typeIt = w.GuideButtonForTest("guide.typeit.0");
+            Check("install: the current step shows what to watch for, and Type it only on a serial machine",
+                firstStep.Watch is { Length: > 0 } && w.GuideTypedForTest.Contains(firstStep.Watch) && (typeIt != null) == (serialMachine && firstStep.Typed.Length > 0 && firstStep.Send != null && core.Status(instKey).State == MachineState.Running),
+                $"serial {serialMachine}, send {firstStep.Send != null}, shown '{string.Join("|", w.GuideTypedForTest)}'");
             if (typeIt != null)
             {
                 Press(typeIt);
-                var typedText = guide.Prepare[typed].Send!.TrimEnd('\r', '\n');
-                Check("install: Type It reaches the guest console",
+                var typedText = firstStep.Send!.TrimEnd('\r', '\n');
+                Check("install: Type it reaches the guest console",
                     await Until(() => Encoding.UTF8.GetString(core.ConsoleRead(instKey, 0, out _)).Contains(typedText), 5000), typedText);
             }
-            await Go();
-            await OnStep(OStep.Installer);
-            await Go();
-            await OnStep(OStep.Packages);
-            w.Invoke("machine.stop");
+            w.Invoke("machine.stop", true);
             Check("install: the machine stops", await Until(() => core.Status(instKey).State == MachineState.Stopped, 10_000), core.Status(instKey).Reason);
-            await Go();
-            await OnStep(OStep.Finish);
-            await Until(() => iw.Find<Button>("install.continue") is { IsEnabled: true, Content: "Finish" }, 8000);
-            Press(iw.Find<Button>("install.continue"));
+            await Until(() => w.GuideButtonForTest("guide.finish") is { IsEnabled: true }, 8000);
+            Press(w.GuideButtonForTest("guide.finish"));
             Check("install: Finish closes the assistant", await Until(() => w.InstallForTest(instKey) == null, 8000));
             Check("install: Finish says IRIX is installed", await Until(() => FindOpen<ContentDialog>(w, null) != null, 5000));
             FindOpen<ContentDialog>(w, null)?.Hide();
@@ -470,51 +521,74 @@ public static class Selftest
             await Walk(aw, OStep.Media, OStep.Software, OStep.Method, OStep.Disk, OStep.Check);
             await Until(() => aw.Find<Button>("install.check.run") != null, 5000);
             Press(aw.Find<Button>("install.check.run"));
-            await Until(() => aw.Find<TextBlock>("install.check.status")?.Text == "All sources answered.", 30_000);
-            await Walk(aw, OStep.Prepare, OStep.Installer, OStep.Packages);
-            Check("install: Automatic offers Install and keeps Continue off", await Until(() => aw.Find<Button>("install.apply.run") is { IsEnabled: true }, 8000) && aw.Find<Button>("install.continue") is { IsEnabled: false });
-            Press(aw.Find<Button>("install.apply.run"));
-            Check("install: a failed Install shows the core's sentence and Continue stays off",
-                await Until(() => aw.Find<TextBlock>("install.apply.error") is { Text.Length: > 0 }, 20_000) && aw.Find<Button>("install.continue") is { IsEnabled: false }, aw.Find<TextBlock>("install.apply.error")?.Text ?? "none");
+            await Until(() => aw.Find<TextBlock>("install.check.status")?.Text == "Every disc checked out.", 30_000);
+            await Walk(aw, OStep.Packages);
+            Check("install: Automatic offers Install in the pane and keeps Finish off", await Until(() => w.GuideButtonForTest("guide.install") is { IsEnabled: true }, 8000) && w.GuideButtonForTest("guide.finish") == null);
+            Press(w.GuideButtonForTest("guide.install"));
+            Check("install: a failed Install shows the core's sentence and Finish stays off",
+                await Until(() => w.GuideFailureForTest.Length > 0, 20_000) && w.GuideButtonForTest("guide.finish") == null, w.GuideFailureForTest);
             await aw.StopAndCloseAsync();
         }
         // A screen console having no Method step is covered by the core's flow test: fake machines have no graphics pipe.
         if (selected != null) w.SelectForTest(selected);
-        // New Machine offers the assistant only with an empty disk.
+        // --- New machine: its groups, its disk list in the core's order, and its errors under their fields ---
         for (var tries = 0; tries < 4 && FindOpen<TextBox>(w, "new.name") == null; tries++)
         {
             w.Invoke("machine.new");
             await Until(() => FindOpen<TextBox>(w, "new.name") != null, 2000);
         }
-        var installBox = FindOpen<CheckBox>(w, "new.install");
-        var diskChoice = FindOpen<ComboBox>(w, "new.disk");
-        if (installBox != null && diskChoice != null)
+        var diskChoice = FindOpen<RadioButtons>(w, "new.disk");
+        if (diskChoice != null)
         {
             await Task.Delay(300);
+            await Capture(w, dir, "new-machine");
             var cutNew = CutShort(w);
-            Check("layout: no text in New Machine is cut short", cutNew.Count == 0, string.Join(" | ", cutNew));
-            var fields = new[] { "new.engine", "new.model", "new.name", "new.disk" }
+            Check("layout: no text in New machine is cut short", cutNew.Count == 0, string.Join(" | ", cutNew));
+            var fields = new[] { "new.engine", "new.model", "new.name" }
                 .Select(id => FindOpen<FrameworkElement>(w, id)).Select(e => e switch { ComboBox c => (string)c.Header, TextBox t => (string)t.Header, _ => "" })
                 .Append(AllOpen<Expander>(w).Select(e => e.Header as string ?? "").FirstOrDefault() ?? "").ToList();
-            Check("layout: New Machine lists Engine, Model, Name, Disk, Advanced in that order", fields.SequenceEqual(new[] { Labels.NewMachine.Engine, Labels.NewMachine.Model, Labels.NewMachine.Name, Labels.NewMachine.Disk, Labels.NewMachine.Advanced }), string.Join(",", fields));
-            var none = installBox.Visibility == Visibility.Collapsed;
-            diskChoice.SelectedIndex = DiskChoices.Empty;
-            var empty = installBox.Visibility == Visibility.Visible;
-            diskChoice.SelectedIndex = DiskChoices.Image;
-            Check("install: New Machine offers it only with an empty disk", none && empty && installBox.Visibility == Visibility.Collapsed, $"none {none}, empty {empty}");
+            Check("layout: New machine lists Engine, Model, Name and Advanced, with headers above their controls", fields.SequenceEqual(new[] { Labels.NewMachine.Engine, Labels.NewMachine.Model, Labels.NewMachine.Name, Labels.NewMachine.Advanced }), string.Join(",", fields));
+            var groups = AllOpen<TextBlock>(w).Select(t => t.Text).Where(t => t is "Machine" or "Disk").ToList();
+            Check("layout: New machine has a Machine group and a Disk group", groups.SequenceEqual(new[] { Ui.T(OrigamiUiString.Machine), Ui.T(OrigamiUiString.Disk) }), string.Join(",", groups));
+            var titles = diskChoice.Items.OfType<StackPanel>().Select(i => i.Children.OfType<StackPanel>().First().Children.OfType<TextBlock>().First().Text).ToList();
+            var coreTitles = uniffi.origami_ffi.OrigamiFfiMethods.OrigamiDiskOptions(diskChoice.Items.Count == 4).Select(o => o.Title).ToList();
+            Check("disk: the choices are the core's, in its order, the first selected", titles.SequenceEqual(coreTitles.Where(t => titles.Contains(t))) && diskChoice.SelectedIndex == 0, string.Join(",", titles));
+            Check("disk: Install from discs is offered on an IRIX machine", titles.Contains(uniffi.origami_ffi.OrigamiFfiMethods.OrigamiDiskOptions(false).First(o => o.Choice == uniffi.origami_ffi.OrigamiDiskChoice.Install).Title));
+            // A name the core refuses: its sentence stays on the dialog, under the name, where it can be read.
+            FindOpen<TextBox>(w, "new.name")!.Text = "a/b";
+            await Until(() => FindButton(w, "Create") is { IsEnabled: true }, 3000);
+            Press(FindButton(w, "Create"));
+            TextBlock? nameError = null;
+            await Until(() => (nameError = FindOpen<TextBlock>(w, "new.name.error")) is { Visibility: Visibility.Visible, Text.Length: > 0 }, 5000);
+            var inView = nameError is { ActualHeight: > 0 } && nameError.TransformToVisual(null).TransformPoint(new Windows.Foundation.Point(0, nameError.ActualHeight)).Y <= w.XamlRootForTest.Size.Height;
+            Check("new machine: the refusal shows under the name and is not cut off", nameError is { Text.Length: > 0, IsTextTrimmed: false } && inView && FindOpen<ContentDialog>(w, null) != null, nameError?.Text ?? "no text");
+            await Capture(w, dir, "new-machine-error");
+            Check("new machine: the refusal says no path or flag", nameError is not null && !nameError.Text.Contains('/') && !nameError.Text.Contains('\\') && !nameError.Text.Contains("--"), nameError?.Text ?? "none");
         }
-        else Check("install: New Machine offers it only with an empty disk", false, "no dialog");
+        else Check("new machine: the dialog opens", false, "no dialog");
+        FindOpen<ContentDialog>(w, null)?.Hide();
+        await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
+        // Drop: a disk image on the library opens New machine with it chosen; the core names each kind and its caption.
+        var irixDisk = Path.Combine(Environment.GetEnvironmentVariable("ORIGAMI_FIXTURES") ?? "", "disk-irix-6.5.30.img");
+        Check("drop: the core tells a CD image from a disk image and words what each does",
+            uniffi.origami_ffi.OrigamiFfiMethods.OrigamiClassifyDrop(Path.Combine(dir, "one.iso")) == uniffi.origami_ffi.OrigamiDropKind.CdImage
+            && uniffi.origami_ffi.OrigamiFfiMethods.OrigamiClassifyDrop(irixDisk) == uniffi.origami_ffi.OrigamiDropKind.DiskImage
+            && uniffi.origami_ffi.OrigamiFfiMethods.OrigamiDropCaption(uniffi.origami_ffi.OrigamiDropKind.CdImage) == "Change CD"
+            && uniffi.origami_ffi.OrigamiFfiMethods.OrigamiDropCaption(uniffi.origami_ffi.OrigamiDropKind.DiskImage) == "New machine from this disk");
+        _ = w.DropFileAsync(irixDisk, uniffi.origami_ffi.OrigamiDropKind.DiskImage);
+        Check("drop: a disk image dropped on the library opens New machine with it chosen",
+            await Until(() => FindOpen<TextBlock>(w, "disk.file")?.Text.StartsWith("disk-irix-6.5.30.img") == true, 10_000), FindOpen<TextBlock>(w, "disk.file")?.Text ?? "none");
         FindOpen<ContentDialog>(w, null)?.Hide();
         await Until(() => FindOpen<ContentDialog>(w, null) == null, 2000);
         if (selected != null) w.SelectForTest(selected);
 
         // --- tabs ---
         var rows = core.Machines().Select(x => x.Key).ToList();
-        Check("tabs: the bar is shown even with one machine open", w.TabCount == 1 && w.TabBarVisible, $"tabs {w.TabCount}, bar {w.TabBarVisible}");
+        Check("tabs: the strip is hidden while one machine is open", w.TabCount == 1 && !w.TabBarVisible, $"tabs {w.TabCount}, bar {w.TabBarVisible}");
         var first = w.SelectedKey!;
         var other = rows.First(k => k != first);
         w.OpenInNewTab(other);
-        Check("tabs: Open in New Tab adds a tab beside the first machine's", await Until(() => w.TabCount == 2 && w.ActiveTabKey == other, 2500), $"tabs {w.TabCount}, active {w.ActiveTabKey}");
+        Check("tabs: Open in New Tab adds a tab beside the first machine's and shows the strip", await Until(() => w.TabCount == 2 && w.ActiveTabKey == other && w.TabBarVisible, 2500), $"tabs {w.TabCount}, active {w.ActiveTabKey}");
         w.SelectForTabs(first); await Until(() => w.ActiveTabKey == first, 2000);
         w.OpenInNewTab(first);
         Check("tabs: opening an open machine does not add another tab", w.TabCount == 2, $"tabs {w.TabCount}");
@@ -526,7 +600,7 @@ public static class Selftest
         }
         else Check("tabs: a tab can be clicked", false, "no tab found");
         await w.CloseTabAsync(other, ask: false);
-        Check("tabs: closing a tab leaves the other one active and the bar shown", w.TabCount == 1 && w.ActiveTabKey == first && w.TabBarVisible, $"tabs {w.TabCount}, active {w.ActiveTabKey}");
+        Check("tabs: closing a tab leaves the other one active and hides the strip again", w.TabCount == 1 && w.ActiveTabKey == first && !w.TabBarVisible, $"tabs {w.TabCount}, active {w.ActiveTabKey}");
         // --- the row: a real double click opens a tab, and its context menu ---
         var rows2 = core.Machines().Select(x => x.Key).ToList();
         var first2 = w.SelectedKey!;
@@ -538,7 +612,7 @@ public static class Selftest
             Check("rows: a double click opens a tab and keeps the first machine's", await Until(() => w.TabCount == 2 && w.ActiveTabKey == other2, 2500), $"tabs {w.TabCount}, active {w.ActiveTabKey}");
         }
         else Check("rows: a library row can be clicked", false, "no row found");
-        Check("rows: the context menu offers Open in New Tab and Show in Explorer", w.RowMenuTexts(first2).SequenceEqual(new[] { "Open in new tab", "Show in Explorer" }), string.Join(",", w.RowMenuTexts(first2)));
+        Check("rows: the context menu offers Open in New Tab, Show in Explorer and Delete…", w.RowMenuTexts(first2).SequenceEqual(new[] { "Open in new tab", "Show in Explorer", "Delete…" }), string.Join(",", w.RowMenuTexts(first2)));
         w.SelectForTabs(first2); await Until(() => w.SelectedKey == first2, 2000);
         await w.CloseTabAsync(other2, ask: false);
         Check("cards: Memory and Model show on the stopped machine's card, Nodes only with several", w.CardsText.Contains("Memory") && w.CardsText.Contains("Model") && !w.CardsText.Contains("Node") && !w.CardsText.Contains("Topology"), w.CardsText);
@@ -694,7 +768,7 @@ public static class Selftest
         Check("view: the app does not undo a resize the user makes", Math.Abs(sz1.Width - resized.Width) <= 2 && Math.Abs(sz1.Height - resized.Height) <= 2, $"{resized.Width}x{resized.Height} -> {sz1.Width}x{sz1.Height}");
         Check("view: after a resize the picture fills the pane, one axis to the padding", Math.Abs(rw - (pw1 * dip - padPx)) <= 2 || Math.Abs(rh - (ph1 * dip - padPx)) <= 2, $"picture {rw}x{rh} pane {pw1 * dip:F0}x{ph1 * dip:F0} px, padding {padPx:F0}");
         w.Invoke("view.fit");
-        Check("view: Fit to Window leaves the window as it is", await Until(() => w.StatusForTest.Contains("fills"), 2000) && w.AppWindow.Size.Width == sz1.Width && w.AppWindow.Size.Height == sz1.Height, w.StatusForTest);
+        Check("view: Fit to Window leaves the window as it is", await Until(() => w.StatusForTest.Contains("Fit"), 2000) && w.AppWindow.Size.Width == sz1.Width && w.AppWindow.Size.Height == sz1.Height, w.StatusForTest);
 
         // --- toolbar: the console opens from its button's command ---
         w.Invoke("window.console");
@@ -714,6 +788,64 @@ public static class Selftest
             Check($"toolbar: pressing {name} keeps the window frame", Frame() == frame0, $"{frame0} -> {Frame()}");
         }
         w.CloseConsoles();
+
+        // --- the page while the machine runs: the status bar, the prompts, Settings above the picture, Delete ---
+        Check("status bar: while it runs it shows the picture's size and the pointer, in the core's words", await Until(() => w.StatusBarTextForTest == "64 × 48|Follows mouse", 4000), w.StatusBarTextForTest);
+        Check("status bar: it never shows the machine's state or a note", !w.StatusBarTextForTest.Contains("Running") && !w.StatusBarTextForTest.Contains("display"), w.StatusBarTextForTest);
+        await Capture(w, dir, "main-running");
+        var runName = core.Machines().First(m => m.Key == key).Name;
+        async Task<ContentDialog?> Prompt(string command)
+        {
+            w.Invoke(command);
+            await Until(() => w.OpenDialogForTest != null, 4000);
+            return w.OpenDialogForTest;
+        }
+        async Task Dismiss()
+        {
+            w.OpenDialogForTest?.Hide();
+            await Until(() => w.OpenDialogForTest == null, 4000);
+        }
+        var offDialog = await Prompt("machine.stop");
+        Check("prompts: Power off asks first, in the core's words, and Cancel is the default",
+            offDialog is { DefaultButton: ContentDialogButton.Close, CloseButtonText: "Cancel", PrimaryButtonText: "Power off" } && (string)offDialog.Title == $"Power off {runName}?", offDialog?.Title as string ?? "no dialog");
+        await Dismiss();
+        Check("prompts: cancelling the prompt leaves the machine running", core.Status(key).State == MachineState.Running, core.Status(key).State.ToString());
+        var resetDialog = await Prompt("machine.reset");
+        Check("prompts: Reset asks first and Cancel is the default", resetDialog is { DefaultButton: ContentDialogButton.Close } && (string)resetDialog.Title == $"Reset {runName}?", resetDialog?.Title as string ?? "no dialog");
+        await Dismiss();
+        var forceDialog = await Prompt("machine.force-quit");
+        Check("prompts: Force quit asks first and Cancel is the default", forceDialog is { DefaultButton: ContentDialogButton.Close } && (string)forceDialog.Title == $"Force quit {runName}?", forceDialog?.Title as string ?? "no dialog");
+        await Dismiss();
+        Win.RequestClose(w.Hwnd);
+        await Until(() => w.OpenDialogForTest != null, 4000);
+        var quitDialog = w.OpenDialogForTest;
+        Check("prompts: quitting with a machine running asks first, and Keep running is the default",
+            quitDialog is { DefaultButton: ContentDialogButton.Primary, PrimaryButtonText: "Keep running", SecondaryButtonText: "Power off", CloseButtonText: "Cancel" } && ((string)quitDialog.Title).StartsWith("Quit Origami while "), quitDialog?.Title as string ?? "no dialog");
+        await Dismiss();
+        Check("prompts: cancelling the quit prompt keeps the window and the machine", w.Hwnd != IntPtr.Zero && core.Status(key).State == MachineState.Running);
+        // Settings is a dialog over the running picture: the picture's own window is put away while it is up, and comes back after.
+        var pictureBefore = disp.WindowVisible;
+        w.OpenSettingsForTest("drives");
+        await Until(() => MachineSettingsDialog.Current is not null, 4000);
+        await Task.Delay(300);
+        Check("settings: the guest picture is not drawn over Settings while the machine runs", pictureBefore && !disp.WindowVisible, $"before {pictureBefore}, while open {disp.WindowVisible}");
+        Check("settings: a running machine's hardware pages say so with a Power off button",
+            FindOpen<Button>(w, "settings.locked.poweroff") is { ActualWidth: > 0 } && FindOpen<TextBlock>(w, "settings.locked")?.Text == Ui.T(OrigamiUiString.PowerOffToChangeHardwareSettings), FindOpen<TextBlock>(w, "settings.locked")?.Text ?? "none");
+        await Dismiss();
+        Check("settings: the picture comes back when Settings closes", await Until(() => disp.WindowVisible, 4000));
+        // Delete asks with the core's words; a running machine cannot be deleted. (The core has no recorder for the Recycle Bin in the fake build, so nothing is deleted here.)
+        w.Invoke("machine.remove");
+        await Task.Delay(300);
+        Check("delete: a running machine cannot be deleted", w.OpenDialogForTest == null && core.Machines().Any(m => m.Key == key));
+        var stoppedOther = core.Machines().First(m => m.Key != key && m.State == MachineState.Stopped);
+        _ = w.RemoveAsync(stoppedOther.Key);
+        await Until(() => w.OpenDialogForTest != null, 4000);
+        var delDialog = w.OpenDialogForTest;
+        Check("delete: a stopped machine asks first, in the core's Windows words, with Cancel as the default",
+            delDialog is { DefaultButton: ContentDialogButton.Close, CloseButtonText: "Cancel", PrimaryButtonText: "Delete" } && (string)delDialog.Title == $"Delete {stoppedOther.Name}?" && delDialog.Content is TextBlock { Text: var body } && body.Contains("Recycle Bin"), delDialog?.Title as string ?? "no dialog");
+        Check("delete: the alert asked the core's plan first and nothing moved", core.FakeTrashed().Length == 0);
+        await Dismiss();
+        Check("delete: cancelling keeps the machine", core.Machines().Any(m => m.Key == stoppedOther.Key) && core.FakeTrashed().Length == 0);
 
         // --- keyboard, real scancodes through the OS ---
         Win.Foreground(w.Hwnd);
@@ -900,7 +1032,7 @@ public static class Selftest
         Check("detach while captured: captured first", await Until(() => disp.Captured, 2000));
         Win.Scan(0x1E, false, true);
         await Task.Delay(150);
-        w.Invoke("machine.stop");
+        w.Invoke("machine.stop", true);
         Check("detach while captured: the display detaches", await Until(() => !disp.Attached, 8000));
         Win.Scan(0x1E, false, false);
         Check("detach while captured: cursor shown, unclipped, mouse released, no key held",
@@ -931,6 +1063,14 @@ public static class Selftest
         try { await core.PowerOffAsync(key); await core.ForceQuitAsync(key); } catch (Exception e) { again = e.GetType().Name + ": " + e.Message; }
         Check("stop: Power off and Force quit on an ended machine do not fail", again == "ok", again);
         Check("quit: no machine is up, so quitting would not prompt", w.UpNames.Count == 0, string.Join(",", w.UpNames));
+        // A machine made for the purpose, once everything that needs the others has run.
+        var doomed = await core.CreateMachineAsync("Delete me", offers[core.DefaultOffering(offers)].Id);
+        w.Reload();
+        var doomedName = "Delete me";
+        await w.RemoveAsync(doomed, confirmed: true);
+        Check("delete: confirming moves the folder to the core's recorded trash and says so in a toast",
+            core.FakeTrashed().Length == 1 && core.FakeTrashed()[0].Contains(doomedName) && core.Machines().All(m => m.Key != doomed) && w.StatusForTest == $"{doomedName} moved to the Recycle Bin",
+            string.Join("|", core.FakeTrashed()) + " / " + w.StatusForTest);
 
         // --- a machine with no display opens to its console ---
         var blind = await core.CreateMachineAsync("Serial only (fake)", "fakeblind.1");
@@ -939,14 +1079,14 @@ public static class Selftest
         await Until(() => w.SelectedKey == blind, 2000);
         w.Invoke("machine.start");
         Check("headless: the machine starts", await Until(() => core.Status(blind).State == MachineState.Running, 15_000), core.Status(blind).Reason);
-        Check("headless: the pill says Console only", await Until(() => w.PillTextForTest == "Console only", 3000), w.PillTextForTest);
+        Check("headless: the state says Running, not a word of its own", await Until(() => w.PillTextForTest == "Running", 3000), w.PillTextForTest);
         Check("headless: the console is the machine's view, with no display attached", await Until(() => w.ConsolePaneForTest != null, 3000) && !w.DisplayViewForTest.Attached && !w.DisplayVisibleForTest);
         if (w.ConsolePaneForTest is { } pane)
         {
             core.FakeSay(blind, "serial only\r\n");
             Check("headless: guest output reaches the pane", await Until(() => pane.TextForTest.Contains("serial only"), 3000), pane.TextForTest.Replace("\n", " | "));
         }
-        w.Invoke("machine.stop");
+        w.Invoke("machine.stop", true);
         Check("headless: stopping closes the pane", await Until(() => core.Status(blind).State == MachineState.Stopped && w.ConsolePaneForTest == null, 8000), core.Status(blind).Reason);
 
         // --- the stopped machine's pane is tinted with its chassis colour, fading toward the bottom ---
@@ -1031,7 +1171,7 @@ public static class Selftest
         }
         if (bigUp) await BehaviourSelftest.Run(w, core, disp, big, core.Machines().First(m => m.Key != big).Key, Check);
         bigGuest.Cancel(); await bigGuestTask;
-        w.Invoke("machine.stop");
+        w.Invoke("machine.stop", true);
         await Until(() => core.Status(big).State == MachineState.Stopped, 8000);
         disp.ForceFallback = fallback0;
 
@@ -1049,15 +1189,16 @@ public static class Selftest
         var older = core.Machines().FirstOrDefault(m => m.Name == "Older")?.Key ?? "";
         w.Reload();
         w.SelectForTest(older);
-        Check("upgrade: its card shows with the Needs upgrade pill and Start is off",
-            await Until(() => w.UpgradeCardForTest && w.PillTextForTest == "Needs upgrade" && !core.CommandEnabled("machine.start", core.Status(older).State), 3000), w.PillTextForTest);
-        w.PressToolbarForTest("UpgradeButton");
-        Check("upgrade: the machine replaces the card and its notes show",
-            await Until(() => !w.UpgradeCardForTest && core.Status(older).State == MachineState.Stopped && w.UpgradeNotesForTest.Contains("format 5"), 15_000),
-            $"{w.PillTextForTest} | {w.UpgradeErrorForTest} | {w.UpgradeNotesForTest}");
+        Check("upgrade: its card shows with the core's title, Start is off and the state says Needs upgrade",
+            await Until(() => w.UpgradeCardForTest && w.PillTextForTest == "Needs upgrade" && w.CardTitleForTest == "Made by an older Origami" && !core.CommandEnabled("machine.start", core.Status(older).State), 3000), w.PillTextForTest + " | " + w.CardTitleForTest);
+        await Capture(w, dir, "card-needs-upgrade");
+        w.PressCardForTest(CardActionKind.Upgrade);
+        Check("upgrade: the machine replaces the card and a toast says it was upgraded",
+            await Until(() => !w.UpgradeCardForTest && core.Status(older).State == MachineState.Stopped && w.StatusForTest == "Older upgraded", 15_000),
+            $"{w.PillTextForTest} | {w.UpgradeErrorForTest} | {w.StatusForTest}");
         w.Invoke("machine.start");
         Check("upgrade: the upgraded machine starts", await Until(() => core.Status(older).State == MachineState.Running, 15_000), core.Status(older).Reason);
-        w.Invoke("machine.stop");
+        w.Invoke("machine.stop", true);
         await Until(() => core.Status(older).State == MachineState.Stopped, 8000);
     }
 }

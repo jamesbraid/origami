@@ -102,18 +102,18 @@ public static class Selftest
         try
         {
             // New Machine with the ready-made choice: the list comes from origami-dist, so the choice appears once it answers.
-            for (var tries = 0; tries < 4 && FindOpen<UIC.ComboBox>("new.disk") == null; tries++)
+            for (var tries = 0; tries < 4 && FindOpen<UIC.RadioButtons>("new.disk") == null; tries++)
             {
                 w.Invoke("machine.new");
-                await Until(() => FindOpen<UIC.ComboBox>("new.disk") != null, 2000);
+                await Until(() => FindOpen<UIC.RadioButtons>("new.disk") != null, 2000);
             }
-            var plain = core.Labels().Choices.Count;
-            if (await Until(() => FindOpen<UIC.ComboBox>("new.disk") is { } d && d.Items.Count > plain, 30_000))
+            var plain = OrigamiFfiMethods.OrigamiDiskOptions(false).Length;
+            if (await Until(() => FindOpen<UIC.RadioButtons>("new.disk") is { } d && d.Items.Count > plain, 30_000))
             {
-                FindOpen<UIC.ComboBox>("new.disk")!.SelectedIndex = DiskChoices.Ready;
+                // The ready-made choice is listed first, so it is already the one selected.
                 if (FindOpen<UIC.TextBox>("new.name") is { } typed) typed.Text = "irix";
                 await Task.Delay(1500);
-                parity["new_machine_fields"] = new[] { "new.engine", "new.model", "new.name", "new.disk" }
+                parity["new_machine_fields"] = new[] { "new.engine", "new.model", "new.name" }
                     .Select(id => FindOpen<UI.FrameworkElement>(id)).Select(e => e switch { UIC.ComboBox c => (string)c.Header, UIC.TextBox t => (string)t.Header, _ => "" })
                     .Append(Find<UIC.Expander>().Select(e => e.Header as string ?? "").FirstOrDefault() ?? "").ToList();
                 await Grab(dir, "windows-ready-disk", w.Hwnd);
@@ -122,27 +122,21 @@ public static class Selftest
             await CloseDialog();
 
             // Settings at Network, with Bridged chosen and its fields open.
-            for (var tries = 0; tries < 4 && FindOpen<UIC.ComboBox>("settings.network") == null; tries++)
+            for (var tries = 0; tries < 4 && FindOpen<UIC.RadioButtons>("settings.network") == null; tries++)
             {
-                w.Invoke("machine.settings");
-                await Until(() => FindOpen<UIC.ComboBox>("settings.network") != null, 3000);
+                w.OpenSettingsForTest("network");
+                await Until(() => FindOpen<UIC.RadioButtons>("settings.network") != null, 3000);
             }
             var bridgedAt = core.NetworkModes().ToList().FindIndex(c => c.Label == "Bridged");
-            if (FindOpen<UIC.ComboBox>("settings.network") is { } mode && bridgedAt >= 0)
+            if (FindOpen<UIC.RadioButtons>("settings.network") is { } mode && bridgedAt >= 0)
             {
                 mode.SelectedIndex = bridgedAt;
                 await Until(() => FindOpen<UIC.TextBox>("settings.bridge.device") != null, 3000);
-                // Choosing Bridged rebuilt the dialog, so scroll to the Network heading, at the top of the view with nothing cut above it.
-                await Task.Delay(1000);
-                UI.DependencyObject? up = FindOpen<UIC.TextBlock>("settings.heading.network");
-                while (up != null && up is not UIC.ScrollViewer) up = UIM.VisualTreeHelper.GetParent(up);
-                if (up is UIC.ScrollViewer sv && FindOpen<UIC.TextBlock>("settings.heading.network") is { } head)
-                    sv.ChangeView(null, sv.VerticalOffset + head.TransformToVisual(sv).TransformPoint(new Windows.Foundation.Point(0, 0)).Y - 6, null, true);
                 await Task.Delay(1500);
-                parity["settings_tabs"] = Find<UIC.TextBlock>().Where(t => UI.Automation.AutomationProperties.GetAutomationId(t).StartsWith("settings.heading.")).Select(t => t.Text).ToList();
+                parity["settings_tabs"] = MachineSettingsDialog.Pages().Select(p => p.Title).ToList();
                 await Grab(dir, "windows-network", w.Hwnd);
             }
-            else Add("windows-network.png", false, $"network combo found: {FindOpen<UIC.ComboBox>("settings.network") != null}, Bridged at {bridgedAt}");
+            else Add("windows-network.png", false, $"network modes found: {FindOpen<UIC.RadioButtons>("settings.network") != null}, Bridged at {bridgedAt}");
             await CloseDialog();
 
             // The Install IRIX assistant at its Software step; its window is separate, so it comes to the front of the main one.
@@ -378,7 +372,7 @@ public static class Selftest
             if (asked) { Asked()!.Hide(); await Until(() => Asked() == null, 3000); }
         }
         // A clean stop waits for the guest (and a PROM menu never answers); force-quit ends QEMU at once.
-        w.Invoke("machine.force-quit");
+        w.Invoke("machine.force-quit", true);
         Add("force quit settles as Stopped, not stopped unexpectedly", await Until(() => core.Status(key).State == MachineState.Stopped, 60_000), core.Status(key).State + " " + core.Status(key).Reason);
         await Scenes(w, core, key, dir);
         // A runner that dies without a word must not leave the machine Running.

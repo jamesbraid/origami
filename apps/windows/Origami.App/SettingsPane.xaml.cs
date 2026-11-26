@@ -15,9 +15,12 @@ public sealed partial class SettingsPane : UserControl
     public SettingsPane()
     {
         InitializeComponent();
+        RootBox.Header = Ui.T(OrigamiUiString.ChooseTheFolderThatHoldsYourMachines);
         PrefsTitle.Text = Ui.T(OrigamiUiString.Preferences);
         ModeButtons.Header = Ui.T(OrigamiUiString.Pointer);
         DownloadedTitle.Text = Ui.T(OrigamiUiString.DownloadedDisks);
+        var release = OrigamiFfiMethods.OrigamiShortcutGroups(OrigamiPlatform.Windows).First().Items.First();
+        ReleaseNote.Text = $"{release.Label}: {release.Keys}";
         SaveButton.Click += (_, _) =>
         {
             _s.LibraryRoot = RootBox.Text.Trim();
@@ -42,7 +45,12 @@ public sealed partial class SettingsPane : UserControl
     {
         DownloadedList.Children.Clear();
         var disks = Core?.CachedDisks() ?? Array.Empty<CachedDisk>();
-        if (disks.Count == 0) DownloadedList.Children.Add(new TextBlock { Text = Ui.T(OrigamiUiString.NoDownloadedDisks), Opacity = 0.7 });
+        if (disks.Count == 0)
+        {
+            var empty = OrigamiFfiMethods.OrigamiEmptyState(OrigamiEmptyKind.NoDownloadedDisks);
+            DownloadedList.Children.Add(new TextBlock { Text = empty.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            DownloadedList.Children.Add(new TextBlock { Text = empty.Sentence, Opacity = 0.7 });
+        }
         foreach (var d in disks)
         {
             var remove = new Button { Content = Ui.T(OrigamiUiString.Remove), VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center };

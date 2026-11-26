@@ -78,15 +78,15 @@ public sealed class ImagePanel
 
     public async Task SetAsync(string path)
     {
-        Choice.Path = path; Choice.Check = null; Choice.Error = null; Choice.Badge = "Reading…";
+        Choice.Path = path; Choice.Check = null; Choice.Error = null; Choice.Badge = Ui.T(OrigamiUiString.Reading);
         Sync();
         try
         {
             var check = await _core.CheckDiskImageAsync(path, _machine);
-            string os;
-            try { os = await _core.DiskInfoAsync(path); } catch { os = "Unknown"; }
+            string? os;
+            try { os = await _core.DiskOsAsync(path); } catch { os = null; }
             if (Choice.Path != path) return; // another file was chosen meanwhile
-            Choice.Check = check; Choice.Badge = os;
+            Choice.Check = check; Choice.Badge = os ?? "";
         }
         catch (Exception e) when (Choice.Path == path) { Choice.Error = e.Message; }
         Sync();
@@ -99,7 +99,7 @@ public sealed class ImagePanel
         var read = Choice.Check is not null;
         _file.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
         _file.Text = shown ? System.IO.Path.GetFileName(Choice.Path!) + (read ? "  " + _core.SizeLabel(Choice.Check!.Bytes) : "") : "";
-        _badge.Visibility = shown && Choice.Error is null ? Visibility.Visible : Visibility.Collapsed;
+        _badge.Visibility = shown && Choice.Error is null && Choice.Badge.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         _badge.Text = Choice.Badge;
         _place.Visibility = read ? Visibility.Visible : Visibility.Collapsed;
         _keep.Visibility = read && Choice.Check!.IsChd ? Visibility.Visible : Visibility.Collapsed;

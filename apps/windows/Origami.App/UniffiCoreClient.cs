@@ -44,8 +44,12 @@ public sealed class UniffiCoreClient : ICoreClient
 
     // The core's reads (a machine's view asks QEMU over QMP) can block, so nothing on the UI thread calls them: a
     // background loop reads every machine and the UI reads what it stored.
-    sealed record Snapshot(IReadOnlyList<OrigamiMachineSummary> List, Dictionary<string, OrigamiMachineView> Views);
-    volatile Snapshot _snap = new(Array.Empty<OrigamiMachineSummary>(), new());
+    sealed record Snapshot(IReadOnlyList<OrigamiMachineSummary> List, Dictionary<string, OrigamiMachineView> Views,
+        Dictionary<string, OrigamiShownState> Shown, Dictionary<string, BarWords> Bars);
+    /// <summary>The status bar's words for a running machine, one pointer line for each mode, read with the view.</summary>
+    sealed record BarWords(string? Picture, string? Follow, string? Capture);
+    volatile Snapshot _snap = new(Array.Empty<OrigamiMachineSummary>(), new(), new(), new());
+    readonly HashSet<string> _installing = new();
     readonly SemaphoreSlim _wake = new(0, 1); // one pending wake is enough: the pass reads everything
     readonly ManualResetEventSlim _first = new(false);
     readonly CancellationTokenSource _stop = new();
@@ -75,13 +79,27 @@ public sealed class UniffiCoreClient : ICoreClient
     {
         var list = relist ? _core.ListMachines() : _snap.List.ToArray();
         var views = new Dictionary<string, OrigamiMachineView>();
+        var shown = new Dictionary<string, OrigamiShownState>();
+        var bars = new Dictionary<string, BarWords>();
         foreach (var m in list)
         {
-            try { views[m.Key] = M(m.Key).View(); }
+            try
+            {
+                var machine = M(m.Key);
+                var view = machine.View();
+                views[m.Key] = view;
+                shown[m.Key] = machine.ShownState(IsInstalling(m.Key));
+                if (view.State is OrigamiMachineState.Running or OrigamiMachineState.Paused)
+                {
+                    var follow = machine.StatusBar(true, false, OrigamiPlatform.Windows);
+                    var capture = machine.StatusBar(false, true, OrigamiPlatform.Windows);
+                    bars[m.Key] = new BarWords(follow?.Picture, follow?.Pointer, capture?.Pointer);
+                }
+            }
             catch (Exception e) when (e is CoreException) { /* a machine that went away has no view this pass */ }
         }
         var before = _snap.List.Select(m => m.Key).ToList();
-        _snap = new Snapshot(list, views);
+        _snap = new Snapshot(list, views, shown, bars);
         if (!before.SequenceEqual(list.Select(m => m.Key))) Events?.Invoke(new MachineEvent("", MachineEventKind.LibraryChanged));
     }
 
@@ -104,7 +122,6 @@ public sealed class UniffiCoreClient : ICoreClient
     /// <summary>A machine's stored view, or null when it has none yet (it is new, or its view failed on the last pass).</summary>
     OrigamiMachineView? TryView(string key) => _snap.Views.GetValueOrDefault(key);
 
-    public string PointerStatus(bool follows, bool captured) => OrigamiFfiMethods.OrigamiPointerStatus(follows, captured);
     public string EngineName(string id) => _core.Engines().FirstOrDefault(e => e.Id == id)?.Name ?? id;
     public string EngineIds => string.Join(",", _core.Engines().Select(e => e.Id));
 
@@ -125,6 +142,8 @@ public sealed class UniffiCoreClient : ICoreClient
         ReadCore(true);
     }
 
+    /// <summary>The folders the core has moved to its stand-in Recycle Bin, in order.</summary>
+    public string[] FakeTrashed() => _core.FakeTrashed();
     public void FakeAdvanceFrame(string key) => _core.FakeAdvanceFrame(key);
     public void FakeSay(string key, string text) => _core.FakeSay(key, text);
     /// <summary>What reached the fake engine, in order, as the core's Debug text.</summary>
@@ -210,8 +229,10 @@ public sealed class UniffiCoreClient : ICoreClient
 
     public void RemoveCachedDisk(string key) => _core.RemoveCachedDisk(key);
 
-    public Task<string> DiskInfoAsync(string path) => Task.Run(() => _core.DiskInfo(path));
-    public Task<string> DriveInfoAsync(string key, string drive) => Task.Run(() => M(key).DriveInfo(drive));
+    public Task<string?> DiskOsAsync(string path) => Task.Run(() => _core.DiskOs(path));
+    public Task<string?> DriveOsAsync(string key, string drive) => Task.Run(() => M(key).DriveOs(drive));
+    public Task<string> StartupValueAsync(string key) => Task.Run(() => OrigamiFfiMethods.OrigamiStartupValue(M(key).BootConsole()));
+    public Task<IReadOnlyList<DriveRow>> DriveRowsAsync(string key) => Task.Run<IReadOnlyList<DriveRow>>(() => M(key).DriveRows().Select(r => new DriveRow(r.Name, r.Title, r.Caption)).ToList());
     public ImageVerdict Verdict(DiskImageCheck c, bool copy)
     {
         var v = OrigamiFfiMethods.OrigamiImageVerdict(new OrigamiDiskImageCheck(c.Bytes, c.IsChd, c.FreeBytes, c.UsedBy, c.Problem), copy);
@@ -288,7 +309,7 @@ public sealed class UniffiCoreClient : ICoreClient
     public Task<IdentityPreview> PreviewIdentityAsync(string offeringId, string? engine, string emuId, string? mac) => Task.Run(() =>
     {
         var p = _core.PreviewNewIdentity(offeringId, engine, emuId, mac);
-        return new IdentityPreview(p.EmuId, p.Mac, p.FromId, p.Problem);
+        return new IdentityPreview(p.EmuId, p.Mac, p.FromId, p.Problem, p.ProblemField is { } f ? Enum.Parse<IdentityField>(f.ToString()) : null);
     });
 
     public Task<IReadOnlyList<ReportLine>> ApplyChangeAsync(string key, MachineChange change) => Task.Run<IReadOnlyList<ReportLine>>(() => (change is MachineChange.SetNetwork n
@@ -365,7 +386,7 @@ public sealed class UniffiCoreClient : ICoreClient
         if (TryView(key) is not { } v)
         {
             var listed = _snap.List.FirstOrDefault(m => m.Key == key);
-            if (listed is { NeedsUpgrade: true }) return new MachineStatus(MachineState.NeedsUpgrade, "Made by an older Origami. Upgrade it once to use it.", null);
+            if (listed is { NeedsUpgrade: true }) return new MachineStatus(MachineState.NeedsUpgrade, "", null);
             return new MachineStatus(listed is null ? MachineState.Stopped : Settle(key, listed.State), "No information about this machine yet.", null);
         }
         return new MachineStatus(Settle(key, v.State), v.Reason, v.LastError, v.Note);
@@ -394,9 +415,106 @@ public sealed class UniffiCoreClient : ICoreClient
 
     public Task<IReadOnlyList<ReportLine>> UpgradeAsync(string key) => Task.Run<IReadOnlyList<ReportLine>>(() =>
     {
-        try { return _core.UpgradeMachine(key).Select(l => new ReportLine(Enum.Parse<LineKind>(l.Kind.ToString()), l.Text, l.Shown, l.Copy)).ToList(); }
+        try { return Lines(_core.UpgradeMachine(key)); }
         finally { ReadCore(true); } // the list says at once whether the machine still needs it
     });
+
+    public Task<IReadOnlyList<ReportLine>> UpgradeWithAsync(string key, string? prom, string? ioProm) => Task.Run<IReadOnlyList<ReportLine>>(() =>
+    {
+        try { return Lines(_core.UpgradeMachineWith(key, prom, ioProm)); }
+        finally { ReadCore(true); }
+    });
+
+    static List<ReportLine> Lines(IEnumerable<OrigamiReportLine> lines) =>
+        lines.Select(l => new ReportLine(Enum.Parse<LineKind>(l.Kind.ToString()), l.Text, l.Shown, l.Copy)).ToList();
+
+    public Task<IReadOnlyList<string>> RemovePlanAsync(string key) => Task.Run<IReadOnlyList<string>>(() => _core.RemovePlan(key).DiskLeft.ToList());
+
+    public Task<IReadOnlyList<string>> RemoveAsync(string key) => Task.Run<IReadOnlyList<string>>(() =>
+    {
+        try
+        {
+            var removed = _core.RemoveMachine(key);
+            lock (_machines) _machines.Remove(key);
+            return removed.DiskLeft.ToList();
+        }
+        catch (CoreException.Busy b) { throw new CoreBusyException(b.message); }
+        finally { ReadCore(true); }
+    });
+
+    // ---- what the core says about a machine's state ----
+
+    static ShownState ShownOf(OrigamiShownState s) => Enum.Parse<ShownState>(s.ToString());
+    static Tone ToneOf(OrigamiTone t) => Enum.Parse<Tone>(t.ToString());
+
+    bool IsInstalling(string key) { lock (_installing) return _installing.Contains(key); }
+
+    public void SetInstalling(string key, bool on)
+    {
+        bool changed;
+        lock (_installing) changed = on ? _installing.Add(key) : _installing.Remove(key);
+        if (changed) Poke();
+    }
+
+    /// <summary>A machine that needs an upgrade or cannot be read is worded from the library alone: it has no view to ask.</summary>
+    static bool Unreadable(OrigamiMachineSummary m) => m.NeedsUpgrade || m.Problem is not null;
+
+    public ShownState Shown(string key)
+    {
+        var snap = _snap;
+        var m = snap.List.FirstOrDefault(x => x.Key == key);
+        if (m is null) return ShownState.Stopped;
+        if (!Unreadable(m) && snap.Shown.TryGetValue(key, out var s)) return ShownOf(s);
+        return ShownOf(OrigamiFfiMethods.OrigamiRow(m, IsInstalling(key)).State);
+    }
+
+    public RowInfo Row(string key)
+    {
+        var snap = _snap;
+        var m = snap.List.FirstOrDefault(x => x.Key == key);
+        if (m is null) return new RowInfo(ShownState.Stopped, "", Tone.None, "", Tone.None, "");
+        var live = !Unreadable(m) && snap.Views.TryGetValue(key, out var v) ? m with { State = v.State } : m;
+        var r = OrigamiFfiMethods.OrigamiRow(live, IsInstalling(key));
+        if (!IsInstalling(key) && !Unreadable(m) && snap.Shown.TryGetValue(key, out var shown) && shown != r.State)
+        {
+            // What only a view knows (a blank screen, a clean exit) changes the word and the second line.
+            var model = OrigamiFfiMethods.OrigamiRow(live with { State = OrigamiMachineState.NotRunning }, false).Line.Text;
+            var label = OrigamiFfiMethods.OrigamiStateLabel(shown);
+            var line = OrigamiFfiMethods.OrigamiLibraryLineFor(shown, model);
+            return new RowInfo(ShownOf(shown), label.Word, ToneOf(label.Tone), line.Text, ToneOf(line.Tone),
+                OrigamiFfiMethods.OrigamiRowDescriptionFor(shown, m.Name, model, m.SystemDisk));
+        }
+        return new RowInfo(ShownOf(r.State), r.Word, ToneOf(r.Tone), r.Line.Text, ToneOf(r.Line.Tone), r.Description);
+    }
+
+    public CardInfo? Card(string key, string name, ShownState state)
+    {
+        var m = _snap.List.FirstOrDefault(x => x.Key == key);
+        var error = state == ShownState.CantOpen && m?.Problem is { } p
+            ? new OrigamiErrorInfo(OrigamiErrorKind.Invalid, p, null, OrigamiErrorFix.None)
+            : TryView(key)?.StartError;
+        var c = OrigamiFfiMethods.OrigamiMachineCard(Enum.Parse<OrigamiShownState>(state.ToString()), error, name, OrigamiPlatform.Windows);
+        return c is null ? null : new CardInfo(c.Title, c.Body,
+            c.Actions.Select(a => new CardAction(Enum.Parse<CardActionKind>(a.Kind.ToString()), a.Label)).ToList(), c.Details);
+    }
+
+    public Problem ProblemOf(Exception e)
+    {
+        if (e is not CoreException ce) return new Problem(e.Message, null, ErrorFix.None);
+        var i = OrigamiFfiMethods.OrigamiErrorInfo(ce);
+        return new Problem(i.Message, i.Detail, Enum.Parse<ErrorFix>(i.Fix.ToString()));
+    }
+
+    public string? FixLabel(Problem p)
+    {
+        var error = new OrigamiErrorInfo(OrigamiErrorKind.Invalid, p.Message, p.Detail, Enum.Parse<OrigamiErrorFix>(p.Fix.ToString()));
+        var card = OrigamiFfiMethods.OrigamiMachineCard(OrigamiShownState.Stopped, error, "", OrigamiPlatform.Windows);
+        // The card offers the fix first and Try again last.
+        return card?.Actions.FirstOrDefault(a => a.Kind != OrigamiActionKind.TryAgain)?.Label;
+    }
+
+    public StatusBarInfo? StatusBar(string key, bool follows, bool captured) =>
+        _snap.Bars.TryGetValue(key, out var b) ? new StatusBarInfo(b.Picture, follows ? b.Follow : captured ? b.Capture : null) : null;
 
     /// <summary>Asks the loop to list the library again now.</summary>
     public void Relist() { _relist = 1; Poke(); }
@@ -463,7 +581,7 @@ public sealed class UniffiCoreClient : ICoreClient
     }
 
     public string DiagnosticsReport(string key, MachineState state, long updates, long shown) =>
-        TryView(key) is null ? "No information about this machine yet." : M(key).DiagnosticsReport(Pill.Text(state), (ulong)updates, (ulong)shown);
+        TryView(key) is null ? "No information about this machine yet." : M(key).DiagnosticsReport(Row(key).Word, (ulong)updates, (ulong)shown);
 
     public Task<OsviewScene> OsviewAsync(string key) => Task.Run(() =>
     {

@@ -4,13 +4,13 @@
     <ScrollViewer>
         <StackPanel Padding="24" Spacing="16" MaxWidth="560" HorizontalAlignment="Left">
             <TextBlock x:Name="PrefsTitle" Style="{ThemeResource TitleTextBlockStyle}"/>
-            <TextBox x:Name="RootBox" Header="Machine library folder" PlaceholderText="C:\Users\you\Origami"
+            <TextBox x:Name="RootBox" PlaceholderText="C:\Users\you\Origami"
                      AutomationProperties.AutomationId="prefs.root"/>
             <RadioButtons x:Name="ModeButtons" AutomationProperties.AutomationId="prefs.pointer">
                 <x:String>Follow my mouse</x:String>
                 <x:String>Capture on click</x:String>
             </RadioButtons>
-            <TextBlock Text="Release a captured pointer with Ctrl+Alt." Opacity="0.7"/>
+            <TextBlock x:Name="ReleaseNote" Opacity="0.7"/>
             <ToggleSwitch x:Name="ConfirmSwitch" Header="Ask before quitting with machines running"
                           AutomationProperties.AutomationId="prefs.confirmquit"/>
             <TextBlock x:Name="DownloadedTitle" Style="{ThemeResource SubtitleTextBlockStyle}"/>

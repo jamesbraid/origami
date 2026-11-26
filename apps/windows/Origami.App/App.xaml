@@ -7,10 +7,10 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
                 <ResourceDictionary Source="Generated/Tokens.xaml"/>
             </ResourceDictionary.MergedDictionaries>
-            <!-- Indigo accent from the UX design, light and dark. Chrome stays native. -->
-            <Color x:Key="SystemAccentColor">#4A52C4</Color>
-            <Color x:Key="SystemAccentColorLight2">#7C83F2</Color>
-            <Color x:Key="SystemAccentColorDark1">#3F46A8</Color>
+            <!-- The label of a destructive button, in the system's critical colour. -->
+            <Style x:Key="DestructiveButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource SystemFillColorCriticalBrush}"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

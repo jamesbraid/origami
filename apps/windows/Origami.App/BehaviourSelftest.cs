@@ -138,7 +138,7 @@ static class BehaviourSelftest
                     await Until(() => disp.Attached && disp.HeadWidth == guestW, 8000);
                     break;
                 case "first-window":
-                    w.Invoke("machine.stop");
+                    w.Invoke("machine.stop", true);
                     await Until(() => core.Status(key).State == Origami.Logic.MachineState.Stopped, 8000);
                     w.Invoke("machine.start");
                     await Until(() => core.Status(key).State == Origami.Logic.MachineState.Running && disp.Attached && disp.HeadWidth == guestW, 15_000);

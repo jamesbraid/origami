@@ -12,6 +12,9 @@ public sealed record DiskLabels(IReadOnlyList<string> Choices, IReadOnlyList<str
 /// <summary>A ready-made disk the server offers for a machine; <c>Label</c> is what to show, such as "IRIX 6.5.22, 835 MB".</summary>
 public sealed record ReadyDisk(string Name, string Version, ulong Bytes, bool Cached, string Label);
 
+/// <summary>One line of the Drives page: the core's title for the drive and the caption under it.</summary>
+public sealed record DriveRow(string Name, string Title, string Caption);
+
 /// <summary>A downloaded disk, listed in Preferences.</summary>
 public sealed record CachedDisk(string Key, string Label, ulong Bytes);
 
@@ -28,19 +31,13 @@ public abstract record SystemDisk
     public sealed record Ready(string Name) : SystemDisk;
 }
 
-/// <summary>Positions in <see cref="DiskLabels.Choices"/>; the ready-made choice follows them while the server lists a disk. Install from discs joins later.</summary>
-public static class DiskChoices
-{
-    public const int None = 0, Empty = 1, Image = 2, Ready = 3;
-}
-
 /// <summary>The image a person chose and the questions about it; the macOS and GTK apps ask the same and say the same.</summary>
 public sealed class ImageChoice
 {
     public string? Path { get; set; }
     public DiskImageCheck? Check { get; set; }
     /// <summary>What the disk holds, "Reading…" until the core says.</summary>
-    public string Badge { get; set; } = "Reading…";
+    public string Badge { get; set; } = "";
     /// <summary>The core's sentence when the file could not be read at all.</summary>
     public string? Error { get; set; }
     public bool Copy { get; set; } = true;

@@ -22,6 +22,41 @@ public static class Shot
         await File.WriteAllBytesAsync(path, bytes);
     }
 
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct Rc { public int L, T, R, B; }
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct BmiHeader { public uint Size; public int Width, Height; public ushort Planes, Bits; public uint Compression, ImageSize; public int Xppm, Yppm; public uint Used, Important; }
+    [System.Runtime.InteropServices.DllImport("user32")] static extern bool GetWindowRect(IntPtr h, out Rc r);
+    [System.Runtime.InteropServices.DllImport("user32")] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
+    [System.Runtime.InteropServices.DllImport("user32")] static extern IntPtr GetDC(IntPtr h);
+    [System.Runtime.InteropServices.DllImport("user32")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+    [System.Runtime.InteropServices.DllImport("gdi32")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
+    [System.Runtime.InteropServices.DllImport("gdi32")] static extern IntPtr CreateCompatibleBitmap(IntPtr dc, int w, int h);
+    [System.Runtime.InteropServices.DllImport("gdi32")] static extern IntPtr SelectObject(IntPtr dc, IntPtr o);
+    [System.Runtime.InteropServices.DllImport("gdi32")] static extern bool DeleteObject(IntPtr o);
+    [System.Runtime.InteropServices.DllImport("gdi32")] static extern bool DeleteDC(IntPtr dc);
+    [System.Runtime.InteropServices.DllImport("gdi32")] static extern int GetDIBits(IntPtr dc, IntPtr bmp, uint start, uint lines, byte[] bits, ref BmiHeader bi, uint usage);
+
+    /// <summary>The whole window as the compositor draws it, popups and the picture's child window included, saved as a PNG.</summary>
+    public static async Task Window(IntPtr hwnd, string path)
+    {
+        GetWindowRect(hwnd, out var r);
+        int w = r.R - r.L, h = r.B - r.T;
+        var screen = GetDC(IntPtr.Zero);
+        var dc = CreateCompatibleDC(screen);
+        var bmp = CreateCompatibleBitmap(screen, w, h);
+        var old = SelectObject(dc, bmp);
+        var bytes = new byte[w * h * 4];
+        try
+        {
+            PrintWindow(hwnd, dc, 2); // PW_RENDERFULLCONTENT
+            var bi = new BmiHeader { Size = 40, Width = w, Height = -h, Planes = 1, Bits = 32 };
+            GetDIBits(dc, bmp, 0, (uint)h, bytes, ref bi, 0);
+        }
+        finally { SelectObject(dc, old); DeleteObject(bmp); DeleteDC(dc); ReleaseDC(IntPtr.Zero, screen); }
+        await SavePng(path, bytes, w, h);
+    }
+
     /// <summary>XAML's own rendering of the element (a SwapChainPanel's content is not in it).</summary>
     public static async Task Xaml(UIElement el, string path)
     {

@@ -47,34 +47,3 @@ public readonly record struct InputEvent(InputKind Kind, int A = 0, int B = 0, b
     public static InputEvent Button(int b, bool down) => new(InputKind.Button, b, 0, down);
     public static InputEvent Wheel(int notches) => new(InputKind.Wheel, notches);
 }
-
-public static class Pill
-{
-    /// <summary>One or two words, as the UX design's state table words them.</summary>
-    public static string Text(MachineState s, bool headless = false) => s switch
-    {
-        MachineState.Stopped => "Stopped",
-        MachineState.Starting => "Starting",
-        MachineState.Running => headless ? "Console only" : "Running",
-        MachineState.Paused => "Paused",
-        MachineState.Stopping => "Saving",
-        MachineState.Exited => "Stopped unexpectedly",
-        MachineState.LeftRunning => "Left running",
-        MachineState.NeedsUpgrade => UpgradeText.Title,
-        _ => "Unknown",
-    };
-
-    /// <summary>Why a machine that ended on its own stopped: the core's last error, else its reason; empty in any other state.</summary>
-    public static string StoppedNote(MachineStatus st) =>
-        st.State != MachineState.Exited ? "" : "Stopped unexpectedly. " + (st.LastError is { Length: > 0 } e ? e : st.Reason);
-
-    /// <summary>"grey", "amber", "green" or "red". Colour always travels with the word.</summary>
-    public static string Tone(MachineState s) => s switch
-    {
-        MachineState.Stopped => "grey",
-        MachineState.Starting or MachineState.Stopping or MachineState.LeftRunning or MachineState.NeedsUpgrade => "amber",
-        MachineState.Running or MachineState.Paused => "green",
-        MachineState.Exited => "red",
-        _ => "grey",
-    };
-}

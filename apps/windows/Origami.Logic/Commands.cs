@@ -45,9 +45,12 @@ public readonly record struct Accelerator(bool Ctrl, bool Shift, bool Alt, strin
         {
             if (Key.Length == 1 && char.IsAsciiLetterOrDigit(Key[0])) return char.ToUpperInvariant(Key[0]);
             if (Key.Length is 2 or 3 && Key[0] == 'F' && int.TryParse(Key.AsSpan(1), out var n) && n is >= 1 and <= 24) return 0x70 + n - 1;
-            return Key switch { "," => 0xBC, "." => 0xBE, "Enter" => 0x0D, _ => 0 };
+            return Key switch { "," => 0xBC, "." => 0xBE, "Enter" => 0x0D, "Delete" => 0x2E, _ => 0 };
         }
     }
+
+    /// <summary>A letter, digit or edit key pressed alone: it belongs to the focused control, so it is never a window-wide accelerator.</summary>
+    public bool IsBare => !Ctrl && !Shift && !Alt && VirtualKey is not (>= 0x70 and <= 0x87);
 
     /// <summary>Whether the shortcut is taken while the guest has the keyboard: Ctrl+Shift, function keys and the four view
     /// shortcuts (Ctrl+9, Ctrl+0, Ctrl+Alt+1, Ctrl+Alt+2). The guest keeps bare Ctrl letters.</summary>

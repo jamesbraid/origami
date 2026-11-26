@@ -51,6 +51,8 @@ public sealed partial class DisplayView : UserControl
     public Func<int, bool, bool, bool, bool>? Shortcut { get; set; }
     public Action? PointerModeChanged { get; set; }
 
+    /// <summary>Whether the picture's child window is on screen; it draws over all XAML, so a dialog needs it hidden.</summary>
+    public bool WindowVisible => _hwnd != IntPtr.Zero && Win32.IsWindowVisible(_hwnd);
     public bool Attached => _hwnd != IntPtr.Zero && (_view != IntPtr.Zero || _op != IntPtr.Zero);
     public bool Captured => _ptr.Captured;
     public int KeysDown => _keys.DownCount;

@@ -10,59 +10,13 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- One header: icon and title, the machine's name and state, then the actions and the main menu, beside the caption buttons. -->
+        <!-- The title bar holds the icon, the name and the caption buttons, nothing else. -->
         <TitleBar x:Name="AppTitleBar" Grid.Row="0">
             <TitleBar.IconSource>
                 <ImageIconSource x:Name="TitleIcon"/>
             </TitleBar.IconSource>
-            <TitleBar.Resources>
-                <HorizontalAlignment x:Key="TitleBarContentHorizontalAlignment">Stretch</HorizontalAlignment>
-            </TitleBar.Resources>
-            <TitleBar.Content>
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                        <TextBlock x:Name="TitleText" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                        <Border x:Name="PillBorder" CornerRadius="9" Padding="8,1" Background="Gray" VerticalAlignment="Center">
-                            <TextBlock x:Name="PillText" Text="" Foreground="White" FontSize="12"
-                                       AutomationProperties.AutomationId="status.pill"/>
-                        </Border>
-                    </StackPanel>
-                    <CommandBar x:Name="Toolbar" Grid.Column="1" DefaultLabelPosition="Collapsed" IsOpen="False"
-                                Background="Transparent" TitleBar.IsDragRegion="False">
-                        <AppBarButton x:Name="StartButton" Icon="Play"
-                                      AutomationProperties.AutomationId="cmd.start" ToolTipService.ToolTip="Start the machine (Ctrl+Shift+R)"/>
-                        <AppBarButton x:Name="PowerOffButton" Icon="Stop"
-                                      AutomationProperties.AutomationId="cmd.poweroff" ToolTipService.ToolTip="Power off the machine (Ctrl+Shift+P)"/>
-                        <AppBarSeparator/>
-                        <AppBarButton x:Name="PauseButton" Icon="Pause"
-                                      AutomationProperties.AutomationId="cmd.pause" ToolTipService.ToolTip="Pause or resume the machine (Ctrl+P)"/>
-                        <AppBarButton x:Name="ConsoleButton" Icon="Message"
-                                      AutomationProperties.AutomationId="cmd.console" ToolTipService.ToolTip="Open the machine's serial console (Ctrl+Shift+O)"/>
-                        <AppBarSeparator/>
-                        <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" Label="Follow"
-                                            AutomationProperties.AutomationId="cmd.pointermode"
-                                            ToolTipService.ToolTip="Pointer mode: follow my mouse or capture on click (Ctrl+Shift+M)"/>
-                        <AppBarToggleButton x:Name="CpuButton" Icon="Calculator"
-                                            AutomationProperties.AutomationId="cmd.cpu"/>
-                        <AppBarButton x:Name="SettingsButton" Icon="Setting"
-                                      AutomationProperties.AutomationId="cmd.settings" ToolTipService.ToolTip="Open the machine's settings (Ctrl+Shift+I)"/>
-                        <AppBarButton x:Name="MoreButton" Icon="More" Label="Menu"
-                                      AutomationProperties.AutomationId="menu.more">
-                            <AppBarButton.Flyout>
-                                <MenuFlyout x:Name="Menus"/>
-                            </AppBarButton.Flyout>
-                        </AppBarButton>
-                    </CommandBar>
-                </Grid>
-            </TitleBar.Content>
         </TitleBar>
 
         <Grid Grid.Row="1">
@@ -70,100 +24,184 @@
                 <ColumnDefinition x:Name="LibraryColumn" Width="260"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
 
-            <!-- Tabs: a 34 pt bar of 26 pt tabs, always shown. -->
-            <Grid x:Name="TabBar" Grid.Column="1" Grid.Row="0" Height="{StaticResource Size.TabBarHeight}"
-                  Background="{ThemeResource LayerFillColorDefaultBrush}" AutomationProperties.AutomationId="tabs">
-                <StackPanel x:Name="TabStrip" Orientation="Horizontal" Spacing="4" Padding="6,4,6,4"/>
+            <!-- The pane: the toggle at its top with the heading beside it, the machines (or the install guide), and New machine at its foot. -->
+            <Grid x:Name="Pane" Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="4" Margin="4" Height="40">
+                    <Button x:Name="PaneToggle" Width="40" Height="40" Padding="0" Background="Transparent" BorderThickness="0"
+                            AutomationProperties.AutomationId="pane.toggle">
+                        <FontIcon Glyph="&#xE700;" FontSize="16"/>
+                    </Button>
+                    <Button x:Name="GuideBack" Width="40" Height="40" Padding="0" Background="Transparent" BorderThickness="0" Visibility="Collapsed"
+                            AutomationProperties.AutomationId="pane.machines">
+                        <FontIcon Glyph="&#xE72B;" FontSize="16"/>
+                    </Button>
+                    <Button x:Name="GuideShow" Width="40" Height="40" Padding="0" Background="Transparent" BorderThickness="0" Visibility="Collapsed"
+                            AutomationProperties.AutomationId="pane.guide">
+                        <FontIcon Glyph="&#xE8FD;" FontSize="16"/>
+                    </Button>
+                    <TextBlock x:Name="LibraryHeading" VerticalAlignment="Center" Style="{ThemeResource BodyStrongTextBlockStyle}"
+                               AutomationProperties.AutomationId="library.heading"/>
+                </StackPanel>
+                <ListView x:Name="Library" Grid.Row="1" SelectionMode="Single"
+                          AutomationProperties.AutomationId="library" AutomationProperties.Name="Library"/>
+                <ScrollViewer x:Name="GuideScroll" Grid.Row="1" Visibility="Collapsed" AutomationProperties.AutomationId="guide">
+                    <StackPanel x:Name="GuideHost" Padding="12,4,12,12" Spacing="10"/>
+                </ScrollViewer>
+                <Button x:Name="NewMachineButton" Grid.Row="2" HorizontalAlignment="Stretch" Margin="8" HorizontalContentAlignment="Left"
+                        AutomationProperties.AutomationId="pane.new">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon Glyph="&#xE710;" FontSize="16"/>
+                        <TextBlock x:Name="NewMachineText"/>
+                    </StackPanel>
+                </Button>
             </Grid>
 
-            <TextBlock x:Name="LibraryHeading" Grid.Column="0" Grid.Row="0" VerticalAlignment="Center" Margin="16,0,0,0"
-                       FontWeight="SemiBold" Opacity="0.8" AutomationProperties.AutomationId="library.heading"/>
-            <ListView x:Name="Library" Grid.Column="0" Grid.Row="1" SelectionMode="Single"
-                      AutomationProperties.AutomationId="library" AutomationProperties.Name="Library"
-                      Background="{ThemeResource LayerFillColorDefaultBrush}"/>
+            <Grid x:Name="PageGrid" Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <Grid x:Name="Stage" Grid.Column="1" Grid.Row="1">
-                <Border x:Name="Tint" Visibility="Collapsed" IsHitTestVisible="False"/>
-
-                <!-- Stopped: the hero with Start. -->
-                <StackPanel x:Name="HeroPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
-                    <Image x:Name="HeroImage" Width="240" Height="180" Stretch="Uniform" AutomationProperties.AutomationId="hero.image"/>
-                    <Rectangle x:Name="HeroBand" Height="6" Width="260" RadiusX="3" RadiusY="3"/>
-                    <TextBlock x:Name="HeroName" Style="{ThemeResource TitleTextBlockStyle}" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="HeroDetail" Opacity="0.7" HorizontalAlignment="Center"/>
-                    <StackPanel x:Name="Cards" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="ExitNote" TextWrapping="Wrap" MaxWidth="420" HorizontalAlignment="Center"
-                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" Visibility="Collapsed"
-                               AutomationProperties.AutomationId="hero.exitnote"/>
-                    <TextBlock x:Name="UpgradeNotes" TextWrapping="Wrap" MaxWidth="420" HorizontalAlignment="Center" Opacity="0.8" Visibility="Collapsed"
-                               AutomationProperties.AutomationId="hero.upgradenotes"/>
-                    <Button x:Name="HeroStart" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
-                            AutomationProperties.AutomationId="hero.start" MinWidth="120"/>
-                </StackPanel>
-
-                <!-- Made by an older Origami: upgrade it once. -->
-                <StackPanel x:Name="UpgradePanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" MaxWidth="440" Visibility="Collapsed">
-                    <TextBlock x:Name="UpgradeTitle" Style="{ThemeResource SubtitleTextBlockStyle}" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="UpgradeBody" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.8"/>
-                    <TextBlock x:Name="UpgradeError" TextWrapping="Wrap" TextAlignment="Center" Visibility="Collapsed" IsTextSelectionEnabled="True"
-                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.AutomationId="upgrade.error"/>
-                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
-                        <Button x:Name="UpgradeButton" Style="{ThemeResource AccentButtonStyle}" AutomationProperties.AutomationId="upgrade.run"/>
-                        <Button x:Name="UpgradeShow" Content="Show in Explorer" AutomationProperties.AutomationId="upgrade.show"/>
-                        <ProgressRing x:Name="UpgradeRing" Width="20" Height="20" IsActive="False"/>
-                    </StackPanel>
-                </StackPanel>
-
-                <!-- No machines yet. -->
-                <StackPanel x:Name="EmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
-                    <local:CubeHost x:Name="EmptyCube" Width="140" Height="140" AutomationProperties.AccessibilityView="Raw"/>
-                    <TextBlock x:Name="EmptyTitle" Style="{ThemeResource SubtitleTextBlockStyle}" HorizontalAlignment="Center"/>
-                    <TextBlock x:Name="EmptyHint" Opacity="0.7" HorizontalAlignment="Center"/>
-                </StackPanel>
-
-                <!-- Starting: the live cube on the window background, then the screen. -->
-                <Grid x:Name="StartingPanel" Visibility="Collapsed">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <local:CubeHost x:Name="StartCube" Grid.Row="0"/>
-                    <StackPanel Grid.Row="1" Spacing="2" Padding="0,10,0,12" HorizontalAlignment="Center">
-                        <TextBlock x:Name="StartingText" Style="{ThemeResource SubtitleTextBlockStyle}"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock x:Name="StageText" Opacity="0.7" HorizontalAlignment="Center"
-                                   AutomationProperties.AutomationId="start.stage"/>
-                    </StackPanel>
+                <!-- Tabs: shown only while more than one machine is open. -->
+                <Grid x:Name="TabBar" Grid.Row="0" Height="{StaticResource Size.TabBarHeight}" Visibility="Collapsed"
+                      Background="{ThemeResource LayerFillColorDefaultBrush}" AutomationProperties.AutomationId="tabs">
+                    <StackPanel x:Name="TabStrip" Orientation="Horizontal" Spacing="4" Padding="6,4,6,4"/>
                 </Grid>
 
-                <local:DisplayView x:Name="Display" Visibility="Collapsed"/>
+                <!-- The page header: the machine's name and state, and its commands at the end of the same row. -->
+                <Grid x:Name="PageHeader" Grid.Row="1" Padding="24,8,12,4" ColumnSpacing="12" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                        <TextBlock x:Name="HeaderName" Style="{ThemeResource SubtitleTextBlockStyle}" TextTrimming="CharacterEllipsis"
+                                   AutomationProperties.AutomationId="page.name"/>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <ContentControl x:Name="HeaderDot" VerticalAlignment="Center" IsTabStop="False"/>
+                            <TextBlock x:Name="HeaderState" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       AutomationProperties.AutomationId="status.pill"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <CommandBar x:Name="Toolbar" Grid.Column="1" DefaultLabelPosition="Right" IsOpen="False" Background="Transparent"
+                                VerticalAlignment="Center" HorizontalAlignment="Right" OverflowButtonVisibility="Auto">
+                        <AppBarButton x:Name="StartButton" Icon="Play" AutomationProperties.AutomationId="cmd.start"/>
+                        <AppBarElementContainer x:Name="PowerHost" Visibility="Collapsed">
+                            <SplitButton x:Name="PowerSplit" VerticalAlignment="Center" AutomationProperties.AutomationId="cmd.poweroff">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE7E8;" FontSize="16"/>
+                                    <TextBlock x:Name="PowerLabel"/>
+                                </StackPanel>
+                                <SplitButton.Flyout>
+                                    <MenuFlyout x:Name="PowerMenu"/>
+                                </SplitButton.Flyout>
+                            </SplitButton>
+                        </AppBarElementContainer>
+                        <AppBarSeparator/>
+                        <AppBarButton x:Name="ConsoleButton" AutomationProperties.AutomationId="cmd.console">
+                            <AppBarButton.Icon>
+                                <FontIcon Glyph="&#xE756;"/>
+                            </AppBarButton.Icon>
+                        </AppBarButton>
+                        <AppBarToggleButton x:Name="PointerButton" Icon="TouchPointer" AutomationProperties.AutomationId="cmd.pointermode"/>
+                        <AppBarButton x:Name="SettingsButton" Icon="Setting" AutomationProperties.AutomationId="cmd.settings"/>
+                        <CommandBar.SecondaryCommands>
+                            <AppBarToggleButton x:Name="CpuButton" AutomationProperties.AutomationId="cmd.cpu">
+                                <AppBarToggleButton.Icon>
+                                    <PathIcon Data="M6,6 L18,6 L18,18 L6,18 Z M9,2 L11,2 L11,6 L9,6 Z M13,2 L15,2 L15,6 L13,6 Z M9,18 L11,18 L11,22 L9,22 Z M13,18 L15,18 L15,22 L13,22 Z M2,9 L6,9 L6,11 L2,11 Z M2,13 L6,13 L6,15 L2,15 Z M18,9 L22,9 L22,11 L18,11 Z M18,13 L22,13 L22,15 L18,15 Z"/>
+                                </AppBarToggleButton.Icon>
+                            </AppBarToggleButton>
+                            <AppBarButton x:Name="DiagnosticsButton" Icon="Admin" AutomationProperties.AutomationId="cmd.diagnostics"/>
+                            <AppBarButton x:Name="ScreenshotButton" Icon="Camera" AutomationProperties.AutomationId="cmd.screenshot"/>
+                            <AppBarButton x:Name="InstallButton" Icon="Download" AutomationProperties.AutomationId="cmd.install"/>
+                            <AppBarButton x:Name="ShortcutsButton" Icon="Keyboard" AutomationProperties.AutomationId="cmd.shortcuts"/>
+                            <AppBarButton x:Name="PreferencesButton" Icon="Setting" AutomationProperties.AutomationId="cmd.preferences"/>
+                            <AppBarButton x:Name="AboutButton" Icon="Help" AutomationProperties.AutomationId="cmd.about"/>
+                        </CommandBar.SecondaryCommands>
+                    </CommandBar>
+                </Grid>
 
-                <local:SettingsPane x:Name="Settings" Visibility="Collapsed"/>
+                <Grid x:Name="Stage" Grid.Row="2" AllowDrop="True">
+                    <Border x:Name="Tint" Visibility="Collapsed" IsHitTestVisible="False"/>
+
+                    <!-- The machine's page: art, the state card when there is one, Start, then what the machine is. -->
+                    <ScrollViewer x:Name="HeroScroll" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="HeroPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" Padding="0,12,0,12" MaxWidth="560">
+                            <Image x:Name="HeroImage" Width="{StaticResource Size.ArtHeroW}" Height="{StaticResource Size.ArtHeroH}" Stretch="Uniform"
+                                   AutomationProperties.AutomationId="hero.image"/>
+                            <StackPanel x:Name="CardHost" Spacing="8" HorizontalAlignment="Center" AutomationProperties.AutomationId="hero.card"/>
+                            <Button x:Name="HeroStart" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}"
+                                    AutomationProperties.AutomationId="hero.start" MinWidth="120"/>
+                            <StackPanel x:Name="Cards" Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- No machine to show: a centred image, title, sentence and button. -->
+                    <StackPanel x:Name="EmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Visibility="Collapsed">
+                        <local:CubeHost x:Name="EmptyCube" Width="140" Height="140" AutomationProperties.AccessibilityView="Raw"/>
+                        <TextBlock x:Name="EmptyTitle" Style="{ThemeResource SubtitleTextBlockStyle}" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="EmptyHint" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center"/>
+                        <Button x:Name="EmptyButton" HorizontalAlignment="Center" Style="{ThemeResource AccentButtonStyle}" Visibility="Collapsed"
+                                AutomationProperties.AutomationId="empty.new"/>
+                    </StackPanel>
+
+                    <!-- Starting: the live cube on the window background, then the screen. -->
+                    <Grid x:Name="StartingPanel" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <local:CubeHost x:Name="StartCube" Grid.Row="0"/>
+                        <StackPanel Grid.Row="1" Spacing="2" Padding="0,10,0,12" HorizontalAlignment="Center">
+                            <TextBlock x:Name="StartingText" Style="{ThemeResource SubtitleTextBlockStyle}"
+                                       HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="StageText" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center"
+                                       AutomationProperties.AutomationId="start.stage"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <local:DisplayView x:Name="Display" Visibility="Collapsed"/>
+
+                    <local:SettingsPane x:Name="Settings" Visibility="Collapsed"/>
+
+                    <!-- Dropping a file here: what it will do. -->
+                    <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,24"
+                            Padding="16,8" Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}">
+                        <TextBlock x:Name="DropText" AutomationProperties.AutomationId="drop.caption"/>
+                    </Border>
+                </Grid>
+
+                <!-- Emulated CPU load: below the machine's page, because the screen is a native child window that XAML cannot draw over. -->
+                <Border x:Name="CpuPanelBox" Grid.Row="3" Visibility="Collapsed" Padding="8" Background="#BFBFBF"
+                        AutomationProperties.AutomationId="cpu.panel">
+                    <StackPanel Spacing="6">
+                        <StackPanel x:Name="CpuBars" Spacing="6"/>
+                        <TextBlock x:Name="CpuTitle" FontSize="11" Foreground="#333333"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- A toast: what just happened, for a few seconds, with its one action. -->
+                <InfoBar x:Name="Toast" Grid.Row="4" IsOpen="False" IsClosable="True" Margin="12,4,12,4" AutomationProperties.AutomationId="toast"/>
+
+                <!-- The status bar: the picture's size and the pointer, only while the machine runs. -->
+                <Grid x:Name="StatusBar" Grid.Row="5" Height="{StaticResource Size.StatusBarHeight}" Padding="12,0" Visibility="Collapsed"
+                      Background="{ThemeResource LayerFillColorDefaultBrush}">
+                    <TextBlock x:Name="PictureSize" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" AutomationProperties.AutomationId="status.size"/>
+                    <TextBlock x:Name="PointerStatus" Style="{ThemeResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" HorizontalAlignment="Right" AutomationProperties.AutomationId="status.pointer"/>
+                </Grid>
             </Grid>
-        </Grid>
-
-        <!-- Emulated CPU load: below the machine's pane, because the screen is a native child window that XAML cannot draw over. -->
-        <Border x:Name="CpuPanelBox" Grid.Row="2" Visibility="Collapsed" Padding="8" Background="#BFBFBF"
-                AutomationProperties.AutomationId="cpu.panel">
-            <StackPanel Spacing="6">
-                <StackPanel x:Name="CpuBars" Spacing="6"/>
-                <TextBlock x:Name="CpuTitle" FontSize="11" Foreground="#333333"/>
-            </StackPanel>
-        </Border>
-
-        <Grid Grid.Row="3" Padding="12,4" Background="{ThemeResource LayerFillColorDefaultBrush}">
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock x:Name="StatusText" FontSize="12" Opacity="0.8" VerticalAlignment="Center" AutomationProperties.AutomationId="status.text"/>
-                <HyperlinkButton x:Name="ShowShot" Content="Show in Explorer" FontSize="12" Padding="4,0" Visibility="Collapsed"
-                                 AutomationProperties.AutomationId="status.showshot"/>
-            </StackPanel>
-            <TextBlock x:Name="PointerStatus" FontSize="12" Opacity="0.8" HorizontalAlignment="Right"
-                       AutomationProperties.AutomationId="status.pointer"/>
         </Grid>
     </Grid>
 </Window>

@@ -120,23 +120,34 @@ Test("network: advice lines come with the command to copy, the log lines stay ou
     Eq(2, notes.Count, "shown"); Eq("rm x", notes[0].Copy, "command"); Eq("Warning: careful", notes[1].Text, "warning");
 });
 
-Test("pill: words and tones", () =>
+Test("alerts: the safe answer is the default and a destructive one never is", () =>
 {
-    Eq("Running", Pill.Text(MachineState.Running, false));
-    Eq("Console only", Pill.Text(MachineState.Running, true));
-    Eq("Saving", Pill.Text(MachineState.Stopping, false));
-    Eq("red", Pill.Tone(MachineState.Exited));
-    Eq("Left running", Pill.Text(MachineState.LeftRunning)); Eq("amber", Pill.Tone(MachineState.LeftRunning));
+    var quit = DialogLayout.Of(new[] { new AlertButton("Keep running", ButtonRole.Safe), new AlertButton("Power off", ButtonRole.Destructive), new AlertButton("Cancel", ButtonRole.Cancel) });
+    Eq("Keep running", quit.Primary); Eq("Power off", quit.Secondary); Eq("Cancel", quit.Close);
+    Eq(DialogLayout.PrimarySlot, quit.Default, "keep running is the default"); Eq(DialogLayout.SecondarySlot, quit.Destructive);
+    var off = DialogLayout.Of(new[] { new AlertButton("Cancel", ButtonRole.Cancel), new AlertButton("Power off", ButtonRole.Destructive) });
+    Eq("Power off", off.Primary); Eq(null, off.Secondary); Eq("Cancel", off.Close);
+    Eq(DialogLayout.CloseSlot, off.Default, "cancel is the default"); Eq(DialogLayout.PrimarySlot, off.Destructive);
+    Eq("Power off", off.Chosen(new[] { new AlertButton("Cancel", ButtonRole.Cancel), new AlertButton("Power off", ButtonRole.Destructive) }, DialogLayout.PrimarySlot)!.Label);
 });
 
-Test("upgrade: the pill, the lines a person is told and the download hint", () =>
+Test("middle trim: a long name keeps its head and its tail", () =>
 {
-    Eq("Needs upgrade", Pill.Text(MachineState.NeedsUpgrade)); Eq("amber", Pill.Tone(MachineState.NeedsUpgrade));
-    var lines = new[] { new ReportLine(LineKind.Result, "upgraded x"), new ReportLine(LineKind.GuestNote, "topology renamed", "topology renamed; the guest sees this at its next boot"), new ReportLine(LineKind.Warning, "careful", "Warning: careful"), new ReportLine(LineKind.Advice, "set the host id", "set the host id") };
-    Eq("topology renamed; the guest sees this at its next boot|Warning: careful|set the host id", string.Join("|", UpgradeText.Shown(lines)));
-    Eq("the PROM download failed. To use local firmware files, run: origami upgrade C:\\m --prom FILE --io-prom FILE", UpgradeText.Failure("the PROM download failed.", "C:\\m"));
-    Eq("stop the machine first", UpgradeText.Failure("stop the machine first", "C:\\m"));
+    double W(string t) => t.Length;
+    Eq("short", MiddleTrim.Fit("short", 10, W));
+    Eq("abcd…wxyz", MiddleTrim.Fit("abcdefghijklmnopqrstuvwxyz", 9, W), "even split");
+    Eq("abc…xyz", MiddleTrim.Fit("abcdefghijklmnopqrstuvwxyz", 7, W));
+    Eq("…", MiddleTrim.Fit("abcdefghijklmnopqrstuvwxyz", 1, W), "nothing fits but the ellipsis");
+    Eq(true, MiddleTrim.Fit("octane2 with a very long name indeed", 20, W).Length <= 20);
 });
+
+Test("accelerators: Delete is mapped and a bare key is never window-wide", () =>
+{
+    Eq(true, Accelerator.TryParse("Delete", out var del)); Eq(0x2E, del.VirtualKey); Eq(true, del.IsBare);
+    Eq(false, Accelerator.TryParse("F9", out var f9) && f9.IsBare, "a function key is window-wide");
+    Eq(false, Accelerator.TryParse("Ctrl+N", out var n) && n.IsBare);
+});
+
 
 Test("guest keys: ordinals follow the core's key order", () =>
 {
@@ -176,13 +187,6 @@ Test("egg: hinv typed in order, any case, restarting on a wrong letter", () =>
     Eq(true, Type(w, "hinv"), "first");
     Eq(false, Type(w, "inv"), "does not match again without the h");
     Eq(true, Type(w, "hinv"), "matches again");
-});
-
-Test("pill: a machine that ended on its own says why", () =>
-{
-    Eq("Stopped unexpectedly. qemu exited 1", Pill.StoppedNote(new MachineStatus(MachineState.Exited, "Stopped unexpectedly", "qemu exited 1")));
-    Eq("Stopped unexpectedly. the runner went away", Pill.StoppedNote(new MachineStatus(MachineState.Exited, "the runner went away", "")), "reason when there is no error");
-    Eq("", Pill.StoppedNote(new MachineStatus(MachineState.Stopped, "Stopped", "old error")), "nothing unless it exited");
 });
 
 Test("commands: menu by id prefix", () =>
