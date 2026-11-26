@@ -597,12 +597,9 @@ impl Core {
     pub fn create_machine(&self, request: CreateRequest) -> CoreResult<Operation> {
         let inner = self.inner.clone();
         let name = request.name.clone();
-        if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
-            return Err(CoreError::new(
-                ErrorKind::Invalid,
-                "a machine name is one plain directory name",
-            )
-            .with_detail("name"));
+        if let Some(problem) = name_problem(&name, cfg!(windows)) {
+            return Err(CoreError::new(ErrorKind::Invalid, problem)
+                .with_detail("a machine name is one plain directory name"));
         }
         let taken = self.inner.root().join(&name);
         if taken.exists() {
@@ -1100,5 +1097,23 @@ impl CoreInner {
             .next_operation
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         operation::spawn(id, title, machine, cancellable, slot, work)
+    }
+}
+
+/// Why `name` cannot be a machine's folder, as a sentence for the person.
+/// `windows` adds the characters and endings that platform refuses.
+pub(super) fn name_problem(name: &str, windows: bool) -> Option<&'static str> {
+    if name.trim().is_empty() {
+        Some("Give the machine a name.")
+    } else if name.contains(['/', '\\']) {
+        Some("Use a name without slashes.")
+    } else if name == "." || name == ".." {
+        Some("Choose a name other than one or two dots.")
+    } else if windows
+        && (name.contains(['<', '>', ':', '"', '|', '?', '*']) || name.ends_with([' ', '.']))
+    {
+        Some("Use a name without < > : \" | ? * that does not end in a space or a dot.")
+    } else {
+        None
     }
 }

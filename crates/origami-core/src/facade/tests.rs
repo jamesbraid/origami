@@ -2357,6 +2357,23 @@ fn the_errors_people_meet_are_plain_and_keep_the_technical_part_in_detail() {
         "A machine named fuel already exists. Choose another name."
     );
     assert!(taken.detail.as_deref().unwrap().ends_with("fuel"));
+    for (name, want) in [
+        ("", "Give the machine a name."),
+        ("  ", "Give the machine a name."),
+        ("a/b", "Use a name without slashes."),
+        ("..", "Choose a name other than one or two dots."),
+    ] {
+        let error = create(name, None);
+        assert_eq!(error.message, want, "{name:?}");
+        plain(&error);
+        assert!(error.detail.as_deref().unwrap().contains("directory"));
+    }
+    assert_eq!(super::core::name_problem("a:b", false), None);
+    for name in ["a:b", "a?", "end.", "end "] {
+        let said = super::core::name_problem(name, true).unwrap();
+        assert!(said.starts_with("Use a name without"), "{name}: {said}");
+        plain(&CoreError::new(ErrorKind::Invalid, said));
+    }
     for id in ["0", "3000", "4095", "x"] {
         let error = create("new", Some(id));
         assert_eq!(error.message, "Choose a number from 1 to 2999.", "{id}");
