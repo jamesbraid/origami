@@ -251,6 +251,9 @@ public sealed partial class DisplayView : UserControl
         if (_view != IntPtr.Zero) { Frame.origami_view_set_visible(_view, 1); Pump(); }
     }
 
+    /// <summary>Places the picture for the pane as it is now, for a caller that has just laid the window out.</summary>
+    public void Refit() => Place();
+
     void Place()
     {
         if (_hidden || _hwnd == IntPtr.Zero || _headW <= 0 || XamlRoot is null) return;
