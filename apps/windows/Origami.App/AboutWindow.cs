@@ -66,7 +66,7 @@ public sealed class AboutWindow : Window
 
         var credits = new StackPanel { Spacing = 4, Padding = new Thickness(24, 16, 24, 24), HorizontalAlignment = HorizontalAlignment.Center };
         credits.Children.Add(new TextBlock { Text = Ui.T(OrigamiUiString.Origami), Style = (Style)Application.Current.Resources["TitleTextBlockStyle"], HorizontalAlignment = HorizontalAlignment.Center });
-        credits.Children.Add(new TextBlock { Text = OrigamiFfiMethods.OrigamiVersionLine(typeof(AboutWindow).Assembly.GetName().Version?.ToString(3) ?? "0"), Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center });
+        credits.Children.Add(new TextBlock { Text = Ui.VersionLine(), Opacity = 0.7, HorizontalAlignment = HorizontalAlignment.Center });
         try { _credits = CreditsDocument.Parse(uniffi.origami_ffi.OrigamiFfiMethods.OrigamiCreditsJson()); }
         catch (Exception e) { App.Log("about: no credits: " + e.Message); }
         if (_credits is { } c)

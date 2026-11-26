@@ -1193,6 +1193,7 @@ mirror!(
     PoweringOff,
     Preferences,
     Processor,
+    ProcessorAndMemory,
     ProcessorsPerNode,
     QuitAndLeaveRunning,
     Reading,

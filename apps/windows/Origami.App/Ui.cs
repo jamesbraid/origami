@@ -48,5 +48,14 @@ internal static class Ui
         return (a, a.Buttons.Select(b => new AlertButton(b.Label, Role(b.Role))).ToList());
     }
 
+    /// <summary>The About version line from the build's full version (the tag and git description where it has one), like the other apps.</summary>
+    internal static string VersionLine()
+    {
+        var assembly = typeof(Ui).Assembly;
+        var full = assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? assembly.GetName().Version?.ToString(3) ?? "0";
+        return OrigamiFfiMethods.OrigamiVersionLine(full.Split('+')[0]);
+    }
+
     internal static string Tooltip(string id) => OrigamiFfiMethods.OrigamiCommandTooltip(id, OrigamiPlatform.Windows) ?? "";
 }

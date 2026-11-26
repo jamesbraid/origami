@@ -120,6 +120,7 @@ ui_strings! {
     PoweringOff => "Powering off",
     Preferences => "Preferences",
     Processor => "Processor",
+    ProcessorAndMemory => "Processor & memory",
     ProcessorsPerNode => "Processors per node",
     QuitAndLeaveRunning => "Quit and leave running",
     Reading => "Reading…",

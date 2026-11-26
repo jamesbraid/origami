@@ -236,12 +236,14 @@ fn build_machine_dialog(
         Ok(l) => {
             let f = &l.file;
             let hw = adw::PreferencesPage::builder()
-                .title("Processor and memory")
+                .title(UiString::ProcessorAndMemory.text())
                 .icon_name("system-run-symbolic")
                 .build();
             add_locked(app, &dialog, &hw, running);
             let g = adw::PreferencesGroup::builder()
-                .title("Processor and memory")
+                .title(glib::markup_escape_text(
+                    UiString::ProcessorAndMemory.text(),
+                ))
                 .build();
             if let Some(p) = &f.machine.processor {
                 g.add(&value_row(UiString::Processor.text(), p));

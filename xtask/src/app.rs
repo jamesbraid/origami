@@ -257,6 +257,7 @@ fn windows(product: &Product, options: &crate::Options) -> Result<()> {
             "-p:Version={}",
             product.version.split('-').next().unwrap_or("0.0.0")
         ))
+        .arg(format!("-p:InformationalVersion={}", product.version))
         .arg("-o")
         .arg(&publish);
     run(dotnet)?;

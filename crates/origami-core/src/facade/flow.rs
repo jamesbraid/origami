@@ -26,7 +26,7 @@ impl InstallStep {
     pub fn title(self) -> &'static str {
         match self {
             Self::Release => "Release",
-            Self::Media => "Media",
+            Self::Media => "Discs",
             Self::Software => "Software",
             Self::Method => "Method",
             Self::Disk => "Disk",
@@ -78,10 +78,7 @@ pub fn step_titles(flow: &InstallFlow) -> Vec<StepTitle> {
         .zip(1..)
         .map(|(step, number)| StepTitle {
             step,
-            title: match step {
-                InstallStep::Media => "Discs",
-                other => other.title(),
-            },
+            title: step.title(),
             number,
             state: match step.cmp(&now) {
                 std::cmp::Ordering::Less => StepState::Done,
