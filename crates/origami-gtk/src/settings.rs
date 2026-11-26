@@ -4,6 +4,7 @@
 //! have yet, so the panes show values and say so instead of faking an edit.
 //! Pointer mode is ours and is editable.
 
+use crate::alerts;
 use crate::app::{self, App};
 use crate::disks;
 use crate::library;
@@ -14,7 +15,7 @@ use crate::{input, window};
 use adw::prelude::*;
 use gtk::glib;
 use origami_core::facade::NetworkSetting;
-use origami_core::facade::{empty_state, EmptyKind, UiString};
+use origami_core::facade::{empty_state, AlertKind, EmptyKind, UiString};
 use origami_core::facade::{CreateRequest, DiskChoice, IdentityField, OperationState, SystemDisk};
 use origami_core::{Change, Line, NetworkMode};
 use std::cell::RefCell;
@@ -390,8 +391,21 @@ fn build_machine_dialog(
                     dialog.clone(),
                     d.name.clone(),
                 );
+                let title = d.title.clone();
                 b.connect_clicked(move |_| {
-                    apply(&app, &parent, &m, &dlg, Change::DetachDrive(name.clone()))
+                    let (a, p, m, d, name) = (
+                        app.clone(),
+                        parent.clone(),
+                        m.clone(),
+                        dlg.clone(),
+                        name.clone(),
+                    );
+                    let kind = AlertKind::DetachDrive {
+                        name: title.clone(),
+                    };
+                    alerts::confirm(&app, &parent, kind, move || {
+                        apply(&a, &p, &m, &d, Change::DetachDrive(name))
+                    });
                 });
                 r.add_suffix(&b);
                 g.add(&r);
@@ -621,14 +635,14 @@ fn build_machine_dialog(
 
 /// One row per downloaded disk, each with Remove; `rows` holds the rows shown now.
 fn list_downloaded(
-    core: &origami_core::facade::Core,
+    app: &Rc<App>,
     group: &adw::PreferencesGroup,
     rows: Rc<RefCell<Vec<gtk::Widget>>>,
 ) {
     for row in rows.borrow_mut().drain(..) {
         group.remove(&row);
     }
-    let found = core.cached_disks().unwrap_or_default();
+    let found = app.core.cached_disks().unwrap_or_default();
     if found.is_empty() {
         let e = empty_state(EmptyKind::NoDownloadedDisks);
         let page = adw::StatusPage::builder()
@@ -649,11 +663,27 @@ fn list_downloaded(
             .valign(gtk::Align::Center)
             .build();
         row.add_suffix(&remove);
-        let (again, group_again, rows_again, key) =
-            (core.clone(), group.clone(), rows.clone(), disk.key);
+        let (again, group_again, rows_again, key, label) = (
+            app.clone(),
+            group.clone(),
+            rows.clone(),
+            disk.key,
+            disk.label,
+        );
         remove.connect_clicked(move |_| {
-            let _ = again.remove_cached_disk(&key);
-            list_downloaded(&again, &group_again, rows_again.clone());
+            let (a, g, rows, key) = (
+                again.clone(),
+                group_again.clone(),
+                rows_again.clone(),
+                key.clone(),
+            );
+            let kind = AlertKind::RemoveDownload {
+                name: label.clone(),
+            };
+            alerts::confirm(&again, &group_again, kind, move || {
+                let _ = a.core.remove_cached_disk(&key);
+                list_downloaded(&a, &g, rows);
+            });
         });
         group.add(&row);
         rows.borrow_mut().push(row.upcast());
@@ -1449,7 +1479,7 @@ pub fn preferences(app: &Rc<App>, parent: &adw::ApplicationWindow) {
     downloaded.set_widget_name("prefs.downloaded");
     storage.add(&downloaded);
     dialog.add(&storage);
-    list_downloaded(&app.core, &downloaded, Rc::new(RefCell::new(Vec::new())));
+    list_downloaded(app, &downloaded, Rc::new(RefCell::new(Vec::new())));
     dialog.present(Some(parent));
 }
 

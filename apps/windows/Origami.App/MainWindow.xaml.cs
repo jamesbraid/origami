@@ -123,6 +123,7 @@ public sealed partial class MainWindow : Window
         HeroStart.Click += (_, _) => Invoke("machine.start");
 
         Settings.Core = core;
+        Settings.Ask = AskAsync;
         Settings.Saved += s => { _store.Save(s); ApplySettings(s); };
         Settings.Closed += () => { _prefsOpen = false; Refresh(); };
 

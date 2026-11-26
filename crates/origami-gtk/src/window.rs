@@ -1107,16 +1107,7 @@ pub fn select(app: &Rc<App>, m: &Rc<MachineUi>) {
 
 /// Ask the core's alert for `kind`, then run `then` when the destructive button is chosen.
 fn confirm(app: &Rc<App>, w: &Rc<Win>, kind: AlertKind, then: impl Fn() + 'static) {
-    if alerts::skipped(app) {
-        then();
-        return;
-    }
-    let win = w.win.clone();
-    glib::spawn_future_local(async move {
-        if alerts::ask(&win, &kind).await == ButtonRole::Destructive {
-            then();
-        }
-    });
+    alerts::confirm(app, &w.win, kind, then);
 }
 
 fn register_actions(app: &Rc<App>, w: &Rc<Win>) {

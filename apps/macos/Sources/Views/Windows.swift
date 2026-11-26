@@ -251,7 +251,7 @@ struct MachineSettings: View {
                         .disabled(edit.working).accessibilityLabel("\(ui(.changeCd)) \(row.title)")
                     Button(ui(.eject)) { edit.changeMedia(row.name, to: nil) }.disabled(edit.working).accessibilityLabel("\(ui(.eject)) \(row.title)")
                 }
-                Button { edit.apply(.detachDrive(name: row.name)) } label: { Image(systemName: "minus.circle") }
+                Button { if app.confirmed(.detachDrive(name: row.title)) { edit.apply(.detachDrive(name: row.name)) } } label: { Image(systemName: "minus.circle") }
                     .buttonStyle(.borderless).help(ui(.detach)).accessibilityLabel("\(ui(.detach)) \(row.title)")
                     .disabled(locked || edit.working)
             }
@@ -427,7 +427,11 @@ struct DownloadedDisksView: View {
                             Text(origamiSizeLabel(bytes: d.bytes)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button(ui(.remove)) { try? app.host?.core.removeCachedDisk(key: d.key); reload() }
+                        Button(ui(.remove)) {
+                            guard app.confirmed(.removeDownload(name: d.label)) else { return }
+                            try? app.host?.core.removeCachedDisk(key: d.key)
+                            reload()
+                        }
                     }
                 }
             }

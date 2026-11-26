@@ -58,6 +58,14 @@ pub enum AlertKind {
         name: String,
         disk_left: Vec<String>,
     },
+    /// Taking a drive out of a machine; `name` is its title, such as `Disk 2`.
+    DetachDrive {
+        name: String,
+    },
+    /// Deleting a downloaded disk; `name` is its label.
+    RemoveDownload {
+        name: String,
+    },
 }
 
 /// Where a removed machine goes, as the platform names it.
@@ -154,6 +162,17 @@ pub fn alert(kind: &AlertKind, platform: Platform) -> Alert {
             "Its disks, firmware settings and everything in its folder go with it. You can put it back from the Trash."
                 .into(),
             vec![cancel(), button("Move to Trash", Destructive)],
+        ),
+        AlertKind::DetachDrive { name } => (
+            format!("Detach {name}?"),
+            "The machine stops using this drive. Its disk image is not deleted.".into(),
+            vec![cancel(), button(UiString::Detach.text(), Destructive)],
+        ),
+        AlertKind::RemoveDownload { name } => (
+            format!("Remove {name}?"),
+            "The download is deleted from this computer. Machines made from it keep their own copies, and Origami downloads it again if you ask for it."
+                .into(),
+            vec![cancel(), button(UiString::Remove.text(), Destructive)],
         ),
     };
     if let AlertKind::Remove { disk_left, .. } = kind {
@@ -317,6 +336,29 @@ mod tests {
         assert_eq!(win.title, "Delete fuel?");
         assert_eq!(labels(&win), ["Cancel", "Delete"]);
         assert!(win.body.contains("Recycle Bin"));
+    }
+
+    #[test]
+    fn detaching_a_drive_and_removing_a_download_ask_first() {
+        let drive = alert(
+            &AlertKind::DetachDrive {
+                name: "Disk 2".into(),
+            },
+            Platform::Linux,
+        );
+        assert_eq!(drive.title, "Detach Disk 2?");
+        assert_eq!(labels(&drive), ["Cancel", "Detach"]);
+        let download = alert(
+            &AlertKind::RemoveDownload {
+                name: "IRIX 6.5.22".into(),
+            },
+            Platform::Linux,
+        );
+        assert_eq!(labels(&download), ["Cancel", "Remove"]);
+        for a in [&drive, &download] {
+            assert_eq!(a.buttons[0].role, ButtonRole::Cancel);
+            assert_eq!(a.buttons[1].role, ButtonRole::Destructive);
+        }
     }
 
     #[test]

@@ -124,6 +124,16 @@ func uxChecksAtRest(app: AppModel, host: CoreHost, library: String, out: String,
         } else { check("remove-is-offered-for-a-stopped-machine", false, ["error": "the machine is not listed"]) }
     } else { check("remove-is-offered-for-a-stopped-machine", false, ["error": "the machine was not made"]) }
 
+    // Detaching a drive and removing a download ask first; only the destructive button goes ahead.
+    do {
+        var asked: [String] = []
+        app.present = { a in asked.append(a.title); return a.buttons.firstIndex { $0.role == .cancel } ?? 0 }
+        let kept = !app.confirmed(.detachDrive(name: "Disk 2")) && !app.confirmed(.removeDownload(name: "IRIX 6.5.22"))
+        app.present = { a in a.buttons.firstIndex { $0.role == .destructive } ?? 0 }
+        check("detach-and-remove-download-wait-for-the-destructive-button",
+              kept && app.confirmed(.detachDrive(name: "Disk 2")) && asked == ["Detach Disk 2?", "Remove IRIX 6.5.22?"], ["asked": asked])
+    }
+
     // Pictures for comparing with the design: the main window at rest, a few state cards, light and dark.
     do {
         var wrote = true

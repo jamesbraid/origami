@@ -2,8 +2,10 @@
 //! default and the destructive one marked.
 
 use adw::prelude::*;
+use gtk::glib;
 use origami_core::facade::{alert, AlertKind, ButtonRole, Platform};
 use std::cell::Cell;
+use std::rc::Rc;
 
 thread_local! {
     /// The self-test skips confirmations unless a scenario asks to see them.
@@ -48,4 +50,23 @@ pub async fn ask(parent: &impl IsA<gtk::Widget>, kind: &AlertKind) -> ButtonRole
         .ok()
         .and_then(|i| roles.get(i).copied())
         .unwrap_or(ButtonRole::Cancel)
+}
+
+/// Ask `kind` over `parent`, then run `then` when the destructive button is chosen.
+pub fn confirm(
+    app: &Rc<crate::app::App>,
+    parent: &impl IsA<gtk::Widget>,
+    kind: AlertKind,
+    then: impl FnOnce() + 'static,
+) {
+    if skipped(app) {
+        then();
+        return;
+    }
+    let parent = parent.upcast_ref::<gtk::Widget>().clone();
+    glib::spawn_future_local(async move {
+        if ask(&parent, &kind).await == ButtonRole::Destructive {
+            then();
+        }
+    });
 }

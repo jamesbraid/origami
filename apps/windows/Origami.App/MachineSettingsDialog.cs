@@ -65,6 +65,7 @@ public static class MachineSettingsDialog
         (string Dir, string Name)? sharing = null; // a folder picked and waiting for its name
         bool bridgedOpen = false; // Bridged chosen but not applied: the core needs its device with the mode
         ImagePanel? adding = null; // an image being added, shown inline: a ContentDialog cannot open another
+        (OrigamiAlertKind Kind, Action Yes)? asking = null; // a drive about to be detached, asked inline for the same reason
 
         string PageNow() => (nav.SelectedItem as NavigationViewItem)?.Tag as string ?? "general";
         void ShowNote(string text) { note.Message = text; note.IsOpen = true; }
@@ -164,8 +165,29 @@ public static class MachineSettingsDialog
                     tools.Children.Add(Button(Ui.T(OrigamiUiString.ChangeCd), "settings.cd.change." + r.Name, true, async () => { if (await PathPicker.PickFileAsync() is { } p) Media(r.Name, p); }));
                     tools.Children.Add(Button(Ui.T(OrigamiUiString.Eject), "settings.cd.eject." + r.Name, true, () => { Media(r.Name, null); return Task.CompletedTask; }));
                 }
-                tools.Children.Add(Button(Ui.T(OrigamiUiString.Detach), "settings.detach." + r.Name, ok, () => { apply(new MachineChange.DetachDrive(r.Name)); return Task.CompletedTask; }));
+                tools.Children.Add(Button(Ui.T(OrigamiUiString.Detach), "settings.detach." + r.Name, ok, async () =>
+                {
+                    asking = (new OrigamiAlertKind.DetachDrive(r.Title), () => apply(new MachineChange.DetachDrive(r.Name)));
+                    await Rebuild();
+                }));
                 body.Children.Add(Row(r.Title, r.Caption, tools));
+            }
+            if (asking is { } ask)
+            {
+                var (alert, buttons) = Ui.Alert(ask.Kind);
+                var answers = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+                foreach (var b in buttons)
+                {
+                    var yes = b.Role == ButtonRole.Destructive;
+                    var answer = Button(b.Label, yes ? "settings.confirm.yes" : "settings.confirm.cancel", true, async () =>
+                    {
+                        asking = null;
+                        if (yes) ask.Yes(); else await Rebuild();
+                    });
+                    if (yes && Ui.Destructive is { } bad) answer.Style = bad;
+                    answers.Children.Add(answer);
+                }
+                body.Children.Add(Card(new StackPanel { Spacing = 8, Children = { Heading(alert.Title), Text(alert.Body), answers } }));
             }
             int? diskTarget = ok ? s.DiskTarget : null, cdTarget = ok ? s.CdTarget : null;
             var adds = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -338,7 +360,7 @@ public static class MachineSettingsDialog
             }
         }
 
-        nav.SelectionChanged += async (_, _) => { adding = null; sharing = null; note.IsOpen = false; await Rebuild(); };
+        nav.SelectionChanged += async (_, _) => { adding = null; sharing = null; asking = null; note.IsOpen = false; await Rebuild(); };
         lockOff.Click += (_, _) => { dlg.Hide(); host.DispatcherQueue.TryEnqueue(() => host.Invoke("machine.stop")); };
         var want = page ?? "general";
         nav.SelectedItem = nav.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(i => (string)i.Tag == want) ?? (NavigationViewItem)nav.MenuItems[0];

@@ -251,6 +251,12 @@ pub enum OrigamiAlertKind {
         name: String,
         disk_left: Vec<String>,
     },
+    DetachDrive {
+        name: String,
+    },
+    RemoveDownload {
+        name: String,
+    },
 }
 
 #[uniffi::export]
@@ -265,6 +271,8 @@ pub fn origami_alert(kind: OrigamiAlertKind, platform: OrigamiPlatform) -> Origa
         K::PowerOffFailed { names } => f::AlertKind::PowerOffFailed { names },
         K::CloseWindow { names } => f::AlertKind::CloseWindow { names },
         K::Remove { name, disk_left } => f::AlertKind::Remove { name, disk_left },
+        K::DetachDrive { name } => f::AlertKind::DetachDrive { name },
+        K::RemoveDownload { name } => f::AlertKind::RemoveDownload { name },
     };
     let a = f::alert(&kind, platform.into());
     OrigamiAlert {

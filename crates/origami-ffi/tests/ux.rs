@@ -54,6 +54,14 @@ fn state_words_cards_and_alerts_come_from_the_core() {
     );
     assert_eq!(alert.title, "Delete Fuel?");
     assert_eq!(alert.buttons[0].role, OrigamiButtonRole::Cancel);
+    let detach = origami_alert(
+        OrigamiAlertKind::DetachDrive {
+            name: "Disk 2".into(),
+        },
+        OrigamiPlatform::Linux,
+    );
+    assert_eq!(detach.title, "Detach Disk 2?");
+    assert_eq!(detach.buttons[1].role, OrigamiButtonRole::Destructive);
     assert_eq!(
         origami_toast(OrigamiToastKind::DiscEjected, OrigamiPlatform::Macos).text,
         "Disc ejected"

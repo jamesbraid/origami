@@ -150,7 +150,7 @@ The disk must fit the model and both the download folder and the library need
 room before it starts. Downloads are kept in one shared folder in the cache directory, with
 no size limit and no automatic cleanup, so a second machine starts from the
 same file without downloading again. Preferences, Storage lists them with a
-Remove button, which is refused while a disk is being downloaded or copied.
+Remove button, which asks first and is refused while a disk is being downloaded or copied.
 The machine gets its own copy because the CHD driver keeps its
 changes beside the image file and offers no way to put them elsewhere.
 
@@ -280,6 +280,7 @@ and firmware picks the console serial line, the same choice as
 machine refuses edits; stop it first, except for the CD-ROM. The Drives page
 adds a disk image and inserts a CD-ROM image. Change CD and Eject work while
 the machine runs.
+Detach asks first; the drive's disk image is not deleted.
 
 ## Remove a machine
 

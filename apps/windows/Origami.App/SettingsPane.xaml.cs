@@ -9,6 +9,8 @@ public sealed partial class SettingsPane : UserControl
     AppSettings _s = new();
     /// <summary>Where the downloaded disks are listed from; set once by the window.</summary>
     public ICoreClient? Core { get; set; }
+    /// <summary>Shows the core's alert and returns the button pressed; until the window sets it nothing is confirmed.</summary>
+    internal Func<OrigamiAlertKind, Task<AlertButton?>> Ask { get; set; } = _ => Task.FromResult<AlertButton?>(null);
     public event Action<AppSettings>? Saved;
     public event Action? Closed;
 
@@ -54,7 +56,12 @@ public sealed partial class SettingsPane : UserControl
         foreach (var d in disks)
         {
             var remove = new Button { Content = Ui.T(OrigamiUiString.Remove), VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center };
-            remove.Click += (_, _) => { Core?.RemoveCachedDisk(d.Key); ListDownloaded(); };
+            remove.Click += async (_, _) =>
+            {
+                if ((await Ask(new OrigamiAlertKind.RemoveDownload(d.Label)))?.Role != ButtonRole.Destructive) return;
+                Core?.RemoveCachedDisk(d.Key);
+                ListDownloaded();
+            };
             var text = new StackPanel { Children = { new TextBlock { Text = d.Label }, new TextBlock { Text = Core!.SizeLabel(d.Bytes), Opacity = 0.7 } } };
             var row = new Grid { ColumnSpacing = 12, ColumnDefinitions = { new ColumnDefinition(), new ColumnDefinition { Width = Microsoft.UI.Xaml.GridLength.Auto } } };
             row.Children.Add(text);
