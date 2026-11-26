@@ -73,6 +73,8 @@ internal static class Program
         Expect(stopped.Settings().Network.Device == "tap0", "the tap device kept");
         Expect(OrigamiFfiMethods.OrigamiHostNetworkModes().Count() == 4, "four network modes");
         Expect(OrigamiFfiMethods.OrigamiSuggestShareName("/x/My Code") == "My-Code", "a share name from a folder");
+        Expect(OrigamiFfiMethods.OrigamiStateLabel(OrigamiShownState.Running).Word == "Running", "a state word from the core");
+        Expect(OrigamiFfiMethods.OrigamiShortcutGroups(OrigamiPlatform.Windows)[0].Title == "Mouse", "the release keys lead the shortcuts");
         Expect(stopped.Settings().ConsolePort == "ttyS1", "the console line chosen");
         Expect(stopped.Settings().DiskTarget == 2, "an empty system disk at target 1");
         Expect(stopped.DriveInfo("system") == "Unknown", "a blank disk is Unknown");

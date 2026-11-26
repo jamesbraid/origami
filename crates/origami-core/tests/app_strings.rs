@@ -31,7 +31,15 @@ const SHARED_OK: &[&str] = &[
 
 /// Core words an app still spells where it cannot call the core: a constant in
 /// a pure-logic project or a static table. Keep this list short.
-const CONST_OK: &[&str] = &["Needs upgrade"];
+const CONST_OK: &[&str] = &[
+    "Needs upgrade",
+    // New 0.6.2 core words the apps still spell. Remove these when all three apps move.
+    "Done",
+    "Machine",
+    "Machine ID",
+    "Type it",
+    "Disk",
+];
 
 /// The calls and properties that put a literal in front of a person.
 const SWIFT: &str = r#"(?:Text|Button|Label|Toggle|Picker|Section|TextField|LabeledContent|Stepper|Menu|help|accessibilityLabel|navigationTitle|Window|WindowGroup|addButton|messageText|informativeText)\(\s*(?:withTitle:\s*)?"([^"\\]{2,})""#;

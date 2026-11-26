@@ -6,19 +6,6 @@ use origami_core::facade as f;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-macro_rules! mirror {
-    ($name:ident, $core:ty, $($v:ident),*) => {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-        pub enum $name { $($v),* }
-        impl From<$core> for $name {
-            fn from(v: $core) -> Self { match v { $(<$core>::$v => Self::$v),* } }
-        }
-        impl From<$name> for $core {
-            fn from(v: $name) -> Self { match v { $($name::$v => <$core>::$v),* } }
-        }
-    };
-}
-
 mirror!(
     OrigamiInstallStep,
     f::InstallStep,
@@ -247,7 +234,7 @@ fn plan_in(p: OrigamiInstallPlan) -> f::InstallPlan {
 
 /// The assistant's choices and the rules for moving between its steps.
 #[derive(uniffi::Object)]
-pub struct OrigamiInstallFlow(Mutex<f::InstallFlow>);
+pub struct OrigamiInstallFlow(pub(crate) Mutex<f::InstallFlow>);
 
 #[uniffi::export]
 impl OrigamiInstallFlow {

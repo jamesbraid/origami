@@ -86,6 +86,73 @@ pub struct DiskLabels {
     pub default_gb: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiskChoice {
+    Ready,
+    Install,
+    Image,
+    NoDisk,
+}
+
+/// One way to give a new machine its disk, with the words for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiskOption {
+    pub choice: DiskChoice,
+    pub title: String,
+    pub caption: String,
+    /// Tagged "Recommended".
+    pub recommended: bool,
+}
+
+/// The disk choices in the order to list them; the first is the default. A
+/// ready-made disk leads when the catalogue offers one for the model and engine.
+pub fn disk_options(ready_available: bool) -> Vec<DiskOption> {
+    let option = |choice, title: &str, caption: &str, recommended| DiskOption {
+        choice,
+        title: title.into(),
+        caption: caption.into(),
+        recommended,
+    };
+    let all = [
+        option(
+            DiskChoice::Ready,
+            "Ready-made IRIX disk",
+            "IRIX installed and ready to start.",
+            true,
+        ),
+        option(
+            DiskChoice::Install,
+            "Install IRIX from discs",
+            "Start with an empty disk and run the install assistant.",
+            false,
+        ),
+        option(
+            DiskChoice::Image,
+            "Use a disk image I already have",
+            "A .chd, .qcow2, .img or .raw file.",
+            false,
+        ),
+        option(
+            DiskChoice::NoDisk,
+            "No disk",
+            "Add one later in Settings.",
+            false,
+        ),
+    ];
+    all.into_iter()
+        .filter(|o| ready_available || o.choice != DiskChoice::Ready)
+        .collect()
+}
+
+/// What to say under a ready-made disk: its download size, or that it is here.
+pub fn ready_caption(bytes: u64, cached: bool) -> String {
+    if cached {
+        "Downloaded".into()
+    } else {
+        format!("{} download", size_label(bytes))
+    }
+}
+
 pub fn disk_labels() -> DiskLabels {
     let list = |items: &[&str]| items.iter().map(|s| s.to_string()).collect();
     DiskLabels {
@@ -133,10 +200,22 @@ pub(crate) fn cached_label(path: &Path) -> Option<String> {
         .map(|(_, label)| label.clone())
 }
 
-fn label_of(detected: &disk_detect::Detected) -> String {
+const UNKNOWN: &str = "Unknown";
+
+/// A label for people, or none when the disk was not recognised.
+pub(crate) fn recognised(label: String) -> Option<String> {
+    (label != UNKNOWN).then_some(label)
+}
+
+/// The release without its stream letter: `6.5.30m` is `6.5.30`.
+fn release(version: &str) -> &str {
+    version.trim_end_matches(|c: char| c.is_ascii_alphabetic())
+}
+
+pub(super) fn label_of(detected: &disk_detect::Detected) -> String {
     use disk_detect::Detected::*;
     match detected {
-        Irix { version } => format!("IRIX {version}"),
+        Irix { version } => format!("IRIX {}", release(version)),
         Linux {
             name,
             version: Some(v),
@@ -147,7 +226,7 @@ fn label_of(detected: &disk_detect::Detected) -> String {
         } => format!("Linux ({})", name.trim_end_matches(" GNU/Linux")),
         OpenBsd { version } => format!("OpenBSD {version}"),
         NetBsd { version } => format!("NetBSD {version}"),
-        Unknown => "Unknown".into(),
+        Unknown => UNKNOWN.into(),
     }
 }
 
@@ -163,7 +242,7 @@ pub(crate) fn label(path: &Path) -> CoreResult<String> {
             format!("cannot read {}", path.display()),
         )
     })?;
-    let label = disk_detect::detect_path(path).map_or_else(|_| "Unknown".into(), |d| label_of(&d));
+    let label = disk_detect::detect_path(path).map_or_else(|_| UNKNOWN.into(), |d| label_of(&d));
     cache()
         .lock()
         .unwrap()
@@ -241,6 +320,60 @@ pub fn size_label(bytes: u64) -> String {
         format!("{:.1} GB", bytes as f64 / 1e9)
     } else {
         format!("{} MB", bytes / 1_000_000)
+    }
+}
+
+/// The size the guest sees: the logical size of a qcow2 or CHD, else `file_bytes`.
+pub(crate) fn guest_size(path: &Path, file_bytes: u64) -> u64 {
+    disk_detect::image::open(path).map_or(file_bytes, |(_, size)| size)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropKind {
+    CdImage,
+    DiskImage,
+    Other,
+}
+
+/// What a dropped file is, by its header and then its extension: a CD image
+/// changes the CD, a disk image makes a machine.
+pub fn classify_drop(path: &Path) -> DropKind {
+    let file = path
+        .is_file()
+        .then(|| std::fs::File::open(path).ok())
+        .flatten();
+    let Some(mut file) = file else {
+        return DropKind::Other;
+    };
+    let mut magic = [0u8; 8];
+    let container =
+        file.read_exact(&mut magic).is_ok() && (magic == *b"MComprHD" || magic[..4] == *b"QFI\xfb");
+    let iso9660 = (|| {
+        use std::io::{Seek, SeekFrom};
+        file.seek(SeekFrom::Start(0x8001)).ok()?;
+        let mut id = [0u8; 5];
+        file.read_exact(&mut id).ok()?;
+        Some(&id == b"CD001")
+    })()
+    .unwrap_or(false);
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase());
+    match ext.as_deref() {
+        _ if container => DropKind::DiskImage,
+        _ if iso9660 => DropKind::CdImage,
+        Some("iso") => DropKind::CdImage,
+        Some("chd" | "qcow2" | "img" | "raw") => DropKind::DiskImage,
+        _ => DropKind::Other,
+    }
+}
+
+/// The words for a drop target: what dropping that kind of file does.
+pub fn drop_caption(kind: DropKind) -> Option<&'static str> {
+    match kind {
+        DropKind::CdImage => Some("Change CD"),
+        DropKind::DiskImage => Some("New machine from this disk"),
+        DropKind::Other => None,
     }
 }
 
@@ -334,4 +467,68 @@ fn copy_file(
     }
     to.sync_all()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_dropped_file_is_a_cd_or_a_disk_by_its_header_then_its_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let write = |name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        };
+        let mut iso = vec![0u8; 0x8006];
+        iso[0x8001..0x8006].copy_from_slice(b"CD001");
+        let mut qcow = vec![0u8; 64];
+        qcow[..4].copy_from_slice(b"QFI\xfb");
+        qcow[24..32].copy_from_slice(&(4u64 << 30).to_be_bytes());
+        assert_eq!(classify_drop(&write("any.img", &iso)), DropKind::CdImage);
+        assert_eq!(
+            classify_drop(&write("disc.iso", b"short")),
+            DropKind::CdImage
+        );
+        // A CD image named like a disk, and a disk with no recognisable header.
+        assert_eq!(
+            classify_drop(&write("disk.qcow2", &qcow)),
+            DropKind::DiskImage
+        );
+        assert_eq!(
+            classify_drop(&write("blank.raw", &[0u8; 64])),
+            DropKind::DiskImage
+        );
+        assert_eq!(
+            classify_drop(&write("notes.txt", b"hello")),
+            DropKind::Other
+        );
+        assert_eq!(
+            classify_drop(&dir.path().join("missing.iso")),
+            DropKind::Other
+        );
+        assert_eq!(classify_drop(dir.path()), DropKind::Other);
+        assert_eq!(drop_caption(DropKind::CdImage), Some("Change CD"));
+        assert_eq!(drop_caption(DropKind::Other), None);
+        assert_eq!(guest_size(&write("plain.img", &[0u8; 64]), 64), 64);
+    }
+
+    #[test]
+    fn a_ready_made_disk_leads_only_when_one_is_offered() {
+        let with = disk_options(true);
+        assert_eq!(with[0].choice, DiskChoice::Ready);
+        assert!(with[0].recommended && with.iter().filter(|o| o.recommended).count() == 1);
+        let without = disk_options(false);
+        assert_eq!(without[0].choice, DiskChoice::Install);
+        assert!(without.iter().all(|o| !o.recommended));
+        assert_eq!(ready_caption(835_000_000, false), "835 MB download");
+        assert_eq!(ready_caption(835_000_000, true), "Downloaded");
+    }
+
+    #[test]
+    fn a_release_has_no_stream_letter() {
+        assert_eq!(release("6.5.30m"), "6.5.30");
+        assert_eq!(release("6.5.22"), "6.5.22");
+    }
 }

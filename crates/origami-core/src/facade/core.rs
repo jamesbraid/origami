@@ -5,7 +5,7 @@ use super::commands::{self, Command};
 use super::disks::DiskImageCheck;
 use super::error::{CoreError, CoreResult, ErrorKind};
 use super::event::{Dispatcher, EventKind, Observer, Slot};
-use super::machine::{Machine, MachineState, Shared};
+use super::machine::{ExitReason, Machine, MachineState, Shared};
 use super::operation::{self, Operation};
 use crate::Report;
 use origami_engine::{Capabilities, Catalogue, Engine};
@@ -30,6 +30,12 @@ pub struct Config {
     /// The install media server's program. Without it the install calls
     /// that run it fail.
     pub instigator: Option<PathBuf>,
+    /// Moves a folder to the platform's trash; tests swap in a recorder.
+    pub trash: fn(&Path) -> Result<(), String>,
+}
+
+fn system_trash(path: &Path) -> Result<(), String> {
+    trash::delete(path).map_err(|e| e.to_string())
 }
 
 impl Config {
@@ -39,6 +45,7 @@ impl Config {
             console_ring_bytes: 1 << 20,
             stop_patience: Duration::from_secs(30),
             instigator: None,
+            trash: system_trash,
         }
     }
 }
@@ -130,6 +137,15 @@ pub struct MachineSummary {
     /// What the system disk holds, such as `IRIX 6.5.30`, once read. A first
     /// listing starts the read and a library event follows it.
     pub system_disk: Option<String>,
+}
+
+/// What [`Core::remove_machine`] left behind.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Removed {
+    /// The library entry that was moved: what a toast names.
+    pub name: String,
+    /// Disk images the machine used in place, outside its folder.
+    pub disk_left: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -374,13 +390,20 @@ impl Core {
             }
             let name = entry_name(&path);
             let key = path.canonicalize().unwrap_or_else(|_| path.clone());
-            let state = self
-                .inner
-                .machines
-                .lock()
-                .unwrap()
-                .get(&key)
-                .map_or(MachineState::NotRunning, |m| m.view().state);
+            let state = self.inner.machines.lock().unwrap().get(&key).map_or(
+                MachineState::NotRunning,
+                |m| {
+                    let view = m.view();
+                    // A guest that powered off or was stopped by us is simply stopped.
+                    match (view.state, view.exit_reason) {
+                        (
+                            MachineState::Exited,
+                            Some(ExitReason::GuestPoweredOff | ExitReason::HostStopped),
+                        ) => MachineState::NotRunning,
+                        (state, _) => state,
+                    }
+                },
+            );
             let state = if state == MachineState::NotRunning && left_running(&path) {
                 MachineState::LeftRunning
             } else {
@@ -405,8 +428,8 @@ impl Core {
                         .trim_end_matches("MiB")
                         .parse()
                         .unwrap_or(0);
+                    let system_disk = self.system_disk_label(&path, &file, state);
                     MachineSummary {
-                        system_disk: self.system_disk_label(&path, &file, state),
                         runs_irix: origami_machine::install::runs_irix(
                             &file.machine.model,
                             file.machine.topology.as_deref().unwrap_or_default(),
@@ -417,7 +440,9 @@ impl Core {
                             topology_name.as_deref().unwrap_or(&product_label),
                             file.machine.nodes,
                             memory_per_node_mib,
+                            system_disk.as_deref(),
                         ),
+                        system_disk,
                         product_label,
                         product: file.machine.model,
                         topology_name,
@@ -467,12 +492,12 @@ impl Core {
         let drive = system_drive(file)?;
         let image = origami_machine::resolve(dir, &drive.image);
         if let Some(label) = super::disks::cached_label(&image) {
-            return Some(label);
+            return super::disks::recognised(label);
         }
         let idle = matches!(state, MachineState::NotRunning | MachineState::Exited);
         // A running guest changes its disk, so keep the last label while it runs.
         if !idle {
-            return super::disks::last_label(&image);
+            return super::disks::last_label(&image).and_then(super::disks::recognised);
         }
         if let Some(reading) = super::disks::begin_read(&image) {
             let slot = self.inner.slot.clone();
@@ -488,9 +513,21 @@ impl Core {
     }
 
     /// The OS and release on a disk image, such as `IRIX 6.5.30`, or `Unknown`.
-    /// Read once per size and change time: off the UI thread.
+    /// Deprecated: use [`Core::disk_os`], which has none for an unrecognised disk.
     pub fn disk_info(&self, path: &Path) -> CoreResult<String> {
         super::disks::label(path)
+    }
+
+    /// As [`Core::disk_info`], but none when the disk is not recognised.
+    pub fn disk_os(&self, path: &Path) -> CoreResult<Option<String>> {
+        super::disks::label(path).map(super::disks::recognised)
+    }
+
+    /// The size the guest sees for the disk image at `path`: the virtual size
+    /// of a qcow2 or CHD, else the file's.
+    pub fn disk_size(&self, path: &Path) -> CoreResult<u64> {
+        let bytes = super::disks::regular_size(path)?;
+        Ok(super::disks::guest_size(path, bytes))
     }
 
     /// Whether `path` can be attached, and what a copy of it would need.
@@ -686,6 +723,17 @@ impl Core {
     /// Upgrade the stopped machine at `key` as `origami upgrade` does, on the
     /// engine its file names or else the first. May download: off the UI thread.
     pub fn upgrade_machine(&self, key: &str) -> CoreResult<Report> {
+        self.upgrade_machine_with(key, None, None)
+    }
+
+    /// As [`Core::upgrade_machine`], with firmware files the person chose
+    /// instead of a download: the boot PROM and the IO PROM.
+    pub fn upgrade_machine_with(
+        &self,
+        key: &str,
+        prom: Option<&Path>,
+        io_prom: Option<&Path>,
+    ) -> CoreResult<Report> {
         let path = self.resolve(key)?;
         // The CLI's choice: the engine the file names, else the first.
         let named = origami_machine::read_machine(&path)
@@ -697,7 +745,7 @@ impl Core {
             .iter()
             .find(|e| Some(e.info().id) == named)
             .unwrap_or(&self.inner.engines[0]);
-        let done = crate::upgrade(engine.as_ref(), &path, None, None);
+        let done = crate::upgrade(engine.as_ref(), &path, prom, io_prom);
         // A failure after the file was rewritten still changes the listing.
         self.inner.slot.raise(&[EventKind::Library]);
         done.map_err(|incomplete| {
@@ -715,6 +763,63 @@ impl Core {
                 error.with_detail(notes.join("; "))
             }
         })
+    }
+
+    /// Move the stopped machine at `key` to the platform's trash: its library
+    /// entry (the link, for a symlinked folder) and everything in it. Disk
+    /// images used in place outside the folder stay, and are reported.
+    pub fn remove_machine(&self, key: &str) -> CoreResult<Removed> {
+        let target = self.resolve(key)?;
+        // Only a machine the library lists is removed, never a folder a path happens to name.
+        let entry = std::fs::read_dir(self.inner.root())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| {
+                p.join("machine.toml").is_file()
+                    && p.canonicalize().is_ok_and(|real| real == target)
+            })
+            .ok_or_else(|| {
+                CoreError::new(ErrorKind::NotFound, format!("there is no machine {key}"))
+            })?;
+        let name = entry_name(&entry);
+        let held = self
+            .inner
+            .machines
+            .lock()
+            .unwrap()
+            .get(&target)
+            .map(|m| m.view().state);
+        let running = !matches!(
+            held,
+            None | Some(MachineState::NotRunning | MachineState::Exited)
+        ) || left_running(&target);
+        if running {
+            return Err(CoreError::new(
+                ErrorKind::Busy,
+                format!("{name} is running. Power off to remove it."),
+            ));
+        }
+        let mut disk_left = Vec::new();
+        for drive in origami_machine::read_machine(&target).map_or(vec![], |f| f.drive) {
+            let image = origami_machine::resolve(&target, &drive.image);
+            let image = dunce::canonicalize(&image).unwrap_or(image);
+            let image = image.to_string_lossy().into_owned();
+            if !Path::new(&image).starts_with(&target) && !disk_left.contains(&image) {
+                disk_left.push(image);
+            }
+        }
+        (self.inner.config.trash)(&entry).map_err(|error| {
+            CoreError::new(
+                ErrorKind::Io,
+                format!("{name} could not be moved to the trash."),
+            )
+            .with_detail(error)
+        })?;
+        self.inner.machines.lock().unwrap().remove(&target);
+        self.inner.slot.raise(&[EventKind::Library]);
+        Ok(Removed { name, disk_left })
     }
 
     /// The machine at `key`: a key from [`Core::list_machines`], a directory

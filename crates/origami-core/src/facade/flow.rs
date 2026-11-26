@@ -53,6 +53,46 @@ pub(super) const ALL: [InstallStep; 10] = [
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StepState {
+    Done,
+    Current,
+    Later,
+}
+
+/// One entry of the numbered step list the apps show beside the assistant.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StepTitle {
+    pub step: InstallStep,
+    pub title: &'static str,
+    /// From 1, counting only the steps this machine has.
+    pub number: u32,
+    pub state: StepState,
+}
+
+/// The steps `flow` has, numbered and marked, so every app lists the same
+/// ones: Method only on a serial console, and the pages in the order shown.
+pub fn step_titles(flow: &InstallFlow) -> Vec<StepTitle> {
+    let now = flow.step();
+    flow.steps()
+        .into_iter()
+        .zip(1..)
+        .map(|(step, number)| StepTitle {
+            step,
+            title: match step {
+                InstallStep::Media => "Discs",
+                other => other.title(),
+            },
+            number,
+            state: match step.cmp(&now) {
+                std::cmp::Ordering::Less => StepState::Done,
+                std::cmp::Ordering::Equal => StepState::Current,
+                std::cmp::Ordering::Greater => StepState::Later,
+            },
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CheckState {
     Ready,
     Running,
@@ -633,6 +673,50 @@ mod tests {
             (InstallStep::Finish, "Finish")
         );
         assert!(!f.can_continue(true) && f.can_continue(false));
+    }
+
+    #[test]
+    fn the_step_list_has_method_only_on_serial_and_marks_the_page() {
+        let mut f = flow();
+        let titles = |f: &InstallFlow| {
+            step_titles(f)
+                .into_iter()
+                .map(|t| t.title)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            titles(&f),
+            [
+                "Release",
+                "Discs",
+                "Software",
+                "Disk",
+                "Check",
+                "Prepare the disk",
+                "Start the installer",
+                "Install packages",
+                "Finish"
+            ]
+        );
+        f.set_serial(true);
+        f.next();
+        f.next();
+        let list = step_titles(&f);
+        assert_eq!(list[3].title, "Method");
+        assert_eq!(
+            list.iter().map(|t| t.number).collect::<Vec<_>>(),
+            (1..=10).collect::<Vec<_>>()
+        );
+        let states: Vec<_> = list.iter().take(4).map(|t| t.state).collect();
+        assert_eq!(
+            states,
+            [
+                StepState::Done,
+                StepState::Done,
+                StepState::Current,
+                StepState::Later
+            ]
+        );
     }
 
     #[test]

@@ -30,8 +30,13 @@ pub struct SummaryCard {
 }
 
 /// The tiles under a machine's name: its memory, its nodes where it has
-/// several, and which model it is.
-pub fn summary_cards(model: &str, nodes: u32, memory_per_node_mib: u32) -> Vec<SummaryCard> {
+/// several, which model it is, and what its system disk holds once read.
+pub fn summary_cards(
+    model: &str,
+    nodes: u32,
+    memory_per_node_mib: u32,
+    system: Option<&str>,
+) -> Vec<SummaryCard> {
     let card = |title: &str, value: String| SummaryCard {
         title: title.into(),
         value,
@@ -44,6 +49,7 @@ pub fn summary_cards(model: &str, nodes: u32, memory_per_node_mib: u32) -> Vec<S
         cards.push(card("Nodes", nodes.to_string()));
     }
     cards.push(card("Model", model.into()));
+    cards.extend(system.map(|os| card("System", os.into())));
     cards
 }
 
@@ -127,6 +133,7 @@ mod tests {
             exit_reason: None,
             exit_detail: None,
             last_error: None,
+            start_error: None,
             reason: "The machine is running.".into(),
             heads: vec![HeadView {
                 index: 0,
@@ -178,14 +185,14 @@ mod tests {
     #[test]
     fn nodes_show_only_where_there_are_several() {
         let titles = |nodes| {
-            summary_cards("Octane2", nodes, 256)
+            summary_cards("Octane2", nodes, 256, None)
                 .into_iter()
                 .map(|c| c.title)
                 .collect::<Vec<_>>()
         };
         assert_eq!(titles(1), ["Memory", "Model"]);
         assert_eq!(titles(2), ["Memory", "Nodes", "Model"]);
-        assert_eq!(summary_cards("O", 2, 512)[0].value, "1 GB");
+        assert_eq!(summary_cards("O", 2, 512, None)[0].value, "1 GB");
     }
 
     #[test]
@@ -196,7 +203,7 @@ mod tests {
                 .unwrap();
         for o in &machines.offerings {
             let model = machine_name(&o.topology);
-            let cards = summary_cards(model, o.nodes, 256);
+            let cards = summary_cards(model, o.nodes, 256, None);
             for card in cards
                 .iter()
                 .map(|c| c.value.as_str())
@@ -238,7 +245,8 @@ mod tests {
     /// Words that keep their capital in the middle of a sentence.
     const PROPER: &[&str] = &[
         "IRIX", "CD", "CPU", "CPUs", "QEMU", "Origami", "PROM", "NFS", "ID", "MIPSpro", "RAD4",
-        "GB", "MB", "I", "SGI", "OK", "Iris",
+        "GB", "MB", "I", "SGI", "OK", "Iris", "Trash", "Recycle", "Bin", "Finder", "Explorer",
+        "Files", "Ethernet", "Settings", "Standard", "Fuel",
     ];
     /// Words that mean nothing to a person using the app.
     const JARGON: &[&str] = &["qmp", "emu-id", "runner", "wake-ups", "presents"];
@@ -256,6 +264,7 @@ mod tests {
         let mut starts = true;
         for word in text.split_whitespace() {
             let bare = word.trim_matches(|c: char| !c.is_alphanumeric());
+            let bare = bare.strip_suffix("'s").unwrap_or(bare);
             let first = bare.chars().next();
             let capital = first.is_some_and(char::is_uppercase);
             if starts && first.is_some_and(char::is_alphabetic) && !capital {
@@ -281,6 +290,144 @@ mod tests {
         assert!(problem("Wake-ups received").is_some());
         assert_eq!(problem("Install IRIX…"), None);
         assert_eq!(problem("IRIX is installed. Start the machine."), None);
+    }
+
+    /// The words the 0.6.2 build added, from every call that makes them.
+    fn new_words() -> Vec<String> {
+        use crate::facade::*;
+        let mut all: Vec<String> = Vec::new();
+        let platforms = [Platform::Macos, Platform::Windows, Platform::Linux];
+        all.extend(ShownState::ALL.map(|s| state_label(s).word.to_string()));
+        all.push(machine_id_caption(7));
+        let error = CoreError::new(ErrorKind::Invalid, "Fuel has no disk.")
+            .with_fix(ErrorFix::ChooseFirmware);
+        for platform in platforms {
+            for state in ShownState::ALL {
+                for error in [None, Some(&error)] {
+                    if let Some(c) = machine_card(state, error, "Fuel", platform) {
+                        all.extend([c.title, c.body]);
+                        all.extend(c.actions.into_iter().map(|a| a.label));
+                    }
+                }
+            }
+            let kinds = [
+                AlertKind::QuitRunning {
+                    names: vec!["Fuel".into()],
+                },
+                AlertKind::QuitRunning {
+                    names: vec!["a".into(), "b".into()],
+                },
+                AlertKind::PowerOff {
+                    name: "Fuel".into(),
+                },
+                AlertKind::Reset {
+                    name: "Fuel".into(),
+                },
+                AlertKind::ForceQuit {
+                    name: "Fuel".into(),
+                },
+                AlertKind::CloseTab {
+                    name: "Fuel".into(),
+                },
+                AlertKind::Remove {
+                    name: "Fuel".into(),
+                    disk_left: vec![],
+                },
+            ];
+            for kind in kinds {
+                let a = alert(&kind, platform);
+                all.extend([a.title, a.body]);
+                all.extend(a.buttons.into_iter().map(|b| b.label));
+            }
+            for kind in [
+                ToastKind::Upgraded {
+                    name: "Fuel".into(),
+                },
+                ToastKind::Removed {
+                    name: "Fuel".into(),
+                },
+                ToastKind::ScreenshotSaved,
+                ToastKind::DiscEjected,
+            ] {
+                let t = toast(&kind, platform);
+                all.extend(std::iter::once(t.text).chain(t.action));
+            }
+            for g in shortcut_groups(platform) {
+                all.push(g.title);
+                all.extend(g.items.into_iter().map(|i| i.label));
+            }
+            for c in commands_for(platform) {
+                all.extend([c.title, c.help]);
+            }
+        }
+        for kind in [
+            EmptyKind::NoMachines,
+            EmptyKind::NoneSelected,
+            EmptyKind::NoSharedFolders,
+            EmptyKind::NoDownloadedDisks,
+        ] {
+            let e = empty_state(kind);
+            all.extend([e.title, e.sentence].map(String::from));
+            all.extend(e.button.map(String::from));
+        }
+        for o in disk_options(true) {
+            all.extend([o.title, o.caption]);
+        }
+        all.extend([ready_caption(835_000_000, false), ready_caption(0, true)]);
+        all.extend([
+            guide_header(3, 22),
+            waiting_for("login:"),
+            install_footer("IRIX 6.5.30, Standard"),
+        ]);
+        all.extend(
+            host_network_modes()
+                .into_iter()
+                .flat_map(|c| [c.label, c.detail]),
+        );
+        all.extend(
+            [
+                startup_value(BootConsole::Screen),
+                startup_value(BootConsole::Serial),
+            ]
+            .map(String::from),
+        );
+        all.extend(
+            step_titles(&InstallFlow::new(install_releases(), None, 4))
+                .into_iter()
+                .map(|t| t.title.to_string()),
+        );
+        all.extend(
+            [
+                UiString::Custom,
+                UiString::Disk,
+                UiString::DiskSize,
+                UiString::Done,
+                UiString::DownloadThem,
+                UiString::FromTheMachineId,
+                UiString::KeyboardShortcuts,
+                UiString::Machine,
+                UiString::MachineId,
+                UiString::More,
+                UiString::NeedsAnInternetConnection,
+                UiString::NewMachineFromThisDisk,
+                UiString::PowerOffToChangeHardwareSettings,
+                UiString::Recommended,
+                UiString::Screen,
+                UiString::Seen,
+                UiString::ShowDetails,
+                UiString::ChangeCd,
+                UiString::CaptureMouse,
+                UiString::ShowOrHideTheLibrary,
+                UiString::StartupMessagesOn,
+                UiString::TypeIt,
+                UiString::TypeLabel,
+                UiString::UseDiscsIAlreadyHave,
+                UiString::WatchFor,
+                UiString::WhereShouldTheDiscsComeFrom,
+            ]
+            .map(|s| s.text().to_string()),
+        );
+        all
     }
 
     #[test]
@@ -323,20 +470,23 @@ mod tests {
                 .map(|(f, c)| pointer_status(f, c).to_string()),
         );
         all.extend(
-            summary_cards("Octane2", 2, 512)
+            summary_cards("Octane2", 2, 512, Some("IRIX 6.5.30"))
                 .into_iter()
                 .map(|c| c.title),
         );
+        all.extend(new_words());
         let report = diagnostics_report(&view(), "Octane2", "Running", 1, 1);
         all.extend(
             report
                 .lines()
                 .filter_map(|l| l.split_once(':').map(|(label, _)| label.to_string())),
         );
-        let bad: Vec<_> = all
+        let mut bad: Vec<_> = all
             .iter()
             .filter_map(|t| problem(t).map(|p| format!("{t:?} {p}")))
             .collect();
+        bad.sort();
+        bad.dedup();
         assert!(bad.is_empty(), "{bad:#?}");
     }
 }

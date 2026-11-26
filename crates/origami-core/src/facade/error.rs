@@ -19,11 +19,24 @@ pub enum ErrorKind {
     Internal,
 }
 
+/// What a person can do about an error, where the app can offer it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ErrorFix {
+    #[default]
+    None,
+    OpenSettings,
+    ChooseFirmware,
+    ChooseDisk,
+}
+
+/// `message` is one plain sentence for people: no paths, flags or file names
+/// of Origami's own. Everything technical goes in `detail`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CoreError {
     pub kind: ErrorKind,
     pub message: String,
     pub detail: Option<String>,
+    pub fix: ErrorFix,
 }
 
 pub type CoreResult<T> = Result<T, CoreError>;
@@ -34,7 +47,13 @@ impl CoreError {
             kind,
             message: message.into(),
             detail: None,
+            fix: ErrorFix::None,
         }
+    }
+
+    pub fn with_fix(mut self, fix: ErrorFix) -> Self {
+        self.fix = fix;
+        self
     }
 
     pub fn with_detail(mut self, detail: impl Into<String>) -> Self {

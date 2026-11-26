@@ -108,6 +108,9 @@ pub struct MachineView {
     /// What it said or how it ended, such as `signal 9` or its last error.
     pub exit_detail: Option<String>,
     pub last_error: Option<String>,
+    /// Why the last start failed, until the next start: what a "couldn't
+    /// start" card shows, so it survives a refresh.
+    pub start_error: Option<CoreError>,
     /// One sentence for a status line.
     pub reason: String,
     pub heads: Vec<HeadView>,
@@ -226,6 +229,7 @@ struct Run {
     osview: Option<Osview>,
     /// Which run the frames are from; see `RUNS`.
     serial: u64,
+    start_error: Option<CoreError>,
 }
 
 #[derive(Default, Clone)]
@@ -312,6 +316,7 @@ impl Machine {
                     cpu: None,
                     osview: None,
                     serial: 0,
+                    start_error: None,
                 }),
                 held: Mutex::default(),
                 hooks: Mutex::new(Arc::new(Vec::new())),
@@ -368,6 +373,7 @@ impl Machine {
                 return Err(CoreError::new(ErrorKind::Busy, message));
             }
             run.phase = Phase::Starting;
+            run.start_error = None;
             run.stop_requested = None;
             run.power_button = None;
             run.exit_note = None;
@@ -376,7 +382,15 @@ impl Machine {
         let machine = self.inner.clone();
         Ok(self.spawn("Start", true, move |control| {
             let result = machine.launch(control);
-            machine.run.lock().unwrap().phase = Phase::Idle;
+            {
+                let mut run = machine.run.lock().unwrap();
+                run.phase = Phase::Idle;
+                run.start_error = result
+                    .as_ref()
+                    .err()
+                    .filter(|e| e.kind != ErrorKind::Cancelled)
+                    .cloned();
+            }
             machine.finish_operation();
             result.map(|()| Some(machine.key.clone()))
         }))
@@ -512,6 +526,7 @@ impl Machine {
     }
 
     /// What the disk in `drive` holds, such as `IRIX 6.5.30`; off the UI thread.
+    /// Deprecated: use [`Machine::drive_os`].
     /// A running machine is not read, since its guest writes the disk.
     pub fn drive_info(&self, drive: &str) -> CoreResult<String> {
         let file =
@@ -531,6 +546,20 @@ impl Machine {
             ));
         }
         super::disks::label(&image)
+    }
+
+    /// The Drives list: a title and caption for each drive. Blocking, off the
+    /// UI thread; a running machine's disks are not read for their OS.
+    pub fn drive_rows(&self) -> CoreResult<Vec<super::DriveRow>> {
+        let dir = self.inner.dir.path();
+        let file = origami_machine::read_machine(dir).map_err(CoreError::machine)?;
+        let live = self.inner.live(&self.inner.run.lock().unwrap());
+        Ok(super::settings::drive_rows(dir, &file, !live))
+    }
+
+    /// As [`Machine::drive_info`], but none when the disk is not recognised.
+    pub fn drive_os(&self, drive: &str) -> CoreResult<Option<String>> {
+        self.drive_info(drive).map(super::disks::recognised)
     }
 
     #[cfg(test)]
@@ -967,13 +996,14 @@ impl MachineInner {
     }
 
     fn view(&self) -> MachineView {
-        let (phase, session, operation, frames) = {
+        let (phase, session, operation, frames, start_error) = {
             let run = self.run.lock().unwrap();
             (
                 run.phase,
                 run.session.clone(),
                 run.operation,
                 run.frames.clone(),
+                run.start_error.clone(),
             )
         };
         let facts = session.map(|s| s.status().state);
@@ -1059,6 +1089,7 @@ impl MachineInner {
             exit_reason,
             exit_detail,
             last_error,
+            start_error,
             reason,
             heads: self.heads(),
             console: ConsoleView {

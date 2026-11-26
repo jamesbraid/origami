@@ -133,11 +133,15 @@ pub fn host_network_modes() -> Vec<NetworkChoice> {
         (
             NetworkMode::User,
             "Shared (NAT)",
-            "Internet through this computer",
+            "Internet through this computer.",
         ),
-        (NetworkMode::Private, "Private", "Origami machines only"),
-        (bridged, "Bridged", "Own address on your network"),
-        (NetworkMode::None, "Off", "No network"),
+        (
+            NetworkMode::Private,
+            "Private",
+            "Only Origami's own machines.",
+        ),
+        (bridged, "Bridged", "Its own address on your network."),
+        (NetworkMode::None, "Off", "No network."),
     ]
     .map(|(mode, label, detail)| NetworkChoice {
         mode,
@@ -214,10 +218,35 @@ pub struct IdentityPreview {
     pub from_id: bool,
     /// Why the ID or address cannot be used.
     pub problem: Option<String>,
+    /// Which field the problem belongs to, so it shows on that row.
+    pub problem_field: Option<IdentityField>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IdentityField {
+    Id,
+    Address,
 }
 
 pub(crate) fn not_an_id() -> String {
     format!("Choose a number from 1 to {}.", emu_id::LAST_MINTED)
+}
+
+/// The sentence for an ID that is out of range or held by another machine
+/// beside `dir`, naming that machine and no path.
+fn id_problem(dir: &std::path::Path, id: u32) -> Option<String> {
+    if emu_id::check_range(id).is_err() {
+        return Some(not_an_id());
+    }
+    emu_id::taken(dir)
+        .into_iter()
+        .find(|(_, other)| *other == id)
+        .map(|(other, _)| {
+            let name = other
+                .file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            format!("{name} already uses ID {id}. Choose another.")
+        })
 }
 
 pub(crate) fn preview(
@@ -230,15 +259,13 @@ pub(crate) fn preview(
     let typed_id = typed_id.trim();
     let typed_mac = typed_mac.map(str::trim).filter(|m| !m.is_empty());
     let mut problem = None;
+    let mut field = None;
     let id = if typed_id.is_empty() {
         emu_id::assign(machines, dir, offer, None, typed_mac.is_none()).unwrap_or(0)
     } else {
         match typed_id.parse::<u32>() {
             Ok(id) => {
-                problem = emu_id::check_range(id)
-                    .and_then(|()| emu_id::check_free(dir, id))
-                    .err()
-                    .map(|e| e.to_string());
+                problem = id_problem(dir, id);
                 id
             }
             Err(_) => {
@@ -247,6 +274,9 @@ pub(crate) fn preview(
             }
         }
     };
+    if problem.is_some() {
+        field = Some(IdentityField::Id);
+    }
     let made = mac::from_emu_id(offer, id).ok();
     let shown = match typed_mac {
         Some(typed) => {
@@ -255,6 +285,7 @@ pub(crate) fn preview(
                     "Write the address as six pairs of hex digits, such as 08:00:69:e1:00:30."
                         .into(),
                 );
+                field = Some(IdentityField::Address);
             }
             typed.to_ascii_lowercase()
         }
@@ -264,11 +295,13 @@ pub(crate) fn preview(
         problem = mac::check_free(machines, dir, Some(offer), &shown)
             .err()
             .map(|e| e.to_string());
+        field = problem.as_ref().map(|_| IdentityField::Address);
     }
     IdentityPreview {
         emu_id: id,
         mac: shown,
         from_id: made.is_some(),
         problem,
+        problem_field: field,
     }
 }

@@ -118,7 +118,23 @@ pub struct MediaFolder {
     pub complete: bool,
 }
 
-/// One thing to do at the machine while the install runs.
+/// One thing to type at a prompt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Typed {
+    /// The prompt it answers, or none when it is typed anywhere.
+    pub prompt: Option<String>,
+    /// What to type; `Return` for the key alone.
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StepNote {
+    pub text: String,
+    pub warning: bool,
+}
+
+/// One thing to do at the machine while the install runs. `text` and `command`
+/// repeat `title` and the first typed text for apps that have not moved.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GuideStep {
     pub text: String,
@@ -127,6 +143,13 @@ pub struct GuideStep {
     /// The exact bytes a serial console takes for it, line ends included;
     /// None for a step with nothing to send.
     pub send: Option<String>,
+    pub title: String,
+    /// The console text to wait for before typing.
+    pub watch: Option<String>,
+    pub typed: Vec<Typed>,
+    pub note: Option<StepNote>,
+    /// Console text that shows the step is done.
+    pub confirm: Option<String>,
 }
 
 /// The steps that follow the machine's start, with this machine's release
@@ -144,14 +167,54 @@ pub struct InstallGuide {
     pub finish: Vec<GuideStep>,
     /// Said under the package steps.
     pub package_note: String,
+    /// Every step from the PROM menu to the halt, in order.
+    pub steps: Vec<GuideStep>,
 }
 
-fn step(text: &str, command: Option<&str>, send: Option<&str>) -> GuideStep {
+/// A guide step. `send` is the bytes a serial console takes for all of
+/// `typed` at once; `confirm` is the console text that shows it is done.
+fn guide_step(
+    title: &str,
+    watch: Option<&str>,
+    typed: &[(Option<&str>, &str)],
+    note: Option<(&str, bool)>,
+    send: Option<String>,
+    confirm: Option<&str>,
+) -> GuideStep {
     GuideStep {
-        text: text.into(),
-        command: command.map(Into::into),
-        send: send.map(Into::into),
+        title: title.into(),
+        watch: watch.map(Into::into),
+        typed: typed
+            .iter()
+            .map(|(prompt, text)| Typed {
+                prompt: prompt.map(Into::into),
+                text: (*text).into(),
+            })
+            .collect(),
+        note: note.map(|(text, warning)| StepNote {
+            text: text.into(),
+            warning,
+        }),
+        confirm: confirm.map(Into::into),
+        text: title.into(),
+        command: typed.first().map(|t| t.1.into()),
+        send,
     }
+}
+
+/// The footer while the install files are served: what they are, with no address.
+pub fn install_footer(summary: &str) -> String {
+    format!("Install files ready: {summary}")
+}
+
+/// What a guide step waits for, for the line under it.
+pub fn waiting_for(prompt: &str) -> String {
+    format!("Waiting for {prompt}")
+}
+
+/// The guide's header, such as `Install IRIX, step 3 of 22`.
+pub fn guide_header(step: usize, total: usize) -> String {
+    format!("Install IRIX, step {step} of {total}")
 }
 
 /// An add-on's full name and the short one the server line uses.
@@ -563,116 +626,233 @@ impl Core {
                 .flatten()
                 .map(|m| super::size_label(m.len()))
         });
-        // IRIX numbers controllers by probe order; only bus 0 is known to be 0.
-        let drive = if disk.bus == 0 {
-            step(
-                &format!(
-                    "At ctlr# type 0, then at drive# type {}. This is {}.",
-                    disk.target, disk.name
-                ),
-                None,
-                Some(&format!("0\r{}\r", disk.target)),
-            )
-        } else {
-            step(
-                &format!(
-                    "At ctlr# press Return (fx then looks at controller 0, which may not be this disk), and at drive# type {}. Compare the size fx reports with {} for {}. If they differ, stop: this is the wrong disk.",
-                    disk.target,
-                    size.as_deref().unwrap_or("this disk's size"),
-                    disk.name
-                ),
-                None,
-                Some(&format!("\r{}\r", disk.target)),
-            )
-        };
         let serial = machine.boot_console()? == super::BootConsole::Serial;
         let name = origami_machine::addressing::dhcp_hostname(dir).unwrap_or("irix");
         let guest = guest.to_string();
-        let say = |text: &str, value: &str| {
-            step(
-                text,
-                Some(value),
-                serial.then(|| format!("{value}\r")).as_deref(),
+        let go = |keys: String| serial.then_some(keys);
+        // IRIX numbers controllers by probe order; only bus 0 is known to be 0.
+        let (ctlr, ctlr_send, drive_note) = if disk.bus == 0 {
+            ("0", "0", None)
+        } else {
+            (
+                "Return",
+                "",
+                Some((
+                    format!(
+                        "fx looks at controller 0, which may not be this disk. Compare the size fx reports with {} for {}. If they differ, stop: this is the wrong disk.",
+                        size.as_deref().unwrap_or("this disk's size"),
+                        disk.name
+                    ),
+                    true,
+                )),
             )
         };
-        let mut installer = vec![
-            step(
-                "At the menu choose 2, Install System Software.",
-                None,
-                Some("2\r"),
+        let target = disk.target.to_string();
+        let steps = vec![
+            guide_step(
+                "Get past \"Unable to boot\"",
+                Some("Unable to boot"),
+                &[],
+                Some(("Press any key. If the PROM does not say this, go on.", false)),
+                go("\r".into()),
+                Some("Option? "),
             ),
-            step(
-                &format!("Choose {source_choice}, Remote Directory."),
+            guide_step(
+                "Open the command monitor",
+                Some("Option? "),
+                &[(Some("Option?"), "5")],
                 None,
-                Some(&format!("{source_choice}\r")),
+                go("5\r".into()),
+                Some(">> "),
+            ),
+            guide_step(
+                "Start the disk tool",
+                Some(">> "),
+                &[(None, &fx)],
+                None,
+                go(format!("{fx}\r")),
+                Some("extended mode with all options available?"),
+            ),
+            guide_step(
+                "Choose the disk",
+                Some("extended mode with all options available?"),
+                &[
+                    (Some("extended mode"), "yes"),
+                    (Some("device name"), "Return"),
+                    (Some("ctlr#"), ctlr),
+                    (Some("drive#"), &target),
+                ],
+                drive_note.as_ref().map(|(t, w)| (t.as_str(), *w)),
+                go(format!("yes\r\r{ctlr_send}\r{target}\r")),
+                Some("fx> "),
+            ),
+            guide_step(
+                "Label the disk",
+                Some("fx> "),
+                &[(Some("fx>"), "/l/sy")],
+                None,
+                go("/l/sy\r".into()),
+                Some("writing label info"),
+            ),
+            guide_step(
+                "Leave the disk tool",
+                Some("writing label info"),
+                &[(None, "/exi")],
+                Some(("This erases the disk.", true)),
+                go("/exi\r".into()),
+                Some("Option? "),
+            ),
+            guide_step(
+                "Open the installer",
+                Some("Option? "),
+                &[(Some("Option?"), "2")],
+                None,
+                go("2\r".into()),
+                Some("or <enter> to start:"),
+            ),
+            guide_step(
+                "Choose Remote Directory",
+                Some("or <enter> to start:"),
+                &[(None, source_choice)],
+                None,
+                go(format!("{source_choice}\r")),
+                Some("name of the remote host"),
+            ),
+            guide_step(
+                "Enter the host",
+                Some("name of the remote host"),
+                &[(Some("name of the remote host"), &host)],
+                None,
+                go(format!("{host}\r")),
+                Some("directory"),
+            ),
+            guide_step(
+                "Enter the directory",
+                Some("directory"),
+                &[(Some("directory"), &dist)],
+                None,
+                go(format!("{dist}\r")),
+                Some("<enter> to start:"),
+            ),
+            guide_step(
+                "Start the installer",
+                Some("<enter> to start:"),
+                &[(Some("<enter> to start"), "Return")],
+                None,
+                go("\r".into()),
+                Some("Make new file system"),
+            ),
+            guide_step(
+                "Make the file system",
+                Some("Make new file system"),
+                &[(Some("Make new file system"), "yes")],
+                None,
+                go("yes\r".into()),
+                Some("Are you sure?"),
+            ),
+            guide_step(
+                "Confirm it",
+                Some("Are you sure?"),
+                &[(Some("Are you sure?"), "y")],
+                None,
+                go("y\r".into()),
+                Some("Block size of filesystem"),
+            ),
+            guide_step(
+                "Choose the block size",
+                Some("Block size of filesystem"),
+                &[(Some("block size"), "4096")],
+                None,
+                go("4096\r".into()),
+                Some("hostname (system name)"),
+            ),
+            guide_step(
+                "Name the machine",
+                Some("hostname (system name)"),
+                &[(Some("hostname"), name)],
+                None,
+                go(format!("{name}\r")),
+                Some("network address of"),
+            ),
+            guide_step(
+                "Give it an address",
+                Some("network address of"),
+                &[(Some("network address"), &guest)],
+                None,
+                go(format!("{guest}\r")),
+                Some("IP class default"),
+            ),
+            guide_step(
+                "Set the netmask",
+                Some("IP class default"),
+                &[(Some("IP class default"), "255.255.255.0")],
+                Some(("The default is wrong for this network.", true)),
+                go("255.255.255.0\r".into()),
+                Some("Inst> "),
+            ),
+            guide_step(
+                "Point the installer at the packages",
+                Some("Inst> "),
+                &[(Some("Inst>"), &source)],
+                None,
+                go(format!("{source}\r")),
+                Some("Install software from:"),
+            ),
+            guide_step(
+                "Finish choosing",
+                Some("Install software from:"),
+                &[(Some("Install software from:"), "done")],
+                None,
+                go("done\r".into()),
+                Some("Reading fileset information"),
+            ),
+            guide_step(
+                "Wait for the packages",
+                Some("instigator: post-install commands finished"),
+                &[],
+                Some((
+                    "If a conflict or a failed command stops it, the line never appears. Read the console and fix it at Inst>.",
+                    false,
+                )),
+                None,
+                Some("instigator: post-install commands finished"),
+            ),
+            guide_step(
+                "Quit the installer",
+                Some("Inst> "),
+                &[(Some("Inst>"), "quit")],
+                Some(("Relinking the kernel takes a few minutes.", false)),
+                go("quit\r".into()),
+                Some("Restart?"),
+            ),
+            guide_step(
+                "Restart",
+                Some("Restart?"),
+                &[(Some("Restart?"), "y")],
+                None,
+                go("y\r".into()),
+                Some("login:"),
+            ),
+            guide_step(
+                "Log in and halt",
+                Some("login:"),
+                &[(Some("login:"), "root"), (None, "halt -p")],
+                Some(("A new install has no password.", false)),
+                None,
+                None,
             ),
         ];
-        if serial {
-            installer.extend([
-                say(
-                    "At \"Enter the name of the remote host\", type the server's address.",
-                    &host,
-                ),
-                say("At \"Enter the remote directory\", type this.", &dist),
-                step("Press Enter to start.", None, Some("\r")),
-            ]);
-        } else {
-            installer.extend([
-                step("Enter the host.", Some(&host), None),
-                step("Enter the directory.", Some(&dist), None),
-                step("Press Enter on Install.", None, None),
-            ]);
-        }
-        installer.extend([
-            say("At \"Make new file system\" type yes.", "yes"),
-            say("At \"Are you sure?\" type y.", "y"),
-            say("At the block size question type 4096.", "4096"),
-            say("At the hostname question type this.", name),
-            say("At the network address question type this.", &guest),
-            say(
-                "At the netmask question type this: the default is wrong for this network.",
-                "255.255.255.0",
-            ),
-            step("Wait for Inst>.", None, None),
-        ]);
+        // The older per-page lists are slices of the one list.
+        let page = |range: std::ops::Range<usize>| steps[range].to_vec();
         Ok(InstallGuide {
-            prepare: vec![
-                step("If the PROM says \"Unable to boot\", press any key. Otherwise go on.", None, Some("\r")),
-                step("Choose 5, Enter Command Monitor.", None, Some("5\r")),
-                step("Type this.", Some(&fx), Some(&format!("{fx}\r"))),
-                step("At the extended mode question type yes, and at the device name press Return.", None, Some("yes\r\r")),
-                drive,
-                step("At the fx prompt type /l/sy to label the disk.", Some("/l/sy"), Some("/l/sy\r")),
-                step("At \"writing label info\" type /exi to leave fx. This erases the disk.", Some("/exi"), Some("/exi\r")),
-            ],
-            installer,
-            packages: vec![
-                step("At Inst>, type this.", Some(&source), Some(&format!("{source}\r"))),
-                step(
-                    "When the numbered menu ends with \"Install software from:\", type done.",
-                    None,
-                    Some("done\r"),
-                ),
-                step(
-                    "Wait for this line.",
-                    Some("instigator: post-install commands finished"),
-                    None,
-                ),
-            ],
-            restart: vec![
-                step("Type quit. Relinking the kernel takes a few minutes.", None, Some("quit\r")),
-                step("At Restart? answer y.", None, Some("y\r")),
-            ],
-            finish: vec![
-                step(
-                    "At the login prompt, log in as root and type this. A new install has no password.",
-                    Some("halt -p"),
-                    None,
-                ),
-                step("Wait for the machine to power off.", None, None),
-            ],
+            prepare: page(0..6),
+            installer: page(6..17),
+            packages: page(17..20),
+            restart: page(20..22),
+            finish: page(22..23),
             package_note: "If a conflict or a failed command stops it, the line above never appears. Read the console and fix it at Inst>.".into(),
             server: host,
+            steps,
         })
     }
 

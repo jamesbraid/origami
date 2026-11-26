@@ -845,15 +845,24 @@ fn a_new_machine_previews_its_id_and_address_and_refuses_ones_taken() {
             && next.from_id
             && next.mac.starts_with("08:00:69:e1:")
     );
-    assert!(preview(&id.to_string(), None)
-        .problem
-        .unwrap()
-        .contains("already"));
+    let taken = preview(&id.to_string(), None);
     assert_eq!(
-        preview("x", None).problem.as_deref(),
-        Some("Choose a number from 1 to 2999.")
+        taken.problem,
+        Some(format!("first already uses ID {id}. Choose another."))
     );
-    assert!(preview("3500", None).problem.unwrap().contains("reserved"));
+    assert_eq!(taken.problem_field, Some(IdentityField::Id));
+    for bad in ["x", "0", "3000", "4095"] {
+        let p = preview(bad, None);
+        assert_eq!(
+            p.problem.as_deref(),
+            Some("Choose a number from 1 to 2999."),
+            "{bad}"
+        );
+        assert_eq!(p.problem_field, Some(IdentityField::Id));
+    }
+    let clash = preview("77", Some(&held.mac));
+    assert_eq!(clash.problem_field, Some(IdentityField::Address));
+    assert!(clash.problem.as_deref().unwrap().contains("collides"));
     assert!(preview("77", Some(&held.mac))
         .problem
         .unwrap()
@@ -1886,31 +1895,22 @@ fn the_install_disk_names_the_one_to_erase_with_its_bus_and_target() {
     f.core
         .install_prepare(&key, &setup("6.5.30", "standard", &[]))
         .unwrap();
-    let guide = f.core.install_guide(&key).unwrap();
+    let steps = f.core.install_guide(&key).unwrap().steps;
     assert_eq!(disk.bus, 0);
-    let want = format!("ctlr# type 0, then at drive# type {}", disk.target);
-    assert!(
-        guide.prepare.iter().any(|s| s.text.contains(&want)),
-        "{:?}",
-        guide.prepare
+    let choose = steps.iter().find(|s| s.title == "Choose the disk").unwrap();
+    let typed: Vec<_> = choose.typed.iter().map(|t| t.text.as_str()).collect();
+    assert_eq!(
+        typed,
+        ["yes", "Return", "0", disk.target.to_string().as_str()]
     );
     // The recorded run answers yes to extended mode, labels with /l/sy and leaves with /exi.
-    let sends: Vec<_> = guide
-        .prepare
-        .iter()
-        .filter_map(|s| s.send.as_deref())
-        .collect();
-    assert!(sends.contains(&"yes\r\r") && sends.contains(&"/l/sy\r") && sends.contains(&"/exi\r"));
-    assert!(!guide
-        .prepare
-        .iter()
-        .any(|s| s.text.contains("write out changes")));
+    let sends: Vec<_> = steps.iter().filter_map(|s| s.send.as_deref()).collect();
+    let choose_send = format!("yes\r\r0\r{}\r", disk.target);
+    for want in [choose_send.as_str(), "/l/sy\r", "/exi\r"] {
+        assert!(sends.contains(&want), "{want}: {sends:?}");
+    }
+    assert!(steps.iter().all(|s| !s.title.contains("write out changes")));
     // On a serial console every miniroot answer can be typed for the person.
-    let typed: Vec<_> = guide
-        .installer
-        .iter()
-        .filter_map(|s| s.send.as_deref())
-        .collect();
     for want in [
         "10.98.0.2\r",
         "/6.5.30/dist\r",
@@ -1920,7 +1920,7 @@ fn the_install_disk_names_the_one_to_erase_with_its_bus_and_target() {
         "10.98.0.65\r",
         "255.255.255.0\r",
     ] {
-        assert!(typed.contains(&want), "{want}: {typed:?}");
+        assert!(sends.contains(&want), "{want}: {sends:?}");
     }
 }
 
@@ -2053,4 +2053,292 @@ fn a_server_that_ends_after_a_halted_install_is_not_an_error() {
     assert!(!super::install::server_ended_normally(&halted, "m"));
     halted.lock().unwrap().insert("m".into());
     assert!(super::install::server_ended_normally(&halted, "m"));
+}
+
+#[test]
+fn a_disk_the_core_cannot_name_has_no_label_and_a_release_drops_its_stream_letter() {
+    let f = fixture();
+    let image = f.root.path().join("blank.img");
+    std::fs::write(&image, vec![0u8; 1 << 16]).unwrap();
+    assert_eq!(f.core.disk_os(&image).unwrap(), None);
+    let irix = f.root.path().join("irix.img");
+    std::fs::write(&irix, irix_disk()).unwrap();
+    assert_eq!(
+        f.core.disk_os(&irix).unwrap().as_deref(),
+        Some("IRIX 6.5.30")
+    );
+    assert_eq!(f.core.disk_size(&irix).unwrap(), irix_disk().len() as u64);
+    assert_eq!(
+        disks::label_of(&disk_detect::Detected::Irix {
+            version: "6.5.30m".into()
+        }),
+        "IRIX 6.5.30"
+    );
+}
+
+#[test]
+fn the_system_card_appears_once_the_disk_is_read() {
+    let f = fixture();
+    let image = f.root.path().join("irix.img");
+    std::fs::write(&image, irix_disk()).unwrap();
+    let (_, state) = f.create_with(
+        "irix",
+        SystemDisk::Image {
+            file: image,
+            copy: true,
+            overlay: false,
+        },
+    );
+    assert_eq!(state, OperationState::Succeeded);
+    // The first listing starts the read; a later one has its result.
+    let deadline = std::time::Instant::now() + WAIT;
+    let summary = loop {
+        let m = f.core.list_machines().unwrap().remove(0);
+        if m.system_disk.is_some() || std::time::Instant::now() > deadline {
+            break m;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let last = summary.cards.last().unwrap();
+    assert_eq!(
+        (last.title.as_str(), last.value.as_str()),
+        ("System", "IRIX 6.5.30")
+    );
+}
+
+static TRASHED: Mutex<Vec<std::path::PathBuf>> = Mutex::new(Vec::new());
+
+/// Stands in for the platform trash: records what it is given and removes it.
+fn record_trash(path: &Path) -> Result<(), String> {
+    TRASHED.lock().unwrap().push(path.to_path_buf());
+    std::fs::remove_dir_all(path).map_err(|e| e.to_string())
+}
+
+fn trashing_fixture() -> Fixture {
+    fixture_tuned(None, |config| config.trash = record_trash)
+}
+
+#[test]
+fn a_machine_moves_to_the_trash_unless_it_runs() {
+    let f = trashing_fixture();
+    let (machine, _session) = f.started("busy");
+    let error = f.core.remove_machine(machine.key()).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Busy);
+    assert!(Path::new(machine.key()).exists());
+
+    let outside = f.root.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    let disks: Vec<_> = ["a.img", "b.img"].map(|n| outside.join(n)).into();
+    for d in &disks {
+        std::fs::write(d, vec![0u8; 1 << 16]).unwrap();
+    }
+    let (key, state) = f.create_with(
+        "idle",
+        SystemDisk::Image {
+            file: disks[0].clone(),
+            copy: false,
+            overlay: false,
+        },
+    );
+    assert_eq!(state, OperationState::Succeeded);
+    f.core
+        .open_machine(&key)
+        .unwrap()
+        .apply_change(&Change::AttachDrive(crate::DriveRequest {
+            file: disks[1].clone(),
+            kind: crate::DriveKind::Disk,
+            target: 2,
+            overlay: false,
+        }))
+        .unwrap();
+    let removed = f.core.remove_machine(&key).unwrap();
+    assert_eq!(removed.name, "idle");
+    let left: Vec<_> = removed.disk_left.iter().map(Path::new).collect();
+    let want: Vec<_> = disks
+        .iter()
+        .map(|d| dunce::canonicalize(d).unwrap())
+        .collect();
+    assert_eq!(left, want.iter().map(|p| p.as_path()).collect::<Vec<_>>());
+    assert!(TRASHED
+        .lock()
+        .unwrap()
+        .contains(&Path::new(&key).to_path_buf()));
+    assert!(disks.iter().all(|d| d.exists()));
+    let names: Vec<_> = f
+        .core
+        .list_machines()
+        .unwrap()
+        .into_iter()
+        .map(|m| m.name)
+        .collect();
+    assert_eq!(names, ["busy"]);
+}
+
+#[test]
+fn only_a_machine_the_library_lists_is_removed() {
+    let f = trashing_fixture();
+    let (machine, _session) = f.started("kept");
+    let _ = machine;
+    let root = f.core.root();
+    let plain = root.join("not-a-machine");
+    std::fs::create_dir(&plain).unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let ancestor = root.parent().unwrap().to_string_lossy().into_owned();
+    for key in [
+        "",
+        ".",
+        &root.to_string_lossy(),
+        &ancestor,
+        &plain.to_string_lossy(),
+        &elsewhere.path().to_string_lossy(),
+    ] {
+        let error = f.core.remove_machine(key).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::NotFound, "{key:?}");
+    }
+    for kept in [&root, &plain, &root.join("kept"), elsewhere.path()] {
+        assert!(kept.exists(), "{kept:?}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_machine_folder_is_removed_by_its_link_and_named_for_it() {
+    let f = trashing_fixture();
+    let real = tempfile::tempdir().unwrap();
+    let key = f.create("real", "fake.1");
+    let moved = real.path().join("moved");
+    std::fs::rename(&key, &moved).unwrap();
+    let link = f.core.root().join("linked");
+    std::os::unix::fs::symlink(&moved, &link).unwrap();
+    let key = f.core.list_machines().unwrap().remove(0).key;
+    let removed = f.core.remove_machine(&key).unwrap();
+    assert_eq!(removed.name, "linked");
+    assert!(TRASHED.lock().unwrap().contains(&link));
+    assert!(
+        moved.exists(),
+        "the folder the link points at is not touched"
+    );
+}
+
+#[test]
+fn the_drives_list_titles_each_drive_and_says_what_is_in_it() {
+    let f = fixture();
+    let image = f.root.path().join("irix.img");
+    std::fs::write(&image, irix_disk()).unwrap();
+    let (key, _) = f.create_with(
+        "irix",
+        SystemDisk::Image {
+            file: image,
+            copy: true,
+            overlay: false,
+        },
+    );
+    let machine = f.core.open_machine(&key).unwrap();
+    let iso = f.root.path().join("disc.iso");
+    std::fs::write(&iso, [0u8; 512]).unwrap();
+    machine
+        .apply_change(&Change::AttachDrive(crate::DriveRequest {
+            file: iso,
+            kind: crate::DriveKind::Cdrom,
+            target: 4,
+            overlay: false,
+        }))
+        .unwrap();
+    let rows = machine.drive_rows().unwrap();
+    assert_eq!(
+        rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
+        ["System disk", "CD drive"]
+    );
+    assert!(
+        rows[0].caption.starts_with("irix.img, ") && rows[0].caption.ends_with(", IRIX 6.5.30"),
+        "{}",
+        rows[0].caption
+    );
+    assert!(
+        rows[1].caption.starts_with("disc.iso, "),
+        "{}",
+        rows[1].caption
+    );
+    assert_eq!(
+        machine.drive_os(&rows[0].name).unwrap().as_deref(),
+        Some("IRIX 6.5.30")
+    );
+}
+
+#[test]
+fn the_install_guide_lists_every_step_with_the_prompt_it_waits_for() {
+    let f = fixture();
+    let key = f.create("irix", "origin200.1");
+    f.core
+        .open_machine(&key)
+        .unwrap()
+        .apply_change(&Change::CreateDisk { size_mib: 64 })
+        .unwrap();
+    f.core
+        .install_prepare(&key, &setup("6.5.30", "standard", &[]))
+        .unwrap();
+    let steps = f.core.install_guide(&key).unwrap().steps;
+    let titles: Vec<_> = steps.iter().map(|s| s.title.as_str()).collect();
+    assert_eq!(
+        titles[..6],
+        [
+            "Get past \"Unable to boot\"",
+            "Open the command monitor",
+            "Start the disk tool",
+            "Choose the disk",
+            "Label the disk",
+            "Leave the disk tool",
+        ]
+    );
+    assert!(steps.iter().all(|s| !s.title.is_empty()));
+    // Every step but the last says what shows it is done.
+    assert!(steps[..steps.len() - 1].iter().all(|s| s.confirm.is_some()));
+    assert!(steps.last().unwrap().confirm.is_none());
+    let disk = &steps[3];
+    assert_eq!(disk.typed.last().unwrap().text, "1");
+    let fx = &steps[2];
+    assert_eq!(fx.typed[0].text, "boot -f bootp():/6.5.30/stand/fx.64");
+}
+
+/// Uses the host's real trash, so it only runs when asked.
+#[test]
+#[ignore]
+fn the_platform_trash_takes_a_machine_folder() {
+    let f = fixture();
+    let key = f.create("junk", "fake.1");
+    f.core.remove_machine(&key).unwrap();
+    assert!(!Path::new(&key).exists());
+}
+
+#[test]
+fn a_clean_shutdown_lists_as_stopped_and_a_crash_as_exited() {
+    let f = fixture();
+    let (_, clean) = f.started("clean");
+    let (_, crashed) = f.started("crashed");
+    clean.shut_down();
+    crashed.crash(3, "bus error");
+    let state = |name: &str| {
+        let list = f.core.list_machines().unwrap();
+        list.into_iter().find(|m| m.name == name).unwrap().state
+    };
+    assert_eq!(state("clean"), MachineState::NotRunning);
+    assert_eq!(state("crashed"), MachineState::Exited);
+}
+
+#[test]
+fn the_error_of_a_failed_start_stays_in_the_view_until_the_next_start() {
+    let f = fixture();
+    let key = f.create("fuel", "fake.1");
+    let machine = f.core.open_machine(&key).unwrap();
+    f.engine.set_validate_hook(Arc::new(|call| {
+        (call == 1).then(|| "missing drive image disk.img".to_string())
+    }));
+    assert!(matches!(
+        machine.start().unwrap().wait(Some(WAIT)),
+        OperationState::Failed(_)
+    ));
+    let error = machine.view().start_error.unwrap();
+    assert!(error.message.contains("drive image"), "{error}");
+    assert!(machine.start().unwrap().wait(Some(WAIT)) == OperationState::Succeeded);
+    assert_eq!(machine.view().start_error, None);
 }

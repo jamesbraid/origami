@@ -66,6 +66,71 @@ pub struct MachineSettings {
     pub console_ports: Vec<ConsolePortSetting>,
 }
 
+/// One row of the Drives list: its title and what is in it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DriveRow {
+    /// The drive's name in the machine file, for `DetachDrive`.
+    pub name: String,
+    /// `System disk`, `Disk 2`, `CD drive` or `Tape drive`.
+    pub title: String,
+    /// The file, its size, the OS on it when known, and `changes kept apart`.
+    pub caption: String,
+}
+
+/// The rows for `file`'s drives. Blocking: it opens each image for its size
+/// and, when `read`, for the OS on it, which a running machine's disks must not get.
+pub(crate) fn drive_rows(
+    dir: &std::path::Path,
+    file: &origami_machine::MachineFile,
+    read: bool,
+) -> Vec<DriveRow> {
+    let system = super::core::system_drive(file).map(|d| d.name.clone());
+    let mut disks = 1;
+    file.drive
+        .iter()
+        .map(|d| {
+            let title = match d.kind.as_str() {
+                "cdrom" => "CD drive".to_string(),
+                "tape" => "Tape drive".to_string(),
+                _ if Some(&d.name) == system.as_ref() => "System disk".to_string(),
+                _ => {
+                    disks += 1;
+                    format!("Disk {disks}")
+                }
+            };
+            let image = origami_machine::resolve(dir, &d.image);
+            let mut parts = vec![image
+                .file_name()
+                .map_or_else(|| d.image.clone(), |n| n.to_string_lossy().into_owned())];
+            if let Ok(bytes) = std::fs::metadata(&image).map(|m| m.len()) {
+                parts.push(super::size_label(super::disks::guest_size(&image, bytes)));
+            }
+            if d.kind == "disk" {
+                let os = super::disks::cached_label(&image)
+                    .or_else(|| read.then(|| super::disks::label(&image).ok()).flatten());
+                parts.extend(os.and_then(super::disks::recognised));
+            }
+            if d.overlay {
+                parts.push("changes kept apart".into());
+            }
+            DriveRow {
+                name: d.name.clone(),
+                title,
+                caption: parts.join(", "),
+            }
+        })
+        .collect()
+}
+
+/// What the startup line says: `Screen` or `Console`, after
+/// [`UiString::StartupMessagesOn`](super::UiString::StartupMessagesOn).
+pub fn startup_value(console: super::BootConsole) -> &'static str {
+    match console {
+        super::BootConsole::Screen => "Screen",
+        super::BootConsole::Serial => "Console",
+    }
+}
+
 fn port_label(name: &str) -> String {
     match name {
         "l1" => "L1 system controller",

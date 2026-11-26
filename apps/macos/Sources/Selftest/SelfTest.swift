@@ -225,7 +225,7 @@ func runSelfTest(library: String, out: String) {
             // While the machine runs an edit is refused before it reaches the core.
             let wasLocked = sm.locked
             check("settings-locked-follows-the-machine", !wasLocked && victim.state == .stopped, ["locked_at_rest": wasLocked])
-            let said = SettingsModel.say(CoreError.Busy(message: "x", detail: nil))
+            let said = SettingsModel.say(CoreError.Busy(message: "x", detail: nil, fix: .none))
             check("settings-busy-is-told-as-what-to-do", said.contains("Power off"), ["said": said])
         }
     }

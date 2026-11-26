@@ -11,17 +11,17 @@ use std::time::Duration;
 macro_rules! errors {
     ($($variant:ident => $kind:ident),* $(,)?) => {
         /// What went wrong. The variant is the kind a program branches on;
-        /// `message` is a sentence safe to show, `detail` names the field or
-        /// path where there is one.
+        /// `message` is a plain sentence to show, `detail` the technical part
+        /// for Show details, and `fix` what the person can do about it.
         #[derive(Debug, thiserror::Error, uniffi::Error)]
         pub enum CoreError {
-            $(#[error("{message}")] $variant { message: String, detail: Option<String> }),*
+            $(#[error("{message}")] $variant { message: String, detail: Option<String>, fix: OrigamiErrorFix }),*
         }
 
         impl From<f::CoreError> for CoreError {
             fn from(e: f::CoreError) -> Self {
                 match e.kind {
-                    $(f::ErrorKind::$kind => CoreError::$variant { message: e.message, detail: e.detail }),*
+                    $(f::ErrorKind::$kind => CoreError::$variant { message: e.message, detail: e.detail, fix: e.fix.into() }),*
                 }
             }
         }
@@ -35,7 +35,62 @@ macro_rules! errors {
                 match k { $(f::ErrorKind::$kind => OrigamiErrorKind::$variant),* }
             }
         }
+
+        impl From<CoreError> for OrigamiErrorInfo {
+            fn from(e: CoreError) -> Self {
+                match e {
+                    $(CoreError::$variant { message, detail, fix } => OrigamiErrorInfo {
+                        kind: OrigamiErrorKind::$variant,
+                        message,
+                        detail,
+                        fix,
+                    }),*
+                }
+            }
+        }
+
+        impl From<OrigamiErrorKind> for f::ErrorKind {
+            fn from(k: OrigamiErrorKind) -> Self {
+                match k { $(OrigamiErrorKind::$variant => f::ErrorKind::$kind),* }
+            }
+        }
     };
+}
+
+mirror!(
+    OrigamiErrorFix,
+    f::ErrorFix,
+    None,
+    OpenSettings,
+    ChooseFirmware,
+    ChooseDisk
+);
+
+/// An error as one value: what a failed operation or a card needs.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct OrigamiErrorInfo {
+    pub kind: OrigamiErrorKind,
+    pub message: String,
+    pub detail: Option<String>,
+    pub fix: OrigamiErrorFix,
+}
+
+impl From<f::CoreError> for OrigamiErrorInfo {
+    fn from(e: f::CoreError) -> Self {
+        Self {
+            kind: e.kind.into(),
+            message: e.message,
+            detail: e.detail,
+            fix: e.fix.into(),
+        }
+    }
+}
+
+/// Any error as `kind`, `message`, `detail` and `fix` fields, so an app does
+/// not switch over every error variant.
+#[uniffi::export]
+pub fn origami_error_info(error: CoreError) -> OrigamiErrorInfo {
+    error.into()
 }
 
 errors! {
@@ -224,7 +279,7 @@ pub struct OrigamiReportLine {
     pub copy: Option<String>,
 }
 
-fn report_lines(report: origami_core::Report) -> Vec<OrigamiReportLine> {
+pub(crate) fn report_lines(report: origami_core::Report) -> Vec<OrigamiReportLine> {
     report
         .lines
         .into_iter()
@@ -277,7 +332,11 @@ pub struct OrigamiIdentityPreview {
     /// Whether the address is made from the ID, so a typed one is optional.
     pub from_id: bool,
     pub problem: Option<String>,
+    /// Which field the problem belongs to.
+    pub problem_field: Option<OrigamiIdentityField>,
 }
+
+mirror!(OrigamiIdentityField, f::IdentityField, Id, Address);
 
 /// The system disk a new machine starts with.
 #[derive(Clone, Debug, uniffi::Enum)]
@@ -831,6 +890,8 @@ pub struct OrigamiMachineView {
     /// What it said or how it ended, such as `signal 9` or its last error.
     pub exit_detail: Option<String>,
     pub last_error: Option<String>,
+    /// Why the last start failed, until the next start.
+    pub start_error: Option<OrigamiErrorInfo>,
     pub reason: String,
     /// The reason, when it says more than the state pill does.
     pub note: Option<String>,
@@ -853,6 +914,7 @@ impl From<f::MachineView> for OrigamiMachineView {
             exit_reason: v.exit_reason.map(Into::into),
             exit_detail: v.exit_detail,
             last_error: v.last_error,
+            start_error: v.start_error.map(Into::into),
             note,
             reason: v.reason,
             heads: v
@@ -983,6 +1045,8 @@ pub struct OrigamiShortcut {
 pub struct OrigamiCommand {
     pub id: String,
     pub title: String,
+    /// What it does, in a few words; `origami_command_tooltip` adds the shortcut.
+    pub help: String,
     pub enabled_when: OrigamiEnabledWhen,
     pub shortcuts: Vec<OrigamiShortcut>,
 }
@@ -1023,9 +1087,10 @@ pub fn origami_command_enabled(
     f::EnabledWhen::from(when).holds(state.map(Into::into))
 }
 
-/// Words the apps show in the same places, by name; the core owns the text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
-pub enum OrigamiUiString {
+// Words the apps show in the same places, by name; the core owns the text.
+mirror!(
+    OrigamiUiString,
+    f::UiString,
     Origami,
     AboutOrigami,
     Acknowledgements,
@@ -1042,7 +1107,9 @@ pub enum OrigamiUiString {
     Cancel,
     CancelInstall,
     CancelQuit,
+    CaptureMouse,
     CaptureOnClick,
+    ChangeCd,
     CheckAgain,
     CheckNow,
     CheckThoroughlyAlsoReadsThe,
@@ -1055,9 +1122,14 @@ pub enum OrigamiUiString {
     CopyReport,
     Cpu,
     Create,
+    Custom,
     Detach,
     Diagnostics,
+    Disk,
+    DiskSize,
     DiskSizeGb,
+    Done,
+    DownloadThem,
     DownloadedDisks,
     Drives,
     EraseThisDiskAndInstall,
@@ -1065,6 +1137,7 @@ pub enum OrigamiUiString {
     Folder,
     FollowMyMouse,
     ForceQuitInstead,
+    FromTheMachineId,
     General,
     Graphics,
     GuestPort,
@@ -1077,15 +1150,21 @@ pub enum OrigamiUiString {
     InstallIrix,
     InstallIrixAfterCreating,
     KeepRunning,
+    KeyboardShortcuts,
     Licences,
+    Machine,
+    MachineId,
     MachineIdRange,
     MemoryPerNode,
     Mode,
     Model,
+    More,
     Name,
     NameInIrix,
+    NeedsAnInternetConnection,
     NeedsUpgrade,
     NewMachine,
+    NewMachineFromThisDisk,
     NoDownloadedDisks,
     Nodes,
     OpenConsole,
@@ -1096,146 +1175,47 @@ pub enum OrigamiUiString {
     Pointer,
     PortForwards,
     PowerOff,
+    PowerOffToChangeHardwareSettings,
     Preferences,
     Processor,
     ProcessorsPerNode,
     QuitAndLeaveRunning,
     Reading,
+    Recommended,
     Remove,
     Restart,
     RunTheseAsRootIn,
+    Screen,
     SearchComponentsAndLicences,
+    Seen,
     SetTheAddressInNetwork,
     Settings,
     ShareAFolder,
+    ShowDetails,
     ShowMachine,
     ShowOrHideTheEmulated,
+    ShowOrHideTheLibrary,
     SourceAFileOrAn,
     Start,
     StartAgain,
     StartOver,
     StartingUpTheSystem,
     StartupFirmware,
+    StartupMessagesOn,
     Storage,
     Thanks,
     TheConsoleWindowAndA,
     TheMachineStopped,
     ThisMachineIsRunningHardware,
+    TypeIt,
+    TypeLabel,
     Upgrade,
+    UseDiscsIAlreadyHave,
     UseThisAddressInstead,
-    WhereShouldTheDiskLive,
-}
-
-impl From<OrigamiUiString> for f::UiString {
-    fn from(id: OrigamiUiString) -> Self {
-        match id {
-            OrigamiUiString::Origami => f::UiString::Origami,
-            OrigamiUiString::AboutOrigami => f::UiString::AboutOrigami,
-            OrigamiUiString::Acknowledgements => f::UiString::Acknowledgements,
-            OrigamiUiString::Add => f::UiString::Add,
-            OrigamiUiString::AddAPackage => f::UiString::AddAPackage,
-            OrigamiUiString::AddAPackage2 => f::UiString::AddAPackage2,
-            OrigamiUiString::Address => f::UiString::Address,
-            OrigamiUiString::AddressForSharedFolders => f::UiString::AddressForSharedFolders,
-            OrigamiUiString::Advanced => f::UiString::Advanced,
-            OrigamiUiString::Artwork => f::UiString::Artwork,
-            OrigamiUiString::Back => f::UiString::Back,
-            OrigamiUiString::Bridged => f::UiString::Bridged,
-            OrigamiUiString::BuiltOn => f::UiString::BuiltOn,
-            OrigamiUiString::Cancel => f::UiString::Cancel,
-            OrigamiUiString::CancelInstall => f::UiString::CancelInstall,
-            OrigamiUiString::CancelQuit => f::UiString::CancelQuit,
-            OrigamiUiString::CaptureOnClick => f::UiString::CaptureOnClick,
-            OrigamiUiString::CheckAgain => f::UiString::CheckAgain,
-            OrigamiUiString::CheckNow => f::UiString::CheckNow,
-            OrigamiUiString::CheckThoroughlyAlsoReadsThe => {
-                f::UiString::CheckThoroughlyAlsoReadsThe
-            }
-            OrigamiUiString::ChooseAnImage => f::UiString::ChooseAnImage,
-            OrigamiUiString::ChooseFile => f::UiString::ChooseFile,
-            OrigamiUiString::ChooseFolder => f::UiString::ChooseFolder,
-            OrigamiUiString::Console => f::UiString::Console,
-            OrigamiUiString::ConsoleSerialLine => f::UiString::ConsoleSerialLine,
-            OrigamiUiString::Copy => f::UiString::Copy,
-            OrigamiUiString::CopyReport => f::UiString::CopyReport,
-            OrigamiUiString::Cpu => f::UiString::Cpu,
-            OrigamiUiString::Create => f::UiString::Create,
-            OrigamiUiString::Detach => f::UiString::Detach,
-            OrigamiUiString::Diagnostics => f::UiString::Diagnostics,
-            OrigamiUiString::DiskSizeGb => f::UiString::DiskSizeGb,
-            OrigamiUiString::DownloadedDisks => f::UiString::DownloadedDisks,
-            OrigamiUiString::Drives => f::UiString::Drives,
-            OrigamiUiString::EraseThisDiskAndInstall => f::UiString::EraseThisDiskAndInstall,
-            OrigamiUiString::EthernetAddress => f::UiString::EthernetAddress,
-            OrigamiUiString::Folder => f::UiString::Folder,
-            OrigamiUiString::FollowMyMouse => f::UiString::FollowMyMouse,
-            OrigamiUiString::ForceQuitInstead => f::UiString::ForceQuitInstead,
-            OrigamiUiString::General => f::UiString::General,
-            OrigamiUiString::Graphics => f::UiString::Graphics,
-            OrigamiUiString::GuestPort => f::UiString::GuestPort,
-            OrigamiUiString::HostPort => f::UiString::HostPort,
-            OrigamiUiString::HowShouldChangesBeKept => f::UiString::HowShouldChangesBeKept,
-            OrigamiUiString::HowToSetThisUp => f::UiString::HowToSetThisUp,
-            OrigamiUiString::IFixedItAtInst => f::UiString::IFixedItAtInst,
-            OrigamiUiString::Input => f::UiString::Input,
-            OrigamiUiString::Install => f::UiString::Install,
-            OrigamiUiString::InstallIrix => f::UiString::InstallIrix,
-            OrigamiUiString::InstallIrixAfterCreating => f::UiString::InstallIrixAfterCreating,
-            OrigamiUiString::KeepRunning => f::UiString::KeepRunning,
-            OrigamiUiString::Licences => f::UiString::Licences,
-            OrigamiUiString::MachineIdRange => f::UiString::MachineIdRange,
-            OrigamiUiString::MemoryPerNode => f::UiString::MemoryPerNode,
-            OrigamiUiString::Mode => f::UiString::Mode,
-            OrigamiUiString::Model => f::UiString::Model,
-            OrigamiUiString::Name => f::UiString::Name,
-            OrigamiUiString::NameInIrix => f::UiString::NameInIrix,
-            OrigamiUiString::NeedsUpgrade => f::UiString::NeedsUpgrade,
-            OrigamiUiString::NewMachine => f::UiString::NewMachine,
-            OrigamiUiString::NoDownloadedDisks => f::UiString::NoDownloadedDisks,
-            OrigamiUiString::Nodes => f::UiString::Nodes,
-            OrigamiUiString::OpenConsole => f::UiString::OpenConsole,
-            OrigamiUiString::OpenInNewTab => f::UiString::OpenInNewTab,
-            OrigamiUiString::OpenTheMainMenu => f::UiString::OpenTheMainMenu,
-            OrigamiUiString::Pause => f::UiString::Pause,
-            OrigamiUiString::Photographs => f::UiString::Photographs,
-            OrigamiUiString::Pointer => f::UiString::Pointer,
-            OrigamiUiString::PortForwards => f::UiString::PortForwards,
-            OrigamiUiString::PowerOff => f::UiString::PowerOff,
-            OrigamiUiString::Preferences => f::UiString::Preferences,
-            OrigamiUiString::Processor => f::UiString::Processor,
-            OrigamiUiString::ProcessorsPerNode => f::UiString::ProcessorsPerNode,
-            OrigamiUiString::QuitAndLeaveRunning => f::UiString::QuitAndLeaveRunning,
-            OrigamiUiString::Reading => f::UiString::Reading,
-            OrigamiUiString::Remove => f::UiString::Remove,
-            OrigamiUiString::Restart => f::UiString::Restart,
-            OrigamiUiString::RunTheseAsRootIn => f::UiString::RunTheseAsRootIn,
-            OrigamiUiString::SearchComponentsAndLicences => {
-                f::UiString::SearchComponentsAndLicences
-            }
-            OrigamiUiString::SetTheAddressInNetwork => f::UiString::SetTheAddressInNetwork,
-            OrigamiUiString::Settings => f::UiString::Settings,
-            OrigamiUiString::ShareAFolder => f::UiString::ShareAFolder,
-            OrigamiUiString::ShowMachine => f::UiString::ShowMachine,
-            OrigamiUiString::ShowOrHideTheEmulated => f::UiString::ShowOrHideTheEmulated,
-            OrigamiUiString::SourceAFileOrAn => f::UiString::SourceAFileOrAn,
-            OrigamiUiString::Start => f::UiString::Start,
-            OrigamiUiString::StartAgain => f::UiString::StartAgain,
-            OrigamiUiString::StartOver => f::UiString::StartOver,
-            OrigamiUiString::StartingUpTheSystem => f::UiString::StartingUpTheSystem,
-            OrigamiUiString::StartupFirmware => f::UiString::StartupFirmware,
-            OrigamiUiString::Storage => f::UiString::Storage,
-            OrigamiUiString::Thanks => f::UiString::Thanks,
-            OrigamiUiString::TheConsoleWindowAndA => f::UiString::TheConsoleWindowAndA,
-            OrigamiUiString::TheMachineStopped => f::UiString::TheMachineStopped,
-            OrigamiUiString::ThisMachineIsRunningHardware => {
-                f::UiString::ThisMachineIsRunningHardware
-            }
-            OrigamiUiString::Upgrade => f::UiString::Upgrade,
-            OrigamiUiString::UseThisAddressInstead => f::UiString::UseThisAddressInstead,
-            OrigamiUiString::WhereShouldTheDiskLive => f::UiString::WhereShouldTheDiskLive,
-        }
-    }
-}
+    WatchFor,
+    WhereShouldTheDiscsComeFrom,
+    WhereShouldTheDiskLive
+);
 
 #[uniffi::export]
 pub fn origami_ui_string(id: OrigamiUiString) -> String {
@@ -1357,6 +1337,26 @@ pub struct OrigamiGuideStep {
     pub text: String,
     pub command: Option<String>,
     pub send: Option<String>,
+    pub title: String,
+    /// The console text to wait for before typing.
+    pub watch: Option<String>,
+    pub typed: Vec<OrigamiTyped>,
+    pub note: Option<OrigamiStepNote>,
+    /// Console text that shows the step is done.
+    pub confirm: Option<String>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiTyped {
+    pub prompt: Option<String>,
+    /// What to type; `Return` for the key alone.
+    pub text: String,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct OrigamiStepNote {
+    pub text: String,
+    pub warning: bool,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -1368,6 +1368,8 @@ pub struct OrigamiInstallGuide {
     pub restart: Vec<OrigamiGuideStep>,
     pub finish: Vec<OrigamiGuideStep>,
     pub package_note: String,
+    /// Every step from the PROM menu to the halt, in order.
+    pub steps: Vec<OrigamiGuideStep>,
 }
 
 impl From<f::GuideStep> for OrigamiGuideStep {
@@ -1376,6 +1378,21 @@ impl From<f::GuideStep> for OrigamiGuideStep {
             text: s.text,
             command: s.command,
             send: s.send,
+            title: s.title,
+            watch: s.watch,
+            typed: s
+                .typed
+                .into_iter()
+                .map(|t| OrigamiTyped {
+                    prompt: t.prompt,
+                    text: t.text,
+                })
+                .collect(),
+            note: s.note.map(|n| OrigamiStepNote {
+                text: n.text,
+                warning: n.warning,
+            }),
+            confirm: s.confirm,
         }
     }
 }
@@ -1428,7 +1445,7 @@ pub fn origami_install_media_folder(
 /// The core. Make one per process.
 #[derive(uniffi::Object)]
 pub struct OrigamiCore {
-    core: f::Core,
+    pub(crate) core: f::Core,
     #[cfg(feature = "fake")]
     fake: Arc<origami_engine::fake::FakeEngine>,
 }
@@ -1664,6 +1681,7 @@ impl OrigamiCore {
             mac: p.mac,
             from_id: p.from_id,
             problem: p.problem,
+            problem_field: p.problem_field.map(Into::into),
         })
     }
 
@@ -1761,6 +1779,7 @@ impl OrigamiCore {
             restart: steps(g.restart),
             finish: steps(g.finish),
             package_note: g.package_note,
+            steps: steps(g.steps),
         })
     }
 
@@ -1801,6 +1820,7 @@ impl OrigamiCore {
             .map(|c| OrigamiCommand {
                 id: c.id,
                 title: c.title,
+                help: c.help,
                 enabled_when: c.enabled_when.into(),
                 shortcuts: c
                     .shortcuts
@@ -2144,7 +2164,7 @@ impl OrigamiMachine {
 }
 
 #[derive(uniffi::Object)]
-pub struct OrigamiOperation(f::Operation);
+pub struct OrigamiOperation(pub(crate) f::Operation);
 
 #[uniffi::export]
 impl OrigamiOperation {
