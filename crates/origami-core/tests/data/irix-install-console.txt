@@ -1,0 +1,1182 @@
+
+
+IP27 PROM SGI Version 6.156  built 11:27:56 AM Nov 18, 2003
+using BaseIO nic
+Testing/Initializing memory ...............		DONE
+Copying PROM code to memory ...............		DONE
+Discovering local IO ......................		DONE
+update_klcfg_cpuinfo: Couldn't find my structure.
+Discovering NUMAlink connectivity .........		
+Local hub NUMAlink is down.
+*** Local network link down
+DONE
+Found 1 objects (1 hubs, 0 routers) in 1180 usec
+Waiting for peers to complete discovery....		DONE
+No other nodes present; becoming global master
+Global master is /hw/module/0/slot/MotherBoard
+Testing/Initializing all memory ...........		DONE
+Checking partitioning information .........		DONE
+No other nodes present; becoming partition master
+Loading BASEIO prom .......................		DONE
+
+BASEIO PROM Monitor SGI Version 6.156  built 11:05:48 AM Nov 18, 2003 (BE64)
+1 CPUs on 1 nodes found.
+
+NVRAM checksum is incorrect: reinitializing.
+Installing PROM Device drivers ............             
+Base I/O Ethernet set to /dev/ethernet/ef0
+
+Walking SCSI Adapter 0 (/hw/module/1/slot/MotherBoard), (pci id 0)
+1+ 2- 3- 4- 5- 6- 7- 8- 9- 10- 11- 12- 13- 14- 15- = 1 device(s)
+
+
+Walking SCSI Adapter 1 (/hw/module/1/slot/MotherBoard), (pci id 1)
+1- 2- 3- 4- 5- 6- 7- 8- 9- 10- 11- 12- 13- 14- 15- = 0 device(s)
+
+Initializing PROM Device drivers ..........             DONE
+Checking hardware inventory ...............              
+WARNING: hardware inventory is invalid.  Reinitializing...
+Writing 2 records.. DONE
+Updated new configuration. Wrote 2 records.
+
+**** System Configuration and Diagnostics Summary ****
+CONFIG:
+         No. of NODEs enabled    = 1
+         No. of NODEs disabled   = 0
+         No. of CPUs enabled     = 1
+         No. of CPUs disabled    = 0
+         Mem enabled             = 256 MB
+         Mem disabled            = 0 MB
+         No. of RTRs enabled     = 0
+         No. of RTRs disabled    = 0
+
+DIAG RESULTS:
+         ALL DIAGS PASSED.
+**** End System Configuration and Diagnostics Summary ****
+
+
+System Maintenance Menu
+
+1) Start System
+2) Install System Software
+3) Run Diagnostics
+4) Recover System
+5) Enter Command Monitor
+
+Option? 
+
+
+System Maintenance Menu
+
+1) Start System
+2) Install System Software
+3) Run Diagnostics
+4) Recover System
+5) Enter Command Monitor
+
+Option? 5
+Command Monitor.  Type "exit" to return to the menu.
+>> boot -f bootp():/6.5.30/stand/fx.64
+Warning: 'netaddr' is set to the default address 192.0.2.1.
+Use 'setenv' to reset it to an Internet address on your network.
+Setting $netaddr to 10.98.0.65 (from server )
+Obtaining /6.5.30/stand/fx.64 from server 
+      2112   |/-\|/-\|/-\|/-\|/-\|/-\|/-\|/-\|+112288Setting $netaddr to 10.98.0.65 (from server )
+   |/-\|/-+27757   |+10880      |/-\|/-\|/-\|/-Setting $netaddr to 10.98.0.65 (from server )
+   |/-\|/-\|/      |/-\|/-\|/-\|/      |/-\|/- entry: 0xa80000000103f0f0
+Currently in safe read-only mode.
+Do you require extended mode with all options available? (no) yes
+SGI Version 6.5 ARCS BE64  Jul 20, 2006
+fx: "device-name" = (dksc) 
+fx: ctlr# = (0) 0
+fx: drive# = (1) 1
+...opening dksc(0,1,0)
+dks0d1s10: volume header not valid
+...drive selftest...OK
+fx: Warning:  invalid label from disk driver, ignored
+Scsi drive type == QEMU    QEMU HARDDISK   2.5+
+...creating default bootinfo
+...created default partitions, use /repartition menu to change
+...creating default volume directory
+
+----- please choose one (? for help, .. to quit this menu)-----
+[exi]t             [d]ebug/           [l]abel/           [a]uto
+[b]adblock/        [exe]rcise/        [r]epartition/
+fx> /l/sy
+
+writing label info to dksc(0,1,0)
+
+----- please choose one (? for help, .. to quit this menu)-----
+[exi]t             [d]ebug/           [l]abel/           [a]uto
+[b]adblock/        [exe]rcise/        [r]epartition/
+fx> /exi
+
+Installing PROM Device drivers ............             
+Base I/O Ethernet set to /dev/ethernet/ef0
+
+Walking SCSI Adapter 0 (/hw/module/1/slot/MotherBoard), (pci id 0)
+1+ 2- 3- 4- 5- 6- 7- 8- 9- 10- 11- 12- 13- 14- 15- = 1 device(s)
+
+
+Walking SCSI Adapter 1 (/hw/module/1/slot/MotherBoard), (pci id 1)
+1- 2- 3- 4- 5- 6- 7- 8- 9- 10- 11- 12- 13- 14- 15- = 0 device(s)
+
+Initializing PROM Device drivers ..........             DONE
+Checking hardware inventory ...............              DONE
+
+
+System Maintenance Menu
+
+1) Start System
+2) Install System Software
+3) Run Diagnostics
+4) Recover System
+5) Enter Command Monitor
+
+Option? 2
+
+
+                         Installing System Software...
+
+                       Press <Esc> to return to the menu.
+
+
+
+1) Remote Directory  X) Local CD-ROM  
+
+Enter 1-2 to select source type, <esc> to quit,
+or <enter> to start: 1
+
+
+Enter the name of the remote host: 10.98.0.2
+Enter the remote directory: /6.5.30/dist
+
+
+1)[Remote Directory]  X) Local CD-ROM  
+      *a) Remote directory /6.5.30/dist from server 10.98.0.2.
+
+Enter 1-2 to select source type, a to select the source, <esc> to quit,
+or <enter> to start: 
+
+
+Setting $netaddr to 10.98.0.65 (from server )
+Setting $netaddr to 10.98.0.65 (from server )
+Setting $netaddr to 10.98.0.65 (from server )
+Copying installation program to disk.
+Setting $netaddr to 10.98.0.65 (from server )
+......... 10% ......... 20% ......... 30% ......... 40% ......... 50% 
+......... 60% ......... 70% ......... 80% ......... 90% ......... 100% 
+
+Copy complete
+Setting $netaddr to 10.98.0.65 (from server )
+Setting $netaddr to 10.98.0.65 (from server )
+IRIX Release 6.5 IP27 Version 07202013 System V - 64 Bit
+Copyright 1987-2006 Silicon Graphics, Inc.
+All Rights Reserved.
+
+Setting rbaud to 19200
+root on /hw/module/1/slot/MotherBoard/node/xtalk/8/pci/0/scsi_ctlr/0/target/1/lun/0/disk/partition/1/block ; dumpdev on /dev/swap ; boot swap file on /dev/swap swplo 81000
+WARNING: Cannot load runtime symbol table from bootp'ed kernel.
+         Loadable modules will not be registered or loaded.
+NOTICE: Starting failsoftd
+Creating miniroot devices, please wait...
+
+Current system date is Sun Nov 22 07:14:53 PST 2026
+
+Mounting file systems:
+
+/dev/dsk/realroot: Invalid argument
+No valid file system found on: /dev/dsk/realroot
+This is your system disk: without it we have nothing
+on which to install software.
+
+
+Make new file system on /dev/dsk/realroot [yes/no/sh/help]: yes
+
+About to remake (mkfs) file system on: /dev/dsk/realroot
+This will destroy all data on disk partition: /dev/dsk/realroot.
+
+        Are you sure? [y/n] (n): y
+
+        Block size of filesystem 512 or 4096 bytes? 4096
+
+Doing: mkfs -b size=4096 /dev/dsk/realroot
+warning: uuid_create error = 382312587
+meta-data=/dev/rdsk/realroot     isize=256    agcount=8, agsize=257984 blks
+         =                       sectsz=512   attr=0, parent=0
+data     =                       bsize=4096   blocks=2063872, imaxpct=25
+         =                       sunit=0      swidth=0 blks, unwritten=1
+         =                       mmr=0
+naming   =version 2              bsize=4096   mixed-case=Y
+log      =internal log           bsize=4096   blocks=1200, version=1
+         =                       sectsz=512    sunit=0 blks, lazy-count=0
+realtime =none                   extsz=65536  blocks=0, rtextents=0
+
+Trying again to mount /dev/dsk/realroot on /root.
+
+NOTICE: XVM mirrors enabled
+NOTICE: XVM snapshot enabled
+xvminit complete
+    /dev/miniroot            on  /
+    /dev/dsk/realroot        on  /root
+
+
+Invoking software installation.
+
+What is the hostname (system name) of your machine? origin200
+What is the network address of origin200? 10.98.0.65
+What is the netmask for 10.98.0.65?
+Press Enter for the IP class default [0xff000000]: 255.255.255.0
+Starting network with hostname: origin200, at ip address: 10.98.0.65
+
+Default distribution to install from: 10.98.0.2:/6.5.30/dist
+
+For help on inst commands, type "help overview".
+
+
+Inst 4.1 Main Menu
+
+ 1. from [source ...]            Specify location of software to be installed
+ 2. open [source ...]            Specify additional software locations
+ 3. close [source ...]           Close a software distribution location
+ 4. list [keywords] [names]      Display information about software subsystems
+ 5. go                           Perform software installation and removal now
+ 6. install [keywords] [names]   Select subsystems to be installed
+ 7. remove [keywords] [names]    Select subsystems to be removed
+ 8. keep [keywords] [names]      Do not install or remove these subsystems
+ 9. step [keywords] [names]      Interactive mode for install/remove/keep
+10. conflicts [choice ...]       List or resolve installation conflicts
+11. help [topic]                 Get help in general or on a specific word
+12. view ...                     Go to the View Commands Menu
+13. admin ...                    Go to the Administrative Commands Menu
+14. quit                         Terminate software installation
+
+Inst> 
+
+Inst 4.1 Main Menu
+
+ 1. from [source ...]            Specify location of software to be installed
+ 2. open [source ...]            Specify additional software locations
+ 3. close [source ...]           Close a software distribution location
+ 4. list [keywords] [names]      Display information about software subsystems
+ 5. go                           Perform software installation and removal now
+ 6. install [keywords] [names]   Select subsystems to be installed
+ 7. remove [keywords] [names]    Select subsystems to be removed
+ 8. keep [keywords] [names]      Do not install or remove these subsystems
+ 9. step [keywords] [names]      Interactive mode for install/remove/keep
+10. conflicts [choice ...]       List or resolve installation conflicts
+11. help [topic]                 Get help in general or on a specific word
+12. view ...                     Go to the View Commands Menu
+13. admin ...                    Go to the Administrative Commands Menu
+14. quit                         Terminate software installation
+
+Inst> admin source 10.98.0.2:/irix.cmds
+Reading product descriptions ..   0%  13%  14%  16%  18%  19%  21%  23%  24%  26%  28%  29%  31%  33%  34%  36%  38%  39%  41%  42%  43%  44%  45%  51%  52%  53%  55%  57%  58%  59%  63%  64%  65%  66%  67%  68%  69%  70%  71%  72%  73%  74%  75%  76%  77%  78%  81%  84%  87%  88% 100% Done.
+Reading product descriptions ..   0%   2%   4%   6%   8%  11%  13%  15%  17%  19%  22%  24%  26%  28%  31%  33%  35%  37%  38%  39%  40%  42%  43%  44%  45%  48%  49%  50%  52%  54%  55%  56%  58%  63%  64%  66%  74%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98%  99% 100% Done.
+SGI
+IRIX 6.5 Applications, August 2006 
+README
+
+The IRIX 6.5 Applications CD, August 2006, is a companion to IRIX 6.5.30.
+This CD contains the IRIX Desktop and various desktop applications.  It 
+replaces all previous IRIX 6.5 Applications CDs (June 1998 through February
+2006).
+
+Application upgrades shipped with the IRIX release are either Full images
+or Overlays.  Updates to Full images are found on the Applications CD whereas 
+updated Overlays are found on the IRIX 6.5.30 Overlay CDs.  Additional
+applications can be found on the Base IRIX 6.5 CDs and the Complementary
+Applications CD. To install the new versions of Overlay applications
+you must install IRIX 6.5.30.  
+
+IMPORTANT Applications CD NOTE:
+The /CDROM/dist/extras directory has been moved to the Complementary
+Applications CD.  The InSight, Infosearch, and SgSearch products have
+been moved to IRIX Overlay CD 3.
+
+Full Product Additions and Revisions
+------------------------------------
+  * Ghostscript, 8.50
+  * XPDF viewer, 3.00pl3
+  * MozillaSuite, 1.7.12
+  * SGI Web Server based on Apache, 1.3.35
+    - including mod_ssl 2.8.26-1.3.35
+  * OpenGL Performer 3.2.1 Development Environment (dev)
+  * SGI Array Services Version 3.7 ( synchonized with Linux version )
+
+Overlay Product Revisions
+-------------------------
+  * IRIX Interactive Desktop, Tools, & Administration
+  * Impressario Printing & Scanning Tools
+  * Image Format Library Execution Only Environment, 1.2.5
+    ( ifl_eoe and ifl_dev ) components:
+    o libpng upgrade with latest security fixes to version to 1.2.8
+    o libtiff upgrade with latest security fixes to version to 3.8.2
+    o Notes: 
+      - libgeotiff is changed as a result of libtiff changes.
+      - all other components are unchanged.
+
+Product Removals
+----------------
+  * Color Management, 2.3
+  * Macromedia's Flash5 plugin - 5.0.89.3
+  * Macromedia's Shockwave Movie Player, 1.4.1
+  * SGImeeting Collaboration Environment, 2.0.6
+  * Netscape Communicator Client, 4.8a
+
+Important Notes About the Products
+----------------------------------
+SGImeeting Collaboration Environment
+SGImeeting has been removed from the Applications CD but is
+still available via a separate marketing code, SC4-SGIMTG-2.0.
+Contact your local sales rep to obtain this product.
+
+Adobe Acrobat Reader and Adobe DPS
+These two packages have been replaced on the IRIX Applications
+CD with Ghostscript, GSview, and XPDF.  You may need to
+manually select these new packages for installation to get the
+software to install.  The Adobe DPS X extension has been removed
+from the X server.
+
+Macromedia Shockwave and Flash plugins
+These two packaged have beem removed from the Applications CD.
+
+Impressario PostScript Renderer and non-PostScript printers
+Starting with IRIX 6.5.24, the Impressario PostScript render engine and
+Host RIP printers have been removed. If you require non-PostScript
+printer support look on the Complementary Apps CD for the Easy Software
+ESP PrintPro package and the 33 printer driver packages. You can obtain
+a 21-day demo license for this software by going to the ESP web site at
+http://www.easysw.com/license-demo.php. The print package and the
+ESP PrintPro package share many of the same files so are incompatable
+with each other.
+
+Java2 environment
+The Java2 suite of tools includes the Java2 Runtime Environment,
+Java2 Development Kit, Java2 Debug Kit, and the Java2 plugin for
+accessing the Java2 environment from within the Netscape and Mozilla
+web browsers.  These Java2 images will install and co-exist with the
+existing Java v118 run time so existing Java applications will
+continue to function.
+
+Mozilla Client
+The MIPS3 version of Mozilla ( mozilla_mips3 package ) is no longer
+distributed on the IRIX 6.5 Complementary Applications CD since
+IRIX 6.5.29.  However, it can be obtained from SGI Supportfolio Web
+Site at http://support.sgi.com
+
+Netscape Communicator Client
+As indicated at the beginning of this document, the netscape product
+suite consisting of netscape, netscape_dev and netscape_lite 
+are no longer distributed on the IRIX 6.5 Complementary Applications
+CD since IRIX 6.5.29.
+
+Teleffect Client for Windows NT
+The Teleffect product enables the sharing of a single keyboard and
+mouse between multiple IRIX or Windows NT systems.  An NT install
+shield for Teleffect is located in /CRDOM/NT/TeleffectInstall.exe.
+
+Release Notes
+-------------
+If you choose to read the release notes for products before installing 
+new products, you can now view the release notes easily from Software Manager.
+From the desktop Toolchest choose System, then Software Manager.  This
+will bring up the Software Manager window.  Choose to Customize Installation
+by typing /CDROM/dist into the Available Software box.  A list of products 
+available for installation will come up.  If the product name is highlighted 
+(similar to an HTML link) then there are Release Notes available.  Simply
+click on the link to bring up the Release Notes window.
+
+Product Support Information
+---------------------------
+SGI provides a comprehensive product support maintenance programs for
+its products. For more information install the Welcome product from your
+IRIX 6.5 Overlay CDs and browse the Support and Services page. To purchase
+support, contact your local SGI sales office (see http://www.sgi.com/global/).
+
+  * SGI's Services & Support web page:  http://www.sgi.com/support/
+  * SGI's Technical Assistance Center (US/Canada):  800-800-4SGI
+  * Technical Assistance outside of the US/Canada: http://www.sgi.com/global/
+
+License Information
+-------------------
+The following products on this CD require licenses:
+No SGI s/w requires a license
+
+To purchase a license, please contact your local SGI representative 
+(see http://www.sgi.com/global/ for an office near you).  Some products 
+have evaluation licenses available from http://www.sgi.com/support/licensing/,
+or by sending e-mail to demolicense@sgi.com.  
+
+  * If you are within the US or Canada you can contact SGI's Technical 
+    Assistance Center at (800-800-4SGI) with questions regarding any software
+    license.  
+  * If you are outside of these areas contact your local SGI office 
+    (see http://www.sgi.com/global/ for an office near you) with questions 
+    regarding any software license.
+  * If you are a customer of a SGI reseller, please contact your local support 
+    provider with questions regarding any software license.
+
+Starting with IRIX 6.5.15, partitioned Origin300/3000 and Onyx 3000 systems
+will require replacement licenses.  For details on how to obtain replacement
+licenses see http://www.sgi.com/support/licensing/partitioned.html.
+
+Software License Agreement
+--------------------------
+Packaged with your software is a separate sheet containing the Software 
+License Agreement. Software in this release is provided to you solely under 
+the terms and conditions of the Software License Agreement. Please take a 
+few moments to review the Agreement.
+
+Reading product descriptions ..   0%   2%   4%   6%   8%  10%  12%  14%  16%  18%  20%  22%  24%  26%  28%  29%  31%  34%  35%  37%  38%  39%  48%  55%  65%  74%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98%  99% 100% Done.
+SGI
+IRIX 6.5 Complementary Applications CD, August 2006 
+README
+
+The IRIX 6.5 Complementary Applications CD, August 2006, is a companion
+to IRIX 6.5.30 and the IRIX 6.5 Applications CD.  This CD contains
+various desktop applications and products that are not installed by
+default.  
+
+IMPORTANT Complementary Applications CD NOTE:
+Because the .related_dists file has been removed from the IRIX
+6.5 Applications CD distribution, users may not be aware of the
+/CDROM/dist/dev and /CDROM/dist/extras directories.  To access 
+these use the `open` option in Software Manager.
+
+Product Additions and Revisions
+------------------------------------
+  * Easy Software ESP PrintPro with 80 printer driver packages, 4.5.5 
+  * Printing Tools, Release 1.18.5 printpro_desktop Companion 
+  * OpenGL Performer 3.2.1 Database Samples
+  * Mozilla for IRIX 1.7.12 Headers (dev)
+  * SGI Secure Array Services Version 3.7 ( synchonized with Linux version ).
+
+Product Removals
+----------------
+  Starting with IRIX 6.5.29, the following products are no longer
+  distibuted on the IRIX 6.5 Complementary Applications CD.
+
+  * Mozilla for IRIX 1.7.12 (MIPS3 only)        (Note 1)
+  * Netscape Communicator Developer's Environment, 4.8a
+  * Netscape Navigator Client, 4.8a
+
+  Note 1: This can only be obtained from Supportfolio Web Site at
+          http://support.sgi.com.
+  
+
+Important Notes About the Products
+----------------------------------
+Easy Software ESP PrintPro and printpro_desktop
+Easy Software ESP PrintPro package requires a license. You can
+obtain a 21-day demo license for this software by going to
+the ESP web site at http://www.easysw.com/license-demo.php.
+
+ESP PrintPro replaces several files that are part of the
+IRIX print product therefore these two packages are
+incompatable with one another. For this reason, the
+printpro_desktop package should be installed instead of the print
+package. printpro_desktop is an ESP PrintPro companion package
+and is a subset of the print package.  It can only be installed
+when ESP PrintPro is installed and replaces the print package.
+Also, all products requiring the print package are satisfied via
+printpro_desktop package. If you install ESP PrintPRO and later
+want to remove the package, you will need to :
+
+   * remove printpro_desktop package
+   * reinstall print from the Applications CD and the current IRIX 6.5 Overlay
+     CD in order to restore print.
+
+OpenGL Performer
+The OpenGL Performer Development Environment package is located
+on the Applications CD while the OpenGL Performer Run-Time Environment
+and OpenGL Performer Demos and Demo Data packages are located on the
+3rd IRIX Overlay CD.  This was due to the limitation of space on
+these CDs.
+
+CDE
+The new release of CDE is dependent on the updated version of
+ToolTalk that is included with IRIX 6.5.19 or later.  ToolTalk patch
+4915 was created that will allow this version of CDE to install
+on earlier versions of IRIX 6.5.X.
+
+Mozilla Client
+As indicated at the beginning of this document, the MIPS3 version
+of Mozilla ( mozilla_mips3 package ) is no longer distributed on
+the IRIX 6.5 Complementary Applications CD since IRIX 6.5.29.
+However, it can be obtained from SGI Supportfolio Web Site at
+http://support.sgi.com
+
+Netscape Communicator Client
+As indicated at the beginning of this document, the netscape product
+suite consisting of netscape, netscape_dev and netscape_lite 
+are no longer distributed on the IRIX 6.5 Complementary Applications
+CD since IRIX 6.5.29.
+
+SGI Secure Array Services Version 3.7
+This is the secure version of Array Services based on OpenSSL. Array
+Services and Secure Array Services are mutually incompatible. A cluster
+either uses the regular version or the secure version; it cannot be mixed.
+Also, Secure Array Services requires additional configuration such as 
+certificates for the entire cluster, in order to run.
+
+Release Notes
+-------------
+If you choose to read the release notes for products before installing 
+new products, you can now view the release notes easily from Software Manager.
+From the desktop Toolchest choose System, then Software Manager.  This
+will bring up the Software Manager window.  Choose to Customize Installation
+by typing /CDROM/dist into the Available Software box.  A list of products 
+available for installation will come up.  If the product name is highlighted 
+(similar to an HTML link) then there are Release Notes available.  Simply
+click on the link to bring up the Release Notes window.
+
+Product Support Information
+---------------------------
+SGI provides a comprehensive product support maintenance programs for
+its products. For more information install the Welcome product from your
+IRIX 6.5 Overlay CDs and browse the Support and Services page. To purchase
+support, contact your local SGI sales office (see http://www.sgi.com/global/).
+
+  * SGI's Services & Support web page:  http://www.sgi.com/support/
+  * SGI's Technical Assistance Center (US/Canada):  800-800-4SGI
+  * Technical Assistance outside of the US/Canada: http://www.sgi.com/global/
+
+Software License Agreement
+--------------------------
+Packaged with your software is a separate sheet containing the Software 
+License Agreement. Software in this release is provided to you solely under 
+the terms and conditions of the Software License Agreement. Please take a 
+few moments to review the Agreement.
+
+Reading product descriptions ..   0%  10%  21%  31%  37%  42%  47%  74%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98%  99% 100% Done.
+
+___________________________________________________________________________
+IRIX 6.5.30 Installation Tools and Overlays, August 2006 README
+Silicon Graphics, Inc.
+---------------------------------------------------------------------------
+
+The IRIX 6.5.30 Overlay CDs contain the miniroot and other components
+necessary for booting the system into the basic installation environment.
+A "Customer Welcome" document includes installing IRIX 6.5 and other
+vital information you should read before you install this release of IRIX.
+
+ To view the Installing IRIX 6.5 pages:
+ 1. Insert the Installation Tools and Overlays CD 1-of-3 August 2006
+    into the CD-ROM drive.
+ 2. Open a Web browser and enter the following address:
+    file:///CDROM/WhatsNew/yourSystem.html
+
+    NOTE: Literally type yourSystem.html; do not
+          type your actual system name.
+
+ 3. Click the "Installing IRIX 6.5" link.
+
+Important
+---------
+
+Carefully follow the instructions in the CD booklet that came packaged
+with the IRIX 6.5.30 CDs. These instructions include how to insert applicable
+IRIX 6.5 base and overlay CDs as well as network distribution directories.
+This must be done before issuing any "keep" or "install" commands to avoid
+unresolvable conflicts.
+
+As a reminder, you may want to check "Caveat and Release Note Updates"
+link at  http://support.sgi.com/browse_request/irix_os  for any
+late-breaking information.
+
+For a listing of the contents of the IRIX 6.5.30 CDs, including the
+applications in the unbundled directory, see the "Installing IRIX 6.5"
+section of the Customer Welcome document.
+
+The following SGI Legacy MIPS systems are supported in IRIX 6.5.22 and below.
+IRIX 6.5.23 and above does not support installation on these systems.
+  o Challenge & Power Challenge, Indigo & Indigo2 & Power Indigo2
+  o Indy, Onyx1 and Power Onyx
+___________________________________________________________________________
+
+Reading product descriptions ..   0%   1%   2%   3%   4%   5%   7%   8%   9%  11%  12%  14%  15%  17%  18%  19%  21% 
+Skipping product license_eoe (already open)
+Reading product descriptions ..  22%  23%  24%  25%  26%  27%  28%  29%  30%  31%  32%  33%  34%  35%  36%  37%  38%  39%  40%  42%  43%  44%  45%  46%  47%  48%  49%  50%  51%  52%  54%  56%  57%  58%  60%  61%  64%  65%  66%  69%  70%  71%  72%  73%  74%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98%  99% 100% Done.
+
+If you plan to install from another distribution, either choose from the
+list below or enter the name of a different distribution.
+This will allow you to make selections from two or more distributions
+before starting the install.
+
+Enter "done" if you are ready to proceed with the installation now.
+
+ 1 10.98.0.2:/6.5.30/dist
+ 2 10.98.0.2:/complementary/dist
+ 3 10.98.0.2:/applications/dist
+ 4 10.98.0.2:/development/dist
+ 5 10.98.0.2:/foundations/dist
+ 6 done (distribution information read, return to inst prompt)
+
+Install software from: [10.98.0.2:/6.5.30/dist] 6
+Reading fileset information ..   0%   1% 
+Reading fileset information ..   1%   2% 
+Reading fileset information ..   2%   3% 
+Reading fileset information ..   3%   4% 
+Reading fileset information ..   4%   5% 
+Pre-installation check ..   5%   6%   7%   8%   9%  10%  11%  12%  13% 
+Checking space requirements ..  13%  14%  15%  16%  17%  18%  19%  20%  21% 
+Installing/removing files ..  21% 
+Installing new versions of selected eoe.sw subsystems
+Installing/removing files ..  22%  23% 
+Installing new versions of selected eoe.sw64 subsystems
+Installing new versions of selected compiler_eoe.sw subsystems
+Installing new versions of selected eoe.man subsystems
+Installing/removing files ..  24% 
+Installing new versions of selected x_eoe.sw subsystems
+Installing new versions of selected nfs.sw subsystems
+Installing new versions of selected nfs.man subsystems
+Installing new versions of selected motif_eoe.sw subsystems
+Installing new versions of selected motif_eoe.sw64 subsystems
+Installing new versions of selected motif_eoe.man subsystems
+Installing new versions of selected 4Dwm.man subsystems
+Installing new versions of selected 4Dwm.sw subsystems
+Installing new versions of selected ViewKit_eoe.sw subsystems
+Installing new versions of selected ViewKit_eoe.sw64 subsystems
+Installing new versions of selected desktop_base.man subsystems
+Installing new versions of selected desktop_base.sw subsystems
+Installing/removing files ..  25% 
+Installing new versions of selected dmedia_eoe.data subsystems
+Installing new versions of selected dmedia_eoe.man subsystems
+Installing new versions of selected dmedia_eoe.sw subsystems
+Installing new versions of selected ifl_eoe.man subsystems
+Installing new versions of selected ifl_eoe.sw subsystems
+Installing new versions of selected il_eoe.man subsystems
+Installing new versions of selected il_eoe.sw subsystems
+Installing new versions of selected javascript_eoe.sw subsystems
+Installing new versions of selected javascript_eoe.sw32 subsystems
+Installing new versions of selected pcp_eoe.sw subsystems
+Installing/removing files ..  26% 
+Installing new versions of selected sgitcl_eoe.help subsystems
+Installing new versions of selected sgitcl_eoe.man subsystems
+Installing/removing files ..  27% 
+Installing new versions of selected sgitcl_eoe.sw subsystems
+Installing new versions of selected tooltalk_eoe.man subsystems
+Installing new versions of selected tooltalk_eoe.sw subsystems
+Installing new versions of selected tooltalk_eoe.sw32 subsystems
+Installing new versions of selected tooltalk_eoe.sw64 subsystems
+Installing new versions of selected websupport_eoe.man subsystems
+Installing new versions of selected websupport_eoe.sw subsystems
+Installing new versions of selected websupport_eoe.sw32 subsystems
+Installing new versions of selected websupport_eoe.sw64 subsystems
+Installing new versions of selected appletalk.sw subsystems
+Installing/removing files ..  28% 
+Installing new versions of selected appletalk.man subsystems
+Installing new versions of selected sgi_apache.books subsystems
+Installing new versions of selected sgi_apache.sw subsystems
+Installing new versions of selected accessx.books subsystems
+Installing new versions of selected accessx.man subsystems
+Installing new versions of selected desktop_tools.man subsystems
+Installing new versions of selected desktop_tools.sw subsystems
+Installing new versions of selected imgtools.books subsystems
+Installing new versions of selected license_eoe.books subsystems
+Installing new versions of selected mam.man subsystems
+Installing new versions of selected outbox.books subsystems
+Installing/removing files ..  29% 
+Installing new versions of selected sitemgr.books subsystems
+Installing new versions of selected Teleffect.help subsystems
+Installing new versions of selected Teleffect.man subsystems
+Installing new versions of selected Teleffect.sw subsystems
+Installing new versions of selected java2_eoe.sw subsystems
+Installing/removing files ..  30% 
+Installing new versions of selected java2_eoe.sw32 subsystems
+Installing new versions of selected java2_eoe.man subsystems
+Installing new versions of selected accessx.sw subsystems
+Installing new versions of selected arraysvcs.sw subsystems
+Installing new versions of selected cosmoplayer.lang subsystems
+Installing new versions of selected cosmoplayer.man subsystems
+Installing new versions of selected cosmoplayer.sw subsystems
+Installing new versions of selected cosmoplayer.sw32 subsystems
+Installing new versions of selected desktop_eoe.data subsystems
+Installing new versions of selected desktop_eoe.man subsystems
+Installing new versions of selected desktop_eoe.sw subsystems
+Installing new versions of selected gateway.man subsystems
+Installing new versions of selected gateway.sw subsystems
+Installing/removing files ..  31% 
+Installing new versions of selected ghostscript.man subsystems
+Installing new versions of selected ghostscript.sw subsystems
+Installing/removing files ..  32% 
+Installing new versions of selected gsview.man subsystems
+Installing new versions of selected gsview.sw subsystems
+Installing new versions of selected imgtools.man subsystems
+Installing new versions of selected imgtools.sw subsystems
+Installing new versions of selected java2_plugin.man subsystems
+Installing new versions of selected java2_plugin.sw subsystems
+Installing new versions of selected java2_plugin.sw32 subsystems
+Installing new versions of selected java3d.man subsystems
+Installing new versions of selected java3d.sw subsystems
+Installing new versions of selected java3d.sw32 subsystems
+Installing new versions of selected java_eoe.man subsystems
+Installing new versions of selected java_eoe.sw subsystems
+Installing new versions of selected java_eoe.sw32 subsystems
+Installing new versions of selected java_plugin.man subsystems
+Installing new versions of selected java_plugin.sw subsystems
+Installing new versions of selected java_plugin.sw32 subsystems
+Installing new versions of selected license_eoe.man subsystems
+Installing new versions of selected license_eoe.sw subsystems
+Installing new versions of selected mam.sw subsystems
+Installing new versions of selected media_warehouse.man subsystems
+Installing new versions of selected media_warehouse.sw subsystems
+Installing new versions of selected mozilla.man subsystems
+Installing new versions of selected mozilla.sw subsystems
+Installing/removing files ..  33% 
+Installing new versions of selected mpi.hdr subsystems
+Installing new versions of selected mpi.man subsystems
+Installing/removing files ..  34% 
+Installing new versions of selected mpi.sw subsystems
+Installing new versions of selected mpi.sw32 subsystems
+Installing new versions of selected mpi.sw64 subsystems
+Installing new versions of selected mpt.relnotes subsystems
+Installing new versions of selected nedit.man subsystems
+Installing new versions of selected nedit.sw subsystems
+Installing new versions of selected outbox.man subsystems
+Installing new versions of selected outbox.sw subsystems
+Installing new versions of selected scsl.hdr subsystems
+Installing new versions of selected scsl.man subsystems
+Installing/removing files ..  35%  36%  37% 
+Installing new versions of selected scsl.sw32 subsystems
+Installing new versions of selected scsl.sw64 subsystems
+Installing new versions of selected sgi_apache.man subsystems
+Installing new versions of selected sitemgr.man subsystems
+Installing new versions of selected sitemgr.sw subsystems
+Installing new versions of selected sma.hdr subsystems
+Installing new versions of selected sma.man subsystems
+Installing new versions of selected sma.sw32 subsystems
+Installing new versions of selected sma.sw64 subsystems
+Installing new versions of selected sysadmdesktop.man subsystems
+Installing new versions of selected sysadmdesktop.sw subsystems
+Installing new versions of selected sysmon.man subsystems
+Installing new versions of selected sysmon.sw subsystems
+Installing new versions of selected websetup.man subsystems
+Installing new versions of selected websetup.sw subsystems
+Installing/removing files ..  38%  39% 
+Installing new versions of selected webviewer.sw subsystems
+Installing new versions of selected xpdf.man subsystems
+Installing new versions of selected xpdf.sw subsystems
+Installing new versions of selected dev.sw subsystems
+Installing new versions of selected dev.sw64 subsystems
+Installing new versions of selected dev.man subsystems
+Installing/removing files ..  40%  41%  42% 
+Installing new versions of selected compiler_dev.sw subsystems
+Installing new versions of selected compiler_dev.hdr subsystems
+Installing new versions of selected compiler_dev.sw64 subsystems
+Installing new versions of selected compiler_dev.man subsystems
+Installing new versions of selected c_dev.sw subsystems
+Installing new versions of selected c_dev.hdr subsystems
+Installing new versions of selected c_dev.man subsystems
+Installing new versions of selected c++_dev.sw subsystems
+Installing new versions of selected c++_dev.hdr subsystems
+Installing new versions of selected c++_dev.sw64 subsystems
+Installing new versions of selected c++_dev.man subsystems
+Installing/removing files ..  43% 
+Installing new versions of selected ftn77_dev.sw subsystems
+Installing new versions of selected ftn90_dev.sw subsystems
+Installing new versions of selected ftn_dev.hdr subsystems
+Installing new versions of selected ftn77_dev.man subsystems
+Installing/removing files ..  44% 
+Installing new versions of selected ftn90_dev.man subsystems
+Installing new versions of selected ftn_dev.man subsystems
+Installing new versions of selected gl_dev.sw subsystems
+Installing new versions of selected gl_dev.sw64 subsystems
+Installing new versions of selected gl_dev.man subsystems
+Installing/removing files ..  45% 
+Installing new versions of selected motif_dev.sw subsystems
+Installing/removing files ..  46% 
+Installing new versions of selected motif_dev.sw64 subsystems
+Installing new versions of selected motif_dev.man subsystems
+Installing new versions of selected c++_dev.books subsystems
+Installing new versions of selected c_dev.books subsystems
+Installing new versions of selected cms_dev.books subsystems
+Installing/removing files ..  47% 
+Installing new versions of selected compiler_dev.books subsystems
+Installing new versions of selected ftn77_dev.books subsystems
+Installing new versions of selected inst_dev.books subsystems
+Installing new versions of selected irix_dev.sw subsystems
+Installing/removing files ..  48% 
+Installing new versions of selected CaseVision.sw subsystems
+Installing new versions of selected SpeedShop.man subsystems
+Installing new versions of selected SpeedShop.sw subsystems
+Installing new versions of selected SpeedShop.sw64 subsystems
+Installing new versions of selected ViewKit_dev.man subsystems
+Installing new versions of selected ViewKit_dev.sw subsystems
+Installing/removing files ..  49% 
+Installing new versions of selected ViewKit_dev.sw64 subsystems
+Installing new versions of selected WorkShop.man subsystems
+Installing new versions of selected WorkShop.sw subsystems
+UX:chroot: ERROR: No such file or directory
+Installing new versions of selected WorkShop.sw64 subsystems
+Installing new versions of selected WorkShopMPF.man subsystems
+Installing new versions of selected WorkShopMPF.sw subsystems
+Installing new versions of selected cms_dev.man subsystems
+Installing new versions of selected complib_dev.sw subsystems
+Installing new versions of selected complib_dev.sw64 subsystems
+Installing new versions of selected complib_eoe.hdr subsystems
+Installing new versions of selected complib_eoe.man subsystems
+Installing/removing files ..  50%  51%  52%  53% 
+Installing new versions of selected complib_eoe.sw subsystems
+Installing new versions of selected complib_eoe.sw64 subsystems
+Installing new versions of selected dmedia_dev.man subsystems
+Installing/removing files ..  54% 
+Installing new versions of selected dmedia_dev.sw subsystems
+Installing/removing files ..  55% 
+Installing new versions of selected ifl_dev.man subsystems
+Installing new versions of selected ifl_dev.sw subsystems
+Installing new versions of selected inst_dev.man subsystems
+Installing new versions of selected inst_dev.sw subsystems
+Installing new versions of selected java_dev.man subsystems
+Installing new versions of selected langtools.man subsystems
+Installing new versions of selected langtools.sw subsystems
+Installing new versions of selected modules.man subsystems
+Installing new versions of selected modules.sw subsystems
+Installing new versions of selected netscape_dev.man subsystems
+Installing new versions of selected webviewer_dev.man subsystems
+Installing new versions of selected webviewer_dev.sw subsystems
+Installing new versions of selected inventor_eoe.sw subsystems
+Installing new versions of selected inventor_eoe.man subsystems
+Installing new versions of selected motif21_dev.sw subsystems
+Installing/removing files ..  56% 
+Installing new versions of selected motif21_dev.man subsystems
+Installing new versions of selected performer_eoe.man subsystems
+Installing new versions of selected performer_eoe.sw subsystems
+Installing new versions of selected performer_demo.man subsystems
+Installing new versions of selected performer_demo.sw subsystems
+Installing new versions of selected performer_demo.data subsystems
+Installing/removing files ..  57% 
+Installing new versions of selected hwguides_eoe.books subsystems
+Installing new versions of selected infosearch.books subsystems
+Installing new versions of selected motif_books.books subsystems
+Installing/removing files ..  58% 
+Installing new versions of selected ViewKit21_dev.man subsystems
+Installing new versions of selected ViewKit21_dev.sw subsystems
+Installing new versions of selected ViewKit21_dev.sw64 subsystems
+Installing new versions of selected Welcome.doc subsystems
+Installing new versions of selected Welcome.sw subsystems
+Installing new versions of selected dmedia_dev.sw64 subsystems
+Installing new versions of selected dmedia_eoe.sw64 subsystems
+Installing/removing files ..  59% 
+Installing new versions of selected infosearch.index subsystems
+Installing new versions of selected infosearch.man subsystems
+Installing new versions of selected infosearch.sw subsystems
+Installing new versions of selected insight.books subsystems
+Installing new versions of selected insight.man subsystems
+Installing new versions of selected insight.sw subsystems
+Installing new versions of selected insight_base.man subsystems
+Installing new versions of selected insight_base.sw subsystems
+Installing/removing files ..  60% 
+Installing new versions of selected kerberos.man subsystems
+Installing new versions of selected kerberos.sw subsystems
+Installing new versions of selected ntp.man subsystems
+Installing new versions of selected ntp.sw subsystems
+Installing new versions of selected openldap.man subsystems
+Installing new versions of selected openldap.sw subsystems
+Installing new versions of selected openssh.man subsystems
+Installing new versions of selected openssh.sw subsystems
+Installing new versions of selected openssl.man subsystems
+Installing new versions of selected openssl.sw subsystems
+Installing new versions of selected roboinst.man subsystems
+Installing new versions of selected roboinst.sw subsystems
+Installing new versions of selected sgsearch.man subsystems
+Installing new versions of selected sgsearch.sw subsystems
+Installing new versions of selected shader_eoe.man subsystems
+Installing new versions of selected shader_eoe.sw subsystems
+Installing new versions of selected x_eoe.src subsystems
+Installing new versions of selected eoe.sw subsystems
+Installing/removing files ..  61%  62%  63%  64%  65% 
+Installing new versions of selected eoe.sw64 subsystems
+Installing new versions of selected compiler_eoe.sw subsystems
+Installing new versions of selected compiler_eoe.sw64 subsystems
+Installing new versions of selected c++_eoe.sw subsystems
+Installing new versions of selected c++_eoe.sw64 subsystems
+Installing new versions of selected ftn_eoe.sw subsystems
+Installing new versions of selected ftn_eoe.sw64 subsystems
+Installing new versions of selected eoe.man subsystems
+Installing/removing files ..  66% 
+Installing new versions of selected c++_eoe.man subsystems
+Installing new versions of selected compiler_eoe.man subsystems
+Installing new versions of selected ftn_eoe.man subsystems
+Installing new versions of selected x_eoe.sw subsystems
+Installing/removing files ..  67%  68%  69% 
+Installing new versions of selected dev.sw subsystems
+Installing new versions of selected dev.sw64 subsystems
+Installing new versions of selected dev.man subsystems
+Installing/removing files ..  70% 
+Installing new versions of selected nfs.sw subsystems
+Installing new versions of selected nfs.man subsystems
+Installing new versions of selected gl_dev.sw subsystems
+Installing new versions of selected gl_dev.sw64 subsystems
+Installing new versions of selected gl_dev.man subsystems
+Installing new versions of selected motif_dev.sw subsystems
+Installing new versions of selected motif_eoe.sw subsystems
+Installing new versions of selected motif_dev.man subsystems
+Installing/removing files ..  71% 
+Installing new versions of selected motif_eoe.man subsystems
+Installing new versions of selected motif_eoe.sw64 subsystems
+Installing new versions of selected license_dev.demo subsystems
+Installing new versions of selected license_dev.hdr subsystems
+Installing new versions of selected license_dev.lib subsystems
+Installing new versions of selected license_dev.lib32 subsystems
+Installing new versions of selected license_dev.lib64 subsystems
+Installing new versions of selected ViewKit_dev.books subsystems
+Installing new versions of selected desktop_eoe.books subsystems
+Installing/removing files ..  72% 
+Installing new versions of selected desktop_tools.man subsystems
+Installing new versions of selected desktop_tools.sw subsystems
+Installing new versions of selected dev.books subsystems
+Installing/removing files ..  73% 
+Installing new versions of selected dvdr.books subsystems
+Installing new versions of selected eoe.books subsystems
+Installing/removing files ..  74%  75% 
+Installing new versions of selected gl_dev.books subsystems
+Installing/removing files ..  76%  77% 
+Installing new versions of selected inst_dev.books subsystems
+Installing new versions of selected irix_dev.sw subsystems
+Installing new versions of selected nfs.books subsystems
+Installing new versions of selected webviewer.books subsystems
+Installing new versions of selected irix_dev.man subsystems
+Installing new versions of selected 4Dwm.man subsystems
+Installing new versions of selected 4Dwm.sw subsystems
+Installing new versions of selected ViewKit_dev.man subsystems
+Installing new versions of selected ViewKit_dev.sw subsystems
+Installing new versions of selected ViewKit_dev.sw64 subsystems
+Installing new versions of selected ViewKit_eoe.man subsystems
+Installing new versions of selected ViewKit_eoe.sw subsystems
+Installing new versions of selected ViewKit_eoe.sw64 subsystems
+Installing/removing files ..  78% 
+Installing new versions of selected desktop_base.man subsystems
+Installing new versions of selected desktop_base.sw subsystems
+Installing new versions of selected desktop_base.sw64 subsystems
+Installing new versions of selected desktop_eoe.man subsystems
+Installing new versions of selected desktop_eoe.sw subsystems
+Installing new versions of selected dmedia_dev.books subsystems
+Installing new versions of selected dmedia_dev.man subsystems
+Installing new versions of selected dmedia_dev.sw subsystems
+Installing new versions of selected dmedia_eoe.books subsystems
+Installing/removing files ..  79% 
+Installing new versions of selected dmedia_eoe.man subsystems
+Installing new versions of selected dmedia_eoe.sw subsystems
+Installing new versions of selected ifl_dev.man subsystems
+Installing new versions of selected ifl_dev.sw subsystems
+Installing new versions of selected ifl_eoe.man subsystems
+Installing new versions of selected ifl_eoe.sw subsystems
+Installing new versions of selected il_eoe.man subsystems
+Installing new versions of selected il_eoe.sw subsystems
+Installing new versions of selected inst_dev.man subsystems
+Installing new versions of selected inst_dev.sw subsystems
+Installing new versions of selected license_dev.man subsystems
+Installing new versions of selected media_warehouse.man subsystems
+Installing new versions of selected media_warehouse.sw subsystems
+Installing new versions of selected pcp_eoe.man subsystems
+Installing new versions of selected pcp_eoe.sw subsystems
+Installing/removing files ..  80% 
+Installing new versions of selected sysadmdesktop.man subsystems
+Installing new versions of selected sysadmdesktop.sw subsystems
+Installing new versions of selected sysmon.books subsystems
+Installing/removing files ..  81% 
+Installing new versions of selected sysmon.man subsystems
+Installing new versions of selected sysmon.sw subsystems
+Installing new versions of selected tooltalk_eoe.books subsystems
+Installing new versions of selected tooltalk_eoe.man subsystems
+Installing new versions of selected tooltalk_eoe.sw subsystems
+Installing new versions of selected tooltalk_eoe.sw32 subsystems
+Installing new versions of selected tooltalk_eoe.sw64 subsystems
+Installing new versions of selected websupport_eoe.man subsystems
+Installing new versions of selected websupport_eoe.sw subsystems
+Installing new versions of selected websupport_eoe.sw32 subsystems
+Installing new versions of selected websupport_eoe.sw64 subsystems
+Installing new versions of selected webviewer.man subsystems
+Installing new versions of selected webviewer.sw subsystems
+Installing new versions of selected webviewer_dev.man subsystems
+Installing new versions of selected x_dev.man subsystems
+Installing new versions of selected x_dev.sw subsystems
+Installing new versions of selected x_dev.sw64 subsystems
+Installing new versions of selected x_eoe.man subsystems
+Installing new versions of selected x_eoe.sw64 subsystems
+Installing new versions of selected performer_data.data subsystems
+Installing new versions of selected printpro_desktop.sw subsystems
+Installing new versions of selected printpro_desktop.man subsystems
+Installing new versions of selected OpenOffice.man subsystems
+Installing new versions of selected OpenOffice.sw subsystems
+Installing/removing files ..  82%  83%  84%  85%  86% 
+Installing new versions of selected cde.man subsystems
+Installing new versions of selected printpro.man subsystems
+Installing new versions of selected printpro.sw subsystems
+Installing/removing files ..  87%  88% 
+Installing new versions of selected cde.sw subsystems
+Installing/removing files ..  89%  90%  91% 
+Running exit-commands ..  91% 
+UX:make: INFO: `install.otr' is up to date.
+UX:make: INFO: `system.otr' is up to date.
+UX:make: INFO: `default.otr' is up to date.
+UX:make: INFO: `install.otr' is up to date.
+UX:make: INFO: `system.otr' is up to date.
+UX:make: INFO: `default.otr' is up to date.
+
+*********************************************************************
+* You must generate real certificates for your site before enabling *
+* https support in sgi_apache.  See the relnotes for details.       *
+*********************************************************************
+
+UX:make: INFO: `install.otr' is up to date.
+UX:make: INFO: `system.otr' is up to date.
+UX:make: INFO: `default.otr' is up to date.
+
+To complete the installation of Teleffect you must configure Teleffect.
+To do this run /usr/sbin/teleffect as root.
+UX:make: INFO: `install.otr' is up to date.
+UX:make: INFO: `system.otr' is up to date.
+UX:make: INFO: `default.otr' is up to date.
+Running exit-commands ..  92% 
+
+The Netscape Web Browser is not installed.  Please add the following
+information to the mailcap file for your Web browser.
+    application/x-enterlicense; /usr/etc/enterlicense %s; \
+    application/x-licensemgr; /usr/etc/LicenseManager %s; \
+    description="Software License Installation"
+
+
+The Netscape Web Browser is not installed.  Please add the following
+information to the mime.types file for your Web browser.
+    type=application/x-enterlicense exts=lic
+    type=application/x-licensemgr exts=licmgr
+
+UX:make: INFO: `install.otr' is up to date.
+UX:make: INFO: `system.otr' is up to date.
+UX:make: INFO: `default.otr' is up to date.
+Running exit-commands ..  93% 
+UX:make: INFO: `install.otr' is up to date.
+UX:make: INFO: `system.otr' is up to date.
+UX:make: INFO: `default.otr' is up to date.
+Running exit-commands ..  94% 
+NOTE: m1 MotherBoard: prom file version 6.156 is the same as current version 6.
+156: prom not flashed
+Running exit-commands ..  95% 
+UX:make: INFO: `install.otr' is up to date.
+UX:make: INFO: `system.otr' is up to date.
+UX:make: INFO: `default.otr' is up to date.
+lpstat: Unable to connect to server: Connection refused
+Running exit-commands ..  96% 
+Checking dependencies ..  96%  97% 100% Done.
+Calculating sizes ..   0% 100% Done.
+
+chrooting to /root
+
+
+Calculating sizes ..   0% 100% Done.
+
+chrooting to /root
+
+
+
+instigator: post-install commands finished
+
+
+Inst> quit
+Requickstarting ELF files (see rqsall(1)) ..   0%   1%   2%   3%   4%   5%   6%   7%   8%   9%  10%  11%  12%  13%  14%  15%  16%  17%  18%  19%  20%  21%  22%  23%  24%  25%  26%  27%  28%  29%  30%  31%  32%  33%  34%  35%  36%  37%  38%  39%  40%  41%  42%  43%  44%  45%  46%  47%  48%  49%  50%  51%  52%  53%  54%  55%  56%  57%  58%  59%  60%  61%  62%  63%  64%  65%  66%  67%  68%  69%  70%  71%  72%  73%  74%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98%  99% 100% Done.
+Automatically reconfiguring the operating system.
+Ready to restart the system.  Restart? { (y)es, (n)o, (sh)ell, (h)elp }: y
+Preparing to restart system ...
+
+The system is being restarted.
+
+
+
+IP27 PROM SGI Version 6.156  built 11:27:56 AM Nov 18, 2003
+*** Skipping diags as requested by kernel
+*** Diag level set to None (2)
+using BaseIO nic
+Testing/Initializing memory ...............		DONE
+Copying PROM code to memory ...............		DONE
+Discovering local IO ......................		DONE
+update_klcfg_cpuinfo: Couldn't find my structure.
+Discovering NUMAlink connectivity .........		
+Local hub NUMAlink is down.
+*** Local network link down
+DONE
+Found 1 objects (1 hubs, 0 routers) in 903 usec
+Waiting for peers to complete discovery....		DONE
+No other nodes present; becoming global master
+Global master is /hw/module/1/slot/MotherBoard
+Testing/Initializing all memory ...........		DONE
+Checking partitioning information .........		DONE
+No other nodes present; becoming partition master
+Loading BASEIO prom .......................		DONE
+
+BASEIO PROM Monitor SGI Version 6.156  built 11:05:48 AM Nov 18, 2003 (BE64)
+1 CPUs on 1 nodes found.
+Installing PROM Device drivers ............             
+Base I/O Ethernet set to /dev/ethernet/ef0
+
+Walking SCSI Adapter 0 (/hw/module/1/slot/MotherBoard), (pci id 0)
+1+ 2- 3- 4- 5- 6- 7- 8- 9- 10- 11- 12- 13- 14- 15- = 1 device(s)
+
+
+Walking SCSI Adapter 1 (/hw/module/1/slot/MotherBoard), (pci id 1)
+1- 2- 3- 4- 5- 6- 7- 8- 9- 10- 11- 12- 13- 14- 15- = 0 device(s)
+
+Initializing PROM Device drivers ..........             DONE
+Checking hardware inventory ...............              DONE
+
+**** System Configuration and Diagnostics Summary ****
+CONFIG:
+         No. of NODEs enabled    = 1
+         No. of NODEs disabled   = 0
+         No. of CPUs enabled     = 1
+         No. of CPUs disabled    = 0
+         Mem enabled             = 256 MB
+         Mem disabled            = 0 MB
+         No. of RTRs enabled     = 0
+         No. of RTRs disabled    = 0
+
+DIAG RESULTS:
+         NO DIAGS WERE RUN!
+**** End System Configuration and Diagnostics Summary ****
+
+
+                           Starting up the system...
+
+IRIX Release 6.5 IP27 Version 07202013 System V - 64 Bit
+Copyright 1987-2006 Silicon Graphics, Inc.
+All Rights Reserved.
+
+Setting rbaud to 19200
+NOTICE: Starting failsoftd
+The system is coming up.
+
+network: WARNING: IRIS's Internet address is the default.
+Using standalone network mode.
+Warning:  Internet Gateway web server running as root.
+          Use "chkconfig webface_apache off" to disable.
+Doing firstrun configuration...
+Running /etc/rc2.d/S76esp verify...
+Creating event manager directory...
+Initializing event manager subscription file...
+...Loading private actions...
+Starting new eventmond...
+...Load needed profiles...
+Adding profile Kernel...OK
+Adding profile Availability...OK
+Adding profile Diagnostic...OK
+Adding profile Configuration...OK
+System change detected.
+
+
+
+origin200 console login: root
+IRIX Release 6.5 IP27 origin200
+Copyright 1987-2006 Silicon Graphics, Inc. All Rights Reserved.
+TERM = (vt100) 
+origin200 1# halt -p
+Shutdown started.     Sun Nov 22 07:40:34 PST 2026
+Broadcast Message from root (???) on origin200 Sun Nov 22 07:40:35 2026
+
+THE SYSTEM IS BEING SHUT DOWN! Log off now.
+
+
+INIT: New run level: 0
+The system is shutting down.
+Please wait.

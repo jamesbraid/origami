@@ -2419,6 +2419,99 @@ fn asking_for_an_install_operation_that_runs_gives_the_same_one() {
     first.cancel();
 }
 
+fn guide_steps(f: &Fixture) -> Vec<GuideStep> {
+    let key = f.create("irix", "origin200.1");
+    f.core
+        .open_machine(&key)
+        .unwrap()
+        .apply_change(&Change::CreateDisk { size_mib: 64 })
+        .unwrap();
+    f.core
+        .install_prepare(&key, &setup("6.5.30", "standard", &[]))
+        .unwrap();
+    f.core.install_guide(&key).unwrap().steps
+}
+
+#[test]
+fn a_real_automated_install_console_shows_every_guide_step_seen_in_order() {
+    let f = fixture();
+    let steps = guide_steps(&f);
+    // The serial console of an automated install of IRIX 6.5.30 on an Origin 200.
+    let console = include_bytes!("../../tests/data/irix-install-console.txt");
+    // Only the last step, logging in and halting, has nothing to wait for.
+    assert_eq!(seen_steps(&steps, console), steps.len() - 1);
+    // Marks come in order: the first prompts alone give the first steps.
+    let upto = |prompt: &str| {
+        let text = String::from_utf8_lossy(console);
+        let end = text.find(prompt).unwrap() + prompt.len();
+        seen_steps(&steps, &console[..end])
+    };
+    assert_eq!(upto("Option? "), 1);
+    assert_eq!(upto("extended mode with all options available?"), 3);
+    assert_eq!(upto("Install software from:"), 18);
+    assert_eq!(upto("Reading fileset information"), 19);
+    assert_eq!(upto("instigator: post-install commands finished"), 20);
+    // The same text a few bytes at a time, with a prompt split between reads.
+    let mut seen = install::GuideSeen::default();
+    let mut last = 0;
+    for chunk in console.chunks(7) {
+        let now = seen.feed(&steps, chunk);
+        assert!(now >= last && now <= last + 1);
+        last = now;
+    }
+    assert_eq!(last, steps.len() - 1);
+}
+
+#[test]
+fn a_control_sequence_ends_at_its_final_byte_even_when_that_is_a_tilde() {
+    let step = |c: &str| GuideStep {
+        text: String::new(),
+        command: None,
+        send: None,
+        title: "t".into(),
+        watch: None,
+        typed: vec![],
+        note: None,
+        confirm: Some(c.into()),
+    };
+    // ESC [ 3 ~ is Delete: the Y that follows is text, not part of the sequence.
+    assert_eq!(seen_steps(&[step("Yes")], b"\x1b[3~Yes"), 1);
+    assert_eq!(seen_steps(&[step("Yes")], b"\x1b[1;31mY\x1b[0mes"), 1);
+}
+
+#[test]
+fn the_seen_steps_stay_seen_when_the_console_history_wraps() {
+    let f = fixture_with(None, 256);
+    let steps: Vec<_> = ["Option? ", ">> "]
+        .map(|c| GuideStep {
+            text: String::new(),
+            command: None,
+            send: None,
+            title: "t".into(),
+            watch: None,
+            typed: vec![],
+            note: None,
+            confirm: Some(c.into()),
+        })
+        .into();
+    let (machine, session) = f.started("irixm");
+    let seen = |at_least: usize| {
+        let deadline = std::time::Instant::now() + WAIT;
+        while machine.guide_seen(&steps) < at_least && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        machine.guide_seen(&steps)
+    };
+    session.say("Option? \r\n");
+    assert_eq!(seen(1), 1);
+    // Far more than the 256 bytes the machine keeps: the first prompt is long gone.
+    session.say(&"noise ".repeat(200));
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(machine.guide_seen(&steps), 1);
+    session.say(">> ");
+    assert_eq!(seen(2), 2);
+}
+
 /// Uses the host's real trash, so it only runs when asked.
 #[test]
 #[ignore]

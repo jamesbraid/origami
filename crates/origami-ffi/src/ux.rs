@@ -533,6 +533,25 @@ impl OrigamiMachine {
         })
     }
 
+    /// How many leading steps of the install guide the console shows done.
+    /// Ask again on each console event while the guide shows.
+    pub fn guide_seen(&self, steps: Vec<OrigamiGuideStep>) -> u32 {
+        let steps: Vec<_> = steps
+            .into_iter()
+            .map(|s| f::GuideStep {
+                text: s.text,
+                command: s.command,
+                send: s.send,
+                title: s.title,
+                watch: s.watch,
+                typed: vec![],
+                note: None,
+                confirm: s.confirm,
+            })
+            .collect();
+        self.0.guide_seen(&steps) as u32
+    }
+
     /// The OS on the disk in `drive`, or none when it is not recognised.
     pub fn drive_os(&self, drive: String) -> Result<Option<String>, CoreError> {
         Ok(self.0.drive_os(&drive)?)

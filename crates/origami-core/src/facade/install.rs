@@ -202,6 +202,78 @@ fn guide_step(
     }
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+enum Escape {
+    #[default]
+    Text,
+    /// After ESC: a `[` opens a control sequence, anything else ends one byte on.
+    Esc,
+    /// In a control sequence, up to its final byte (0x40 to 0x7E).
+    Csi,
+}
+
+/// Follows a console and counts the leading guide steps it shows done: each
+/// step's `confirm` text has to appear after the previous one's. It only
+/// moves forward, and reads each byte once, so a console that wraps its
+/// history does not take marks back.
+#[derive(Default)]
+pub(crate) struct GuideSeen {
+    pub(crate) generation: u64,
+    pub(crate) cursor: u64,
+    seen: usize,
+    escape: Escape,
+    /// Console text since the last match, without escape sequences or `\r`.
+    tail: Vec<u8>,
+}
+
+impl GuideSeen {
+    /// Begin again on the console of generation `generation`.
+    pub(crate) fn restart(&mut self, generation: u64) {
+        *self = GuideSeen {
+            generation,
+            ..GuideSeen::default()
+        };
+    }
+
+    /// Take more console bytes and return how many steps are seen. A step
+    /// with no `confirm` ends the count rather than guessing.
+    pub(crate) fn feed(&mut self, steps: &[GuideStep], bytes: &[u8]) -> usize {
+        for &byte in bytes {
+            self.escape = match (self.escape, byte) {
+                (Escape::Text, 0x1b) => Escape::Esc,
+                (Escape::Text, b'\r') => Escape::Text,
+                (Escape::Text, byte) => {
+                    self.tail.push(byte);
+                    Escape::Text
+                }
+                (Escape::Esc, b'[') => Escape::Csi,
+                (Escape::Esc, 0x20..=0x2f) => Escape::Esc,
+                (Escape::Esc, _) => Escape::Text,
+                (Escape::Csi, 0x40..=0x7e) => Escape::Text,
+                (Escape::Csi, _) => Escape::Csi,
+            };
+        }
+        while let Some(confirm) = steps.get(self.seen).and_then(|s| s.confirm.as_deref()) {
+            let found = self
+                .tail
+                .windows(confirm.len())
+                .position(|w| w == confirm.as_bytes());
+            let Some(at) = found else { break };
+            self.tail.drain(..at + confirm.len());
+            self.seen += 1;
+        }
+        // Keep enough that a prompt split across two reads still matches.
+        let drop = self.tail.len().saturating_sub(256);
+        self.tail.drain(..drop);
+        self.seen.min(steps.len())
+    }
+}
+
+/// The steps the whole of `console` shows done; see [`GuideSeen`].
+pub fn seen_steps(steps: &[GuideStep], console: &[u8]) -> usize {
+    GuideSeen::default().feed(steps, console)
+}
+
 /// The footer while the install files are served: what they are, with no address.
 pub fn install_footer(summary: &str) -> String {
     format!("Install files ready: {summary}")

@@ -113,3 +113,30 @@ fn any_error_reads_as_message_detail_and_fix() {
     assert!(info.message.contains("no-such-machine"));
     assert_eq!(info.fix, OrigamiErrorFix::None);
 }
+
+#[test]
+fn the_console_marks_a_guide_step_seen() {
+    let lab = Lab::new(None);
+    let machine = lab.core.start_machine(lab.key.clone()).unwrap();
+    let step = |confirm: &str| OrigamiGuideStep {
+        text: String::new(),
+        command: None,
+        send: None,
+        title: "Open the command monitor".into(),
+        watch: None,
+        typed: vec![],
+        note: None,
+        confirm: Some(confirm.into()),
+    };
+    assert_eq!(machine.guide_seen(vec![step("Option? ")]), 0);
+    lab.core
+        .fake_say(lab.key.clone(), "Option? ".into())
+        .unwrap();
+    for _ in 0..500 {
+        if machine.guide_seen(vec![step("Option? ")]) == 1 {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("the prompt was never seen");
+}

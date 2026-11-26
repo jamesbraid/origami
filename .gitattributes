@@ -8,3 +8,4 @@ crates/*/tests/data/** text eol=lf
 tests/fixtures/*.json text eol=lf
 tests/fixtures/machines/*.toml text eol=lf
 tests/fixtures/guests/*.txt text eol=lf
+crates/origami-core/tests/data/irix-install-console.txt -text

@@ -9,6 +9,7 @@ use super::console::Console;
 use super::cpu::{self, CpuLoadReport, CpuMonitor};
 use super::error::{CoreError, CoreResult, ErrorKind};
 use super::event::{EventKind, Slot};
+use super::install::GuideSeen;
 use super::operation::{self, Control as OpControl, Operation};
 use super::osview::Osview;
 use super::settings::{self, MachineSettings};
@@ -263,6 +264,8 @@ pub(crate) struct MachineInner {
     held: Mutex<Held>,
     hooks: Mutex<Arc<Vec<Hook>>>,
     next_hook: AtomicU64,
+    /// How far the install guide is seen on this run's console.
+    guide: Mutex<GuideSeen>,
     /// A picture a front end left behind for the next view, tied to the run it is from.
     kept: Mutex<Option<Kept>>,
 }
@@ -321,6 +324,7 @@ impl Machine {
                 held: Mutex::default(),
                 hooks: Mutex::new(Arc::new(Vec::new())),
                 next_hook: AtomicU64::new(1),
+                guide: Mutex::default(),
                 kept: Mutex::new(None),
             }),
         }
@@ -809,6 +813,26 @@ impl Machine {
     /// What the guest printed from byte `from` on, at most `max` bytes.
     pub fn console_read(&self, from: u64, max: usize) -> ConsoleChunk {
         self.inner.console.read(from, max)
+    }
+
+    /// How many leading steps of the install guide the console shows done.
+    /// It only goes up while this run's console lasts; ask again on each
+    /// console event.
+    pub fn guide_seen(&self, steps: &[super::GuideStep]) -> usize {
+        let mut seen = self.inner.guide.lock().unwrap();
+        loop {
+            let mut chunk = self.console_read(seen.cursor, 1 << 20);
+            if chunk.generation != seen.generation {
+                // The machine started again: its console begins over.
+                seen.restart(chunk.generation);
+                chunk = self.console_read(0, 1 << 20);
+            }
+            if chunk.bytes.is_empty() {
+                return seen.feed(steps, &[]);
+            }
+            seen.cursor = chunk.next;
+            seen.feed(steps, &chunk.bytes);
+        }
     }
 
     pub fn console_send(&self, bytes: &[u8]) -> CoreResult<()> {

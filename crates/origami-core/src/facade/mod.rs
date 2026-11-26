@@ -52,9 +52,9 @@ pub use flow::{
     InstallFlow, InstallStep, StepState, StepTitle,
 };
 pub use install::{
-    guide_header, install_footer, install_media_folder, install_releases, waiting_for, GuideStep,
-    InstallAddonChoice, InstallGuide, InstallMethod, InstallPlan, InstallProfile, InstallRelease,
-    InstallSetup, InstallSetupAddon, MediaFolder, StepNote, Typed,
+    guide_header, install_footer, install_media_folder, install_releases, seen_steps, waiting_for,
+    GuideStep, InstallAddonChoice, InstallGuide, InstallMethod, InstallPlan, InstallProfile,
+    InstallRelease, InstallSetup, InstallSetupAddon, MediaFolder, StepNote, Typed,
 };
 pub use labels::{
     diagnostics_report, engine_name, memory_label, pointer_status, summary_cards, SummaryCard,
