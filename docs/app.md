@@ -89,7 +89,7 @@ asking. The machine's name and state head the page, with a command bar:
 Start, which becomes a Power off button with Pause, Reset and Force quit
 beside it, then Console, Capture mouse and Settings. More has CPU load,
 Diagnostics, Screenshot, Install IRIX, Keyboard shortcuts, Preferences and
-About. Settings has eight pages. While an install runs the pane shows its
+About. A toast takes the place of the status bar for a few seconds, so the picture never changes size. Settings has eight pages. While an install runs the pane shows its
 steps instead of the machines. Drop a CD image on the page to change the CD,
 or a disk image on the pane to start a new machine from it.
 

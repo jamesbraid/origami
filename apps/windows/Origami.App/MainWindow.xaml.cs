@@ -739,7 +739,7 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(AboutButton, Ui.T(OrigamiUiString.AboutOrigami));
         _toastTimer = _ui.CreateTimer();
         _toastTimer.IsRepeating = false;
-        _toastTimer.Tick += (_, _) => Toast.IsOpen = false;
+        _toastTimer.Tick += (_, _) => Toast.Visibility = Visibility.Collapsed;
     }
 
     DispatcherQueueTimer _toastTimer = null!;
@@ -1058,29 +1058,30 @@ public sealed partial class MainWindow : Window
 
     string _lastSaid = "";
 
-    /// <summary>A toast above the status bar for a few seconds. It sits below the picture, never over it, because the picture is a native window.</summary>
+    /// <summary>A toast for a few seconds, in the status bar's row: the picture is a native window that XAML cannot draw over, and a row of its own would resize it.</summary>
     void Say(string text, string? action = null, Action? onAction = null, InfoBarSeverity severity = InfoBarSeverity.Informational)
     {
         _lastSaid = text;
-        Toast.Severity = severity;
-        Toast.Message = text;
-        Toast.ActionButton = null;
+        ToastText.Text = text;
+        if (severity == InfoBarSeverity.Informational) ToastText.ClearValue(TextBlock.ForegroundProperty);
+        else ToastText.Foreground = Ui.ToneBrush(severity == InfoBarSeverity.Error ? Tone.Critical : Tone.Caution);
+        ToastActions.Children.Clear();
         if (action is not null && onAction is not null)
         {
-            var b = new Button { Content = action };
+            var b = new Button { Content = action, MinHeight = 0, Height = 22, Padding = new Thickness(8, 0, 8, 0), FontSize = 12 };
             AutomationProperties.SetAutomationId(b, "toast.action");
             b.Click += (_, _) => onAction();
-            Toast.ActionButton = b;
+            ToastActions.Children.Add(b);
         }
-        Toast.IsOpen = true;
+        Toast.Visibility = Visibility.Visible;
         _toastTimer.Stop();
         _toastTimer.Interval = TimeSpan.FromMilliseconds(Tokens.Motion.ToastMs);
         _toastTimer.Start();
     }
 
     /// <summary>Whether the toast offers an action such as Show in Explorer, for the self-test.</summary>
-    public string? ToastActionForTest => Toast.IsOpen && Toast.ActionButton is Button b ? b.Content as string : null;
-    public bool ToastOpenForTest => Toast.IsOpen;
+    public string? ToastActionForTest => ToastOpenForTest && ToastActions.Children.FirstOrDefault() is Button b ? b.Content as string : null;
+    public bool ToastOpenForTest => Toast.Visibility == Visibility.Visible;
 
     // ---- Install IRIX ------------------------------------------------------------------------
 
