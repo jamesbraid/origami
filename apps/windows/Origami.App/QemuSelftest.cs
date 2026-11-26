@@ -94,7 +94,7 @@ public static class Selftest
         }
         // The names the other apps must match: tools/screenshots parity compares this file.
         var parity = new Dictionary<string, object> { ["platform"] = "windows", ["sidebar_heading"] = w.LibraryHeadingForTest };
-        parity["about"] = new[] { Ui.T(OrigamiUiString.AboutOrigami), OrigamiFfiMethods.OrigamiVersionLine(typeof(AboutWindow).Assembly.GetName().Version?.ToString(3) ?? "0") };
+        parity["about"] = new[] { Ui.T(OrigamiUiString.AboutOrigami), Ui.VersionLine() };
         parity["dialog_titles"] = new[] { Ui.T(OrigamiUiString.NewMachine), Ui.T(OrigamiUiString.Settings), Ui.T(OrigamiUiString.Diagnostics), Ui.T(OrigamiUiString.InstallIrix) };
         parity["toolbar_tooltips"] = new[] { Ui.T(OrigamiUiString.ShowOrHideTheEmulated), Ui.T(OrigamiUiString.OpenTheMainMenu) };
         void SaveParity() { try { File.WriteAllText(Path.Combine(dir, "windows-parity.json"), JsonSerializer.Serialize(parity, new JsonSerializerOptions { WriteIndented = true })); } catch { } }
@@ -113,8 +113,14 @@ public static class Selftest
                 // The ready-made choice is listed first, so it is already the one selected.
                 if (FindOpen<UIC.TextBox>("new.name") is { } typed) typed.Text = "irix";
                 await Task.Delay(1500);
+                // The Disk group's heading is the text above its choices.
+                var diskChoices = FindOpen<UIC.RadioButtons>("new.disk");
+                var diskPanel = diskChoices?.Parent as UIC.Panel;
+                var diskAt = diskPanel is null ? -1 : diskPanel.Children.IndexOf(diskChoices!);
+                var diskHeading = diskAt > 0 && diskPanel!.Children[diskAt - 1] is UIC.TextBlock diskTitle ? diskTitle.Text : "";
                 parity["new_machine_fields"] = new[] { "new.engine", "new.model", "new.name" }
                     .Select(id => FindOpen<UI.FrameworkElement>(id)).Select(e => e switch { UIC.ComboBox c => (string)c.Header, UIC.TextBox t => (string)t.Header, _ => "" })
+                    .Append(diskHeading)
                     .Append(Find<UIC.Expander>().Select(e => e.Header as string ?? "").FirstOrDefault() ?? "").ToList();
                 await Grab(dir, "windows-ready-disk", w.Hwnd);
             }
@@ -157,7 +163,7 @@ public static class Selftest
             await Go(OStep.Media);
             await Go(OStep.Software);
             await Until(() => iw.Find<UIC.CheckBox>("install.addon.mipspro") != null, 8000);
-            parity["install_steps"] = iw.StepNamesForTest;
+            parity["install_steps"] = iw.StepTitlesForTest;
             var main = w.AppWindow.Presenter as Microsoft.UI.Windowing.OverlappedPresenter;
             var wasTop = main?.IsAlwaysOnTop ?? false;
             if (main != null) main.IsAlwaysOnTop = false;

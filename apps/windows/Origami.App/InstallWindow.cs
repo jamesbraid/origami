@@ -95,6 +95,7 @@ public sealed class InstallWindow : Window
 
     internal OrigamiInstallStep? StepForTest => _flow?.Step();
     internal List<string> StepNamesForTest => _flow?.StepTitles().Select(t => $"{t.Number}. {t.Title}").ToList() ?? new();
+    internal List<string> StepTitlesForTest => _flow?.StepTitles().Select(t => t.Title).ToList() ?? new();
     /// <summary>The numbered title of a step, as the core lists it.</summary>
     string TitleOf(OrigamiInstallStep s) => _flow!.StepTitles().First(t => t.Step == s).Title;
     /// <summary>Why Continue is off, as the page says it.</summary>

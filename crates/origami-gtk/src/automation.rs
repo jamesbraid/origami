@@ -608,9 +608,18 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                     own.push(t.title().to_string());
                 }
                 descendants(r, &|c| c.is::<gtk::Label>() && c.is_mapped(), &mut labels);
+                // A field is a row, or the Disk group whose rows are the ways to get a disk: those vary with
+                // what the server offers, so only their heading is compared.
                 descendants(
                     r,
-                    &|c| c.is::<adw::PreferencesRow>() && c.is_mapped(),
+                    &|c| {
+                        let n = c.widget_name();
+                        n == "new.disk-group"
+                            || (c.is::<adw::PreferencesRow>()
+                                && c.is_mapped()
+                                && !n.starts_with("new.disk-row.")
+                                && !matches!(n.as_str(), "new.size" | "new.image" | "new.release"))
+                    },
                     &mut rows,
                 );
                 descendants(
@@ -642,7 +651,10 @@ fn run(app: &Rc<App>, line: &str) -> Value {
             };
             json!({"found": true, "own": own, "ellipsized": cut,
                    "labels": labels.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>(),
-                   "fields": rows.iter().filter_map(|w| w.downcast_ref::<adw::PreferencesRow>()).map(|r| r.title().to_string()).collect::<Vec<_>>(),
+                   "fields": rows.iter().filter_map(|w| match w.downcast_ref::<adw::PreferencesRow>() {
+                       Some(r) => Some(r.title().to_string()),
+                       None => w.downcast_ref::<adw::PreferencesGroup>().map(|g| g.title().to_string()),
+                   }).collect::<Vec<_>>(),
                    "pages": pages.iter().map(text).collect::<Vec<_>>(),
                    "steps": steps.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>(),
                    "current": current.iter().filter_map(|w| w.downcast_ref::<gtk::Label>()).map(|l| l.text().to_string()).collect::<Vec<_>>()})

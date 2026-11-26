@@ -1618,6 +1618,7 @@ fn new_machine_dialog(
     let disk_group = adw::PreferencesGroup::builder()
         .title(UiString::Disk.text())
         .build();
+    disk_group.set_widget_name("new.disk-group");
     let labels = origami_core::facade::disk_labels();
     let choice = Rc::new(std::cell::Cell::new(DiskChoice::Install));
     let mut radios: Vec<(DiskChoice, adw::ActionRow, gtk::CheckButton)> = Vec::new();

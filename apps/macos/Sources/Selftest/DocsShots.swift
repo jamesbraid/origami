@@ -137,7 +137,7 @@ func runDocsShots(library: String, out: String) {
         install.next()
         install.next()
         _ = waitFor(30) { !install.flow.addons().isEmpty }
-        installSteps = install.flow.steps().map { origamiInstallStepTitle(step: $0) }
+        installSteps = install.flow.stepTitles().map { $0.title }
         capture(window("Install IRIX: \(model.name)", InstallSetupSheet(model: install), 740, 480), "macos-install-assistant")
         app.forgetInstall(model.id)
     } else { fail("no install assistant for \(model.name)") }
