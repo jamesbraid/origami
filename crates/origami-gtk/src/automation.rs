@@ -276,7 +276,7 @@ fn describe(m: &MachineUi) -> Value {
         &mut cards,
     );
     json!({
-        "name": m.name, "state": m.label().word, "seq": m.seq.get(),
+        "name": m.name, "state": m.label().word, "stages": m.stages_done(), "seq": m.seq.get(),
         "size": [m.size.get().0, m.size.get().1],
         "idle_ms": m.last_frame.get().elapsed().as_millis() as u64,
         "imported": m.stats.borrow().imported, "inputs": m.inputs.get(),
@@ -541,6 +541,10 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 alert.force_close();
                 return json!({"ok": true});
             }
+            if let (Some(row), Some(open)) = (widget.downcast_ref::<adw::ExpanderRow>(), value) {
+                row.set_expanded(open == "open");
+                return json!({"ok": true});
+            }
             if let (Some(row), Some(value)) = (widget.downcast_ref::<adw::EntryRow>(), value) {
                 row.set_text(value);
                 // A row with an apply button applies on this, as the button does.
@@ -737,6 +741,32 @@ fn run(app: &Rc<App>, line: &str) -> Value {
                 }
                 None => json!({"found": false}),
             }
+        }
+        "scheme" => {
+            // Light, dark or default, as the system's setting would be.
+            let scheme = match a1 {
+                Some("dark") => adw::ColorScheme::ForceDark,
+                Some("light") => adw::ColorScheme::ForceLight,
+                _ => adw::ColorScheme::Default,
+            };
+            adw::StyleManager::default().set_color_scheme(scheme);
+            json!({"ok": true})
+        }
+        "menu" => {
+            // The main menu, open or closed.
+            let Some(w) = window::active(app) else {
+                return json!({"error": "no window"});
+            };
+            let button = w
+                .toolbar
+                .last()
+                .and_then(|b| b.downcast_ref::<gtk::MenuButton>());
+            match (button, a1) {
+                (Some(b), Some("open")) => b.popup(),
+                (Some(b), _) => b.popdown(),
+                _ => return json!({"error": "no menu"}),
+            }
+            json!({"ok": true})
         }
         "alerts" => {
             crate::alerts::show_in_automation(a1 == Some("on"));

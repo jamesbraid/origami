@@ -1539,7 +1539,7 @@ fn new_machine_dialog(
     let dialog = adw::Dialog::builder()
         .title(UiString::NewMachine.text())
         .content_width(460)
-        .content_height(680)
+        .content_height(880)
         .build();
     dialog.set_widget_name("new.dialog");
     let page = adw::PreferencesPage::new();
@@ -2104,6 +2104,7 @@ impl IdentityForm {
         let advanced = adw::ExpanderRow::builder()
             .title(UiString::Advanced.text())
             .build();
+        advanced.set_widget_name("new.advanced");
         let id = adw::EntryRow::builder()
             .title(UiString::MachineId.text())
             .build();
@@ -2150,6 +2151,22 @@ impl IdentityForm {
             mac_note.upcast_ref(),
         ] {
             advanced.add_row(row);
+        }
+        // Opening Advanced brings its first field into view, so the rows below the fold are seen.
+        {
+            let id = id.clone();
+            advanced.connect_expanded_notify(move |a| {
+                if a.is_expanded() {
+                    let id = id.clone();
+                    // After the rows have revealed, or there is nothing to scroll to yet.
+                    glib::timeout_add_local_once(
+                        std::time::Duration::from_millis(400),
+                        move || {
+                            id.grab_focus();
+                        },
+                    );
+                }
+            });
         }
         let group = adw::PreferencesGroup::new();
         group.add(&advanced);

@@ -63,6 +63,11 @@ pub fn stop_installs(app: &Rc<App>, key: Option<&str>) {
 struct GuideMark {
     /// The step's place in the whole guide, from 0.
     index: usize,
+    /// The step's card, and the part of it only the current step shows.
+    card: gtk::Box,
+    number: gtk::Label,
+    title: gtk::Label,
+    body: gtk::Box,
     seen: gtk::Label,
     done: Option<gtk::Button>,
     waiting: gtk::Label,
@@ -171,6 +176,15 @@ fn note(s: &str) -> gtk::Label {
     l.add_css_class("dim-label");
     l.set_margin_start(28);
     l
+}
+
+/// A key as the design draws it: a small outlined cap.
+fn keycap(glyph: &str) -> gtk::Label {
+    gtk::Label::builder()
+        .label(glyph)
+        .css_classes(["keycap", "caption"])
+        .valign(gtk::Align::Center)
+        .build()
 }
 
 /// Text to type, in monospace and selectable.
@@ -1550,24 +1564,30 @@ impl Asst {
         self.refresh_marks();
     }
 
-    /// One card per guide step: what to watch for, what to type, and whether it is done.
+    /// One row per guide step. Done steps fold to a line, the current one opens with what to
+    /// watch for and what to type, and later ones are titles only; `refresh_marks` sets which.
     fn checklist(self: &Rc<Self>, section: usize, offset: usize, steps: &[GuideStep]) -> gtk::Box {
-        let list = col(10);
+        let list = col(6);
         for (i, st) in steps.iter().enumerate() {
-            let card = col(6);
-            card.add_css_class("card");
-            margins(&card, 0, 0, 0, 0);
+            let card = col(0);
             let inner = col(6);
-            margins(&inner, 10, 10, 12, 12);
+            margins(&inner, 8, 8, 12, 12);
             card.append(&inner);
             let head = row();
-            let title = gtk::Label::builder()
-                .label(format!("{}. {}", offset + i + 1, st.title))
+            let number = gtk::Label::builder()
+                .label(format!("{}", offset + i + 1))
                 .css_classes(["heading"])
+                .width_chars(2)
+                .xalign(0.0)
+                .valign(gtk::Align::Start)
+                .build();
+            let title = gtk::Label::builder()
+                .label(&st.title)
                 .xalign(0.0)
                 .hexpand(true)
                 .wrap(true)
                 .build();
+            head.append(&number);
             head.append(&title);
             let seen = named(
                 gtk::Label::builder()
@@ -1579,6 +1599,9 @@ impl Asst {
             );
             head.append(&seen);
             let pressed = Rc::new(Cell::new(self.ticks.borrow().contains(&(section, i))));
+            inner.append(&head);
+            let body = col(6);
+            body.set_margin_start(26);
             // Graphics consoles show no text to follow, so the person says when it is done.
             let done = (!self.serial).then(|| {
                 let b = named(
@@ -1594,75 +1617,71 @@ impl Asst {
                 head.append(&b);
                 b
             });
-            inner.append(&head);
-            let mut watch_line = None;
-            if let Some(w) = &st.watch {
+            let mut waiting = None;
+            // Each prompt shows once: the step's own, then any typed one it does not already say.
+            let mut shown: Vec<&str> = st.watch.as_deref().into_iter().collect();
+            let kv = |label: &str| {
+                gtk::Label::builder()
+                    .label(label)
+                    .css_classes(["caption", "dim-label"])
+                    .xalign(0.0)
+                    .valign(gtk::Align::Center)
+                    .build()
+            };
+            let watch_row = |text: &str| {
                 let r = row();
-                r.append(
-                    &gtk::Label::builder()
-                        .label(UiString::WatchFor.text())
-                        .css_classes(["caption", "dim-label"])
-                        .build(),
-                );
-                r.append(&mono(w));
-                inner.append(&r);
-                let waiting = gtk::Label::builder()
+                r.append(&kv(UiString::WatchFor.text()));
+                r.append(&mono(text));
+                r
+            };
+            if let Some(w) = &st.watch {
+                body.append(&watch_row(w));
+                let line = gtk::Label::builder()
                     .label(waiting_for(w))
                     .css_classes(["caption", "dim-label"])
                     .xalign(0.0)
                     .visible(false)
                     .build();
-                inner.append(&waiting);
-                watch_line = Some(waiting);
+                waiting = Some(line);
             }
             for (k, t) in st.typed.iter().enumerate() {
-                // The prompt it answers, unless the Watch for line already says so.
-                if let Some(prompt) = t.prompt.as_ref().filter(|p| st.watch.as_ref() != Some(*p)) {
-                    inner.append(
-                        &gtk::Label::builder()
-                            .label(prompt)
-                            .css_classes(["caption", "dim-label", "monospace"])
-                            .xalign(0.0)
-                            .build(),
-                    );
+                if let Some(prompt) = t.prompt.as_deref() {
+                    let p = prompt.trim();
+                    if !p.is_empty() && !shown.iter().any(|w| w.contains(p) || p.contains(*w)) {
+                        body.append(&watch_row(prompt.trim()));
+                        shown.push(prompt);
+                    }
                 }
                 let r = row();
-                r.append(
-                    &gtk::Label::builder()
-                        .label(UiString::TypeLabel.text())
-                        .css_classes(["caption", "dim-label"])
-                        .build(),
-                );
-                let m = mono(&t.text);
-                m.set_hexpand(true);
-                r.append(&m);
-                let copy = named(
-                    gtk::Button::with_label(UiString::Copy.text()),
-                    &format!("install.copy.{section}.{i}.{k}"),
-                );
-                let text = t.text.clone();
-                copy.connect_clicked(move |_| {
-                    if let Some(d) = gtk::gdk::Display::default() {
-                        d.clipboard().set_text(&text);
-                    }
-                });
-                r.append(&copy);
-                inner.append(&r);
-            }
-            if let (true, Some(send)) = (self.serial, st.send.clone()) {
-                let type_it = named(
-                    gtk::Button::with_label(UiString::TypeIt.text()),
-                    &format!("install.type.{section}.{i}"),
-                );
-                type_it.set_halign(gtk::Align::Start);
-                let me = self.clone();
-                type_it.connect_clicked(move |_| {
-                    if let Err(e) = me.m.machine.console_send(send.as_bytes()) {
-                        me.fail(&e.message);
-                    }
-                });
-                inner.append(&type_it);
-                self.type_buttons.borrow_mut().push(type_it);
+                r.append(&kv(UiString::TypeLabel.text()));
+                // The key alone is drawn as a key, which has nothing to copy.
+                if t.text == "Return" {
+                    r.append(&keycap("⏎"));
+                } else {
+                    let m = mono(&t.text);
+                    m.set_hexpand(true);
+                    r.append(&m);
+                    r.append(&keycap("⏎"));
+                    let copy = named(
+                        gtk::Button::builder()
+                            .icon_name("edit-copy-symbolic")
+                            .tooltip_text(UiString::Copy.text())
+                            .css_classes(["flat"])
+                            .build(),
+                        &format!("install.copy.{section}.{i}.{k}"),
+                    );
+                    copy.update_property(&[gtk::accessible::Property::Label(
+                        UiString::Copy.text(),
+                    )]);
+                    let text = t.text.clone();
+                    copy.connect_clicked(move |_| {
+                        if let Some(d) = gtk::gdk::Display::default() {
+                            d.clipboard().set_text(&text);
+                        }
+                    });
+                    r.append(&copy);
+                }
+                body.append(&r);
             }
             if let Some(n) = &st.note {
                 let l = note(&n.text);
@@ -1671,13 +1690,39 @@ impl Asst {
                     l.remove_css_class("dim-label");
                     l.add_css_class("warning");
                 }
-                inner.append(&l);
+                body.append(&l);
             }
+            let foot = row();
+            if let Some(w) = &waiting {
+                w.set_hexpand(true);
+                foot.append(w);
+            }
+            if let (true, Some(send)) = (self.serial, st.send.clone()) {
+                let type_it = named(
+                    gtk::Button::with_label(UiString::TypeIt.text()),
+                    &format!("install.type.{section}.{i}"),
+                );
+                type_it.set_halign(gtk::Align::End);
+                let me = self.clone();
+                type_it.connect_clicked(move |_| {
+                    if let Err(e) = me.m.machine.console_send(send.as_bytes()) {
+                        me.fail(&e.message);
+                    }
+                });
+                foot.append(&type_it);
+                self.type_buttons.borrow_mut().push(type_it);
+            }
+            body.append(&foot);
+            inner.append(&body);
             self.marks.borrow_mut().push(GuideMark {
                 index: offset + i,
+                card: card.clone(),
+                number,
+                title,
+                body,
                 seen,
                 done,
-                waiting: watch_line.unwrap_or_else(|| gtk::Label::new(None)),
+                waiting: waiting.unwrap_or_else(|| gtk::Label::new(None)),
                 pressed,
             });
             list.append(&card);
@@ -1710,16 +1755,29 @@ impl Asst {
             .find(|m| !done(m))
             .map_or_else(|| marks.last().map_or(seen, |m| m.index + 1), |m| m.index);
         for m in marks.iter() {
-            m.seen.set_visible(self.serial && done(m));
+            let (is_done, is_now) = (done(m), m.index == current);
+            m.card.set_css_classes(if is_now { &["card"] } else { &[] });
+            m.body.set_visible(is_now && !is_done);
+            m.number.set_label(&if is_done {
+                "✓".to_string()
+            } else {
+                (m.index + 1).to_string()
+            });
+            m.title.set_css_classes(if is_now || is_done {
+                &[]
+            } else {
+                &["dim-label"]
+            });
+            m.seen.set_visible(is_done);
+            m.seen.set_label(if self.serial {
+                UiString::Seen.text()
+            } else {
+                UiString::Done.text()
+            });
             if let Some(b) = &m.done {
-                b.set_visible(!m.pressed.get());
+                b.set_visible(is_now && !is_done);
             }
-            if !self.serial && m.pressed.get() {
-                m.seen.set_label(UiString::Done.text());
-                m.seen.set_visible(true);
-            }
-            m.waiting
-                .set_visible(self.serial && m.index == current && !done(m));
+            m.waiting.set_visible(self.serial && is_now && !is_done);
         }
         let shown = (current + 1).min(total.max(1));
         self.pane_title.set_title(&guide_header(shown, total));

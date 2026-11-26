@@ -509,14 +509,17 @@ def first_light(quick=False):
         check("start command accepted", r.get("ok"), r)
         # A fast host leaves Starting within a second: look at the header while it lasts.
         cancel = []
+        stages = []
         def starting():
             if (a.machine("octane2") or {}).get("state") != "Starting":
                 return False
+            stages.append(a.req("widget start.stage.emulator").get("mapped") and a.req("widget start.stage.screen").get("mapped"))
             cancel.append(a.state()["chrome"]["power"][0])
             return "Cancel start" in cancel
         saw_starting = a.wait("Starting", starting, 15, 0.05)
         check("tab shows Starting", saw_starting or bool(cancel), cancel)
         check("while starting the header offers Cancel start, not Force quit", "Cancel start" in cancel, cancel)
+        check("the starting page shows the emulator and screen stages", any(stages), stages)
         shot("03-starting")
         c = prom_ready(a, "octane2")
         check("first picture within 15 min", c is not None)
@@ -1029,6 +1032,8 @@ def install():
         chrome = a.state()["chrome"]
         check("the guide takes the library's place in the sidebar", chrome["sidebar"] == "guide" and (chrome["guide_header"] or "").startswith("Install IRIX, step 1 of"), [chrome["sidebar"], chrome["guide_header"]])
         check("the set-up dialog is gone", widget("install.window").get("found") is False)
+        body = lambda i: widget("install.copy.6.%d.0" % i)
+        check("later steps are titles only and the current one is open", body(1).get("mapped") is False and widget("install.type.6.0").get("mapped") is not False, [body(1), widget("install.type.6.0")])
         # Cancel asks first, and Back keeps the server running.
         press("install.cancel")
         asked = a.wait("the question", lambda: ok("activate install.ask stay"), 30, 0.5)
@@ -1044,6 +1049,10 @@ def install():
         check("Type it sends", ok("activate install.type.6.0"))
         echoed = a.wait("the guest's answer", lambda: received() > before, 60, 1)
         check("the guest answers what Type It sent", echoed, (before, received()))
+        seen = a.wait("Seen", lambda: widget("install.seen.6.0").get("mapped") or None, 30, 1)
+        time.sleep(1)
+        shot("capture-install-seen")
+        check("a step the console shows done is marked Seen and folds", bool(seen), widget("install.seen.6.0"))
         press("install.continue")
         press("install.continue")
         at("Install packages")
@@ -1190,6 +1199,7 @@ def empty():
     a = App()
     try:
         a.wait("the page", lambda: a.req("widget empty.no-machines").get("mapped"), 30, 0.5)
+        shot("capture-empty-library")
         check("an empty library says No machines yet, with a New machine button", a.req("widget empty.no-machines").get("mapped") is True, a.req("widget empty.no-machines"))
     finally:
         a.stop()
@@ -1320,9 +1330,184 @@ def cards():
         check("a machine that cannot start shows a card with Show details", bool(card), rows)
         time.sleep(1)
         shot("cards-cant-start")
-        check("the machine page is still stopped, with a card instead of a picture", a.machine("broken")["state"] == "Stopped", a.machine("broken")["state"])
+        check("the title reads what the core says for a start that failed", a.state()["chrome"]["title"] == ["broken", "Stopped unexpectedly"], a.state()["chrome"]["title"])
     finally:
         a.stop()
+
+
+def captures_misc():
+    """Pictures for sign-off that need no running machine: dark mode, the main menu, the shortcuts window, the System
+    card on a machine whose disk is recognised, the Can't open row, and New machine with Advanced open and an error."""
+    fixture = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "tests", "fixtures", "machines", "disk-irix-6.5.30.img"))
+    create_machine("octane2")
+    bad = os.path.join(lib, "badbox")
+    os.makedirs(bad, exist_ok=True)
+    open(os.path.join(bad, "machine.toml"), "w").write("format = 99\n")
+    a = App()
+    try:
+        a.wait("library", lambda: len(a.state()["library"]) == 2, 30)
+        made, _ = new_machine(a, "sysbox", "Your own image", [fixture])
+        a.wait("the OS", lambda: any("IRIX 6.5.30" in (r["tooltip"] or "") for r in a.state()["chrome"]["row_names"]), 60, 0.5)
+        words = lambda: {n: r["word"] for n, r in zip(a.state()["library"], a.state()["chrome"]["row_names"])}
+        check("an unreadable machine's row says Can't open", words().get("badbox") == "Can't open", words())
+        a.req("open sysbox")
+        a.wait("the page", lambda: a.machine("sysbox"), 20, 0.5)
+        time.sleep(2)
+        cards = a.machine("sysbox")["cards"]
+        check("a machine whose disk is recognised has a System card beside Memory and Model", len(cards) == 3, cards)
+        shot("capture-system-card")
+        a.req("open octane2")
+        time.sleep(1)
+        shot("capture-library-states")
+        a.req("scheme dark")
+        time.sleep(1.5)
+        shot("capture-dark-main")
+        a.req("select badbox")
+        time.sleep(1)
+        shot("capture-dark-cant-open")
+        a.req("menu open")
+        time.sleep(1)
+        shot("capture-dark-main-menu")
+        a.req("menu close")
+        a.req("scheme light")
+        time.sleep(1)
+        a.req("menu open")
+        time.sleep(1)
+        shot("capture-main-menu")
+        a.req("menu close")
+        time.sleep(0.5)
+        r = a.req("invoke view.shortcuts")
+        opened = a.wait("the window", lambda: a.req("widget shortcuts.window").get("mapped"), 10, 0.2)
+        time.sleep(1)
+        shot("capture-shortcuts")
+        check("the Keyboard shortcuts window opens", r.get("ok") and opened, r)
+        key("Escape")
+        time.sleep(1)
+        a.req("invoke machine.new")
+        a.wait("the dialog", lambda: a.req("widget new.advanced").get("found"), 30, 0.5)
+        a.req("activate new.advanced open")
+        a.req("activate new.id 0")
+        note = a.wait("the error", lambda: (a.req("activate new.id-note").get("text") or "").startswith("Choose a number") or None, 20, 0.5)
+        time.sleep(1)
+        shot("capture-new-machine-advanced-error")
+        check("a bad machine ID is said on its own row, in the core's words", bool(note), a.req("activate new.id-note"))
+        a.req("activate new.dialog")
+    finally:
+        a.stop()
+
+
+def captures_alerts():
+    """Each alert with its default button, Remove with its toast, and the status bar while the mouse is captured."""
+    if mode != "x11":
+        skip("captures-alerts", "needs XTest")
+        return
+    for n in ("octane2", "spare"):
+        create_machine(n)
+    a = App()
+    try:
+        a.wait("library", lambda: len(a.state()["library"]) == 2, 30)
+        a.req("alerts on")
+        a.req("open octane2")
+        a.req("invoke machine.start octane2")
+        a.wait("up", lambda: (a.machine("octane2") or {}).get("state") == "Running", 120, 0.5)
+        a.wait("a picture", lambda: (a.machine("octane2") or {}).get("size", [0])[0] > 0, 300, 1)
+        time.sleep(3)
+        asked = lambda: a.wait("the alert", lambda: a.req("alert") if a.req("alert").get("found") else None, 10, 0.2) or {}
+        for command, name, want in (
+            ("machine.stop", "power-off", "Cancel"),
+            ("machine.reset", "reset", "Cancel"),
+            ("machine.force-quit", "force-quit", "Cancel"),
+            ("window.close-tab", "close-tab", "Keep running"),
+            ("app.quit", "quit", "Keep running"),
+        ):
+            a.req("invoke %s octane2" % command)
+            al = asked()
+            time.sleep(0.7)
+            shot("capture-alert-" + name)
+            check("%s: the default button is %s" % (name, want), al.get("default") == want, al)
+            a.req("activate alert.dialog %d" % al["buttons"].index("Cancel"))
+            a.wait("the alert to go", lambda: not a.req("alert").get("found"), 10, 0.2)
+        # The status bar while the mouse is captured.
+        a.req("invoke machine.pointer-capture octane2")
+        c = screen_centre(a, "octane2")
+        pointer_to(*c)
+        time.sleep(0.5)
+        click()
+        got = a.wait("capture", lambda: a.machine("octane2")["captured"], 10, 0.2)
+        a.wait("the words", lambda: "Captured" in a.state()["chrome"]["bottom_bar"]["pointer"], 5, 0.2)
+        time.sleep(1)
+        shot("capture-status-bar-captured")
+        check("the status bar says how to release the captured mouse", "Captured, press Ctrl+Alt to release" == a.state()["chrome"]["bottom_bar"]["pointer"], a.state()["chrome"]["bottom_bar"])
+        key("ctrl+alt")
+        a.req("invoke machine.capture-mouse octane2")
+        a.req("alerts off")
+        a.req("invoke machine.force-quit octane2")
+        a.wait("down", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+        a.req("alerts on")
+        a.req("invoke machine.remove spare")
+        al = asked()
+        time.sleep(0.7)
+        shot("capture-alert-remove")
+        check("remove: the default button is Cancel", al.get("default") == "Cancel", al)
+        a.req("activate alert.dialog 1")
+        a.wait("the machine to go", lambda: "spare" not in a.state()["library"], 30, 0.5)
+        time.sleep(0.7)
+        shot("capture-remove-toast")
+        check("a toast says it moved to the Trash", a.state()["chrome"]["toast"] == "spare moved to the Trash", a.state()["chrome"]["toast"])
+    finally:
+        a.stop()
+
+
+def captures_saving():
+    """The Saving card while a machine takes its time to stop: the emulator is held still, so the clean stop waits."""
+    create_machine("octane2")
+    a = App()
+    try:
+        a.wait("library", lambda: a.state()["library"], 30)
+        a.req("open octane2")
+        a.req("invoke machine.start octane2")
+        a.wait("up", lambda: (a.machine("octane2") or {}).get("state") == "Running", 120, 0.5)
+        time.sleep(15)
+        sh("pkill", "-STOP", "-f", "qemu-system-mips64")
+        a.req("invoke machine.stop octane2")
+        saw = a.wait("Saving", lambda: (a.machine("octane2") or {}).get("state") == "Saving" or None, 30, 0.2)
+        time.sleep(1)
+        shot("capture-card-saving")
+        check("a machine on its way down reads Saving with its card", bool(saw), a.machine("octane2")["state"])
+        sh("pkill", "-CONT", "-f", "qemu-system-mips64")
+        a.req("invoke machine.force-quit octane2")
+        a.wait("down", lambda: (a.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+    finally:
+        sh("pkill", "-CONT", "-f", "qemu-system-mips64")
+        a.stop()
+
+
+def captures_leftrunning():
+    """The Left running card: the app quits, the machine keeps going, and the next app finds it."""
+    create_machine("octane2")
+    a = App()
+    a.wait("library", lambda: a.state()["library"], 30)
+    a.req("open octane2")
+    a.req("invoke machine.start octane2")
+    a.wait("up", lambda: (a.machine("octane2") or {}).get("state") == "Running", 120, 0.5)
+    time.sleep(5)
+    # The app goes without stopping the machine; the machine's own runner stays up.
+    a.proc.kill()
+    a.proc.wait()
+    b = App()
+    try:
+        b.wait("library", lambda: b.state()["library"], 30)
+        b.req("open octane2")
+        saw = b.wait("Left running", lambda: (b.machine("octane2") or {}).get("state") == "Left running" or None, 30, 0.5)
+        time.sleep(1)
+        shot("capture-card-left-running")
+        check("a machine that kept running after the app quit reads Left running", bool(saw), b.machine("octane2") and b.machine("octane2")["state"])
+        b.req("invoke machine.start octane2")
+        b.wait("attached", lambda: (b.machine("octane2") or {}).get("state") == "Running" or None, 60, 0.5)
+        b.req("invoke machine.force-quit octane2")
+        b.wait("down", lambda: (b.machine("octane2") or {}).get("state") == "Stopped", 60, 0.5)
+    finally:
+        b.stop()
 
 
 def library_folder():
@@ -2120,7 +2305,19 @@ def docs():
         a.req("activate new.name irix")
         time.sleep(2)
         doc_shot("linux-ready-disk")
-        a.req("activate new.dialog")
+        # Make that machine, so its page can show the System card for a disk Origami recognises.
+        a.req("activate new.create")
+        made = a.wait("the machine", lambda: "irix" in a.state()["library"], 120, 1)
+        a.wait("the download to end", lambda: a.req("widget new.dialog").get("found") is False, 1200, 5)
+        if made:
+            a.req("open irix")
+            a.wait("the System card", lambda: len((a.machine("irix") or {}).get("cards") or []) == 3, 120, 1)
+            time.sleep(2)
+            doc_shot("linux-system-card")
+            check("a machine made from a ready-made disk has a System card", len((a.machine("irix") or {}).get("cards") or []) == 3, (a.machine("irix") or {}).get("cards"))
+            a.req("invoke window.close-tab irix")
+        else:
+            a.req("activate new.dialog")
         time.sleep(1)
         # The Install IRIX assistant at its Software step; the media is only chosen here, not fetched.
         a.req("invoke machine.install-irix octane2")
@@ -2156,7 +2353,7 @@ def docs():
         a.stop()
 
 
-SCENARIOS = {"layout": layout, "docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "actual-size-loop": actual_size_loop, "first-light": first_light, "cards": cards, "tabs": tabs, "drops": drops, "forms": forms, "remove": remove, "shortcuts": shortcuts, "empty": empty, "pointer": lambda: first_light(True)}
+SCENARIOS = {"layout": layout, "docs": docs, "headless": headless, "cube": cube, "hinv": hinv, "about": about, "credits": credits, "console": console, "diagnostics": diagnostics, "sidebar": sidebar, "frames": frames, "popout": popout, "settings": settings, "install": install, "library-folder": library_folder, "upgrade": upgrade, "hidpi": hidpi, "behaviour": behaviour, "actual-size-loop": actual_size_loop, "first-light": first_light, "captures-misc": captures_misc, "captures-alerts": captures_alerts, "captures-saving": captures_saving, "captures-leftrunning": captures_leftrunning, "cards": cards, "tabs": tabs, "drops": drops, "forms": forms, "remove": remove, "shortcuts": shortcuts, "empty": empty, "pointer": lambda: first_light(True)}
 try:
     SCENARIOS[scenario]()
 finally:

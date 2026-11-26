@@ -23,6 +23,7 @@ tabbar tab:hover { background: alpha(@window_fg_color, 0.07); }
 statuspage.machine-art image.icon { -gtk-icon-size: 240px; }
 tabbar.flat .box { box-shadow: none; }
 .start-surround { background-image: linear-gradient(to bottom, #282a30, #1f2126); }
+.keycap { padding: 0 6px; border-radius: 4px; border: 1px solid alpha(@window_fg_color, 0.25); border-bottom-width: 2px; background: alpha(@window_fg_color, 0.06); }
 .scrim { background: alpha(black, 0.45); }
 .plate { padding: 14px 22px; border-radius: 14px; background: alpha(black, 0.55); }
 .cpu-panel { background: #1c1c20; padding: 8px 14px; }

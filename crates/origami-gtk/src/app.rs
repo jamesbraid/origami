@@ -240,6 +240,20 @@ pub fn set_library(app: &Rc<App>, dir: std::path::PathBuf) {
 
 pub fn rescan(app: &Rc<App>) {
     *app.library.borrow_mut() = library::entries(&app.core);
+    // A disk read that ends after a machine's page was built adds its System card now.
+    let open: Vec<_> = app.machines.borrow().clone();
+    for m in open {
+        let fresh = app
+            .library
+            .borrow()
+            .iter()
+            .find(|e| e.dir == m.dir)
+            .cloned();
+        if let Some(e) = fresh.filter(|e| e.cards != m.entry.borrow().cards) {
+            *m.entry.borrow_mut() = e;
+            window::rebuild_hero(&m);
+        }
+    }
     window::rebuild_library(app);
 }
 
@@ -365,11 +379,15 @@ pub fn start(app: &Rc<App>, m: &Rc<MachineUi>) {
     }
     m.left_running.set(false);
     m.stop_requested.set(false);
+    m.start_failed.set(false);
     *m.error.borrow_mut() = None;
     m.started_at.set(Some(std::time::Instant::now()));
     match m.machine.start() {
         Ok(op) => *m.op.borrow_mut() = Some(op),
-        Err(e) => *m.error.borrow_mut() = Some(e),
+        Err(e) => {
+            m.start_failed.set(true);
+            *m.error.borrow_mut() = Some(e);
+        }
     }
     m.apply_state();
     window::refresh(app);

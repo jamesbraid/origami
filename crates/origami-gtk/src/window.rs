@@ -1009,10 +1009,12 @@ fn machine_mark(art: Option<&'static str>, pt: i32, icon: i32) -> gtk::Widget {
         &gtk::Image::builder()
             .icon_name("computer-symbolic")
             .pixel_size(icon)
-            .hexpand(true)
-            .vexpand(true)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .hexpand(false)
             .build(),
     );
+    g.set_hexpand(false);
     g.upcast()
 }
 

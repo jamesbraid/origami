@@ -90,6 +90,8 @@ pub struct MachineUi {
     /// The start or stop in flight, to read its failure when it ends.
     pub op: RefCell<Option<Operation>>,
     pub stop_requested: Cell<bool>,
+    /// The last start ended in an error, which stays until the next start.
+    pub start_failed: Cell<bool>,
     /// A runner from an earlier session is still up and not yet attached.
     pub left_running: Cell<bool>,
     /// Set while a frame wake is queued, so the engine thread posts at most one.
@@ -109,10 +111,12 @@ pub struct MachineUi {
     pub root: gtk::Stack,
     pub hero: gtk::Box,
     pub starting_line: gtk::Label,
-    /// The start page, its spinner, and the cube that replaces the spinner
+    /// The start page, the machine's still, and the cube that replaces the still
     /// while the machine is starting and the GPU allows one.
     starting: gtk::Box,
     spinner: gtk::Widget,
+    /// The two stages the page shows: the emulator is up, and the screen has a picture.
+    stages: [(gtk::Image, gtk::Label); 2],
     cube: RefCell<Option<crate::cube::Cube>>,
     pub screen: gtk::Overlay,
     pub picture: gtk::Picture,
@@ -225,19 +229,50 @@ impl MachineUi {
             .build();
         let surround = gtk::Box::builder().css_classes(["start-surround"]).build();
         surround.append(&starting);
-        let spinner: gtk::Widget = gtk::Spinner::builder()
-            .spinning(true)
-            .width_request(48)
-            .height_request(48)
-            .css_classes(["on-dark"])
-            .build()
-            .upcast();
+        // The machine's own picture stands in for the cube where there is no GPU for it.
+        let spinner: gtk::Widget = match entry.art.and_then(|id| crate::art::framed(id, "card")) {
+            Some(still) => still.upcast(),
+            None => gtk::Spinner::builder()
+                .spinning(true)
+                .width_request(48)
+                .height_request(48)
+                .css_classes(["on-dark"])
+                .build()
+                .upcast(),
+        };
         let heading = gtk::Label::builder()
             .label(UiString::StartingUpTheSystem.text())
             .css_classes(["title-2"])
             .build();
+        let stage = |icon: &str, title: &str, name: &str| {
+            let image = gtk::Image::from_icon_name(icon);
+            image.add_css_class("on-dark");
+            let word = gtk::Label::builder()
+                .label(title)
+                .css_classes(["caption", "on-dark"])
+                .build();
+            let chip = gtk::Box::builder().spacing(6).build();
+            chip.set_widget_name(name);
+            chip.append(&image);
+            chip.append(&word);
+            (chip, image, word)
+        };
+        let (emulator, emulator_icon, emulator_word) = stage(
+            "content-loading-symbolic",
+            "Emulator",
+            "start.stage.emulator",
+        );
+        let (screen_chip, screen_icon, screen_word) =
+            stage("content-loading-symbolic", "Screen", "start.stage.screen");
+        let stage_row = gtk::Box::builder()
+            .spacing(24)
+            .halign(gtk::Align::Center)
+            .build();
+        stage_row.append(&emulator);
+        stage_row.append(&screen_chip);
         starting.append(&spinner);
         starting.append(&heading);
+        starting.append(&stage_row);
         starting.append(&starting_line);
         for w in [&heading, &starting_line] {
             w.add_css_class("on-dark");
@@ -269,6 +304,7 @@ impl MachineUi {
             started_at: Cell::new(None),
             op: RefCell::new(None),
             stop_requested: Cell::new(false),
+            start_failed: Cell::new(false),
             left_running: Cell::new(false),
             wake_pending: Arc::new(AtomicBool::new(false)),
             hook: Cell::new(None),
@@ -282,6 +318,7 @@ impl MachineUi {
             starting_line,
             starting: starting.clone(),
             spinner: spinner.clone(),
+            stages: [(emulator_icon, emulator_word), (screen_icon, screen_word)],
             cube: RefCell::new(None),
             screen,
             picture,
@@ -525,6 +562,10 @@ impl MachineUi {
         match v.state {
             MachineState::LeftRunning => State::LeftRunning,
             MachineState::NotRunning if self.left_running.get() => State::LeftRunning,
+            // A start that failed leaves the machine "Stopped unexpectedly", as on the other apps.
+            MachineState::NotRunning if v.start_error.is_some() || self.start_failed.get() => {
+                State::Crashed
+            }
             MachineState::NotRunning => State::Stopped,
             MachineState::Starting => State::Starting,
             MachineState::Paused => State::Paused,
@@ -577,6 +618,42 @@ impl MachineUi {
         }
     }
 
+    /// Whether the emulator is up and whether the screen has a picture.
+    pub fn stages_done(&self) -> [bool; 2] {
+        let view = self.machine.view();
+        let up = matches!(view.state, MachineState::Running | MachineState::Paused);
+        [up, view.heads.iter().any(|h| h.active)]
+    }
+
+    /// The last line on the machine's console, without control codes, once it has said anything.
+    fn newest_console_line(&self) -> Option<String> {
+        let total = self.machine.view().console.total;
+        let chunk = self.machine.console_read(total.saturating_sub(2048), 2048);
+        let text = String::from_utf8_lossy(&chunk.bytes);
+        let mut clean = String::new();
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            match c {
+                '\x1b' => {
+                    // A control sequence ends at its final letter.
+                    if chars.peek() == Some(&'[') {
+                        chars.next();
+                        while chars.next_if(|c| !c.is_ascii_alphabetic()).is_some() {}
+                        chars.next();
+                    }
+                }
+                '\r' => {}
+                c => clean.push(c),
+            }
+        }
+        clean
+            .lines()
+            .rev()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .map(str::to_string)
+    }
+
     /// Show the page for the current state and the words that belong on it.
     pub fn apply_state(&self) {
         let state = self.compute_state();
@@ -610,7 +687,18 @@ impl MachineUi {
         let note = self.machine.view().note().unwrap_or_default().to_string();
         match state {
             State::Running => self.status.set_visible(false),
-            State::Starting => self.starting_line.set_label(&note),
+            State::Starting => {
+                for ((icon, _), done) in self.stages.iter().zip(self.stages_done()) {
+                    icon.set_icon_name(Some(if done {
+                        "emblem-ok-symbolic"
+                    } else {
+                        "content-loading-symbolic"
+                    }));
+                }
+                // The newest line the machine has said, else why it is waiting.
+                let line = self.newest_console_line().unwrap_or(note);
+                self.starting_line.set_label(&line);
+            }
             _ => {}
         }
         let label = self.label();
@@ -638,6 +726,7 @@ impl MachineUi {
         let Some(o) = op.as_ref() else { return };
         match o.state() {
             OperationState::Failed(e) => {
+                self.start_failed.set(!self.stop_requested.get());
                 *self.error.borrow_mut() = Some(e);
                 *op = None;
             }
