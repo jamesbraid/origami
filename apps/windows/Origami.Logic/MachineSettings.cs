@@ -14,7 +14,7 @@ public sealed record NetworkSetting(string Mode, string Device, string? ShareAdd
 public sealed record NetworkChoice(string Mode, string Label, string Detail);
 
 /// <summary>How to set up the host side of Bridged here: the field's label, an example for it, the steps and the commands to copy.</summary>
-public sealed record BridgedSetup(string Field, string Example, string Steps, string? Commands);
+public sealed record BridgedSetup(string Field, string FieldNote, string Example, string ShareExample, string ShareNote, string Steps, string? Commands);
 
 public enum IdentityField { Id, Address }
 

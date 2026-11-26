@@ -2571,6 +2571,17 @@ fn the_error_of_a_failed_start_stays_in_the_view_until_the_next_start() {
 }
 
 #[test]
+fn the_bridged_fields_are_named_in_plain_words_with_the_technical_name_under_them() {
+    let setup = bridged_setup();
+    for jargon in ["socket_vmnet", "TAP", "Tap", "tap0", "ADDRESS", "PREFIX"] {
+        assert!(!setup.field.contains(jargon), "{}", setup.field);
+    }
+    assert!(setup.field.starts_with("Network "));
+    assert!(setup.field_note.ends_with('.') && setup.share_note.ends_with('.'));
+    assert_eq!(setup.share_example, "192.168.1.20/24");
+}
+
+#[test]
 fn a_bridged_machines_device_and_share_address_change_in_one_call() {
     let f = fixture();
     let key = f.create("fuel", "fake.1");

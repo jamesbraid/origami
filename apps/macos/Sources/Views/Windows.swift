@@ -140,10 +140,16 @@ struct MachineSettings: View {
         if edit.bridging {
             Section(ui(.bridged)) {
                 // Return in either field applies Bridged with both; there is no Apply button.
-                TextField(setup.field, text: $edit.bridgeDevice, prompt: Text(setup.example)).disabled(locked || edit.working)
-                    .onSubmit { edit.applyBridged() }
-                TextField(ui(.addressForSharedFolders), text: $edit.bridgeShare, prompt: Text("ADDRESS/PREFIX")).disabled(locked || edit.working)
-                    .onSubmit { edit.applyBridged() }
+                VStack(alignment: .leading, spacing: 2) {
+                    TextField(setup.field, text: $edit.bridgeDevice, prompt: Text(setup.example)).disabled(locked || edit.working)
+                        .onSubmit { edit.applyBridged() }
+                    Text(setup.fieldNote).font(.caption).foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    TextField(ui(.addressForSharedFolders), text: $edit.bridgeShare, prompt: Text(setup.shareExample)).disabled(locked || edit.working)
+                        .onSubmit { edit.applyBridged() }
+                    Text(setup.shareNote).font(.caption).foregroundStyle(.secondary)
+                }
                 DisclosureGroup("How to set this up") {
                     Text(setup.steps).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if let commands = setup.commands {

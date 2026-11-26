@@ -266,8 +266,10 @@ Settings (Ctrl+Shift+I; Cmd+I on macOS) edits the selected machine's file:
 its name, memory and processor, graphics, drives, network, shared folders, startup and input.
 The Network page picks how the machine connects: Shared (NAT), Private,
 Bridged or Off. Bridged gives the machine its own address on your network
-through a tap device on Linux and Windows, or socket_vmnet on macOS; the page
-says how to set that up and offers the commands to copy. It also shows the
+through a tap device on Linux and Windows, or socket_vmnet on macOS. Its two
+fields are named in plain words, Network adapter (Network connection on macOS)
+and Address for shared folders, each with a line saying what it takes; How to set
+this up gives the steps and the commands to copy. It also shows the
 machine's Ethernet address, which you can copy but not change, and the private
 subnet under Advanced. After a change that moves the machine to a different
 network, the page shows the command that makes the guest forget its old

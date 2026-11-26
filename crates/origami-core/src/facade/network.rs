@@ -165,27 +165,39 @@ fn vmnet_endpoint() -> Option<PathBuf> {
 /// How to set up the host side of Bridged on this computer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BridgedSetup {
-    /// The label of the one field Bridged needs: the device, adapter or socket.
+    /// The label of the one field Bridged needs, in plain words.
     pub field: String,
+    /// What the field takes, with the technical name, under its label.
+    pub field_note: String,
     /// What fills it, as an example, or the socket found on this computer.
     pub example: String,
+    /// An example for the shared folders address.
+    pub share_example: String,
+    /// What the shared folders address takes, under its label.
+    pub share_note: String,
     pub steps: String,
     /// The commands in `steps`, for a Copy button.
     pub commands: Option<String>,
 }
 
 pub fn bridged_setup() -> BridgedSetup {
-    let (field, example, steps, commands) = if cfg!(target_os = "macos") {
+    let (field, field_note, example, steps, commands) = if cfg!(target_os = "macos") {
         let commands = "brew install socket_vmnet && sudo brew services start socket_vmnet";
+        let example: String = vmnet_endpoint().map_or_else(
+            || "/opt/homebrew/var/run/socket_vmnet".into(),
+            |p| p.display().to_string(),
+        );
         (
-            "socket_vmnet socket",
-            vmnet_endpoint().map_or_else(|| "/opt/homebrew/var/run/socket_vmnet".into(), |p| p.display().to_string()),
+            "Network connection",
+            format!("The socket_vmnet socket. The usual one is {example}."),
+            example,
             format!("Install and start socket_vmnet, once:\n{commands}\nThe default socket gives a shared network. A socket such as socket_vmnet.bridged.en0 joins your network."),
             Some(commands),
         )
     } else if cfg!(windows) {
         (
-            "TAP adapter name",
+            "Network adapter",
+            "A TAP adapter, named as Network Connections shows it.".into(),
             "OpenVPN TAP-Windows6".into(),
             "Install a TAP-Windows6 adapter from OpenVPN as an administrator. Type its name from Network Connections, then use Bridge Connections there to join it to your network.".into(),
             None,
@@ -194,7 +206,8 @@ pub fn bridged_setup() -> BridgedSetup {
         let commands =
             "sudo ip tuntap add dev tap0 mode tap user $USER\nsudo ip link set tap0 master br0 up";
         (
-            "Tap device",
+            "Network adapter",
+            "A tap device joined to your bridge.".into(),
             "tap0".into(),
             format!("Make a tap device you own and join it to a bridge that holds your Ethernet interface. Once, as root:\n{commands}\nEach running machine needs its own tap device."),
             Some(commands),
@@ -202,7 +215,10 @@ pub fn bridged_setup() -> BridgedSetup {
     };
     BridgedSetup {
         field: field.into(),
+        field_note,
         example,
+        share_example: "192.168.1.20/24".into(),
+        share_note: "A free address on your network, then a slash and its size.".into(),
         steps,
         commands: commands.map(Into::into),
     }

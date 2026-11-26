@@ -702,8 +702,14 @@ pub struct OrigamiNetworkChoice {
 pub struct OrigamiBridgedSetup {
     /// The label of the one field Bridged needs.
     pub field: String,
+    /// What the field takes, with the technical name, under its label.
+    pub field_note: String,
     /// An example for it, or the socket found on this computer.
     pub example: String,
+    /// An example for the shared folders address.
+    pub share_example: String,
+    /// What the shared folders address takes, under its label.
+    pub share_note: String,
     pub steps: String,
     /// The commands in `steps`, for a Copy button.
     pub commands: Option<String>,
@@ -739,7 +745,10 @@ pub fn origami_bridged_setup() -> OrigamiBridgedSetup {
     let b = f::bridged_setup();
     OrigamiBridgedSetup {
         field: b.field,
+        field_note: b.field_note,
         example: b.example,
+        share_example: b.share_example,
+        share_note: b.share_note,
         steps: b.steps,
         commands: b.commands,
     }

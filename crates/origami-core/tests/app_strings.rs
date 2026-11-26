@@ -18,16 +18,7 @@ const PROPER: &[&str] = &[
 ];
 
 /// Literals two apps may both write: platform words and shortcut text.
-const SHARED_OK: &[&str] = &[
-    "Quit",
-    "Hide",
-    "Services",
-    "Window",
-    "Edit",
-    "View",
-    "Help",
-    "ADDRESS/PREFIX",
-];
+const SHARED_OK: &[&str] = &["Quit", "Hide", "Services", "Window", "Edit", "View", "Help"];
 
 /// The calls and properties that put a literal in front of a person.
 const SWIFT: &str = r#"(?:Text|Button|Label|Toggle|Picker|Section|TextField|LabeledContent|Stepper|Menu|help|accessibilityLabel|navigationTitle|Window|WindowGroup|addButton|messageText|informativeText)\(\s*(?:withTitle:\s*)?"([^"\\]{2,})""#;

@@ -256,7 +256,7 @@ public static class MachineSettingsDialog
             if (shown == bridgedAt && shown >= 0)
             {
                 var device = new TextBox { Header = setup.Field, PlaceholderText = setup.Example, IsEnabled = ok, Text = s.Network.Device };
-                var share = new TextBox { Header = Ui.T(OrigamiUiString.AddressForSharedFolders), PlaceholderText = "ADDRESS/PREFIX", IsEnabled = ok, Text = s.Network.ShareAddress ?? "" };
+                var share = new TextBox { Header = Ui.T(OrigamiUiString.AddressForSharedFolders), PlaceholderText = setup.ShareExample, IsEnabled = ok, Text = s.Network.ShareAddress ?? "" };
                 AutomationProperties.SetAutomationId(device, "settings.bridge.device");
                 AutomationProperties.SetAutomationId(share, "settings.bridge.share");
                 var help = new StackPanel { Spacing = 6, Children = { Text(setup.Steps) } };
@@ -274,7 +274,7 @@ public static class MachineSettingsDialog
                     box.LostFocus += (_, _) => Commit();
                     box.KeyDown += (_, e) => { if (e.Key == Windows.System.VirtualKey.Enter) { Commit(); e.Handled = true; } };
                 }
-                var fields = new StackPanel { Spacing = 8, Children = { device, share, new Expander { Header = Ui.T(OrigamiUiString.HowToSetThisUp), Content = help, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch } } };
+                var fields = new StackPanel { Spacing = 8, Children = { device, Caption(setup.FieldNote), share, Caption(setup.ShareNote), new Expander { Header = Ui.T(OrigamiUiString.HowToSetThisUp), Content = help, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch } } };
                 body.Children.Add(Card(fields));
                 foreach (var w in s.Network.Warnings) body.Children.Add(Text(w));
             }
@@ -417,6 +417,8 @@ public static class MachineSettingsDialog
     }
 
     static TextBlock Text(string t) => new() { Text = t, TextWrapping = TextWrapping.Wrap };
+
+    static TextBlock Caption(string t) => new() { Text = t, TextWrapping = TextWrapping.Wrap, Foreground = Ui.Secondary, Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"] };
 
     static TextBlock Heading(string t) => new() { Text = t, Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"], Margin = new Thickness(0, 12, 0, 0) };
 

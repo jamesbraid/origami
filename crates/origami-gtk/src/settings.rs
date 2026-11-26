@@ -879,7 +879,9 @@ fn network_groups(
     let is_bridged = |mode: NetworkMode| matches!(mode, NetworkMode::Tap | NetworkMode::Vmnet);
     let current = choices.iter().position(|c| c.mode.as_str() == n.mode);
     let host_mode = choices.iter().map(|c| c.mode).find(|m| is_bridged(*m));
-    let g = adw::PreferencesGroup::builder().title("Network").build();
+    let g = adw::PreferencesGroup::builder()
+        .title(UiString::Mode.text())
+        .build();
     // One radio row per mode, each with its caption; choosing applies at once.
     let mut radios: Vec<(usize, gtk::CheckButton)> = Vec::new();
     let mut first: Option<gtk::CheckButton> = None;
@@ -915,18 +917,21 @@ fn network_groups(
         .title(UiString::Bridged.text())
         .visible(current.is_some_and(|i| is_bridged(choices[i].mode)))
         .build();
-    let device = entry(
-        &format!("{} ({})", setup.field, setup.example),
-        "network.device",
-        &n.device,
-        running,
-    );
+    let device = entry(&setup.field, "network.device", &n.device, running);
     let share = entry(
-        "Address for shared folders (ADDRESS/PREFIX)",
+        UiString::AddressForSharedFolders.text(),
         "network.share-address",
         n.share_address.as_deref().unwrap_or_default(),
         running,
     );
+    // An entry row has no caption of its own, so each note is a row under its field.
+    let note = |text: &str| {
+        adw::ActionRow::builder()
+            .title(glib::markup_escape_text(text))
+            .title_lines(0)
+            .css_classes(["caption", "dim-label"])
+            .build()
+    };
     let help = adw::ExpanderRow::builder()
         .title(UiString::HowToSetThisUp.text())
         .build();
@@ -940,7 +945,13 @@ fn network_groups(
         help.add_suffix(&copy_button(dialog, commands));
     }
     host.add(&device);
+    host.add(&note(&setup.field_note));
     host.add(&share);
+    host.add(&note(&format!(
+        "{} For example {}.",
+        setup.share_note.trim_end_matches('.'),
+        setup.share_example
+    )));
     host.add(&help);
     for w in &n.warnings {
         host.add(&adw::ActionRow::builder().title(w).title_lines(0).build());
