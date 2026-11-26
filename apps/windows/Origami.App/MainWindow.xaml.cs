@@ -1082,6 +1082,9 @@ public sealed partial class MainWindow : Window
     /// <summary>Whether the toast offers an action such as Show in Explorer, for the self-test.</summary>
     public string? ToastActionForTest => ToastOpenForTest && ToastActions.Children.FirstOrDefault() is Button b ? b.Content as string : null;
     public bool ToastOpenForTest => Toast.Visibility == Visibility.Visible;
+    /// <summary>Lay the window out now, then say whether the layout matches the window's size.</summary>
+    public bool LayoutCurrentForTest { get { Root.UpdateLayout(); return LayoutMatchesWindow; } }
+    bool LayoutMatchesWindow => Root.XamlRoot is { } x && Math.Abs(Root.ActualWidth - x.Size.Width) < 1 && Math.Abs(Root.ActualHeight - x.Size.Height) < 1;
 
     // ---- Install IRIX ------------------------------------------------------------------------
 
@@ -1177,7 +1180,7 @@ public sealed partial class MainWindow : Window
         var s = Root.XamlRoot.RasterizationScale;
         var d = ViewScale.FirstScale(WindowRect, WorkArea, s, pw, ph, Display.HeadWidth, Display.HeadHeight);
         var want = ViewScale.WindowFor(WindowRect, WorkArea, s, pw, ph, Display.HeadWidth, Display.HeadHeight, MinWidthDips, MinHeightDips, d);
-        if (ViewScale.Grown(WindowRect, WorkArea, want) is { } r) MoveResize(r);
+        if (ViewScale.Grown(WindowRect, WorkArea, want) is { } r) { MoveResize(r); Root.UpdateLayout(); }
     }
 
     /// <summary>View menu: resize the window once so the picture is <paramref name="dipsPerGuest"/> DIPs per guest pixel; free resizing fills after.</summary>
@@ -1187,6 +1190,7 @@ public sealed partial class MainWindow : Window
         if (Display.HeadWidth <= 0 || AppWindow.Presenter is not Microsoft.UI.Windowing.OverlappedPresenter { State: Microsoft.UI.Windowing.OverlappedPresenterState.Restored }) return;
         var (pw, ph) = Display.PaneSize;
         MoveResize(ViewScale.WindowFor(WindowRect, WorkArea, Root.XamlRoot.RasterizationScale, pw, ph, Display.HeadWidth, Display.HeadHeight, MinWidthDips, MinHeightDips, dipsPerGuest));
+        Root.UpdateLayout();
     }
 
     /// <summary>Self-test: the window lies in its monitor's work area.</summary>

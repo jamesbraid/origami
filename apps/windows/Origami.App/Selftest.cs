@@ -1135,6 +1135,7 @@ public static class Selftest
         if (bigUp)
         {
             await Task.Delay(500);
+            await Until(() => w.LayoutCurrentForTest, 5000);
             var bdip = disp.DeviceScale;
             var bpad = ViewScale.PanePadding * bdip;
             var bwa = w.WorkArea;
