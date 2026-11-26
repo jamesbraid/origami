@@ -536,13 +536,8 @@ impl Core {
         None
     }
 
-    /// The OS and release on a disk image, such as `IRIX 6.5.30`, or `Unknown`.
-    /// Deprecated: use [`Core::disk_os`], which has none for an unrecognised disk.
-    pub fn disk_info(&self, path: &Path) -> CoreResult<String> {
-        super::disks::label(path)
-    }
-
-    /// As [`Core::disk_info`], but none when the disk is not recognised.
+    /// The OS and release on a disk image, such as `IRIX 6.5.30`, or none when
+    /// the disk is not recognised.
     pub fn disk_os(&self, path: &Path) -> CoreResult<Option<String>> {
         super::disks::label(path).map(super::disks::recognised)
     }

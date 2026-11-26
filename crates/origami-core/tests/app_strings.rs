@@ -29,24 +29,6 @@ const SHARED_OK: &[&str] = &[
     "ADDRESS/PREFIX",
 ];
 
-/// Core words an app still spells where it cannot call the core: a constant in
-/// a pure-logic project or a static table. Keep this list short.
-const CONST_OK: &[&str] = &[
-    "Needs upgrade",
-    // New 0.6.2 core words the apps still spell. Remove these when all three apps move.
-    "Done",
-    "Machine",
-    "Machine ID",
-    "Type it",
-    "Disk",
-    "Eject",
-    "Packages to install, one per line",
-    "Powering off",
-    "Select a machine first.",
-    "Choose…",
-    "Stop sharing",
-];
-
 /// The calls and properties that put a literal in front of a person.
 const SWIFT: &str = r#"(?:Text|Button|Label|Toggle|Picker|Section|TextField|LabeledContent|Stepper|Menu|help|accessibilityLabel|navigationTitle|Window|WindowGroup|addButton|messageText|informativeText)\(\s*(?:withTitle:\s*)?"([^"\\]{2,})""#;
 const CSHARP: &str = r#"(?:Text|Content|Header|Label|Title|PlaceholderText|ToolTip|PrimaryButtonText|SecondaryButtonText|CloseButtonText|Description)\s*=\s*"([^"\\{]{2,})""#;
@@ -156,9 +138,7 @@ fn words_the_core_owns_are_not_written_in_an_app() {
     let mut bad = Vec::new();
     for (app, found) in apps() {
         for (s, at) in found {
-            if (core.contains(s.as_str()) && !CONST_OK.contains(&s.as_str()))
-                || s.starts_with("Version ")
-            {
+            if core.contains(s.as_str()) || s.starts_with("Version ") {
                 bad.push(format!(
                     "{app}: {s:?} at {}: use the core's UiString",
                     at[0]
@@ -176,10 +156,7 @@ fn two_apps_do_not_write_the_same_words() {
     for (app, found) in &all {
         for s in found.keys() {
             let key = s.trim_end_matches('…').to_lowercase();
-            if !s.contains("Ctrl+")
-                && !SHARED_OK.contains(&s.as_str())
-                && !CONST_OK.contains(&s.as_str())
-            {
+            if !s.contains("Ctrl+") && !SHARED_OK.contains(&s.as_str()) {
                 seen.entry(key).or_default().insert(app);
             }
         }

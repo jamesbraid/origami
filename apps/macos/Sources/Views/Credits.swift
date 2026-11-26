@@ -114,7 +114,7 @@ struct AcknowledgementsView: View {
                 Text("The credits could not be read.").padding()
                 Spacer()
             }
-            HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.defaultAction) }.padding(12)
+            HStack { Spacer(); Button(ui(.done)) { dismiss() }.keyboardShortcut(.defaultAction) }.padding(12)
         }
         .frame(width: 480, height: 560)
     }
@@ -195,7 +195,7 @@ struct LicencesView: View {
                 Text("The licences could not be read.")
                 Spacer()
             }
-            HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.defaultAction) }
+            HStack { Spacer(); Button(ui(.done)) { dismiss() }.keyboardShortcut(.defaultAction) }
         }
         .padding(16).frame(width: 520, height: 600)
     }

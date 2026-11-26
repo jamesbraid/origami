@@ -62,7 +62,7 @@ expect(origamiStateLabel(state: .running).word == "Running", "a state word from 
 expect(origamiShortcutGroups(platform: .macos).first?.title == "Mouse", "the release keys lead the shortcuts")
 expect(try stopped.settings().consolePort == "ttyS1", "the console line chosen")
 expect(try stopped.settings().diskTarget == 2, "an empty system disk at target 1")
-expect(try stopped.driveInfo(drive: "system") == "Unknown", "a blank disk is Unknown")
+expect(try stopped.driveOs(drive: "system") == nil, "a blank disk is not recognised")
 expect(try core.installPlan(key: key) == nil, "no install setup yet")
 expect(origamiInstallReleases().first?.release == "6.5.30", "the newest release first")
 expect(OrigamiInstallFlow(plan: nil).step() == .release, "a new assistant starts at Release")

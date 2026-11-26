@@ -1351,8 +1351,6 @@ pub struct OrigamiMediaFolder {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiGuideStep {
-    pub text: String,
-    pub command: Option<String>,
     pub send: Option<String>,
     pub title: String,
     /// The console text to wait for before typing.
@@ -1392,8 +1390,6 @@ pub struct OrigamiInstallGuide {
 impl From<f::GuideStep> for OrigamiGuideStep {
     fn from(s: f::GuideStep) -> Self {
         Self {
-            text: s.text,
-            command: s.command,
             send: s.send,
             title: s.title,
             watch: s.watch,
@@ -1572,12 +1568,6 @@ impl OrigamiCore {
     /// May download firmware: off the UI thread.
     pub fn upgrade_machine(&self, key: String) -> Res<Vec<OrigamiReportLine>> {
         Ok(report_lines(self.core.upgrade_machine(&key)?))
-    }
-
-    /// The OS and release on a disk image, such as `IRIX 6.5.30`, or
-    /// `Unknown`. Reads the file, once per size and change time: off the UI thread.
-    pub fn disk_info(&self, path: String) -> Res<String> {
-        Ok(self.core.disk_info(std::path::Path::new(&path))?)
     }
 
     /// Whether a file can be attached and what a copy needs. `machine` is the
@@ -2075,12 +2065,6 @@ impl OrigamiMachine {
         Ok(Arc::new(OrigamiOperation(
             self.0.import_drive(request, copy)?,
         )))
-    }
-
-    /// What the disk in `drive` holds, such as `IRIX 6.5.30`. Off the UI
-    /// thread; `Busy` for a running machine that was not read before.
-    pub fn drive_info(&self, drive: String) -> Res<String> {
-        Ok(self.0.drive_info(&drive)?)
     }
 
     /// The machine file's settings. Reads the disk: off the UI thread.

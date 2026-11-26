@@ -149,7 +149,7 @@ fn disks_are_imported_swapped_and_named() {
         (s.drives.len(), s.disk_target, s.cd_target),
         (1, Some(1), Some(4))
     );
-    assert_eq!(machine.drive_info("disk2".into()).unwrap(), "Unknown");
+    assert_eq!(machine.drive_os("disk2".into()).unwrap(), None);
     machine
         .apply_change(OrigamiChange::AttachDrive {
             path,

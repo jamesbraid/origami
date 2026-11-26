@@ -141,7 +141,6 @@ pub struct CloseQuestion {
 /// The words the apps share.
 pub mod texts {
     pub const CHECKING: &str = "Checking the install media…";
-    pub const PASSED: &str = "All sources answered.";
     pub const FINISHED: &str = "IRIX is installed. Start the machine to use it.";
     pub const QUIT_HEADING: &str = "An IRIX install is running.";
     pub const QUIT_TEXT: &str = "Quitting stops the install server and the machine, and cancels an automated install. The install will have to start again.";

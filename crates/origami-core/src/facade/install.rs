@@ -133,13 +133,9 @@ pub struct StepNote {
     pub warning: bool,
 }
 
-/// One thing to do at the machine while the install runs. `text` and `command`
-/// repeat `title` and the first typed text for apps that have not moved.
+/// One thing to do at the machine while the install runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GuideStep {
-    pub text: String,
-    /// What to type or paste, for a Copy button.
-    pub command: Option<String>,
     /// The exact bytes a serial console takes for it, line ends included;
     /// None for a step with nothing to send.
     pub send: Option<String>,
@@ -196,8 +192,6 @@ fn guide_step(
             warning,
         }),
         confirm: confirm.map(Into::into),
-        text: title.into(),
-        command: typed.first().map(|t| t.1.into()),
         send,
     }
 }

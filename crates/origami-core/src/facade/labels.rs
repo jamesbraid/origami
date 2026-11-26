@@ -448,7 +448,6 @@ mod tests {
         all.extend(
             [
                 texts::CHECKING,
-                texts::PASSED,
                 texts::FINISHED,
                 texts::QUIT_HEADING,
                 texts::QUIT_TEXT,

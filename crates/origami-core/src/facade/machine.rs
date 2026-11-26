@@ -529,10 +529,10 @@ impl Machine {
         }))
     }
 
-    /// What the disk in `drive` holds, such as `IRIX 6.5.30`; off the UI thread.
-    /// Deprecated: use [`Machine::drive_os`].
-    /// A running machine is not read, since its guest writes the disk.
-    pub fn drive_info(&self, drive: &str) -> CoreResult<String> {
+    /// What the disk in `drive` holds, such as `IRIX 6.5.30`, or none when it is
+    /// not recognised; off the UI thread. A running machine is not read, since
+    /// its guest writes the disk.
+    pub fn drive_os(&self, drive: &str) -> CoreResult<Option<String>> {
         let file =
             origami_machine::read_machine(self.inner.dir.path()).map_err(CoreError::machine)?;
         let found = file.drive.iter().find(|d| d.name == drive).ok_or_else(|| {
@@ -540,7 +540,7 @@ impl Machine {
         })?;
         let image = origami_machine::resolve(self.inner.dir.path(), &found.image);
         if let Some(label) = super::disks::cached_label(&image) {
-            return Ok(label);
+            return Ok(super::disks::recognised(label));
         }
         let live = self.inner.live(&self.inner.run.lock().unwrap());
         if live {
@@ -549,7 +549,7 @@ impl Machine {
                 "Power off the machine to read its disks",
             ));
         }
-        super::disks::label(&image)
+        super::disks::label(&image).map(super::disks::recognised)
     }
 
     /// The Drives list: a title and caption for each drive. Blocking, off the
@@ -559,11 +559,6 @@ impl Machine {
         let file = origami_machine::read_machine(dir).map_err(CoreError::machine)?;
         let live = self.inner.live(&self.inner.run.lock().unwrap());
         Ok(super::settings::drive_rows(dir, &file, !live))
-    }
-
-    /// As [`Machine::drive_info`], but none when the disk is not recognised.
-    pub fn drive_os(&self, drive: &str) -> CoreResult<Option<String>> {
-        self.drive_info(drive).map(super::disks::recognised)
     }
 
     #[cfg(test)]

@@ -602,8 +602,6 @@ impl OrigamiMachine {
         let steps: Vec<_> = steps
             .into_iter()
             .map(|s| f::GuideStep {
-                text: s.text,
-                command: s.command,
                 send: s.send,
                 title: s.title,
                 watch: s.watch,

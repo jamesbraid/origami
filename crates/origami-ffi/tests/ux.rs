@@ -119,8 +119,6 @@ fn the_console_marks_a_guide_step_seen() {
     let lab = Lab::new(None);
     let machine = lab.core.start_machine(lab.key.clone()).unwrap();
     let step = |confirm: &str| OrigamiGuideStep {
-        text: String::new(),
-        command: None,
         send: None,
         title: "Open the command monitor".into(),
         watch: None,

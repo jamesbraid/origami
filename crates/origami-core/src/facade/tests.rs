@@ -1526,18 +1526,24 @@ fn a_disk_is_named_by_its_operating_system_and_read_again_when_it_changes() {
     let f = fixture();
     let image = f.root.path().join("irix.img");
     std::fs::write(&image, irix_disk()).unwrap();
-    assert_eq!(f.core.disk_info(&image).unwrap(), "IRIX 6.5.30");
+    assert_eq!(
+        f.core.disk_os(&image).unwrap().as_deref(),
+        Some("IRIX 6.5.30")
+    );
     std::fs::write(
         &image,
         include_bytes!("../../../../tests/fixtures/machines/disk-openbsd-6.9.img"),
     )
     .unwrap();
-    assert_eq!(f.core.disk_info(&image).unwrap(), "OpenBSD 6.9");
+    assert_eq!(
+        f.core.disk_os(&image).unwrap().as_deref(),
+        Some("OpenBSD 6.9")
+    );
     std::fs::write(&image, vec![0u8; 1 << 16]).unwrap();
-    assert_eq!(f.core.disk_info(&image).unwrap(), "Unknown");
+    assert_eq!(f.core.disk_os(&image).unwrap(), None);
     assert_eq!(
         f.core
-            .disk_info(&f.root.path().join("none"))
+            .disk_os(&f.root.path().join("none"))
             .unwrap_err()
             .kind,
         ErrorKind::NotFound
@@ -1567,7 +1573,10 @@ fn the_library_row_learns_the_system_disk_in_the_background() {
         std::thread::sleep(Duration::from_millis(20));
     };
     assert_eq!(label.as_deref(), Some("IRIX 6.5.30"));
-    assert_eq!(machine.drive_info("disk1").unwrap(), "IRIX 6.5.30");
+    assert_eq!(
+        machine.drive_os("disk1").unwrap().as_deref(),
+        Some("IRIX 6.5.30")
+    );
 }
 
 #[test]
@@ -1799,12 +1808,12 @@ fn the_install_setup_is_prepared_read_back_and_reset() {
     let guide = f.core.install_guide(&key).unwrap();
     assert_eq!(guide.server, "10.98.0.2");
     assert_eq!(
-        guide.prepare[2].command.as_deref(),
-        Some("boot -f bootp():/6.5.22/stand/fx.64")
+        guide.prepare[2].typed[0].text,
+        "boot -f bootp():/6.5.22/stand/fx.64"
     );
     assert_eq!(
-        guide.packages[0].command.as_deref(),
-        Some("admin source 10.98.0.2:/irix.cmds")
+        guide.packages[0].typed[0].text,
+        "admin source 10.98.0.2:/irix.cmds"
     );
     f.core.install_reset(&key).unwrap();
     assert_eq!(f.core.install_plan(&key).unwrap(), None);
@@ -2474,8 +2483,6 @@ fn a_real_automated_install_console_shows_every_guide_step_seen_in_order() {
 #[test]
 fn a_control_sequence_ends_at_its_final_byte_even_when_that_is_a_tilde() {
     let step = |c: &str| GuideStep {
-        text: String::new(),
-        command: None,
         send: None,
         title: "t".into(),
         watch: None,
@@ -2493,8 +2500,6 @@ fn the_seen_steps_stay_seen_when_the_console_history_wraps() {
     let f = fixture_with(None, 256);
     let steps: Vec<_> = ["Option? ", ">> "]
         .map(|c| GuideStep {
-            text: String::new(),
-            command: None,
             send: None,
             title: "t".into(),
             watch: None,

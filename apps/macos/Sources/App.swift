@@ -150,7 +150,7 @@ struct OrigamiCommands: Commands {
         }
         // Close is the machine's: the standard window Close would end the app with its last window.
         CommandGroup(replacing: .saveItem) { }
-        CommandMenu("Machine") {
+        CommandMenu(ui(.machine)) {
             item(.start); item(.cancelStart); item(.powerOff); item(.forceQuit); item(.reset)
             Divider()
             item(.pause); item(.screenshot)

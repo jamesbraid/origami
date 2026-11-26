@@ -212,7 +212,7 @@ impl ImageForm {
                 let check = core
                     .check_disk_image(&p, machine.as_deref())
                     .map_err(|e| e.to_string())?;
-                let os = core.disk_info(&p).unwrap_or_else(|_| "Unknown".into());
+                let os = core.disk_os(&p).ok().flatten();
                 Ok::<_, String>((check, os))
             })
             .await;
@@ -223,7 +223,8 @@ impl ImageForm {
             match r {
                 Ok(Ok((check, os))) => {
                     f.file.set_subtitle(&size_label(check.bytes));
-                    f.badge.set_label(&os);
+                    f.badge.set_visible(os.is_some());
+                    f.badge.set_label(os.as_deref().unwrap_or_default());
                     f.keep.set_visible(check.is_chd);
                     f.picked.borrow_mut().check = Some(check);
                 }

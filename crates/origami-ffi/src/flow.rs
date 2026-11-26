@@ -147,7 +147,6 @@ pub struct OrigamiAddonTick {
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct OrigamiInstallTexts {
     pub checking: String,
-    pub passed: String,
     pub finished: String,
     pub quit_heading: String,
     pub quit_text: String,
@@ -166,7 +165,6 @@ pub fn origami_install_texts() -> OrigamiInstallTexts {
     let s = String::from;
     OrigamiInstallTexts {
         checking: s(t::CHECKING),
-        passed: s(t::PASSED),
         finished: s(t::FINISHED),
         quit_heading: s(t::QUIT_HEADING),
         quit_text: s(t::QUIT_TEXT),

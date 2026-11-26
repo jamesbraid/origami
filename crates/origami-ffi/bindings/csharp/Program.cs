@@ -77,7 +77,7 @@ internal static class Program
         Expect(OrigamiFfiMethods.OrigamiShortcutGroups(OrigamiPlatform.Windows)[0].Title == "Mouse", "the release keys lead the shortcuts");
         Expect(stopped.Settings().ConsolePort == "ttyS1", "the console line chosen");
         Expect(stopped.Settings().DiskTarget == 2, "an empty system disk at target 1");
-        Expect(stopped.DriveInfo("system") == "Unknown", "a blank disk is Unknown");
+        Expect(stopped.DriveOs("system") is null, "a blank disk is not recognised");
         Expect(core.InstallPlan(key) is null, "no install setup yet");
         Expect(OrigamiFfiMethods.OrigamiInstallReleases()[0].Release == "6.5.30", "the newest release first");
         Expect(new OrigamiInstallFlow(null).Step() == OrigamiInstallStep.Release, "a new assistant starts at Release");
