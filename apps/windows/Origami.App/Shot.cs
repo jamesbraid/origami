@@ -30,6 +30,7 @@ public static class Shot
     [System.Runtime.InteropServices.DllImport("user32")] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
     [System.Runtime.InteropServices.DllImport("user32")] static extern IntPtr GetDC(IntPtr h);
     [System.Runtime.InteropServices.DllImport("user32")] static extern int ReleaseDC(IntPtr h, IntPtr dc);
+    [System.Runtime.InteropServices.DllImport("gdi32")] static extern bool BitBlt(IntPtr dst, int x, int y, int w, int h, IntPtr src, int sx, int sy, uint rop);
     [System.Runtime.InteropServices.DllImport("gdi32")] static extern IntPtr CreateCompatibleDC(IntPtr dc);
     [System.Runtime.InteropServices.DllImport("gdi32")] static extern IntPtr CreateCompatibleBitmap(IntPtr dc, int w, int h);
     [System.Runtime.InteropServices.DllImport("gdi32")] static extern IntPtr SelectObject(IntPtr dc, IntPtr o);
@@ -54,6 +55,28 @@ public static class Shot
             GetDIBits(dc, bmp, 0, (uint)h, bytes, ref bi, 0);
         }
         finally { SelectObject(dc, old); DeleteObject(bmp); DeleteDC(dc); ReleaseDC(IntPtr.Zero, screen); }
+        await SavePng(path, bytes, w, h);
+    }
+
+    /// <summary>The window's rectangle as the screen shows it, which has the menus and flyouts that are windows of their own
+    /// and that PrintWindow leaves out.</summary>
+    public static async Task Screen(IntPtr hwnd, string path)
+    {
+        GetWindowRect(hwnd, out var r);
+        int w = r.R - r.L, h = r.B - r.T;
+        var screen = GetDC(IntPtr.Zero);
+        var dc = CreateCompatibleDC(screen);
+        var bmp = CreateCompatibleBitmap(screen, w, h);
+        var old = SelectObject(dc, bmp);
+        var bytes = new byte[w * h * 4];
+        try
+        {
+            BitBlt(dc, 0, 0, w, h, screen, r.L, r.T, 0x00CC0020 | 0x40000000); // SRCCOPY | CAPTUREBLT
+            var bi = new BmiHeader { Size = 40, Width = w, Height = -h, Planes = 1, Bits = 32 };
+            GetDIBits(dc, bmp, 0, (uint)h, bytes, ref bi, 0);
+        }
+        finally { SelectObject(dc, old); DeleteObject(bmp); DeleteDC(dc); ReleaseDC(IntPtr.Zero, screen); }
+        for (var i = 3; i < bytes.Length; i += 4) bytes[i] = 255;
         await SavePng(path, bytes, w, h);
     }
 

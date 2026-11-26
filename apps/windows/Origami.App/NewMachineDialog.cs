@@ -9,6 +9,40 @@ namespace Origami.App;
 /// <summary>The New machine dialog: Machine, Disk and Advanced groups, headers above their controls, each error under its own field. A failed create stays on the dialog with the core's reason.</summary>
 public static class NewMachineDialog
 {
+    /// <summary>The disk choices as radio buttons I place myself: a RadioButtons control can draw with nothing selected when its
+    /// list is filled before it is on screen, and one choice must always show as chosen.</summary>
+    public sealed class DiskList : StackPanel
+    {
+        readonly List<RadioButton> _items = new();
+        int _at = -1;
+        public event Action? SelectionChanged;
+        public IReadOnlyList<string> Titles => _items.Select(r => (string)((TextBlock)((StackPanel)((StackPanel)r.Content).Children[0]).Children[0]).Text).ToList();
+        public int Count => _items.Count;
+        public int SelectedIndex
+        {
+            get => _at;
+            set
+            {
+                if (value == _at) return;
+                _at = value;
+                for (var i = 0; i < _items.Count; i++) _items[i].IsChecked = i == value;
+                SelectionChanged?.Invoke();
+            }
+        }
+        public void Fill(IEnumerable<(UIElement Content, string Id)> choices)
+        {
+            _at = -1; _items.Clear(); Children.Clear();
+            foreach (var (content, id) in choices)
+            {
+                var i = _items.Count;
+                var rb = new RadioButton { Content = content, GroupName = "newdisk", Margin = new Thickness(0, 0, 0, 4) };
+                AutomationProperties.SetAutomationId(rb, id);
+                rb.Checked += (_, _) => SelectedIndex = i;
+                _items.Add(rb); Children.Add(rb);
+            }
+        }
+    }
+
     static TextBlock Heading(string t) => new() { Text = t, Style = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"], Margin = new Thickness(0, 8, 0, 0) };
 
     static TextBlock Caption(string id, string text = "") => Note(id, text, Ui.Secondary);
@@ -39,14 +73,14 @@ public static class NewMachineDialog
             engines = model.SelectedIndex < 0 ? Array.Empty<string>() : NewMachine.EnginesFor(offerings, models[model.SelectedIndex].Id);
             engine.ItemsSource = engines.Select(core.EngineName).ToList();
             engine.SelectedIndex = engines.Count > 0 ? 0 : -1;
-            engine.IsEnabled = engines.Count > 1; // always shown, as on Linux and macOS; one choice is not changeable
+            engine.Visibility = engines.Count > 1 ? Visibility.Visible : Visibility.Collapsed; // a choice of one is no choice
         }
         var name = new TextBox { Header = Labels.NewMachine.Name };
         var nameError = Note("new.name.error", "", Ui.ToneBrush(Tone.Critical));
 
         // The disk: the core's choices in its order with their captions, the first being the default.
         var labels = core.Labels();
-        var disk = new RadioButtons();
+        var disk = new DiskList { Spacing = 2 };
         List<OrigamiDiskOption> options = new();
         var release = new ComboBox { Header = labels.Release, HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
         var releaseCaption = Caption("new.release.caption");
@@ -60,15 +94,14 @@ public static class NewMachineDialog
             var runsIrix = model.SelectedIndex >= 0 && models[model.SelectedIndex].RunsIrix;
             options = OrigamiFfiMethods.OrigamiDiskOptions(ready.Count > 0).Where(o => runsIrix || o.Choice != OrigamiDiskChoice.Install).ToList();
             filling = true;
-            disk.Items.Clear();
-            foreach (var o in options)
+            var at = picked && keep is { } k ? options.FindIndex(o => o.Choice == k) : 0;
+            disk.Fill(options.Select(o =>
             {
                 var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { new TextBlock { Text = o.Title } } };
                 if (o.Recommended)
                     title.Children.Add(new TextBlock { Text = Ui.T(OrigamiUiString.Recommended), Foreground = Ui.Res("AccentTextFillColorPrimaryBrush"), Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"], VerticalAlignment = VerticalAlignment.Center });
-                disk.Items.Add(new StackPanel { Children = { title, new TextBlock { Text = o.Caption, TextWrapping = TextWrapping.Wrap, Foreground = Ui.Secondary, Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"] } } });
-            }
-            var at = picked && keep is { } k ? options.FindIndex(o => o.Choice == k) : 0;
+                return ((UIElement)new StackPanel { Children = { title, new TextBlock { Text = o.Caption, TextWrapping = TextWrapping.Wrap, Foreground = Ui.Secondary, Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"] } } }, "new.disk." + o.Choice);
+            }));
             disk.SelectedIndex = at >= 0 ? at : 0;
             filling = false;
             ShowDiskParts();
@@ -140,8 +173,6 @@ public static class NewMachineDialog
             DefaultButton = ContentDialogButton.Primary,
             IsPrimaryButtonEnabled = false,
         };
-        // A list filled before it is on screen can draw with nothing selected; say it again once it is.
-        disk.Loaded += (_, _) => { var at = disk.SelectedIndex; filling = true; disk.SelectedIndex = -1; disk.SelectedIndex = at; filling = false; };
         string? identityProblem = null;
         void Sync() => dlg.IsPrimaryButtonEnabled = NewMachine.CanCreate(name.Text, model.SelectedIndex) && identityProblem is null
             && (Chosen() != OrigamiDiskChoice.Image || picture.Choice.Ready) && (Chosen() != OrigamiDiskChoice.Ready || release.SelectedIndex >= 0);
@@ -190,7 +221,7 @@ public static class NewMachineDialog
         engine.SelectionChanged += (_, _) => RefreshIdentity();
         name.TextChanged += (_, _) => { Show(nameError, null); Sync(); };
         picture.Changed += Sync;
-        disk.SelectionChanged += (_, _) => { if (!filling) { picked = true; ShowDiskParts(); } };
+        disk.SelectionChanged += () => { if (!filling) picked = true; ShowDiskParts(); };
         model.SelectionChanged += (_, _) => { SyncEngines(); SyncReady(); FillDisks(); Sync(); RefreshIdentity(); };
         release.SelectionChanged += (_, _) => { SyncReadyCaption(); Sync(); };
         SyncEngines();

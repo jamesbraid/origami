@@ -140,8 +140,10 @@ public sealed partial class MainWindow : Window
             })) _refreshQueued = 0;
         };
 
+        Ui.Attach(Root);
         Root.ActualThemeChanged += (_, _) =>
         {
+            _ui.TryEnqueue(Ui.Retheme);
             foreach (var (img, id) in _rowStills) img.Source = RowArt(id);
             _rowSigs.Clear();
             Refresh();
@@ -415,6 +417,7 @@ public sealed partial class MainWindow : Window
             if (_rowSigs.GetValueOrDefault(key) == sig) continue;
             _rowSigs[key] = sig;
             r.Line.Text = info.Line;
+            r.DotHost.Visibility = info.LineTone == Tone.None ? Visibility.Collapsed : Visibility.Visible;
             if (info.LineTone == Tone.None) r.DotHost.Content = null;
             else if (!_rowTone.TryGetValue(key, out var was) || was != info.LineTone || r.DotHost.Content is null) r.DotHost.Content = Ui.Dot(info.LineTone);
             _rowTone[key] = info.LineTone;
@@ -1252,9 +1255,9 @@ public sealed partial class MainWindow : Window
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(o); i++)
             foreach (var c in Descend(VisualTreeHelper.GetChild(o, i))) yield return c;
     }
-    public string GuideFooterForTest => GuideHost.Children.OfType<FrameworkElement>().SelectMany(Descend).OfType<TextBlock>().FirstOrDefault(t => AutomationProperties.GetAutomationId(t) == "install.footer.server")?.Text ?? "";
-    public string GuideFailureForTest => GuideHost.Children.OfType<FrameworkElement>().SelectMany(Descend).OfType<TextBlock>().FirstOrDefault(t => t.Foreground is SolidColorBrush b && b == Ui.ToneBrush(Tone.Critical))?.Text ?? "";
-    public Button? GuideButtonForTest(string id) => GuideHost.Children.OfType<FrameworkElement>().SelectMany(Descend).OfType<Button>().FirstOrDefault(b => AutomationProperties.GetAutomationId(b) == id);
+    public string GuideFooterForTest => GuideHost.Children.Concat(GuideFooter.Children).OfType<FrameworkElement>().SelectMany(Descend).OfType<TextBlock>().FirstOrDefault(t => AutomationProperties.GetAutomationId(t) == "install.footer.server")?.Text ?? "";
+    public string GuideFailureForTest => GuideHost.Children.Concat(GuideFooter.Children).OfType<FrameworkElement>().SelectMany(Descend).OfType<TextBlock>().FirstOrDefault(t => t.Foreground is SolidColorBrush b && b == Ui.ToneBrush(Tone.Critical))?.Text ?? "";
+    public Button? GuideButtonForTest(string id) => GuideHost.Children.Concat(GuideFooter.Children).OfType<FrameworkElement>().SelectMany(Descend).OfType<Button>().FirstOrDefault(b => AutomationProperties.GetAutomationId(b) == id);
 
     /// <summary>The library or the guide in the pane. The guide is on offer while the selected machine's install runs.</summary>
     public void ShowGuide(bool on)
@@ -1276,6 +1279,7 @@ public sealed partial class MainWindow : Window
         GuideShow.Visibility = w is not null && !show ? Visibility.Visible : Visibility.Collapsed;
         LibraryHeading.Text = show ? Ui.T(OrigamiUiString.InstallIrix) : Labels.SidebarHeading;
         NewMachineButton.Visibility = show ? Visibility.Collapsed : Visibility.Visible;
+        GuideFooter.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (!show || w is null) return;
         var steps = w.GuideSteps!;
         var seen = w.GuideSeen();
@@ -1368,7 +1372,7 @@ public sealed partial class MainWindow : Window
                 Background = Ui.CardFill, BorderBrush = Ui.CardStroke, BorderThickness = new Thickness(1),
             });
         }
-        var footer = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
+        var footer = new StackPanel();
         if (w.GuideFooter is { Length: > 0 } f)
         {
             var line = new TextBlock { Text = f, TextWrapping = TextWrapping.Wrap, Foreground = Ui.Secondary, Style = caption };
@@ -1393,7 +1397,8 @@ public sealed partial class MainWindow : Window
         if (w.CanFinish) buttons.Children.Add(Guide("guide.finish", w.ContinueLabel, w.FinishInstall, accent: true));
         if (!w.Applying) buttons.Children.Add(Guide("guide.cancel", Ui.T(OrigamiUiString.CancelInstall), () => _ = w.CancelAsync()));
         footer.Children.Add(buttons);
-        GuideHost.Children.Add(footer);
+        GuideFooter.Children.Clear();
+        foreach (var c in footer.Children.ToList()) { footer.Children.Remove(c); GuideFooter.Children.Add(c); }
     }
 
     static Button Guide(string id, string label, Action click, bool accent = false)
@@ -1645,7 +1650,9 @@ public sealed partial class MainWindow : Window
     /// <summary>Shows only the commands that fit the machine's state: Start while it is down, the Power off button while it is up.</summary>
     void UpdateCommands(MachineState state, string key, MachineSummary info)
     {
-        bool On(string id) => CommandOn(id, state, key);
+        // A machine that needs an upgrade or cannot be read has nothing to run, console included.
+        var unusable = _core.Shown(key) is ShownState.NeedsUpgrade or ShownState.CantOpen;
+        bool On(string id) => !unusable && CommandOn(id, state, key);
         string Title(string id) => _commands.First(c => c.Id == id).Title;
         var canStop = On("machine.stop");
         // While it starts the button cancels the start, in the core's words.
@@ -1746,6 +1753,43 @@ public sealed partial class MainWindow : Window
         ShowStartCube(_core.Machines().First(x => x.Key == SelectedKey));
     }
     public CubeHost StartCubeForTest => StartCube;
+
+    /// <summary>Self-test hook: the machine page as it reads in <paramref name="state"/>, with the core's card and state word for it.
+    /// No engine is in that state; the words, the card and the layout are the real ones.</summary>
+    public void PreviewState(ShownState state)
+    {
+        var key = SelectedKey!;
+        var info = _core.Machines().First(m => m.Key == key);
+        _previewStart = true;
+        Display.Hide();
+        StartingPanel.Visibility = Display.Visibility = Visibility.Collapsed;
+        PageHeader.Visibility = Visibility.Visible;
+        var label = OrigamiFfiMethods.OrigamiStateLabel(Enum.Parse<OrigamiShownState>(state.ToString()));
+        HeaderState.Text = label.Word;
+        HeaderDot.Content = label.Tone == OrigamiTone.None ? null : Ui.Dot(Enum.Parse<Tone>(label.Tone.ToString()));
+        ShowTint(ChassisOf(info));
+        HeroScroll.Visibility = Visibility.Visible;
+        HeroImage.Visibility = Visibility.Collapsed;
+        HeroStart.Visibility = Cards.Visibility = Visibility.Collapsed;
+        _cardSig = "";
+        FillCard(key, info.Name, _core.Card(key, info.Name, state), state == ShownState.Saving);
+    }
+
+    /// <summary>Self-test hooks for the pictures: the theme, the More menu and a row's menu.</summary>
+    public void SetThemeForTest(ElementTheme theme) { Root.RequestedTheme = theme; Root.UpdateLayout(); Ui.Retheme(); }
+    /// <summary>The colour of the shared secondary text brush, which must follow the theme.</summary>
+    public Windows.UI.Color SecondaryTextForTest => ((SolidColorBrush)Ui.Secondary).Color;
+    public Windows.UI.Color CardFillForTest => ((SolidColorBrush)Ui.CardFill).Color;
+    public void OpenMoreForTest(bool on) => Toolbar.IsOpen = on;
+    public void OpenRowMenuForTest(string key, bool on)
+    {
+        if (RowFor(key) is not { ContextFlyout: MenuFlyout f } row) return;
+        if (on) f.ShowAt(row); else f.Hide();
+    }
+    public string PowerLabelForTest => PowerLabel.Text;
+    /// <summary>Whether a command bar button is switched on.</summary>
+    public bool CommandEnabledForTest(string name) => ((Control)((FrameworkElement)Content).FindName(name)).IsEnabled;
+    public bool EmptyButtonShownForTest => EmptyPanel.Visibility == Visibility.Visible && EmptyButton.Visibility == Visibility.Visible;
     public void Restore() { _previewStart = false; Refresh(); }
 
     void Detach() { Display.Detach(); _attachedKey = _modeKey = null; ClosePane(); }

@@ -102,19 +102,19 @@ public static class Selftest
         try
         {
             // New Machine with the ready-made choice: the list comes from origami-dist, so the choice appears once it answers.
-            for (var tries = 0; tries < 4 && FindOpen<UIC.RadioButtons>("new.disk") == null; tries++)
+            for (var tries = 0; tries < 4 && FindOpen<NewMachineDialog.DiskList>("new.disk") == null; tries++)
             {
                 w.Invoke("machine.new");
-                await Until(() => FindOpen<UIC.RadioButtons>("new.disk") != null, 2000);
+                await Until(() => FindOpen<NewMachineDialog.DiskList>("new.disk") != null, 2000);
             }
             var plain = OrigamiFfiMethods.OrigamiDiskOptions(false).Length;
-            if (await Until(() => FindOpen<UIC.RadioButtons>("new.disk") is { } d && d.Items.Count > plain, 30_000))
+            if (await Until(() => FindOpen<NewMachineDialog.DiskList>("new.disk") is { } d && d.Count > plain, 30_000))
             {
                 // The ready-made choice is listed first, so it is already the one selected.
                 if (FindOpen<UIC.TextBox>("new.name") is { } typed) typed.Text = "irix";
                 await Task.Delay(1500);
                 // The Disk group's heading is the text above its choices.
-                var diskChoices = FindOpen<UIC.RadioButtons>("new.disk");
+                var diskChoices = FindOpen<NewMachineDialog.DiskList>("new.disk");
                 var diskPanel = diskChoices?.Parent as UIC.Panel;
                 var diskAt = diskPanel is null ? -1 : diskPanel.Children.IndexOf(diskChoices!);
                 var diskHeading = diskAt > 0 && diskPanel!.Children[diskAt - 1] is UIC.TextBlock diskTitle ? diskTitle.Text : "";

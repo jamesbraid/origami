@@ -53,10 +53,11 @@ public static class MachineSettingsDialog
             nav.MenuItems.Add(item);
         }
         var scroll = new ScrollViewer { Content = body, Padding = new Thickness(24, 8, 24, 8), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        var shell = new Grid { RowDefinitions = { new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }, new RowDefinition { Height = GridLength.Auto } } };
-        shell.Children.Add(scroll);
-        Grid.SetRow(locked, 1);
+        // The locked line sits above the page, where it cannot be pushed out of the dialog's height.
+        var shell = new Grid { RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = new GridLength(1, GridUnitType.Star) } } };
         shell.Children.Add(locked);
+        Grid.SetRow(scroll, 1);
+        shell.Children.Add(scroll);
         nav.Content = shell;
         var dlg = new ContentDialog { XamlRoot = host.XamlRootForTest, Title = name, Content = nav, CloseButtonText = Ui.T(OrigamiUiString.Done), DefaultButton = ContentDialogButton.Close };
         dlg.Resources["ContentDialogMaxWidth"] = 760.0;

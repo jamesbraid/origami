@@ -53,6 +53,9 @@
                 <ScrollViewer x:Name="GuideScroll" Grid.Row="1" Visibility="Collapsed" AutomationProperties.AutomationId="guide">
                     <StackPanel x:Name="GuideHost" Padding="12,4,12,12" Spacing="10"/>
                 </ScrollViewer>
+                <!-- The guide's footer stays here, whatever the steps above scroll to. -->
+                <StackPanel x:Name="GuideFooter" Grid.Row="2" Visibility="Collapsed" Padding="12,8,12,12" Spacing="8"
+                            Background="{ThemeResource LayerFillColorDefaultBrush}" AutomationProperties.AutomationId="guide.footer"/>
                 <Button x:Name="NewMachineButton" Grid.Row="2" HorizontalAlignment="Stretch" Margin="8" HorizontalContentAlignment="Left"
                         AutomationProperties.AutomationId="pane.new">
                     <StackPanel Orientation="Horizontal" Spacing="10">

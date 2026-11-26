@@ -12,8 +12,37 @@ internal static class Ui
 {
     internal static string T(OrigamiUiString id) => OrigamiFfiMethods.OrigamiUiString(id);
 
-    internal static Brush Res(string key) =>
-        Application.Current.Resources.TryGetValue(key, out var v) && v is Brush b ? b : new SolidColorBrush(Microsoft.UI.Colors.Gray);
+    // Brushes the app keeps for text and cards. They are one instance each, so a change of theme only has to recolour them:
+    // a brush looked up from the application's resources keeps the colour of the theme it was read in.
+    static readonly Dictionary<string, SolidColorBrush> Live_ = new();
+    static readonly List<(string Key, Border Probe)> Probes = new();
+
+    internal static Brush Res(string key)
+    {
+        if (Live_.TryGetValue(key, out var live)) return live;
+        var from = Application.Current.Resources.TryGetValue(key, out var v) && v is SolidColorBrush b ? b.Color : Microsoft.UI.Colors.Gray;
+        return Live_[key] = new SolidColorBrush(from);
+    }
+
+    /// <summary>Puts a probe for each of those brushes into the window, so its theme resources resolve for the window's own theme.</summary>
+    internal static void Attach(Panel host)
+    {
+        foreach (var key in new[] { "TextFillColorSecondaryBrush", "SystemFillColorSuccessBrush", "SystemFillColorCautionBrush", "SystemFillColorCriticalBrush", "CardBackgroundFillColorDefaultBrush", "CardStrokeColorDefaultBrush", "AccentTextFillColorPrimaryBrush" })
+        {
+            var probe = (Border)XamlReader.Load($"<Border xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Width=\"1\" Height=\"1\" Opacity=\"0\" IsHitTestVisible=\"False\" Background=\"{{ThemeResource {key}}}\"/>");
+            host.Children.Add(probe);
+            Probes.Add((key, probe));
+            Res(key);
+        }
+        Retheme();
+    }
+
+    /// <summary>Recolours the shared brushes from the probes, which follow the window's theme.</summary>
+    internal static void Retheme()
+    {
+        foreach (var (key, probe) in Probes)
+            if (probe.Background is SolidColorBrush b && Live_.TryGetValue(key, out var live)) live.Color = b.Color;
+    }
 
     static string ToneKey(Tone t) => t switch
     {

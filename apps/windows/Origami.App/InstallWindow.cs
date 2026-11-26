@@ -147,7 +147,9 @@ public sealed class InstallWindow : Window
 
     /// <summary>The steps from the PROM menu to the halt, once the core has read them.</summary>
     internal OrigamiGuideStep[]? GuideSteps => _guide?.Steps;
-    public bool Serial => _serial;
+    public bool Serial => SerialForTest ?? _serial;
+    /// <summary>Self-test: show the guide as a graphics console would, with Done instead of Type it.</summary>
+    public bool? SerialForTest { get; set; }
     public bool Automatic => _flow?.Automatic() ?? false;
     /// <summary>The line at the foot: the install files, in the core's words.</summary>
     public string GuideFooter => _flow is { } f ? Footer(f, f.Step()) : "";
