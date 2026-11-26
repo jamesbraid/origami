@@ -56,7 +56,7 @@ pub fn build(platform: &str, commit: &str, tag: &str, cache: &Path, out: &Path) 
     let _ = git(&["remote", "add", "origin", &url]);
     git(&["fetch", "-q", "--depth", "1", "origin", commit])?;
     // Go names a build's version from the tag on the checked-out commit, so
-    // fetch it for `instigator --version` to say v0.5.0, not a pseudo-version.
+    // fetch it for `instigator --version` to say v0.6.0, not a pseudo-version.
     let _ = git(&["fetch", "-q", "--depth", "1", "origin", "tag", tag]);
     git(&["checkout", "-q", "--force", "--detach", commit])?;
     let exe = if goos == "windows" {

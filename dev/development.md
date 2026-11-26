@@ -108,7 +108,8 @@ must be on PATH).
 
 ### Instigator's install configurations
 
-The install recipes embed the five YAML files in `resources/instigator/configs`
+The install recipes embed five of the YAML files in `resources/instigator/configs`
+(the IRIX 5.3 and 6.2 configs are kept but not offered yet)
 and the NFS and frame tests replay transcripts under
 `crates/*/tests/data`, so `cargo test` needs nothing from Instigator's
 repository. They are copies from the pinned Instigator release.
