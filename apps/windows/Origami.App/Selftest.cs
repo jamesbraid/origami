@@ -184,6 +184,15 @@ public static class Selftest
         Check("page: the header names the machine and its state, the status bar is hidden while stopped",
             w.PillTextForTest == "Stopped" && !w.StatusBarShownForTest, $"{w.PillTextForTest}, status bar {w.StatusBarShownForTest}");
         await Capture(w, dir, "main-stopped");
+        // A toast clears on its timer, is replaced by a newer one (which restarts the time), and never sticks.
+        w.SayForTest("First toast");
+        await Task.Delay(2500);
+        w.SayForTest("Second toast");
+        await Task.Delay(2500); // 5 s since the first toast, 2.5 s since the second
+        Check("toast: a newer toast replaces the first and runs its own time", w.ToastTextForTest == "Second toast", w.ToastStateForTest);
+        await Task.Delay((int)Tokens.Motion.ToastMs - 2500 + 1500);
+        Check("toast: it clears once its time is up and leaves the row empty", w.ToastTextForTest == "" && !w.ToastOpenForTest, w.ToastStateForTest);
+        Check("toast: the timer itself fired, not only a refresh", w.ToastTicks > 0, $"{w.ToastTicks} ticks");
         // Dark, the More menu, a row's menu, the shortcuts and the cards of states no fake engine reaches.
         var lightText = w.SecondaryTextForTest;
         w.SetThemeForTest(ElementTheme.Dark);
@@ -285,6 +294,7 @@ public static class Selftest
         ComboBox? line = null;
         await Until(() => (line = FindOpen<ComboBox>(w, "settings.console")) != null, 3000);
         Check("console line: Settings lists the machine's lines with the default marked", line != null && line.Items.Count == 2 && line.SelectedIndex == 0 && (string)line.Items[0] == "ttyS0 (default)", line == null ? "no combo" : string.Join(",", line.Items));
+        await Until(() => FindOpen<TextBlock>(w, "settings.startup") != null, 3000);
         Check("console line: the page says where startup messages appear, in the core's words", FindOpen<TextBlock>(w, "settings.startup")?.Text is "Screen" or "Console", FindOpen<TextBlock>(w, "settings.startup")?.Text ?? "none");
         if (line != null)
         {
@@ -1330,6 +1340,9 @@ public static class Selftest
         Check("can't open: the row's second line says so and the page has the core's card, with the lone comma gone",
             await Until(() => w.RowLineForTest(broken) == "Can't open" && w.CardTitleForTest == "Broken can't be opened", 5000) && !w.CardsText.Contains(','), $"{w.RowLineForTest(broken)} | {w.CardTitleForTest}");
         Check("can't open: the command bar has nothing to run, console included", !w.CommandEnabledForTest("ConsoleButton") && !w.CommandEnabledForTest("StartButton"));
+        // The upgrade toast was said moments ago; once its time is up the row must be empty.
+        await Until(() => !w.ToastOpenForTest, (int)Tokens.Motion.ToastMs + 2000);
+        Check("toast: none is left on the status bar's row once the earlier upgrade toast's time is up", !w.ToastOpenForTest && w.ToastTextForTest == "", w.ToastStateForTest);
         await Capture(w, dir, "cant-open");
         // --- the empty library: a centred image, title, sentence and New machine ---
         var realRoot = core.LibraryRoot;

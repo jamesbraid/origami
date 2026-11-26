@@ -742,7 +742,7 @@ public sealed partial class MainWindow : Window
         ToolTipService.SetToolTip(AboutButton, Ui.T(OrigamiUiString.AboutOrigami));
         _toastTimer = _ui.CreateTimer();
         _toastTimer.IsRepeating = false;
-        _toastTimer.Tick += (_, _) => Toast.Visibility = Visibility.Collapsed;
+        _toastTimer.Tick += (_, _) => { ToastTicks++; HideToast(); };
     }
 
     DispatcherQueueTimer _toastTimer = null!;
@@ -1077,10 +1077,30 @@ public sealed partial class MainWindow : Window
             ToastActions.Children.Add(b);
         }
         Toast.Visibility = Visibility.Visible;
+        _toastUntil = Environment.TickCount64 + (long)Tokens.Motion.ToastMs;
         _toastTimer.Stop();
         _toastTimer.Interval = TimeSpan.FromMilliseconds(Tokens.Motion.ToastMs);
         _toastTimer.Start();
     }
+
+    long _toastUntil;
+    /// <summary>How many times the toast timer itself has fired.</summary>
+    public int ToastTicks { get; private set; }
+
+    /// <summary>Clears the toast and its row. The timer calls it, and so does every refresh once the time is up, so a toast whose timer
+    /// never fired cannot stay on the status bar's row.</summary>
+    void HideToast()
+    {
+        _toastTimer.Stop();
+        Toast.Visibility = Visibility.Collapsed;
+        ToastText.Text = "";
+        ToastActions.Children.Clear();
+    }
+
+    /// <summary>Self-test: say something as the app does, and read back what the toast shows.</summary>
+    public void SayForTest(string text) => Say(text);
+    public string ToastTextForTest => Toast.Visibility == Visibility.Visible ? ToastText.Text : "";
+    public string ToastStateForTest => $"{Toast.Visibility} '{ToastText.Text}' timer running {_toastTimer.IsRunning} for {_toastUntil - Environment.TickCount64} ms";
 
     /// <summary>Whether the toast offers an action such as Show in Explorer, for the self-test.</summary>
     public string? ToastActionForTest => ToastOpenForTest && ToastActions.Children.FirstOrDefault() is Button b ? b.Content as string : null;
@@ -1548,6 +1568,7 @@ public sealed partial class MainWindow : Window
 
     void Refresh()
     {
+        if (Toast.Visibility == Visibility.Visible && Environment.TickCount64 >= _toastUntil) HideToast();
         if (_previewStart) return; // the self-test is showing the starting pane by hand
         SyncLibrary();
         RebuildTabs();
