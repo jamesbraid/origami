@@ -61,8 +61,14 @@ struct MachineRecord: Identifiable, Hashable {
 
     /// The summary cards, worded by the core. Other hardware belongs in Settings.
     var cards: [(symbol: String, title: String, value: String)] {
-        coreCards.map { ($0.title == "Memory" ? "memorychip" : $0.title == "Nodes" ? "cpu" : "square.stack.3d.up", $0.title, $0.value) }
+        coreCards.map { ($0.title == "Memory" ? "memorychip" : $0.title == "Nodes" ? "cpu" : $0.title == "System" ? "internaldrive" : "square.stack.3d.up", $0.title, $0.value) }
     }
+    /// The listing this record came from, for the core's row calls.
+    let summary: OrigamiMachineSummary
+    /// Why the machine's settings cannot be read, in the core's words; none for a machine that opens.
+    var problem: String? { summary.problem }
+    /// What a person calls the model: its topology, else its product.
+    var modelName: String { summary.topologyName ?? summary.productLabel }
     let coreCards: [OrigamiSummaryCard]
     var product: Product {
         var p = Product.of(model: productName, label: productLabel)
@@ -87,6 +93,7 @@ struct MachineRecord: Identifiable, Hashable {
         needsUpgrade = s.needsUpgrade
         systemDisk = s.systemDisk
         runsIrix = s.runsIrix
+        summary = s
     }
 }
 

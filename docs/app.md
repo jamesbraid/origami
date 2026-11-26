@@ -72,6 +72,16 @@ Console, Settings and the main menu. The CPU button shows the
 [CPU panel](#the-cpu-panel). A machine with no graphics opens straight to its
 console.
 
+On macOS a row is the machine's name over its model, or over its state as a dot
+and a word when it is not stopped. The title bar names the open machine with
+its state under it, and its first toolbar button shows or hides the library
+whether it is open or not. The toolbar's Start button becomes the Power off
+menu once the machine is up (Pause or Resume, Reset and Force quit are in the
+menu), the pointer is one Capture mouse toggle, and the tab bar appears only
+when a second machine is open. A status bar under a running machine shows the
+picture's size and the pointer. Help > Keyboard shortcuts lists every shortcut,
+the keys that release the mouse first.
+
 ## Machines from an older Origami
 
 A machine made by an older release shows a **Needs upgrade** pill in the
@@ -82,6 +92,8 @@ what the guest will notice at its next boot is listed when it is done. A
 machine that needs firmware to be rebuilt downloads it. If that fails, the
 message gives the `origami upgrade` command that takes local firmware files.
 If an upgrade fails, the reason is shown. The machine file stays as it was unless the upgrade had already rewritten it.
+On macOS a failed upgrade that needs firmware offers Choose firmware files…, and a
+successful one shows a brief toast naming the machine.
 
 ## Create a machine
 
@@ -164,7 +176,8 @@ the toolbar picks how the mouse works. *Follow my mouse* makes the guest's
 pointer track yours while it is over the screen. *Capture on click* takes the
 mouse and keyboard when you click and hands them back on Ctrl+Alt (Linux).
 
-Power off asks the guest to stop. If the guest has not stopped after 30
+Power off, Reset and Force quit ask first, and the safe answer, Cancel, is the
+default. Power off asks the guest to stop. If the guest has not stopped after 30
 seconds, the app offers Force quit, which ends the emulator at once; the guest
 does not get to write its disks. When you quit the app with machines running,
 Keep Running leaves them going without it.
@@ -258,9 +271,28 @@ machine refuses edits; stop it first, except for the CD-ROM. The Drives page
 adds a disk image and inserts a CD-ROM image. Change CD and Eject work while
 the machine runs.
 
+## Remove a machine
+
+Move to Trash… (Delete… on Windows) removes a stopped machine from the library
+by moving its folder, with its disks and settings, to the platform's trash. It is in the
+row's right-click menu and the Machine menu (Cmd+Backspace on macOS). A disk
+image the machine used in place, outside its folder, stays where it is and the
+alert says so.
+
+## Drag and drop
+
+On macOS, drop a CD image on a running machine to change its CD, or a disk image
+on the library to open New machine with that disk chosen.
+
 ## Install IRIX
 
 Machine > Install IRIX… opens the install assistant for a stopped machine.
+On macOS the set-up steps (release, discs, software, method, disk and check) are
+a sheet; once the install starts the sheet closes and the guide takes the sidebar,
+beside the machine's screen or, on a serial console, its console. A toolbar button
+switches the sidebar between the guide and the library. Each step names what to watch
+for and what to type, and a serial console marks it done when the prompt shows;
+a graphics console has a Done button.
 New Machine can open it for you: with an empty disk chosen, tick Install IRIX
 after creating. It is the app's version of
 [Install IRIX](usage.md#install-irix) from the command line. The assistant

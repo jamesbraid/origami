@@ -44,17 +44,52 @@ extension MachineModel {
 struct MachineTab: View {
     @ObservedObject var model: MachineModel
     @EnvironmentObject var app: AppModel
+    @State private var dropping = false
 
     var body: some View {
+        content
+            .dropDestination(for: URL.self) { urls, _ in app.dropOnMachine(urls, model) } isTargeted: { dropping = $0 }
+            .overlay { if dropping && model.isRunning { DropHint() } }
+    }
+
+    @ViewBuilder private var screen: some View {
+        if model.headless || model.installConsole { ConsoleTab(model: model) } else { ScreenView(model: model) }
+    }
+
+    @ViewBuilder private var content: some View {
         switch model.state {
-        case .stopped: Hero(model: model)
+        case .stopped:
+            if model.shown == .cantOpen { StateCard(model: model) } else { Hero(model: model) }
         case .starting: StartingCard(model: model)
-        case .running, .paused: if model.headless { ConsoleTab(model: model) } else { ScreenView(model: model) }
-        case .noPicture: ProblemCard(model: model)
-        case .stopping: SavingCard(model: model)
-        case .stoppedUnexpectedly: StoppedCard(model: model)
-        case .leftRunning: LeftRunningCard(model: model)
-        case .needsUpgrade: UpgradeCard(model: model)
+        case .running: screen
+        case .paused: screen.overlay { PausedOverlay(model: model) }
+        case .noPicture, .stopping, .stoppedUnexpectedly, .leftRunning, .needsUpgrade: StateCard(model: model)
+        }
+    }
+}
+
+/// What a CD image dropped on the machine will do.
+struct DropHint: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10).strokeBorder(Color.accentColor, lineWidth: 3)
+            .background(Color.accentColor.opacity(0.15))
+            .overlay { Text(origamiDropCaption(kind: .cdImage) ?? "").font(.title2.weight(.semibold)) }
+            .padding(8).allowsHitTesting(false)
+    }
+}
+
+/// The last picture dimmed, with the core's Resume.
+struct PausedOverlay: View {
+    @ObservedObject var model: MachineModel
+    @EnvironmentObject var app: AppModel
+    var body: some View {
+        let card = origamiMachineCard(state: .paused, error: nil, name: model.name, platform: thisPlatform)
+        ZStack {
+            Color.black.opacity(0.45)
+            ForEach(card?.actions ?? [], id: \.label) { a in
+                Button(a.label) { app.invoke(.resume) }
+                    .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+            }
         }
     }
 }
@@ -96,7 +131,7 @@ struct ScreenView: View {
                     .accessibilityLabel("\(model.name) screen")
                     .accessibilityHint("The machine's display. Keyboard and mouse go to the machine.")
                 if showHint {
-                    Text(hint)
+                    Text(origamiCaptureHint(platform: thisPlatform))
                         .font(.callout.weight(.medium)).foregroundStyle(.white)
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .background(Capsule().fill(.black.opacity(0.7)))
@@ -116,7 +151,6 @@ struct ScreenView: View {
         }
     }
 
-    private var hint: String { "Mouse captured. Press ⌃⌥ to release." }
 }
 
 // MARK: stopped
@@ -160,19 +194,16 @@ struct Hero: View {
         VStack(spacing: 0) {
             VStack(spacing: 14) {
                 HeroArt(product: r.product)
-                Text(r.name).font(.largeTitle.weight(.semibold))
-                Text(r.product.name).font(.title3).foregroundStyle(.primary.opacity(Tokens.Pane.productLineAlpha))
                 Button {
                     app.invoke(.start)
                 } label: {
                     Label(ui(.start), systemImage: "play.fill").font(.title3).padding(.horizontal, 22).padding(.vertical, 4)
                 }
                 .buttonStyle(.borderedProminent).controlSize(.large)
-                .accessibilityLabel("Start \(r.name)")
+                .accessibilityLabel("\(ui(.start)) \(r.name)")
             }
             .padding(.vertical, 32)
-            .frame(maxHeight: 340)
-            ForEach(model.upgradeNotes.compactMap(\.shown), id: \.self) { Text($0).font(.callout).foregroundStyle(.secondary).frame(maxWidth: 520) }
+            .frame(maxHeight: 300)
             HStack(spacing: 12) {
                 ForEach(r.cards, id: \.title) { Tile(symbol: $0.symbol, title: $0.title, value: $0.value) }
             }
@@ -224,7 +255,7 @@ struct StartingCard: View {
                     StageChip(title: "Emulator", symbol: "cpu", state: model.emulatorUp ? true : nil)
                     StageChip(title: "Screen", symbol: "display", state: model.hasPicture ? true : nil)
                 }
-                Button(ui(.powerOff)) { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
+                Button(ui(.cancelStart)) { app.invoke(.cancelStart) }.disabled(!app.isEnabled(.cancelStart))
             }
         }
     }
@@ -247,76 +278,120 @@ struct Card: View {
     }
 }
 
-struct ProblemCard: View {
+/// One card for every state that has one, worded by the core: a title, a sentence, Show details and the buttons.
+struct StateCard: View {
     @ObservedObject var model: MachineModel
     @EnvironmentObject var app: AppModel
-    var body: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 26) {
-                StageChip(title: "Emulator", symbol: "cpu", state: true)
-                StageChip(title: "Screen", symbol: "display", state: false)
-            }
-            .padding(14).background(RoundedRectangle(cornerRadius: 12).fill(Color.black.opacity(0.85)))
-            Card(symbol: "exclamationmark.triangle.fill", tint: .red, title: "No picture",
-                 detail: "The emulator is running but has sent no picture. Diagnostics shows what the display link reports.",
-                 actions: [("Open diagnostics", { app.invoke(.diagnostics) }), ("Power off", { app.invoke(.powerOff) })])
+
+    /// The error the page is about: why a start failed, how the emulator ended, or why the machine will not open.
+    private var error: OrigamiErrorInfo? {
+        switch model.shown {
+        case .cantOpen:
+            return model.record.problem.map { OrigamiErrorInfo(kind: .invalid, message: $0, detail: nil, fix: OrigamiErrorFix.none) }
+        case .exited:
+            return model.startError ?? OrigamiErrorInfo(kind: .engine, message: model.failure ?? "", detail: nil, fix: OrigamiErrorFix.none)
+        default:
+            return nil
         }
     }
-}
 
-struct SavingCard: View {
-    @ObservedObject var model: MachineModel
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "internaldrive").font(.system(size: 44)).foregroundStyle(.secondary)
-            Text("Saving").font(.title2.weight(.semibold))
-            ProgressView().controlSize(.small)
-            Text("The disk image is folding in the guest's changes.").foregroundStyle(.secondary)
+    private var card: OrigamiCard? {
+        guard var c = origamiMachineCard(state: model.shown, error: error, name: model.name, platform: thisPlatform) else { return nil }
+        // An emulator that ran and then ended is not one that "couldn't start": the title is the state's word.
+        if model.shown == .exited, model.startError == nil { c.title = model.word }
+        return c
+    }
+
+    private var symbol: String {
+        switch model.shown {
+        case .noPicture: return "display"
+        case .saving: return "internaldrive"
+        case .leftRunning: return "bolt.horizontal.circle.fill"
+        case .needsUpgrade: return "arrow.triangle.2.circlepath.circle.fill"
+        default: return "exclamationmark.octagon.fill"
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-}
 
-struct StoppedCard: View {
-    @ObservedObject var model: MachineModel
-    @EnvironmentObject var app: AppModel
     var body: some View {
-        Card(symbol: "exclamationmark.octagon.fill", tint: .red, title: "Stopped unexpectedly",
-             detail: model.failure ?? "The emulator exited.",
-             actions: [("Start", { app.invoke(.start) }), ("Open diagnostics", { app.invoke(.diagnostics) })])
-    }
-}
-
-struct LeftRunningCard: View {
-    @ObservedObject var model: MachineModel
-    @EnvironmentObject var app: AppModel
-    var body: some View {
-        Card(symbol: "bolt.horizontal.circle.fill", tint: .orange, title: "Left running",
-             detail: "\(model.name) kept running after Origami quit. Reconnect to see it, or power it off.",
-             actions: [("Reconnect", { app.invoke(.start) }), ("Power off", { app.invoke(.powerOff) })])
-    }
-}
-
-struct UpgradeCard: View {
-    @ObservedObject var model: MachineModel
-    @EnvironmentObject var app: AppModel
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "arrow.triangle.2.circlepath.circle.fill").font(.system(size: 44)).foregroundStyle(.orange).accessibilityHidden(true)
-            Text(ui(.needsUpgrade)).font(.title2.weight(.semibold))
-            Text("This machine was made by an older Origami. Upgrade it once to use it. Flash, NVRAM, drives, network settings and the Ethernet address are kept.")
-                .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
-            if let e = model.upgradeError {
-                Text(e)
-                    .foregroundStyle(.red).multilineTextAlignment(.center).frame(maxWidth: 420).textSelection(.enabled)
+        if let card {
+            VStack(spacing: 14) {
+                Image(systemName: symbol).font(.system(size: 44))
+                    .foregroundStyle(model.tone == .none ? Color.secondary : model.tone.colour).accessibilityHidden(true)
+                if !card.title.isEmpty { Text(card.title).font(.title2.weight(.semibold)) }
+                if !card.body.isEmpty {
+                    Text(card.body).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
+                }
+                if model.shown == .saving { ProgressView().controlSize(.small) }
+                if model.shown == .needsUpgrade, let e = model.upgradeError {
+                    Text(e.message).foregroundStyle(.red).multilineTextAlignment(.center).frame(maxWidth: 420).textSelection(.enabled)
+                    if let d = e.detail { DetailsDisclosure(text: d) }
+                }
+                if let d = card.details { DetailsDisclosure(text: d) }
+                HStack {
+                    ForEach(Array(buttons(card).enumerated()), id: \.offset) { i, a in
+                        if i == 0 {
+                            Button(a.label) { perform(a) }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        } else {
+                            Button(a.label) { perform(a) }
+                        }
+                    }
+                    if model.upgrading { ProgressView().controlSize(.small) }
+                }
+                .disabled(model.upgrading)
             }
-            HStack {
-                Button { model.upgrade() } label: { Text(ui(.upgrade)) }
-                    .buttonStyle(.borderedProminent).disabled(model.upgrading)
-                Button("Show in Finder") { app.invoke(.showInFinder) }
-                if model.upgrading { ProgressView().controlSize(.small) }
-            }
+            .padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The card's buttons, with the fix for a failed upgrade first.
+    private func buttons(_ card: OrigamiCard) -> [OrigamiCardAction] {
+        guard model.shown == .needsUpgrade, let e = model.upgradeError, e.fix != OrigamiErrorFix.none,
+              let fix = origamiMachineCard(state: .stopped, error: e, name: model.name, platform: thisPlatform)?.actions.first(where: { $0.kind != .tryAgain })
+        else { return card.actions }
+        return [fix] + card.actions
+    }
+
+    private func perform(_ a: OrigamiCardAction) {
+        switch a.kind {
+        case .openConsole: app.invoke(.console)
+        case .powerOff: app.invoke(.powerOff)
+        case .reconnect, .tryAgain: app.invoke(.start)
+        case .resume: app.invoke(.resume)
+        case .upgrade: upgrade()
+        case .showInFolder: app.invoke(.showInFinder)
+        case .openSettings: app.settingsPane = .general; app.invoke(.settings)
+        case .chooseDisk: app.settingsPane = .drives; app.invoke(.settings)
+        case .chooseFirmware: chooseFirmware()
+        }
+    }
+
+    private func upgrade(prom: String? = nil, ioProm: String? = nil) {
+        model.upgrade(prom: prom, ioProm: ioProm) { ok in if ok { app.toast(.upgraded(name: model.name)) } }
+    }
+
+    /// The boot PROM, then the IO PROM where the machine has one; cancelling the second leaves it out.
+    private func chooseFirmware() {
+        guard let prom = PathPicker.choose(ui(.choose)) else { return }
+        upgrade(prom: prom.path, ioProm: PathPicker.choose(ui(.choose))?.path)
+    }
+}
+
+/// Show details: the technical text in monospace, with Copy.
+struct DetailsDisclosure: View {
+    let text: String
+    @State private var open = false
+    var body: some View {
+        DisclosureGroup(ui(.showDetails), isExpanded: $open) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(ui(.copy)) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: 420)
     }
 }

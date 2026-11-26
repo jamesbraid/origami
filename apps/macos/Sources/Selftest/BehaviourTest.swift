@@ -71,7 +71,7 @@ func runDisplaySelfTest(library: String, out: String) {
         let fitted = FitView.fittedCount
         var started = false
         m.start { _ in started = true }
-        guard waitFor(60, { started }), waitFor(60, { m.state == .running }) else { fail("\(m.name) did not start (\(m.state.pill))") }
+        guard waitFor(60, { started }), waitFor(60, { m.state == .running }) else { fail("\(m.name) did not start (\(m.state.word))") }
         try? host.core.fakeAdvanceFrame(key: m.record.key)
         guard waitFor(30, { m.picture?.width == guest.w && m.view?.lastDraw() != nil }) else { fail("\(m.name) has no picture") }
         // A tab's first picture sizes the window once; let that happen here, not when a row first shows the tab.
@@ -80,7 +80,7 @@ func runDisplaySelfTest(library: String, out: String) {
     func stop(_ m: MachineModel) {
         var stopped = false
         m.stop { _ in stopped = true }
-        guard waitFor(60, { stopped && m.state == .stopped }) else { fail("\(m.name) did not stop (\(m.state.pill))") }
+        guard waitFor(60, { stopped && m.state == .stopped }) else { fail("\(m.name) did not stop (\(m.state.word))") }
     }
     start(other)
     start(model)

@@ -27,6 +27,8 @@ func snapshotRetina<V: View>(_ view: V, size: CGSize, dark: Bool, to path: Strin
     let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
     window.isReleasedWhenClosed = false
     window.contentView = host
+    // A window left open keeps the view alive, and it would take a later machine's one-time fit.
+    defer { window.contentView = nil; window.close() }
     host.layoutSubtreeIfNeeded()
     spin(0.5)
     host.layoutSubtreeIfNeeded()
@@ -316,7 +318,7 @@ func runSelfTest(library: String, out: String) {
     check("library-scan", !model.record.productName.isEmpty,
           ["machines": app.models.map(\.name), "chosen": model.name, "product": model.record.productName,
            "memory": model.record.memory, "nodes": model.record.nodes])
-    check("library-not-running", model.state == .stopped, ["state": model.state.pill])
+    check("library-not-running", model.state == .stopped, ["state": model.state.word])
 
     // Layout: every Settings tab name fits its sidebar row (text plus icon and row padding), and the New Machine sheet
     // asks for no more than its width. SwiftUI cannot report a truncated Text, so the tab names are measured.
@@ -338,7 +340,7 @@ func runSelfTest(library: String, out: String) {
         let tag = "\(k.character)-\(c.info.modifiers.rawValue)"
         if let other = keys[tag] { clash.append("\(c.rawValue)/\(other.rawValue)") } else { keys[tag] = c }
     }
-    check("command-table", clash.isEmpty && Set(CommandID.allCases.map(\.info.menu)) == [.file, .machine, .view, .window],
+    check("command-table", clash.isEmpty && Set(CommandID.allCases.map(\.info.menu)) == [.file, .machine, .view, .window, .help],
           ["commands": CommandID.allCases.count, "clashes": clash])
     let coreCommands = Set(host.core.commands().map(\.id))
     check("core-command-table", coreCommands.contains("machine.start"), ["core_commands": coreCommands.sorted()])
@@ -364,12 +366,16 @@ func runSelfTest(library: String, out: String) {
             check("open-in-new-tab-adds-a-tab", app.tabs == [ids[0], ids[1]] && app.active == ids[1], ["tabs": app.tabs.count])
         }
     }
-    // Parity: the tab bar is up with one tab, and the cards are Memory and Model (Nodes only on a machine with several).
+    // The tab bar stays hidden while one machine is open and comes back with a second; the cards are Memory and Model
+    // (Nodes only on a machine with several, System once the disk is read).
     do {
         app.closeAllTabsForTest()
         let bare = app.showsTabBar
         app.select(model.id)
-        check("tab-bar-shows-with-one-tab", !bare && app.tabs.count == 1 && app.showsTabBar, [:])
+        let one = app.showsTabBar
+        if let other = app.models.first(where: { $0.id != model.id }) { app.openInNewTab(other.id) }
+        check("tab-bar-hidden-with-one-machine-and-back-with-two", !bare && !one && app.tabs.count == 2 && app.showsTabBar, ["tabs": app.tabs.count])
+        app.closeTab(app.tabs.last ?? "")
         check("summary-cards-are-memory-then-model", model.record.cards.map(\.title) == ["Memory", "Model"], [:])
     }
     // A start that fails stays "Stopped unexpectedly" with its reason, through later refreshes.
@@ -381,12 +387,15 @@ func runSelfTest(library: String, out: String) {
         _ = waitFor(10) { !victim.isRefreshing }
         spin(0.5)
         check("start-error-is-not-wiped-to-stopped", victim.state == .stoppedUnexpectedly && (victim.failure ?? "").contains("boom"),
-              ["state": victim.state.pill, "failure": victim.failure ?? "none"])
+              ["state": victim.state.word, "failure": victim.failure ?? "none"])
     }
     app.select(model.id)
     check("commands-enabled-at-rest", app.isEnabled(.start) && !app.isEnabled(.powerOff) && !app.isEnabled(.reset)
           && !app.isEnabled(.forceQuit), [:])
     check("window-never-shown", NSApp.windows.allSatisfy { !$0.isVisible }, [:])
+    #if FAKE
+    if fake { uxChecksAtRest(app: app, host: host, library: library, out: out, check: check) }
+    #endif
 
     // 3. The SwiftUI views, rendered with no window.
     let hero = snapshot(Hero(model: model).environmentObject(app), size: CGSize(width: 760, height: 560), to: "\(out)/ui-hero.png")
@@ -672,7 +681,7 @@ func runSelfTest(library: String, out: String) {
         nm.disk = .ready
         let readyBlocked = !nm.readyDisks.isEmpty || !nm.canCreate
         nm.disk = .noDisk
-        check("new-machine-ready-disk-needs-a-listed-disk", readyBlocked && nm.choices.contains(.ready) == !nm.readyDisks.isEmpty
+        check("new-machine-ready-disk-needs-a-listed-disk", readyBlocked && nm.options.contains { $0.choice == .ready } == !nm.readyDisks.isEmpty
               && (try? host.core.cachedDisks()) != nil, [:])
         // Engines: always an explicit one, the catalogue's own; a change keeps the model when the new engine offers it.
         let engines = nm.engines
@@ -740,24 +749,24 @@ func runSelfTest(library: String, out: String) {
     // 4. Start it the way the Start command does. Events drive every state change.
     var startError: Error?? = .none
     model.start { e in startError = .some(e) }
-    check("state-starting", model.state == .starting && model.busy == "Starting…", ["state": model.state.pill])
+    check("state-starting", model.state == .starting && model.busy == "Starting…", ["state": model.state.word])
     check("start-returns", waitFor(180) { startError != nil } && (startError ?? nil) == nil, ["error": "\(String(describing: startError))"])
     guard let session = model.session else { check("session", false, ["error": "no session after start"]); finish() }
-    check("emulator-up-by-event", waitFor(60) { model.emulatorUp }, ["state": model.state.pill])
+    check("emulator-up-by-event", waitFor(60) { model.emulatorUp }, ["state": model.state.word])
 
     if !fake {
         // The QEMU engine: what the FFI wires so far.
         _ = waitFor(40) { model.hasPicture || model.headless }
         let picture = model.hasPicture
         check("qemu-picture-reported", picture || model.headless, ["heads": session.machine.view().heads.count,
-              "picture": "\(String(describing: model.picture))", "state": model.state.pill])
+              "picture": "\(String(describing: model.picture))", "state": model.state.word])
         _ = waitFor(10) { model.state == .running }
         if picture { checkTabFillsTheFitRect("tab-display-fills-the-fit-rect-on-the-first-picture") }
         else {
             // A machine with no display: its tab is its console, with output and input.
             func consoleViews(_ v: NSView) -> [ConsoleNSView] { (v as? ConsoleNSView).map { [$0] } ?? v.subviews.flatMap(consoleViews) }
             check("headless-machine-runs-with-its-console-in-the-tab", waitFor(30) { model.headless && model.state == .running && !consoleViews(tabHost).isEmpty },
-                  ["state": model.state.pill, "headless": model.headless, "console_views": consoleViews(tabHost).count])
+                  ["state": model.state.word, "headless": model.headless, "console_views": consoleViews(tabHost).count])
             let console = model.console()
             func screen() -> String { (0..<Int(console.terminal?.size().rows ?? 24)).map { r in ((try? console.terminal?.row(index: UInt16(r))) ?? []).map { $0.text.isEmpty ? " " : $0.text }.joined() }.joined(separator: "\n") }
             check("headless-console-has-output", waitFor(60) { !screen().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
@@ -845,10 +854,10 @@ func runSelfTest(library: String, out: String) {
             check("qemu-console-accepts-input", console.terminal != nil && console.error == nil, ["error": console.error ?? "none"])
             console.detach()
         }
-        app.confirm = { _, _, _ in true }
+        app.present = { a in a.buttons.firstIndex { $0.role == .destructive } ?? 0 }
         var stopped: Error?? = .none
         model.stop { e in stopped = .some(e) }
-        check("qemu-power-off", waitFor(300) { stopped != nil } && (stopped ?? nil) == nil, ["state": model.state.pill])
+        check("qemu-power-off", waitFor(300) { stopped != nil } && (stopped ?? nil) == nil, ["state": model.state.word])
 
         // The emulator ending by itself. Each scenario starts the machine in a fresh core, because the
         // core refuses to start a machine again after its emulator ended ("machine is already running").
@@ -871,13 +880,13 @@ func runSelfTest(library: String, out: String) {
             spin(6)
             // The core lists a machine another core runs as left running; listing it must not churn the UI.
             check("left-running-is-listed-without-churn", changes == 0 && seen?.state == .leftRunning,
-                  ["state": seen?.state.pill ?? "none", "objectWillChange_in_6s": changes])
+                  ["state": seen?.state.word ?? "none", "objectWillChange_in_6s": changes])
             sink.cancel()
             kill(pid_t(pid), SIGKILL)
             check("qemu-crash-shows-stopped-unexpectedly", waitFor(20) { m.state == .stoppedUnexpectedly && !(m.failure ?? "").isEmpty },
-                  ["state": m.state.pill, "reason": m.failure ?? "none"])
+                  ["state": m.state.word, "reason": m.failure ?? "none"])
             check("left-running-that-dies-is-not-clean", waitFor(20) { seen?.state == .stoppedUnexpectedly },
-                  ["state": seen?.state.pill ?? "none", "reason": seen?.failure ?? "none"])
+                  ["state": seen?.state.word ?? "none", "reason": seen?.failure ?? "none"])
             _ = host
         } else { check("qemu-crash-shows-stopped-unexpectedly", false, ["error": "could not start or read run.json"]) }
         // A QMP quit nobody on the host asked for is the guest powering itself off, which the core calls a clean stop.
@@ -893,7 +902,7 @@ func runSelfTest(library: String, out: String) {
             p.arguments = ["-c", script, "\(port)"]
             try? p.run(); p.waitUntilExit()
             check("guest-power-off-is-a-clean-stop", waitFor(20) { m.state == .stopped && m.failure == nil },
-                  ["state": m.state.pill, "failure": m.failure ?? "none", "core_state": "\(String(describing: m.coreView?.state))",
+                  ["state": m.state.word, "failure": m.failure ?? "none", "core_state": "\(String(describing: m.coreView?.state))",
                    "exit_reason": "\(String(describing: m.coreView?.exitReason))", "exit_detail": m.coreView?.exitDetail ?? "none", "busy": m.busy ?? "none"])
             _ = host
         } else { check("guest-power-off-is-a-clean-stop", false, ["error": "could not start or read run.json"]) }
@@ -924,7 +933,7 @@ func runSelfTest(library: String, out: String) {
     advance()
     check("wake-callback", waitFor(10) { session.wakes > wakes0 }, ["wakes": session.wakes])
     check("state-running", waitFor(10) { model.state == .running } && model.picture?.width == 64 && model.picture?.height == 48,
-          ["state": model.state.pill, "picture": "\(String(describing: model.picture))"])
+          ["state": model.state.word, "picture": "\(String(describing: model.picture))"])
     check("commands-enabled-running", app.isEnabled(.powerOff) && app.isEnabled(.reset) && !app.isEnabled(.start) && app.isEnabled(.captureInput), [:])
 
     var pixels: [UInt8] = []
@@ -1187,13 +1196,23 @@ func runSelfTest(library: String, out: String) {
     spin(0.2)
     check("focus-loss-releases-keys", session.releaseAll() == 0, [:])
 
+    // The status bar: the picture's size and the pointer's words from the core while the machine runs.
+    do {
+        _ = waitFor(30) { model.statusBar?.picture != nil }
+        let want = model.session?.machine.statusBar(follows: model.pointerMode == .follow, captured: model.captured, platform: .macos)
+        check("status-bar-shows-size-and-pointer-while-running",
+              want != nil && model.statusBar?.picture == want?.picture && model.statusBar?.pointer == want?.pointer && (want?.picture ?? "").contains("×"),
+              ["bar": "\(String(describing: model.statusBar))", "want": "\(String(describing: want))"])
+    }
+
     // 7. The diagnostics report and the running view's card.
     let report = diagnosticsReport(model)
     check("diagnostics-report", report.contains(model.name) && report.contains("Engine:") && report.contains("Frame updates:"), ["lines": report.split(separator: "\n").count])
     let running = snapshot(ScreenView(model: model).environmentObject(app), size: CGSize(width: 900, height: 700), to: "\(out)/ui-screen-view.png")
     check("ui-screen-view-renders", running.ok && running.colours > 5, ["distinct_colours_sampled": running.colours])
     let tips = ToolbarTip.all
-    check("toolbar-buttons-have-tooltips", tips.count == 7 && tips.allSatisfy { !$0.isEmpty && !$0.contains("·") } && Set(tips).count == tips.count,
+    check("toolbar-buttons-have-tooltips", tips.allSatisfy { !$0.isEmpty && !$0.contains("·") } && Set(tips).count == tips.count
+          && ToolbarTip.byLabel[ui(.start)] == origamiCommandTooltip(id: "machine.start", platform: .macos),
           ["tips": tips])
 
     // 7a2. The real toolbar of the main window: its items and tooltips, and a picture of it.
@@ -1205,8 +1224,15 @@ func runSelfTest(library: String, out: String) {
         spin(2)
         let items = main.toolbar?.items ?? []
         let named = items.filter { ToolbarTip.byLabel[$0.label] != nil }
-        check("toolbar-items-have-tooltips", named.count == 6 && named.allSatisfy { $0.toolTip == ToolbarTip.byLabel[$0.label] },
+        check("toolbar-items-have-tooltips", named.count >= 6 && named.allSatisfy { $0.toolTip == ToolbarTip.byLabel[$0.label] },
               ["items": items.map { "\($0.label)|\($0.toolTip ?? "")|\($0.view?.toolTip ?? "")" }])
+        // The state is the window's subtitle, and the toolbar holds only the commands: no state pill.
+        let ours = items.filter { !$0.itemIdentifier.rawValue.hasPrefix("NSToolbar") }
+        check("toolbar-has-no-state-pill", ours.allSatisfy { ToolbarTip.byLabel[$0.label] != nil },
+              ["unnamed": ours.filter { ToolbarTip.byLabel[$0.label] == nil }.map { $0.itemIdentifier.rawValue }])
+        let shown = app.current
+        check("title-names-the-machine-and-subtitle-its-state", main.title == (shown?.name ?? ui(.origami)) && main.subtitle == (shown?.word ?? ""),
+              ["title": main.title, "subtitle": main.subtitle, "word": shown?.word ?? ""])
         if let frame = main.contentView?.superview, let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) {
             frame.cacheDisplay(in: frame.bounds, to: rep)
             try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(out)/ui-main-window.png"))
@@ -1292,7 +1318,7 @@ func runSelfTest(library: String, out: String) {
                 check(name, waitFor(60) {
                     try? host.core.fakeAdvanceFrame(key: wide.record.key)
                     return wide.state == .running && wide.picture?.width == 1280 && wide.picture?.height == 1024
-                }, ["state": wide.state.pill, "picture": "\(String(describing: wide.picture))"])
+                }, ["state": wide.state.word, "picture": "\(String(describing: wide.picture))"])
             }
             func stop() {
                 var off: Error?? = .none
@@ -1404,7 +1430,7 @@ func runSelfTest(library: String, out: String) {
         model.pause { e in done = .some(e) }
         // `done` fires before the background refresh applies the new state, so wait on the state too.
         check("pause", waitFor(30) { done != nil && model.state == .paused } && app.isEnabled(.resume) && !app.isEnabled(.pause),
-              ["state": model.state.pill])
+              ["state": model.state.word])
         // Save Screenshot writes a PNG named for the machine and time into the folder, with no panel,
         // and says where.
         app.screenshotFolder = URL(fileURLWithPath: out)
@@ -1417,11 +1443,11 @@ func runSelfTest(library: String, out: String) {
         } else { check("screenshot-is-a-png-of-the-head", false, ["notice": app.notice?.text ?? "none"]) }
         done = .none
         model.resume { e in done = .some(e) }
-        check("resume", waitFor(30) { done != nil && model.state == .running }, ["state": model.state.pill])
+        check("resume", waitFor(30) { done != nil && model.state == .running }, ["state": model.state.word])
     }
 
     // 8. Power: Reset, Power Off (Saving), Start again, and the left-running path.
-    app.confirm = { _, _, _ in true }
+    app.present = { a in a.buttons.firstIndex { $0.role == .destructive } ?? 0 }
     var resetErr: Error?? = .none
     model.reset { e in resetErr = .some(e) }
     check("power-reset", waitFor(60) { resetErr != nil } && (resetErr ?? nil) == nil, ["error": "\(String(describing: resetErr))"])
@@ -1439,9 +1465,18 @@ func runSelfTest(library: String, out: String) {
     check("detached-view-does-not-redraw", view.presented == before, [:])
     view2.detach()
 
+    do {
+        var asked: OrigamiAlert?
+        app.present = { a in asked = a; return a.buttons.firstIndex { $0.role == .cancel } ?? 0 }
+        app.invoke(.powerOff)
+        check("power-off-asks-first-and-cancel-leaves-it-running", asked?.title.contains(model.name) == true && model.state == .running,
+              ["asked": asked?.title ?? "none", "state": model.state.word])
+        app.present = { a in a.buttons.firstIndex { $0.role == .destructive } ?? 0 }
+    }
     app.invoke(.powerOff)
-    check("state-saving", model.state == .stopping && model.state.pill == "Saving", ["state": model.state.pill])
-    check("power-off", waitFor(60) { model.busy == nil && model.state == .stopped }, ["state": model.state.pill])
+    check("state-saving", model.state == .stopping && model.state.word == "Saving", ["state": model.state.word])
+    check("power-off", waitFor(60) { model.busy == nil && model.state == .stopped }, ["state": model.state.word])
+    check("status-bar-is-hidden-when-stopped", waitFor(10) { model.statusBar == nil }, ["bar": "\(String(describing: model.statusBar))"])
     check("state-stopped", model.state == .stopped && app.isEnabled(.start), [:])
 
     // stop always calls done: on a stopped machine at once, and queued behind a start.
@@ -1451,9 +1486,9 @@ func runSelfTest(library: String, out: String) {
     app.invoke(.start)
     var doneQueued = false
     model.stop { _ in doneQueued = true }
-    check("stop-queued-behind-start-calls-done", waitFor(120) { doneQueued && model.state == .stopped }, ["state": model.state.pill])
+    check("stop-queued-behind-start-calls-done", waitFor(120) { doneQueued && model.state == .stopped }, ["state": model.state.word])
     app.invoke(.start)
-    check("start-again", waitFor(60) { model.state == .running || model.state == .starting }, ["state": model.state.pill])
+    check("start-again", waitFor(60) { model.state == .running || model.state == .starting }, ["state": model.state.word])
     _ = waitFor(30) { model.emulatorUp }
 
     // Quit: no prompt when none runs, one naming the live ones otherwise; a stale entry for a
@@ -1476,7 +1511,7 @@ func runSelfTest(library: String, out: String) {
         beta?.injectStaleState(.running)            // stale: the core says it is stopped
         let one = plan()                            // one running (alpha) plus a stale beta
         check("quit-one-running-ignores-a-stale-entry", one == .ask([model.name]) && beta?.state == .stopped,
-              ["plan": "\(one)", "stale_state_after": beta?.state.pill ?? "none"])
+              ["plan": "\(one)", "stale_state_after": beta?.state.word ?? "none"])
         if let beta {
             beta.start()
             _ = waitFor(60) { beta.state == .running }
@@ -1490,7 +1525,7 @@ func runSelfTest(library: String, out: String) {
     var failedNames: [String] = []
     app.stopAll { failed in failedNames = failed.map(\.name); stopped = true }
     check("stop-all", waitFor(120) { stopped } && failedNames.isEmpty && model.state == .stopped,
-          ["state": model.state.pill, "failed": failedNames])
+          ["state": model.state.word, "failed": failedNames])
     var final: AppModel.QuitPlan?
     app.quitPlan { final = $0 }
     _ = waitFor(30) { final != nil }
@@ -1508,20 +1543,18 @@ func runSelfTest(library: String, out: String) {
         check("upgrade-fixture-copied", copied, ["fixtures": fixtures])
         app.rescanNow()
         if let old = app.model(named: "old") {
-            check("upgrade-pill-and-no-start", old.state == .needsUpgrade && old.state.pill == "Needs upgrade" && !old.canStart,
-                  ["state": old.state.pill])
+            check("upgrade-state-has-the-core-word-and-no-start", old.state == .needsUpgrade && old.word == origamiStateLabel(state: .needsUpgrade).word && !old.canStart,
+                  ["state": old.state.word])
             let card = snapshot(MachineTab(model: old).environmentObject(app), size: CGSize(width: 760, height: 560), to: "\(out)/ui-upgrade-card.png")
             check("ui-upgrade-card-renders", card.ok && card.colours > 5, ["distinct_colours_sampled": card.colours])
             old.upgrade()
             check("upgrade-replaces-the-card-with-the-machine", waitFor(60) { old.state == .stopped && !old.upgrading },
-                  ["state": old.state.pill, "error": old.upgradeError ?? "none"])
-            let notes = old.upgradeNotes.compactMap(\.shown)
-            check("upgrade-notes-are-kept", notes.contains { $0.contains("format 5") }, ["notes": notes])
+                  ["state": old.state.word, "error": old.upgradeError?.message ?? "none"])
             old.start()
-            check("upgraded-machine-starts", waitFor(60) { old.state == .running }, ["state": old.state.pill, "failure": old.failure ?? "none"])
+            check("upgraded-machine-starts", waitFor(60) { old.state == .running }, ["state": old.state.word, "failure": old.failure ?? "none"])
             old.stop()
             _ = waitFor(60) { old.state == .stopped }
-        } else { check("upgrade-pill-and-no-start", false, ["error": "the older machine is not listed"]) }
+        } else { check("upgrade-state-has-the-core-word-and-no-start", false, ["error": "the older machine is not listed"]) }
     }
     // Disks, through the models the sheets and panes call: an empty disk, an image copied in and one used in place,
     // the OS badge on the library row, and a CD swapped and ejected while the machine runs.
@@ -1636,13 +1669,32 @@ func runSelfTest(library: String, out: String) {
                           ["size": im.flow.newDiskGb()])
                     im.next()
                     check("install-disk-is-created", waitFor(60) { im.step == .check && im.disk != nil }, ["error": im.error ?? "none"])
+                    check("install-continue-says-why-it-is-off", im.step == .check && !im.canContinue && !(im.continueReason ?? "").isEmpty, ["reason": im.continueReason ?? "none"])
                     im.runCheck()
                     check("install-check-passes", waitFor(60) { im.flow.check() == .passed && im.canContinue }, ["error": im.error ?? "none"])
+                    check("install-check-and-continue-have-nothing-to-say-once-passed", im.continueReason == nil && im.flow.checkStatus() != nil, ["status": im.flow.checkStatus() ?? "none"])
                     im.next()
                     check("install-serves-and-starts-the-machine",
                           waitFor(60) { im.footer == "10.98.0.2 serving 6.5.30, Standard + MIPSpro" && box.state == .running },
-                          ["footer": im.footer, "state": box.state.pill, "failed": im.serveFailed ?? "none"])
+                          ["footer": im.footer, "state": box.state.word, "failed": im.serveFailed ?? "none"])
                     _ = waitFor(30) { im.guide != nil }
+                    check("install-guide-takes-the-sidebar-once-the-install-starts",
+                          app.guideKey == box.id && app.sidebarGuide && app.installSheet == nil && box.installing && box.shown == .installing,
+                          ["guide": app.guideKey ?? "none", "sidebar_guide": app.sidebarGuide, "shown": "\(box.shown)"])
+                    check("install-footer-says-the-files-are-ready-without-an-address",
+                          waitFor(30) { im.installFooter != nil } && (im.installFooter ?? "").hasPrefix("Install files ready:") && !(im.installFooter ?? "").contains("10."),
+                          ["footer": im.installFooter ?? "none"])
+                    let listed = im.listedSteps
+                    if let typedAt = listed.firstIndex(where: { !$0.typed.isEmpty }), let typed = listed[typedAt].typed.first?.text {
+                        for i in 0..<typedAt { im.markDone(i) }
+                        let (_, sideWindow) = hosted(InstallGuideSidebar(model: im).environmentObject(app), size: CGSize(width: 280, height: 640))
+                        for dark in [false, true] { _ = snapshotRetina(InstallGuideSidebar(model: im).environmentObject(app), size: CGSize(width: 280, height: 640), dark: dark, to: "\(out)/ux-install-guide-\(dark ? "dark" : "light").png") }
+                        // The step the guide marks as next is the one with the text to type, and it hands the core's text to the row.
+                        check("install-guide-shows-the-text-to-type",
+                              im.progress == typedAt && listed[typedAt].typed.first?.text == typed && !listed[typedAt].title.isEmpty,
+                              ["title": listed[typedAt].title, "typed": typed, "progress": im.progress])
+                        sideWindow.contentView = nil; sideWindow.close()
+                    } else { check("install-guide-shows-the-text-to-type", false, ["error": "the guide has no step that types anything"]) }
                     // Type It exists only on a serial machine; pressed, its text reaches the fake guest's console.
                     // Cancel here asks the core's question first; Back keeps the assistant and its server footer.
                     var asked: (title: String, buttons: [String])?
@@ -1676,9 +1728,9 @@ func runSelfTest(library: String, out: String) {
                         im.edit { $0.setMethod(method: .guided) }   // the Method step is behind Check: carry on by the guide
                     }
                     im.next()
-                    check("install-reaches-finish-and-waits-for-the-machine", im.step == .finish && !im.canContinue, ["state": box.state.pill])
+                    check("install-reaches-finish-and-waits-for-the-machine", im.step == .finish && !im.canContinue, ["state": box.state.word])
                     box.stop()
-                    check("install-finish-waits-for-the-machine-to-stop", waitFor(60) { box.state == .stopped && im.canContinue }, ["state": box.state.pill])
+                    check("install-finish-waits-for-the-machine-to-stop", waitFor(60) { box.state == .stopped && im.canContinue }, ["state": box.state.word])
                     var closed = false
                     im.onClose = { closed = true }
                     im.next()

@@ -12,33 +12,29 @@ enum MachineState: Equatable {
     /// Made by an older Origami; it cannot start until it is upgraded.
     case needsUpgrade
 
-    /// The pill: one or two words. Colour never stands without them.
-    var pill: String {
-        switch self {
-        case .stopped: return "Stopped"
-        case .starting: return "Starting"
-        case .running: return "Running"
-        case .noPicture: return "No picture"
-        case .stopping: return "Saving"
-        case .stoppedUnexpectedly: return "Stopped unexpectedly"
-        case .leftRunning: return "Left running"
-        case .paused: return "Paused"
-        case .needsUpgrade: return "Needs upgrade"
-        }
-    }
-
-    var tone: Tone {
-        switch self {
-        case .stopped: return .grey
-        case .starting, .stopping, .leftRunning, .paused, .needsUpgrade: return .amber
-        case .running: return .green
-        case .noPicture, .stoppedUnexpectedly: return .red
-        }
-    }
-    enum Tone { case grey, amber, green, red }
-
     var isActive: Bool { self != .stopped && self != .stoppedUnexpectedly && self != .needsUpgrade }
+
+    /// What the core calls this state, before the install guide and unreadable machines are told apart.
+    var shown: OrigamiShownState {
+        switch self {
+        case .stopped: return .stopped
+        case .starting: return .starting
+        case .running: return .running
+        case .noPicture: return .noPicture
+        case .stopping: return .saving
+        case .stoppedUnexpectedly: return .exited
+        case .leftRunning: return .leftRunning
+        case .paused: return .paused
+        case .needsUpgrade: return .needsUpgrade
+        }
+    }
+
+    /// The core's word for the state.
+    var word: String { origamiStateLabel(state: shown).word }
 }
+
+/// A core error that reached the app as an operation's failure rather than a thrown one.
+struct InfoError: Error { let info: OrigamiErrorInfo }
 
 enum PointerMode: String { case follow, capture }
 
@@ -58,11 +54,19 @@ final class MachineModel: ObservableObject, Identifiable {
     /// Set while a power action runs ("Starting…", "Saving…", "Resetting…").
     @Published private(set) var busy: String?
     @Published private(set) var picture: (width: Int, height: Int)?
-    @Published var pointerMode: PointerMode
+    @Published var pointerMode: PointerMode { didSet { if oldValue != pointerMode { refresh() } } }
     @Published private(set) var captured = false
     /// The capture hint shows until this moment.
     @Published private(set) var hudUntil: Date?
     @Published private(set) var failure: String?
+    /// Why the last start failed, in the core's words, until the next start.
+    @Published private(set) var startError: OrigamiErrorInfo?
+    /// The install guide runs for this machine; the install model sets it.
+    @Published var installing = false
+    /// The install shows this machine's serial console in place of its screen; the install model sets it.
+    @Published var installConsole = false
+    /// The bar under the picture, from the core; nil unless the machine runs.
+    @Published private(set) var statusBar: OrigamiStatusBar?
     @Published private(set) var hasPicture = false
     /// Running with a console and no display: shown as its console. This is read from the run (no head after
     /// a few seconds) and is replaced by the core's `display` flag once it reports one.
@@ -85,6 +89,22 @@ final class MachineModel: ObservableObject, Identifiable {
     private var noPictureTimer: DispatchWorkItem?
     var id: String { record.key }
     var name: String { record.name }
+
+    /// The state a person sees: the core's list of them, with the guide and unreadable machines told apart.
+    var shown: OrigamiShownState {
+        if state == .needsUpgrade { return .needsUpgrade }
+        if record.problem != nil { return .cantOpen }
+        if installing && (state == .starting || state == .running) { return .installing }
+        return state.shown
+    }
+    var word: String { origamiStateLabel(state: shown).word }
+    var tone: OrigamiTone { origamiStateLabel(state: shown).tone }
+    /// The library row's second line.
+    var line: OrigamiLibraryLine { origamiLibraryLineFor(state: shown, model: record.modelName) }
+    /// The row's tooltip and accessibility label.
+    var rowDescription: String {
+        origamiRowDescriptionFor(state: shown, name: name, model: record.modelName, os: record.systemDisk)
+    }
 
     init(summary: OrigamiMachineSummary, host: CoreHost, defaultPointer: PointerMode) {
         record = MachineRecord(summary)
@@ -123,12 +143,15 @@ final class MachineModel: ObservableObject, Identifiable {
         guard let machine = session?.machine else { return }
         if refreshing { refreshAgain = true; return }
         refreshing = true
+        let (follows, captured) = (pointerMode == .follow, self.captured)
         DispatchQueue.global(qos: .utility).async {
             let view = machine.view()
+            let bar = machine.statusBar(follows: follows, captured: captured, platform: thisPlatform)
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.refreshing = false
                     self.apply(view)
+                    if self.statusBar != bar { self.statusBar = bar }
                     if self.refreshAgain { self.refreshAgain = false; self.refresh() }
                 }
             }
@@ -145,6 +168,7 @@ final class MachineModel: ObservableObject, Identifiable {
         if active, let head, picture?.width != Int(head.width) || picture?.height != Int(head.height) {
             picture = (Int(head.width), Int(head.height))
         }
+        if let e = view.startError, startError != e { startError = e }
         let up = view.state == .running || view.state == .paused
         if emulatorUp != up { emulatorUp = up }
         let next: MachineState
@@ -213,56 +237,43 @@ final class MachineModel: ObservableObject, Identifiable {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: item)
     }
 
-    /// What the status pill does not already say; empty when it says it all.
-    var statusLine: String {
-        switch state {
-        case .stopped, .starting, .paused: return ""
-        case .running:
-            if let p = picture { return "\(p.width) × \(p.height)" }
-            return ""
-        case .noPicture: return "The emulator is running but no picture has arrived."
-        case .stopping: return "Saving changes to the disk image."
-        case .stoppedUnexpectedly: return failure ?? "The emulator stopped."
-        case .leftRunning: return "Running without Origami."
-        case .needsUpgrade: return "Made by an older Origami. Upgrade it once to use it."
-        }
-    }
-
     // MARK: upgrade
 
     @Published private(set) var upgrading = false
-    @Published private(set) var upgradeError: String?
-    /// What the last upgrade said, for the lines a person is told.
-    @Published private(set) var upgradeNotes: [OrigamiReportLine] = []
+    @Published private(set) var upgradeError: OrigamiErrorInfo?
 
-    /// The core's sentence, with the command for local firmware files when a download failed.
-    nonisolated static func failure(_ error: String, dir: String) -> String {
-        error.lowercased().contains("download") ? "\(error) To use local firmware files, run: origami upgrade \(dir) --prom FILE --io-prom FILE" : error
-    }
-
-    /// Run the core's upgrade off the main thread. The core's library event makes the listing show the result.
-    func upgrade() {
+    /// Run the core's upgrade off the main thread. The core's library event makes the listing show the result;
+    /// `prom` and `ioProm` are firmware files the person chose instead of a download.
+    func upgrade(prom: String? = nil, ioProm: String? = nil, done: (@MainActor (Bool) -> Void)? = nil) {
         guard record.needsUpgrade, !upgrading else { return }
         upgrading = true
         upgradeError = nil
         let (host, key) = (host, record.key)
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try host.core.upgradeMachine(key: key) }
+            let result = Result { try host.core.upgradeMachineWith(key: key, prom: prom, ioProm: ioProm) }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.upgrading = false
                     switch result {
-                    case .success(let lines): self.upgradeNotes = lines
-                    case .failure(let e): self.upgradeError = Self.failure(SettingsModel.say(e), dir: key)
+                    case .success: done?(true)
+                    case .failure(let e): self.upgradeError = Self.info(of: e); done?(false)
                     }
                 }
             }
         }
     }
 
+    /// An error as the core's value: its plain sentence, technical detail and fix.
+    nonisolated static func info(of error: Error) -> OrigamiErrorInfo {
+        if let c = error as? CoreError { return origamiErrorInfo(error: c) }
+        if let i = error as? InfoError { return i.info }
+        return OrigamiErrorInfo(kind: .internal, message: error.localizedDescription, detail: nil, fix: OrigamiErrorFix.none)
+    }
+
     // MARK: power
 
     var canStart: Bool { state == .stopped || state == .stoppedUnexpectedly || state == .leftRunning }
+    var canRemove: Bool { state == .stopped || state == .stoppedUnexpectedly || state == .needsUpgrade }
     var canStop: Bool { [.starting, .running, .noPicture, .leftRunning, .paused].contains(state) && busy == nil }
     var isRunning: Bool { [.starting, .running, .noPicture, .stopping, .leftRunning, .paused].contains(state) }
 
@@ -311,7 +322,9 @@ final class MachineModel: ObservableObject, Identifiable {
         // Stopping a machine that has already ended is not a failure.
         if let e = error as? CoreError, case .NotRunning = e { expectedStop = false; refresh(); done?(nil); return }
         if let error {
-            failure = "\(error)"
+            let info = Self.info(of: error)
+            failure = info.message
+            startError = failureState == nil ? startError : info
             expectedStop = false
             if let failureState { set(failureState) }
         }
@@ -326,13 +339,14 @@ final class MachineModel: ObservableObject, Identifiable {
     /// Wait for an operation; a failure becomes the thrown error.
     private nonisolated static func finish(_ op: OrigamiOperation) throws {
         if case .failed(_, let message) = op.wait(timeoutMs: nil) {
-            throw NSError(domain: "origami", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+            throw InfoError(info: op.failure() ?? OrigamiErrorInfo(kind: .engine, message: message, detail: nil, fix: OrigamiErrorFix.none))
         }
     }
 
     func start(done: (@MainActor (Error?) -> Void)? = nil) {
         guard canStart, busy == nil else { done?(nil); return }
         failure = nil
+        startError = nil
         expectedStop = false
         startedAt = Date()
         noPictureTimer?.cancel(); noPictureTimer = nil
@@ -402,6 +416,7 @@ final class MachineModel: ObservableObject, Identifiable {
     func captureChanged(_ now: Bool) {
         captured = now
         hudUntil = now ? Date().addingTimeInterval(3) : nil
+        refresh()
     }
 
     func capture() { view?.beginCapture() }
@@ -422,16 +437,18 @@ final class AppModel: ObservableObject {
     /// Window-opening requests the scene turns into windows.
     @Published var wantSettings = false
     @Published var wantNewMachine = false
-
-    /// Asked before an action that loses state. Tests answer it themselves.
-    var confirm: (_ title: String, _ detail: String, _ action: String) -> Bool = { title, detail, action in
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = detail
-        alert.addButton(withTitle: action)
-        alert.addButton(withTitle: ui(.cancel))
-        return alert.runModal() == .alertFirstButtonReturn
-    }
+    /// The Settings pane to open on, once; Choose a disk opens Drives.
+    var settingsPane: MachineSettings.Pane = .general
+    /// The machine whose install set-up sheet shows; the guide takes over the sidebar once the install starts.
+    @Published var installSheet: String?
+    /// The machine whose install guide is running, once its set-up is done.
+    @Published var guideKey: String?
+    /// The sidebar shows that guide in place of the library.
+    @Published var sidebarGuide = false
+    /// A disk image dropped on the library, for New machine to start from.
+    @Published var droppedDisk: URL?
+    /// Shows one of the core's alerts and returns the index of the button pressed. Tests answer it themselves.
+    var present: (_ alert: OrigamiAlert) -> Int = { Alerts.run($0) }
     /// The core's prompt for a running install, with its own text for a quit or a tab close; true to stop it.
     /// Return keeps installing, Escape too. Tests answer it themselves.
     var confirmStopInstall: (_ quitting: Bool) -> Bool = { quitting in
@@ -449,21 +466,27 @@ final class AppModel: ObservableObject {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
-        panel.message = "Choose the folder that holds your machines"
+        panel.message = ui(.chooseTheFolderThatHoldsYourMachines)
         return panel.runModal() == .OK ? panel.url : nil
     }
     /// Where screenshots go: the Pictures folder.
     var screenshotFolder = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask).first
         ?? FileManager.default.homeDirectoryForCurrentUser
 
-    /// A line in the status bar, with a file to show in Finder when there is one.
-    struct Notice: Equatable { let text: String; let reveal: URL? }
+    /// A toast over the window, with an action that shows a file when there is one.
+    struct Notice: Equatable { let text: String; let reveal: URL?; var action: String? }
     @Published private(set) var notice: Notice?
 
-    func announce(_ text: String, reveal: URL? = nil) {
-        let n = Notice(text: text, reveal: reveal)
+    func announce(_ text: String, reveal: URL? = nil, action: String? = nil) {
+        let n = Notice(text: text, reveal: reveal, action: action)
         notice = n
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { MainActor.assumeIsolated { if self.notice == n { self.notice = nil } } }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 6) { MainActor.assumeIsolated { if self.notice == n { self.notice = nil } } }
+    }
+
+    /// One of the core's toasts.
+    func toast(_ kind: OrigamiToastKind, reveal: URL? = nil) {
+        let t = origamiToast(kind: kind, platform: thisPlatform)
+        announce(t.text, reveal: reveal, action: reveal == nil ? nil : t.action)
     }
 
     func screenshotURL(for machine: String) -> URL {
@@ -472,7 +495,6 @@ final class AppModel: ObservableObject {
     }
     var openWindow: ((String) -> Void)?
     var openConsole: ((String) -> Void)?
-    var openInstall: ((String) -> Void)?
     /// Whether the CPU panel is shown; hidden, nothing is polled.
     @Published var showsCpu = false
 
@@ -491,6 +513,7 @@ final class AppModel: ObservableObject {
         host = h
         launchError = err
         h?.onChange = { [weak self] keys, library in self?.changed(keys, library: library) }
+        if let h { CoreCommands.load(h.core) }
         rescanNow()
         // A safety net for an exit the core does not announce: look at machines that should be
         // up every two seconds. Machines at rest cost nothing.
@@ -503,8 +526,8 @@ final class AppModel: ObservableObject {
         PointerMode(rawValue: AppModel.defaults.string(forKey: "pointerMode") ?? "") ?? .follow
     }
 
-    /// The tab bar shows whenever a tab is open, even one.
-    var showsTabBar: Bool { !tabs.isEmpty }
+    /// The tab bar shows once a second machine is open.
+    var showsTabBar: Bool { tabs.count > 1 }
 
     var current: MachineModel? { models.first { $0.id == active } }
     func model(named name: String) -> MachineModel? { models.first { $0.name == name } }
@@ -635,7 +658,9 @@ final class AppModel: ObservableObject {
         let m = current
         switch command {
         case .start: return m?.canStart ?? false
-        case .powerOff: return (m?.canStop ?? false)
+        case .powerOff: return (m?.canStop ?? false) && m?.state != .starting
+        case .cancelStart: return m?.state == .starting
+        case .cpuLoad: return m?.state == .running
         case .forceQuit: return m?.isRunning ?? false
         case .reset: return (m?.state == .running)
         case .pause: return m?.state == .running
@@ -646,15 +671,22 @@ final class AppModel: ObservableObject {
         case .settings: return m != nil && m?.state != .needsUpgrade
         case .installIrix: return m?.record.runsIrix == true && (m?.state == .stopped || m?.state == .stoppedUnexpectedly)
         case .diagnostics, .showInFinder: return m != nil
-        case .console: return m?.state == .running
+        case .remove: return m.map { $0.canRemove } ?? false
         case .closeTab: return active != nil
         case .nextTab, .previousTab: return tabs.count > 1
         case .fit, .actualSize, .pointScale, .doubleScale: return m?.state == .running
         case .console: return m?.state == .running || m?.state == .paused
         case .newMachine: return host != nil
         case .pasteAsTyping: return false
-        case .chooseLibrary, .showLibrary, .library: return true
+        case .chooseLibrary, .showLibrary, .library, .keyboardShortcuts: return true
         }
+    }
+
+    /// Ask with the core's alert; true when the answer is a button that does the thing.
+    func confirmed(_ kind: OrigamiAlertKind) -> Bool {
+        let alert = origamiAlert(kind: kind, platform: thisPlatform)
+        let i = present(alert)
+        return alert.buttons.indices.contains(i) && alert.buttons[i].role == .destructive
     }
 
     func invoke(_ command: CommandID) {
@@ -663,23 +695,23 @@ final class AppModel: ObservableObject {
         switch command {
         case .start: m?.start()
         case .powerOff:
-            if let m { m.stop { [weak self, weak m] e in if let e, let m { self?.stopFailed(m, e) } } }
+            if let m, confirmed(.powerOff(name: m.name)) {
+                m.stop { [weak self, weak m] e in if let e, let m { self?.stopFailed(m, e) } }
+            }
         case .forceQuit:
-            if confirm("Force quit the emulator?", "\(m?.name ?? "The machine") stops at once. Changes the guest has not written to its disk are lost.", "Force quit") {
-                m?.stop(force: true)
-            }
+            if let m, confirmed(.forceQuit(name: m.name)) { m.stop(force: true) }
         case .reset:
-            if confirm("Reset \(m?.name ?? "the machine")?", "The machine restarts as if its reset button were pressed.", "Reset") {
-                m?.reset()
-            }
+            if let m, confirmed(.reset(name: m.name)) { m.reset() }
         case .pause: m?.pause()
         case .resume: m?.resume()
+        case .cancelStart: m?.stop()
+        case .cpuLoad: showsCpu.toggle()
         case .screenshot:
             if let m {
                 let url = screenshotURL(for: m.name)
                 m.screenshot(to: url) { [weak self] e in
                     if let e { self?.announce("The screenshot was not saved: \(e.localizedDescription)") }
-                    else { self?.announce("Saved \(url.lastPathComponent)", reveal: url) }
+                    else { self?.toast(.screenshotSaved, reveal: url) }
                 }
             }
         case .captureInput: m?.capture()
@@ -694,20 +726,77 @@ final class AppModel: ObservableObject {
         case .installIrix: if let m { installIrix(m.id) }
         case .showInFinder:
             if let m { NSWorkspace.shared.activateFileViewerSelecting([root.appendingPathComponent(m.name)]) }
+        case .remove: if let m { remove(m.id) }
         case .closeTab: if let a = active { closeTabAsking(a) }
         case .nextTab: step(1)
         case .previousTab: step(-1)
         case .showLibrary: sidebarVisible.toggle()
-        case .library: sidebarVisible = true
-        case .fit: break   // the picture always fills the window
-        case .pointScale: m?.fitter?.show(pointsPerPixel: 1)
-        case .doubleScale: m?.fitter?.show(pointsPerPixel: 2)
-        case .actualSize: if let f = m?.fitter { f.show(pointsPerPixel: 1 / max(1, f.backing.rounded())) }
+        case .library: sidebarVisible = true; sidebarGuide = false
+        case .fit: toast(.pictureSize(name: command.title))   // the picture always fills the window
+        case .pointScale: m?.fitter?.show(pointsPerPixel: 1); toast(.pictureSize(name: command.title))
+        case .doubleScale: m?.fitter?.show(pointsPerPixel: 2); toast(.pictureSize(name: command.title))
+        case .actualSize:
+            if let f = m?.fitter { f.show(pointsPerPixel: 1 / max(1, f.backing.rounded())); toast(.pictureSize(name: command.title)) }
         case .chooseLibrary: if let url = openFolderPanel() { chooseLibrary(url) }
-        case .console: if let m { if m.headless { select(m.id) } else { openConsole?(m.id) } }
         case .newMachine: wantNewMachine = true
         case .pasteAsTyping: break
+        case .keyboardShortcuts: openWindow?("shortcuts")
         }
+    }
+
+    // MARK: remove
+
+    /// Move a stopped machine to the Trash after the core's alert, then say so. Reports whether it went.
+    @discardableResult
+    func remove(_ key: String) -> Bool {
+        guard let m = models.first(where: { $0.id == key }), m.canRemove else { return false }
+        // The core says what would move and what would stay, before anything does.
+        let plan: OrigamiRemoved
+        do { plan = try host?.core.removePlan(key: key) ?? OrigamiRemoved(name: m.name, diskLeft: []) } catch {
+            announce(Self.sentence(of: error))
+            return false
+        }
+        guard confirmed(.remove(name: plan.name, diskLeft: plan.diskLeft)) else { return false }
+        do {
+            _ = try host?.core.removeMachine(key: key)
+        } catch {
+            announce(Self.sentence(of: error))
+            return false
+        }
+        closeTab(key)
+        rescanNow()
+        toast(.removed(name: m.name))
+        return true
+    }
+
+    nonisolated static func sentence(of error: Error) -> String { MachineModel.info(of: error).message }
+
+    // MARK: drag and drop
+
+    /// A CD image dropped on a machine goes into its CD drive. Reports whether the drop was one.
+    @discardableResult
+    func dropOnMachine(_ urls: [URL], _ model: MachineModel) -> Bool {
+        guard let host, let url = urls.first(where: { origamiClassifyDrop(path: $0.path) == .cdImage }) else { return false }
+        let key = model.record.key
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let machine = try host.core.openMachine(key: key)
+                guard let drive = try machine.settings().drives.first(where: { $0.kind == "cdrom" }) else { return }
+                try machine.changeMedia(drive: drive.name, image: url.path)
+            } catch {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self.announce(Self.sentence(of: error)) } }
+            }
+        }
+        return true
+    }
+
+    /// A disk image dropped on the library opens New machine with that disk chosen.
+    @discardableResult
+    func dropOnLibrary(_ urls: [URL]) -> Bool {
+        guard let url = urls.first(where: { origamiClassifyDrop(path: $0.path) == .diskImage }) else { return false }
+        droppedDisk = url
+        wantNewMachine = true
+        return true
     }
 
     // MARK: install assistants
@@ -725,15 +814,32 @@ final class AppModel: ObservableObject {
 
     func installIrix(_ key: String) {
         guard installModel(for: key) != nil else { return }
-        openInstall?(key)
+        installSheet = key
     }
 
-    func forgetInstall(_ key: String) { installs[key] = nil }
+    func forgetInstall(_ key: String) {
+        installs[key] = nil
+        if installSheet == key { installSheet = nil }
+        if guideKey == key { guideKey = nil; sidebarGuide = false }
+        models.first { $0.id == key }.map { $0.installing = false; $0.installConsole = false }
+    }
 
     /// Closing a tab whose install server runs asks first, in the core's words; Keep Installing leaves the tab open.
+    /// A running machine asks with the core's alert: closing the tab can leave it running.
     func closeTabAsking(_ id: String) {
-        guard let install = installs[id], installRunning(id) else { closeTab(id); return }
-        if confirmStopInstall(false) { install.stopInstall { self.closeTab(id) } }
+        if let install = installs[id], installRunning(id) {
+            if confirmStopInstall(false) { install.stopInstall { self.closeTab(id) } }
+            return
+        }
+        guard let m = models.first(where: { $0.id == id }), m.isRunning else { closeTab(id); return }
+        let alert = origamiAlert(kind: .closeTab(name: m.name), platform: thisPlatform)
+        let i = present(alert)
+        guard alert.buttons.indices.contains(i) else { return }
+        switch alert.buttons[i].role {
+        case .safe: closeTab(id)
+        case .destructive: m.stop { [weak self] e in if let e { self?.stopFailed(m, e) } else { self?.closeTab(id) } }
+        case .cancel: break
+        }
     }
 
     /// Cancel every running server and force-stop its machine, for a quit that was confirmed.
@@ -793,7 +899,7 @@ final class AppModel: ObservableObject {
         func next(_ i: Int) {
             guard i < list.count else { done(failed); return }
             let m = list[i]
-            progress?(force ? "Force quitting \(m.name)…" : "Powering off \(m.name)…")
+            progress?(origamiPowerOffProgress(name: m.name, force: force))
             var finished = false
             let advance: @MainActor (Bool) -> Void = { ok in
                 guard !finished else { return }
@@ -807,10 +913,8 @@ final class AppModel: ObservableObject {
         next(0)
     }
 
-    /// Power Off did not finish: say why, and offer a force quit.
+    /// Power Off did not finish: offer a force quit.
     func stopFailed(_ m: MachineModel, _ error: Error) {
-        if confirm("\(m.name) did not power off", "\(error.localizedDescription)\n\nForce quit stops the emulator at once; changes the guest has not written to disk are lost.", "Force quit") {
-            m.stop(force: true)
-        }
+        if confirmed(.powerOffFailed(names: [m.name])) { m.stop(force: true) }
     }
 }

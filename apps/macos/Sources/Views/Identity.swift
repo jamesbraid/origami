@@ -10,32 +10,6 @@ extension Color {
     }
 }
 
-extension MachineState.Tone {
-    var colour: Color {
-        switch self {
-        case .grey: return Color(nsColor: .systemGray)
-        case .amber: return Color(nsColor: .systemOrange)
-        case .green: return Color(nsColor: .systemGreen)
-        case .red: return Color(nsColor: .systemRed)
-        }
-    }
-}
-
-/// One or two words with a dot. The colour never stands alone.
-struct StatusPill: View {
-    let state: MachineState
-    var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(state.tone.colour).frame(width: 7, height: 7)
-            Text(state.pill).font(.caption.weight(.medium))
-        }
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(state.tone.colour.opacity(0.14)))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Status: \(state.pill)")
-    }
-}
-
 /// A generic chassis silhouette in the product's colour.
 struct ChassisGlyph: View {
     let product: Product

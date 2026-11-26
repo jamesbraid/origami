@@ -22,7 +22,13 @@ final class InstallModel: ObservableObject {
     /// Warnings and advice from preparing the machine.
     @Published private(set) var notes: [String] = []
     @Published private(set) var guide: OrigamiInstallGuide?
-    @Published var ticks = Set<String>()
+    /// Guide steps the person marked done, for a graphics console that cannot confirm them.
+    @Published private(set) var doneSteps = Set<Int>()
+    /// How many leading guide steps the serial console has shown done.
+    @Published private(set) var seen = 0
+    private var askingSeen = false
+    /// The setup the install runs, once prepared: the footer's words come from it.
+    @Published private(set) var plan: OrigamiInstallPlan?
     /// The media server's latest line, and the core's sentence if it stopped.
     @Published private(set) var footer = ""
     @Published private(set) var serveFailed: String?
@@ -30,7 +36,7 @@ final class InstallModel: ObservableObject {
     @Published private(set) var loaded = false
     @Published private(set) var working = false
     @Published private(set) var error: String?
-    private var serial = false
+    private(set) var serial = false
     private var serve: OrigamiOperation?
     private var checkOp: OrigamiOperation?
     private var applyOp: OrigamiOperation?
@@ -134,6 +140,8 @@ final class InstallModel: ObservableObject {
     var step: OrigamiInstallStep { flow.step() }
     var canBack: Bool { flow.canBack() && !working && flow.check() != .running }
     var canContinue: Bool { !working && flow.canContinue(machineUp: machine.isRunning) }
+    /// Why Continue is off, in the core's words; none while it is on.
+    var continueReason: String? { flow.continueReason(machineUp: machine.isRunning) }
 
     func back() {
         guard canBack else { return }
@@ -156,10 +164,26 @@ final class InstallModel: ObservableObject {
         case .media: if let f = flow.folder() { checkFolder(URL(fileURLWithPath: f)) }
         case .software: loadChoices()
         case .disk: readDisk()
-        case .prepare: startServing(); loadGuide()
-        case .installer, .packages: loadGuide()
-        case .release, .method, .check, .finish: break
+        case .prepare: startServing(); loadGuide(); beginGuide()
+        case .installer, .packages: loadGuide(); beginGuide()
+        case .finish: beginGuide()
+        case .release, .method, .check: break
         }
+    }
+
+    /// The pages that follow the machine's start: their steps are the guide in the sidebar.
+    var inGuide: Bool { [.prepare, .installer, .packages, .finish].contains(step) }
+
+    /// Set-up is done: the sheet gives way to the guide in the sidebar, beside the machine.
+    private func beginGuide() {
+        guard inGuide else { return }
+        machine.installing = true
+        machine.installConsole = serial
+        app.installSheet = nil
+        app.guideKey = machine.id
+        app.sidebarGuide = true
+        app.sidebarVisible = true
+        app.select(machine.id)
     }
 
     func selectRelease(_ r: String) { folderResult = nil; edit { $0.selectRelease(release: r) } }
@@ -168,7 +192,7 @@ final class InstallModel: ObservableObject {
     // MARK: media
 
     func chooseFolder() {
-        guard let url = choosePath("Choose folder", true) else { return }
+        guard let url = choosePath(ui(.chooseFolder), true) else { return }
         checkFolder(url)
     }
 
@@ -317,6 +341,7 @@ final class InstallModel: ObservableObject {
             switch result {
             case .success(let op):
                 self.serve = op
+                self.loadPlan()
                 self.ticker?.invalidate()
                 self.ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
                     MainActor.assumeIsolated { self?.tick() }
@@ -328,6 +353,16 @@ final class InstallModel: ObservableObject {
     }
 
     func restartServe() { serve = nil; startServing() }
+
+    private func loadPlan() {
+        let host = machine.coreHost, key = machine.record.key
+        background({ try host.core.installPlan(key: key) }) { result in
+            if case .success(let p) = result { self.plan = p }
+        }
+    }
+
+    /// The footer while the install files are served, in the core's words; it never shows an address.
+    var installFooter: String? { serving && serveFailed == nil ? plan.map { origamiInstallFooter(plan: $0) } : nil }
 
     func startMachine() {
         machine.start { e in if let e { self.error = Self.say(e) } }
@@ -344,6 +379,60 @@ final class InstallModel: ObservableObject {
             if applyLine != line { applyLine = line; applyFraction = Self.percent(in: line) ?? applyFraction }
         }
         if machine.state == .running { sawRunning = true }
+        askConsole()
+    }
+
+    // MARK: guide progress
+
+    /// The steps the list shows: all of them, or with the automatic method those before it takes over.
+    var listedSteps: [OrigamiGuideStep] { guide.map { flow.automatic() ? $0.prepare + $0.installer : $0.steps } ?? [] }
+
+    func isDone(_ i: Int) -> Bool { doneSteps.contains(i) || (serial && i < seen) }
+
+    /// How many leading steps are done: confirmed from the serial console, or marked done by hand.
+    var progress: Int {
+        var n = 0
+        while n < listedSteps.count, isDone(n) { n += 1 }
+        return n
+    }
+
+    /// A graphics console cannot confirm a step, so the person does.
+    func markDone(_ i: Int) { doneSteps.insert(i); advanceWithProgress() }
+
+    /// Ask the core how far the serial console shows the guide done. Asked on each tick while the guide shows.
+    private func askConsole() {
+        guard serial, inGuide, let g = guide, !askingSeen, let m = machine.session?.machine else { return }
+        askingSeen = true
+        let steps = g.steps
+        DispatchQueue.global(qos: .utility).async {
+            let n = Int(m.guideSeen(steps: steps))
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self.askingSeen = false
+                    if n > self.seen { self.seen = n; self.advanceWithProgress() }
+                }
+            }
+        }
+    }
+
+    /// The flow's pages follow the list: a page ends when its last step is done. The automatic method's
+    /// install page ends when the install does, not by the list.
+    private func advanceWithProgress() {
+        guard let g = guide else { return }
+        let prepare = g.prepare.count, installer = prepare + g.installer.count
+        let packages = installer + g.packages.count + g.restart.count
+        while true {
+            let end: Int
+            switch step {
+            case .prepare: end = prepare
+            case .installer: end = installer
+            case .packages: end = flow.automatic() ? Int.max : packages
+            default: return
+            }
+            guard progress >= end else { return }
+            edit { $0.next() }
+            entered()
+        }
     }
 
     /// The machine ended while the guide was being followed.
@@ -357,11 +446,6 @@ final class InstallModel: ObservableObject {
     /// Type It: a serial PROM console on a running machine.
     var canTypeIt: Bool { serial && machine.isRunning }
 
-    func ticked(_ section: String, _ i: Int) -> Binding<Bool> {
-        let id = "\(section)-\(i)"
-        return Binding(get: { self.ticks.contains(id) }, set: { if $0 { self.ticks.insert(id) } else { self.ticks.remove(id) } })
-    }
-
     func typeIt(_ text: String) {
         guard let m = machine.session?.machine else { error = "The machine is not running."; return }
         DispatchQueue.global(qos: .userInitiated).async {
@@ -370,9 +454,6 @@ final class InstallModel: ObservableObject {
             }
         }
     }
-
-    func showMachine() { app.openInNewTab(machine.id); app.openWindow?("main") }
-    func openConsole() { app.openConsole?(machine.id) }
 
     // MARK: finishing and leaving
 
@@ -404,17 +485,10 @@ final class InstallModel: ObservableObject {
         background({ try host.core.installReset(key: key) }) { result in
             self.working = false
             if let e = result.failure { self.error = Self.say(e); return }
-            self.applyMessage = nil; self.guide = nil; self.ticks = []; self.notes = []; self.planText = nil; self.disk = nil; self.diskKnown = false
+            self.applyMessage = nil; self.guide = nil; self.doneSteps = []; self.seen = 0; self.plan = nil; self.notes = []; self.planText = nil; self.disk = nil; self.diskKnown = false
             self.edit { $0.restart() }
             self.entered()
         }
-    }
-
-    /// The window wants to close: true when it may now. Otherwise the questions run and the window closes after them.
-    func windowMayClose() -> Bool {
-        if closing { return true }
-        requestClose()
-        return false
     }
 
     /// The core's machine question, then the server, then its network question, then the window.

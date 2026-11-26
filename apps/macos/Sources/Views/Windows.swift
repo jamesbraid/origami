@@ -8,9 +8,9 @@ import SwiftUI
 @MainActor
 func diagnosticsReport(_ model: MachineModel) -> String {
     guard let s = model.session else {
-        return "Machine: \(model.name)\nStatus: \(model.state.pill)\nThe machine has not been opened by this app."
+        return "Machine: \(model.name)\nStatus: \(model.word)\nThe machine has not been opened by this app."
     }
-    return s.machine.diagnosticsReport(status: model.state.pill, updates: UInt64(s.wakes), shown: UInt64(model.view?.presented ?? 0))
+    return s.machine.diagnosticsReport(status: model.word, updates: UInt64(s.wakes), shown: UInt64(model.view?.presented ?? 0))
 }
 
 struct DiagnosticsView: View {
@@ -24,7 +24,7 @@ struct DiagnosticsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text(model.name).font(.headline)
-                        StatusPill(state: model.state)
+                        Text(model.word).foregroundStyle(.secondary)
                         Spacer()
                         Button(ui(.copyReport)) {
                             NSPasteboard.general.clearContents()
@@ -41,7 +41,7 @@ struct DiagnosticsView: View {
             }
             .frame(minWidth: 560, minHeight: 320)
         } else {
-            Text("Choose a machine in the library.").foregroundStyle(.secondary).frame(minWidth: 560, minHeight: 320)
+            Text(ui(.selectAMachineFirst)).foregroundStyle(.secondary).frame(minWidth: 560, minHeight: 320)
         }
     }
 }
@@ -50,6 +50,7 @@ struct DiagnosticsView: View {
 
 struct MachineSettings: View {
     @ObservedObject var model: MachineModel
+    @EnvironmentObject var app: AppModel
     @Environment(\.dismiss) private var dismiss
     @State private var pane = Pane.general
     @StateObject private var edit: SettingsModel
@@ -97,9 +98,12 @@ struct MachineSettings: View {
             Divider()
             HStack {
                 if let e = edit.error { Text(e).font(.caption).foregroundStyle(.red).lineLimit(2) }
-                else if locked { Text(ui(.thisMachineIsRunningHardware)).font(.caption).foregroundStyle(.secondary) }
+                else if locked {
+                    Text(ui(.powerOffToChangeHardwareSettings)).font(.caption).foregroundStyle(.secondary)
+                    Button(ui(.powerOff)) { dismiss(); app.invoke(.powerOff) }.controlSize(.small)
+                }
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button(ui(.done)) { dismiss() }.keyboardShortcut(.defaultAction)
             }.padding(10)
         }
         .frame(width: 700, height: 460)
@@ -134,27 +138,31 @@ struct MachineSettings: View {
         if edit.networkMode == nil { Text("Currently \(s.network.mode)").font(.caption).foregroundStyle(.secondary) }
         if edit.bridging {
             Section(ui(.bridged)) {
+                // Return in either field applies Bridged with both; there is no Apply button.
                 TextField(setup.field, text: $edit.bridgeDevice, prompt: Text(setup.example)).disabled(locked || edit.working)
+                    .onSubmit { edit.applyBridged() }
                 TextField(ui(.addressForSharedFolders), text: $edit.bridgeShare, prompt: Text("ADDRESS/PREFIX")).disabled(locked || edit.working)
+                    .onSubmit { edit.applyBridged() }
                 DisclosureGroup("How to set this up") {
                     Text(setup.steps).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if let commands = setup.commands {
                         Button(ui(.copy)) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(commands, forType: .string) }
                     }
                 }
-                Button("Apply") { edit.applyBridged() }.disabled(locked || edit.working)
                 ForEach(s.network.warnings, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
             }
         }
         LabeledContent(ui(.ethernetAddress)) {
-            HStack {
-                Text(s.network.mac ?? "None").textSelection(.enabled)
-                if let mac = s.network.mac {
-                    Button(ui(.copy)) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(mac, forType: .string) }
+            VStack(alignment: .trailing, spacing: 2) {
+                HStack {
+                    Text(s.network.mac ?? "").textSelection(.enabled)
+                    if let mac = s.network.mac {
+                        Button(ui(.copy)) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(mac, forType: .string) }
+                    }
                 }
+                Text(s.network.macNote).font(.caption).foregroundStyle(.secondary)
             }
         }
-        Text(s.network.macNote).font(.caption).foregroundStyle(.secondary)
         if s.network.mode == "user" || s.network.mode == "private" {
             DisclosureGroup("Advanced") {
                 HStack {
@@ -186,18 +194,23 @@ struct MachineSettings: View {
                 }
                 .disabled(locked || edit.working || UInt16(forwardHost) == nil || UInt16(forwardGuest) == nil
                           || forwardName.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityLabel(ui(.addAPortForward)).help(ui(.addAPortForward))
             }
         }
     }
 
     @ViewBuilder private func sharesPane(_ s: OrigamiMachineSettings) -> some View {
+        if s.shares.isEmpty {
+            let e = origamiEmptyState(kind: .noSharedFolders)
+            ContentUnavailableView { Text(e.title).font(.headline) } description: { Text(e.sentence) }
+        }
         ForEach(s.shares, id: \.name) { sh in
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     VStack(alignment: .leading) { Text(sh.name); Text(sh.hostDir).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
                     Spacer()
                     Button { edit.apply(.removeShare(name: sh.name)) } label: { Image(systemName: "minus.circle") }
-                        .buttonStyle(.borderless).accessibilityLabel("Stop sharing \(sh.name)").disabled(locked || edit.working)
+                        .buttonStyle(.borderless).accessibilityLabel("\(ui(.stopSharing)) \(sh.name)").disabled(locked || edit.working)
                 }
                 if let problem = sh.mountProblem {
                     Text(problem).font(.caption).foregroundStyle(.orange)
@@ -212,43 +225,48 @@ struct MachineSettings: View {
                 }
             }
         }
-        Button(ui(.shareAFolder)) { if let dir = PathPicker.chooseFolder("Share") { edit.chooseShareFolder(dir) } }.disabled(locked || edit.working)
-        Text(ui(.runTheseAsRootIn))
-            .font(.caption).foregroundStyle(.secondary)
+        Button(ui(.shareAFolder)) { if let dir = PathPicker.chooseFolder(ui(.choose)) { edit.chooseShareFolder(dir) } }.disabled(locked || edit.working)
+        if !s.shares.isEmpty {
+            Text(ui(.runTheseAsRootIn)).font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     @ViewBuilder private func drivesPane(_ s: OrigamiMachineSettings) -> some View {
-        if s.drives.isEmpty { LabeledContent(ui(.drives), value: "None") }
-        ForEach(s.drives, id: \.name) { d in
+        if s.drives.isEmpty {
+            ContentUnavailableView { Text(ui(.drives)).font(.headline) }
+        } else if edit.driveRows.isEmpty {
+            HStack { ProgressView().controlSize(.small); Text(ui(.reading)).foregroundStyle(.secondary) }
+        }
+        ForEach(edit.driveRows, id: \.name) { row in
+            let kind = s.drives.first { $0.name == row.name }?.kind
             HStack {
                 VStack(alignment: .leading) {
-                    Text("\(d.name) (\(d.kind), bus \(d.bus) target \(d.target))")
-                    Text(d.image + (d.readOnly ? " (read-only)" : "")).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Text(row.title)
+                    Text(row.caption).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
-                if d.kind == "disk", edit.badges[d.name] != "" { DiskBadge(text: edit.badges[d.name] ?? "Reading…") }
                 Spacer()
-                if d.kind == "cdrom" {
+                if kind == "cdrom" {
                     // A CD changes while the machine runs, unlike the rest of the pane.
-                    Button("Change CD…") { if let u = PathPicker.choose("Choose a CD-ROM image") { edit.changeMedia(d.name, to: u) } }
-                        .disabled(edit.working).accessibilityLabel("Change CD \(d.name)")
-                    Button("Eject") { edit.changeMedia(d.name, to: nil) }.disabled(edit.working).accessibilityLabel("Eject \(d.name)")
+                    Button(ui(.changeCd)) { if let u = PathPicker.choose(ui(.choose)) { edit.changeMedia(row.name, to: u) } }
+                        .disabled(edit.working).accessibilityLabel("\(ui(.changeCd)) \(row.title)")
+                    Button(ui(.eject)) { edit.changeMedia(row.name, to: nil) }.disabled(edit.working).accessibilityLabel("\(ui(.eject)) \(row.title)")
                 }
-                Button { edit.apply(.detachDrive(name: d.name)) } label: { Image(systemName: "minus.circle") }
-                    .buttonStyle(.borderless).help(ui(.detach)).accessibilityLabel("Detach \(d.name)")
+                Button { edit.apply(.detachDrive(name: row.name)) } label: { Image(systemName: "minus.circle") }
+                    .buttonStyle(.borderless).help(ui(.detach)).accessibilityLabel("\(ui(.detach)) \(row.title)")
                     .disabled(locked || edit.working)
             }
         }
         let diskTarget = locked ? nil : s.diskTarget
         let cdTarget = locked ? nil : s.cdTarget
         HStack {
-            Button("Add disk image…") {
+            Button(ui(.addADiskImage)) {
                 let choice = ImageChoice(core: { [model] in model.coreHost.core }, machine: model.record.key)
                 choice.choose()
                 if choice.path != nil { adding = choice }
             }.disabled(diskTarget == nil || edit.working)
             if !s.drives.contains(where: { $0.kind == "cdrom" }) {
-                Button("Insert CD-ROM image…") {
-                    if let u = PathPicker.choose("Choose a CD-ROM image"), let t = cdTarget { edit.attachCD(u, target: t) }
+                Button(ui(.insertACdImage)) {
+                    if let u = PathPicker.choose(ui(.choose)), let t = cdTarget { edit.attachCD(u, target: t) }
                 }.disabled(cdTarget == nil || edit.working)
             }
         }
@@ -291,6 +309,7 @@ struct MachineSettings: View {
         case .startup:
             if let s = edit.settings {
                 Section(ui(.startupFirmware)) {
+                    LabeledContent(ui(.startupMessagesOn), value: edit.startup ?? "")
                     Picker(ui(.consoleSerialLine), selection: Binding(get: { s.consolePort }, set: { edit.setConsole($0) })) {
                         ForEach(s.consolePorts, id: \.name) { Text($0.label).tag($0.name) }
                     }.disabled(locked || edit.working)
@@ -339,14 +358,14 @@ struct AddDiskSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Add a disk image").font(.headline)
+            Text(ui(.addADiskImage).trimmingCharacters(in: ["…"])).font(.headline)
             ImageChoiceView(choice: choice)
             if let p = edit.progress { OperationProgress(progress: p) { edit.cancelCopy() } }
             if let e = edit.error { Text(e).foregroundStyle(.red).font(.callout).fixedSize(horizontal: false, vertical: true) }
             HStack {
                 Spacer()
                 Button(ui(.cancel)) { if edit.working { edit.cancelCopy() } else { dismiss() } }.keyboardShortcut(.cancelAction)
-                Button("Add disk") { edit.addDisk(choice, target: target) { ok in if ok { dismiss() } } }
+                Button(ui(.add)) { edit.addDisk(choice, target: target) { ok in if ok { dismiss() } } }
                     .keyboardShortcut(.defaultAction).disabled(!choice.ready || edit.working)
             }
         }
@@ -397,7 +416,10 @@ struct DownloadedDisksView: View {
     var body: some View {
         Form {
             Section(ui(.downloadedDisks)) {
-                if disks.isEmpty { Text(ui(.noDownloadedDisks)).foregroundStyle(.secondary) }
+                if disks.isEmpty {
+                    let e = origamiEmptyState(kind: .noDownloadedDisks)
+                    ContentUnavailableView { Text(e.title).font(.headline) } description: { Text(e.sentence) }
+                }
                 ForEach(disks, id: \.key) { d in
                     HStack {
                         VStack(alignment: .leading) {

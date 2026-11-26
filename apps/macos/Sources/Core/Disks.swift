@@ -33,8 +33,8 @@ enum PathPicker {
 final class ImageChoice: ObservableObject {
     @Published private(set) var path: URL?
     @Published private(set) var check: OrigamiDiskImageCheck?
-    /// What the disk holds, "Reading…" until the core says.
-    @Published private(set) var badge = "Reading…"
+    /// What the disk holds, the core's Reading… until it says; empty when the OS is not recognised.
+    @Published private(set) var badge = ui(.reading)
     /// The core's sentence when the file could not be read at all.
     @Published private(set) var problem: String?
     @Published var copy = true
@@ -50,16 +50,16 @@ final class ImageChoice: ObservableObject {
         self.machine = machine
     }
 
-    func choose() { if let url = PathPicker.choose("Choose a disk image") { set(url) } }
+    func choose() { if let url = PathPicker.choose(ui(.choose)) { set(url) } }
 
     func set(_ url: URL) {
         guard let core = core() else { return }
-        path = url; check = nil; problem = nil; badge = "Reading…"
+        path = url; check = nil; problem = nil; badge = ui(.reading)
         generation += 1
         let mine = generation, machine = machine
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try core.checkDiskImage(path: url.path, machine: machine) }
-            let os = (try? core.diskInfo(path: url.path)) ?? "Unknown"
+            let os = ((try? core.diskOs(path: url.path)) ?? nil) ?? ""
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard mine == self.generation else { return }
@@ -93,17 +93,6 @@ final class ImageChoice: ObservableObject {
     }
 }
 
-/// A small grey capsule naming the OS on a disk.
-struct DiskBadge: View {
-    let text: String
-    var body: some View {
-        Text(text).font(.caption.weight(.medium))
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Capsule().fill(Color.secondary.opacity(0.18)))
-            .accessibilityLabel("Disk: \(text)")
-    }
-}
-
 /// The questions about one chosen image, as New Machine and Add Disk Image both ask them.
 struct ImageChoiceView: View {
     @ObservedObject var choice: ImageChoice
@@ -116,7 +105,7 @@ struct ImageChoiceView: View {
                 if let p = choice.path {
                     Text(p.lastPathComponent).lineLimit(1).truncationMode(.middle)
                     if let c = choice.check { Text(origamiSizeLabel(bytes: c.bytes)).foregroundStyle(.secondary) }
-                    if choice.problem == nil { DiskBadge(text: choice.badge) }
+                    if choice.problem == nil, !choice.badge.isEmpty { Text(choice.badge).foregroundStyle(.secondary) }
                 }
             }
             if choice.check != nil {

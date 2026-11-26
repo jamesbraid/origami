@@ -3,14 +3,24 @@
 import Combine
 import Foundation
 
-/// The system disk New Machine offers. Install from discs joins this list later.
+/// The system disk New Machine offers. The core words the choices and orders them.
 enum DiskChoice: Int, CaseIterable, Identifiable {
-    case noDisk, empty, image
+    case noDisk
+    /// An empty disk; with an IRIX model the install assistant follows (the core's Install IRIX from discs).
+    case empty
+    case image
     /// Offered only while the server has a disk for the model.
     case ready
     var id: Int { rawValue }
-    /// The core words the choices, in this order, and the ready-made one after them.
-    var title: String { let l = origamiDiskLabels(); return self == .ready ? l.ready : l.choices[rawValue] }
+
+    init(_ choice: OrigamiDiskChoice) {
+        switch choice {
+        case .ready: self = .ready
+        case .install: self = .empty
+        case .image: self = .image
+        case .noDisk: self = .noDisk
+        }
+    }
 }
 
 @MainActor
@@ -35,7 +45,14 @@ final class NewMachineModel: ObservableObject {
     @Published private(set) var previewError: String?
     private var writing = false
     private var identityRound = 0
-    @Published var disk = DiskChoice.noDisk
+    @Published var disk = DiskChoice.noDisk { didSet { if !settingDefault { diskTouched = true } } }
+    /// The person has picked a disk, so a late-arriving ready-made one no longer becomes the default.
+    private var diskTouched = false
+    private var settingDefault = false
+    /// Advanced is open; its whole header toggles it.
+    @Published var advancedOpen = false
+    /// The next free machine ID, from the first preview.
+    @Published private(set) var nextId: UInt32?
     /// The empty disk's size in GB.
     @Published var sizeGB = Int(origamiDiskLabels().defaultGb)
     /// The ready-made disks that fit the model, and the one picked.
@@ -43,7 +60,7 @@ final class NewMachineModel: ObservableObject {
     @Published var readyPick = 0
     private var asked = 0
     /// Open the Install IRIX assistant on the new machine; offered only with an empty disk.
-    @Published var installAfter = false
+    @Published var installAfter = true
     var offersInstall: Bool { disk == .empty && offerings.indices.contains(selected) && offerings[selected].runsIrix }
     /// The copy's progress, while one runs.
     @Published private(set) var progress: (fraction: Double, text: String)?
@@ -74,7 +91,20 @@ final class NewMachineModel: ObservableObject {
     /// More than one engine to choose between; with one the picker is shown but cannot be changed.
     var canPickEngine: Bool { engines.count > 1 }
 
-    var choices: [DiskChoice] { readyDisks.isEmpty ? DiskChoice.allCases.filter { $0 != .ready } : DiskChoice.allCases }
+    /// The core's disk choices in listing order; the first is the default.
+    var options: [OrigamiDiskOption] { origamiDiskOptions(readyAvailable: !readyDisks.isEmpty) }
+
+    /// The line under a choice: the core's caption, and for the ready-made disk the download it would be.
+    func caption(_ o: OrigamiDiskOption) -> String {
+        guard o.choice == .ready, readyDisks.indices.contains(readyPick) else { return o.caption }
+        let d = readyDisks[readyPick]
+        return "\(o.caption) \(origamiReadyCaption(bytes: d.bytes, cached: d.cached))"
+    }
+
+    private func useDefaultDisk() {
+        guard !diskTouched, let first = options.first else { return }
+        settingDefault = true; disk = DiskChoice(first.choice); settingDefault = false
+    }
 
     /// Ask the server for the disks that fit the model, off the main thread; a later model choice wins.
     private func loadReady() {
@@ -89,6 +119,7 @@ final class NewMachineModel: ObservableObject {
                     guard turn == self.asked else { return }
                     self.readyDisks = found; self.readyPick = 0
                     if found.isEmpty && self.disk == .ready { self.disk = .noDisk }
+                    self.useDefaultDisk()
                 }
             }
         }
@@ -102,10 +133,16 @@ final class NewMachineModel: ObservableObject {
     /// Why the ID or address cannot be used, in the core's words.
     var identityProblem: String? { identity?.problem ?? previewError }
 
-    /// The address row: the one the ID makes, or the typed one, or that the machine sets its own.
-    var addressShown: String {
-        guard let identity else { return "" }
-        return identity.mac.isEmpty ? "Set by the machine" : identity.mac
+    /// The problem that belongs under `field`; one with no field goes under the ID.
+    func identityProblem(for field: OrigamiIdentityField) -> String? {
+        if let p = identity?.problem { return (identity?.problemField ?? .id) == field ? p : nil }
+        return field == .id ? previewError : nil
+    }
+
+    /// The address the ID makes, for under "From the machine ID"; none when the machine sets its own.
+    var madeAddress: String? {
+        guard let mac = identity?.mac, !mac.isEmpty else { return nil }
+        return mac
     }
 
     /// Ask the core what the choices so far give. It reads the library folder, so off the main thread.
@@ -122,6 +159,7 @@ final class NewMachineModel: ObservableObject {
                     switch result {
                     case .success(let p):
                         self.identity = p; self.previewError = nil
+                        if self.nextId == nil { self.nextId = p.emuId }
                         // The next free ID fills an empty field, never one the person has started typing.
                         if typed.trimmingCharacters(in: .whitespaces).isEmpty, self.idText.trimmingCharacters(in: .whitespaces).isEmpty {
                             self.writing = true; self.idText = String(p.emuId); self.writing = false
@@ -165,6 +203,9 @@ final class NewMachineModel: ObservableObject {
                         self.offerings = o
                         self.selected = Int(origamiDefaultOffering(offerings: o.map { OrigamiOfferingKey(id: $0.id, product: $0.product) }) ?? 0)
                         self.engine = o.indices.contains(self.selected) ? o[self.selected].engine : nil
+                        self.useDefaultDisk()
+                        // A disk image dropped on the library comes in chosen.
+                        if let url = self.app.droppedDisk { self.disk = .image; self.image.set(url); self.app.droppedDisk = nil }
                     case .failure(let e): self.error = "The machines could not be listed: \(e)"
                     }
                 }

@@ -54,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    /// The app draws its own machine tabs, so the system's window tabs and their menu items are off.
+    func applicationWillFinishLaunching(_ notification: Notification) { NSWindow.allowsAutomaticWindowTabbing = false }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { Shared.model.host?.shutdown() }
     }
@@ -82,21 +85,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func askAboutRunning(_ running: [String], _ app: AppModel) {
-        let names = running.joined(separator: ", ")
-        let alert = NSAlert()
-        alert.messageText = running.count == 1 ? "\(names) is still running" : "\(running.count) machines are still running"
-        alert.informativeText = running.count == 1
-            ? "Keep it running to find it again the next time Origami opens, or power it off now."
-            : "Keep them running to find them again the next time Origami opens, or power them off now. (\(names))"
-        alert.addButton(withTitle: ui(.keepRunning))
-        alert.addButton(withTitle: ui(.powerOff))
-        alert.addButton(withTitle: ui(.cancel))
-        switch alert.runModal() {
-        case .alertFirstButtonReturn: AppDelegate.reply(true)
-        case .alertSecondButtonReturn:
+        let alert = origamiAlert(kind: .quitRunning(names: running), platform: thisPlatform)
+        let i = app.present(alert)
+        guard alert.buttons.indices.contains(i) else { AppDelegate.reply(false); return }
+        switch alert.buttons[i].role {
+        case .safe: AppDelegate.reply(true)
+        case .destructive:
             progress = QuitProgress()
             powerOffThenQuit(app, force: false)
-        default: AppDelegate.reply(false)
+        case .cancel: AppDelegate.reply(false)
         }
     }
 
@@ -111,22 +108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         app.stopAll(force: force, progress: { [weak self] in self?.progress?.show($0) }) { [weak self] failed in
             self?.progress?.hide()
             if failed.isEmpty { AppDelegate.reply(true); return }
-            let names = failed.map(\.name).joined(separator: ", ")
-            let alert = NSAlert()
-            alert.messageText = force ? "\(names) would not stop" : "\(names) did not power off"
-            let why = failed.compactMap(\.failure).first
-            alert.informativeText = force ? (why ?? "The emulator did not stop.")
-                : "Force quit stops the emulator at once; changes the guest has not written to disk are lost."
-            if !force { alert.addButton(withTitle: ui(.forceQuitInstead)) }
-            alert.addButton(withTitle: ui(.quitAndLeaveRunning))
-            alert.addButton(withTitle: ui(.cancelQuit))
-            let r = alert.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
-            let choice = force ? r + 1 : r
-            switch choice {
-            case 0: self?.powerOffThenQuit(app, force: true)
-            case 1: AppDelegate.reply(true)
-            default: AppDelegate.reply(false)
-            }
+            // Force quit is the only way on; Cancel leaves the machines running and the app open.
+            if app.confirmed(.powerOffFailed(names: failed.map(\.name))) { self?.powerOffThenQuit(app, force: true) }
+            else { AppDelegate.reply(false) }
         }
     }
 }
@@ -143,6 +127,11 @@ struct OrigamiCommands: Commands {
         case .showLibrary:
             Button(app.sidebarVisible ? "Hide library" : "Show library") { app.invoke(c) }
                 .keyboardShortcut("s", modifiers: [.control, .command])
+        case .pause:
+            // One item that changes its name, as the toolbar's Power menu does.
+            let paused = app.current?.state == .paused
+            Button(paused ? CommandID.resume.title : c.title) { app.invoke(paused ? .resume : .pause) }
+                .keyboardShortcut("p", modifiers: .command).disabled(!app.isEnabled(paused ? .resume : .pause))
         default:
             if let key = c.info.key {
                 Button(c.title) { app.invoke(c) }.keyboardShortcut(key, modifiers: c.info.modifiers).disabled(!enabled)
@@ -159,25 +148,32 @@ struct OrigamiCommands: Commands {
         CommandGroup(replacing: .newItem) {
             item(.newMachine); item(.chooseLibrary)
         }
+        // Close is the machine's: the standard window Close would end the app with its last window.
+        CommandGroup(replacing: .saveItem) { }
         CommandMenu("Machine") {
-            item(.start); item(.powerOff); item(.forceQuit); item(.reset)
+            item(.start); item(.cancelStart); item(.powerOff); item(.forceQuit); item(.reset)
             Divider()
-            item(.pause); item(.resume); item(.screenshot)
+            item(.pause); item(.screenshot)
             Divider()
             item(.captureInput); item(.followMouse); item(.pasteAsTyping)
             Divider()
             item(.settings); item(.installIrix); item(.showInFinder)
+            Divider()
+            item(.remove)
         }
         CommandGroup(replacing: .sidebar) {
             item(.showLibrary)
             Divider()
             item(.pointScale); item(.doubleScale); item(.fit); item(.actualSize)
+            Divider()
+            item(.cpuLoad)
         }
         CommandGroup(after: .windowArrangement) {
             item(.console); item(.diagnostics); item(.library)
             Divider()
             item(.nextTab); item(.previousTab); item(.closeTab)
         }
+        CommandGroup(replacing: .help) { item(.keyboardShortcuts) }
     }
 }
 
@@ -197,6 +193,7 @@ struct OrigamiApp: App {
             DiagnosticsView().environmentObject(app)
         }
         .defaultSize(width: 640, height: 400)
+        .commandsRemoved()
 
         WindowGroup(ui(.console), id: "console", for: String.self) { $key in
             if let key { ConsoleWindow(key: key).environmentObject(app) }
@@ -204,16 +201,15 @@ struct OrigamiApp: App {
         .defaultSize(width: 700, height: 440)
         .commandsRemoved()
 
-        WindowGroup(ui(.installIrix), id: "install", for: String.self) { $key in
-            if let key { InstallWindow(key: key).environmentObject(app) }
-        }
-        .windowResizability(.contentSize)
-        .commandsRemoved()
+        Window(ui(.keyboardShortcuts), id: "shortcuts") { ShortcutsView() }
+            .windowResizability(.contentSize)
+            .commandsRemoved()
 
         Window(ui(.aboutOrigami), id: "about") {
             AboutView().environmentObject(app)
         }
         .windowResizability(.contentSize)
+        .commandsRemoved()
 
         Settings { PreferencesView().environmentObject(app) }
     }

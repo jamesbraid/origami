@@ -138,7 +138,7 @@ func runDocsShots(library: String, out: String) {
         install.next()
         _ = waitFor(30) { !install.flow.addons().isEmpty }
         installSteps = install.flow.steps().map { origamiInstallStepTitle(step: $0) }
-        capture(window("Install IRIX: \(model.name)", InstallAssistant(model: install), 780, 540), "macos-install-assistant")
+        capture(window("Install IRIX: \(model.name)", InstallSetupSheet(model: install), 740, 480), "macos-install-assistant")
         app.forgetInstall(model.id)
     } else { fail("no install assistant for \(model.name)") }
     // Settings at Network, with Bridged chosen and its fields open. The sheet reloads when it appears, which closes the fields.
@@ -156,7 +156,7 @@ func runDocsShots(library: String, out: String) {
     #if FAKE
     try? host.core.fakeAdvanceFrame(key: model.record.key)
     #endif
-    guard waitFor(120, { model.state == .running }) else { fail("the machine did not reach Running (\(model.state.pill))") }
+    guard waitFor(120, { model.state == .running }) else { fail("the machine did not reach Running (\(model.state.word))") }
     // The PROM takes a while to draw its menu.
     spin(90)
     capture(main, "macos-running", settle: 3, hide: false, after: { focusLibrary(main) })

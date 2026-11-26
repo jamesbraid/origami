@@ -23,9 +23,18 @@ struct MainView: View {
                 set: { app.sidebarVisible = ($0 != .detailOnly) })
     }
 
+    /// The library, or the install guide once an install has started and the person has not switched back.
+    @ViewBuilder private var sidebar: some View {
+        if app.sidebarGuide, let key = app.guideKey, let install = app.installModel(for: key) {
+            InstallGuideSidebar(model: install)
+        } else {
+            LibrarySidebar()
+        }
+    }
+
     private var content: some View {
         NavigationSplitView(columnVisibility: visibility) {
-            LibrarySidebar()
+            sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
         } detail: {
             VStack(spacing: 0) {
@@ -38,41 +47,62 @@ struct MainView: View {
                 if app.showsCpu, let model = app.current, model.state == .running { CpuPanelHost(model: model) }
                 if let model = app.current { StatusBar(model: model) }
             }
-            .navigationTitle(app.current?.name ?? "Origami")
+            .overlay(alignment: .bottom) { ToastView().padding(.bottom, 40) }
+            .navigationTitle(app.current?.name ?? ui(.origami))
+            .navigationSubtitle(app.current?.word ?? "")
             .toolbar { MachineToolbar() }
         }
+        .toolbar(removing: .sidebarToggle)
         .frame(minWidth: 820, minHeight: 560)
         .background(ToolbarTooltips().frame(width: 0, height: 0))
         .onAppear {
             app.openWindow = { openWindow(id: $0) }
             app.openConsole = { openWindow(id: "console", value: $0) }
-            app.openInstall = { openWindow(id: "install", value: $0) }
         }
         .onChange(of: app.wantSettings) { _, want in
             if want { settingsFor = app.current; app.wantSettings = false }
         }
-        .sheet(item: $settingsFor) { model in MachineSettings(model: model) }
-        .sheet(isPresented: $app.wantNewMachine) { NewMachineSheet(app: app) }
+        .sheet(item: $settingsFor, onDismiss: { app.settingsPane = .general }) { model in MachineSettings(model: model, pane: app.settingsPane) }
+        .sheet(isPresented: $app.wantNewMachine, onDismiss: { app.droppedDisk = nil }) { NewMachineSheet(app: app) }
+        .sheet(isPresented: Binding(get: { app.installSheet != nil }, set: { if !$0 { app.installSheet = nil } })) {
+            if let key = app.installSheet, let install = app.installModel(for: key) { InstallSetupSheet(model: install) }
+        }
     }
 }
 
 struct EmptyDetail: View {
     @EnvironmentObject var app: AppModel
     var body: some View {
-        VStack(spacing: 12) {
-            // At rest: it draws one frame and costs nothing more.
-            CubeHost(look: .empty).frame(width: 140, height: 140).accessibilityHidden(true)
-            Text(app.models.isEmpty ? "No machines yet" : "Choose a machine")
-                .font(.title2.weight(.semibold))
-            if app.models.isEmpty {
-                Text("Origami looks for machines in \((app.root.path as NSString).abbreviatingWithTildeInPath).")
-                    .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
-                Button("Choose library folder…") { app.invoke(.chooseLibrary) }
-            } else {
-                Text("Pick one in the library.").foregroundStyle(.secondary)
-            }
+        let e = origamiEmptyState(kind: app.models.isEmpty ? .noMachines : .noneSelected)
+        ContentUnavailableView {
+            Label(e.title, systemImage: "desktopcomputer")
+        } description: {
+            Text(e.sentence)
+        } actions: {
+            if let button = e.button { Button(button) { app.invoke(.newMachine) } }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// A brief message over the window, with an action that shows a file.
+struct ToastView: View {
+    @EnvironmentObject var app: AppModel
+    var body: some View {
+        if let n = app.notice {
+            HStack(spacing: 12) {
+                Text(n.text).lineLimit(1)
+                if let url = n.reveal, let action = n.action {
+                    Button(action) { NSWorkspace.shared.activateFileViewerSelecting([url]) }.buttonStyle(.link)
+                }
+            }
+            .font(.callout)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .accessibilityAddTraits(.updatesFrequently)
+        }
     }
 }
 
@@ -96,17 +126,20 @@ struct LibrarySidebar: View {
             if let id = ids.first, let model = app.models.first(where: { $0.id == id }) {
                 Button(ui(.openInNewTab)) { app.openInNewTab(id) }
                 Divider()
-                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([app.root.appendingPathComponent(model.name)]) }
+                Button(origamiShowInLabel(platform: thisPlatform)) { NSWorkspace.shared.activateFileViewerSelecting([app.root.appendingPathComponent(model.name)]) }
                 Button(ui(.diagnostics)) { app.select(id); app.invoke(.diagnostics) }
+                Divider()
+                Button(CommandID.remove.title) { app.remove(id) }.disabled(!model.canRemove)
             }
         } primaryAction: { ids in
             if let id = ids.first { app.openInNewTab(id) }
         }
+        .dropDestination(for: URL.self) { urls, _ in app.dropOnLibrary(urls) }
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button { app.invoke(.newMachine) } label: { Label(ui(.newMachine), systemImage: "plus") }
                     .buttonStyle(.borderless).disabled(!app.isEnabled(.newMachine))
-                    .help("New machine (⌘N)")
+                    .help(CommandID.newMachine.tooltip ?? "")
                 Spacer()
                 Button { app.invoke(.chooseLibrary) } label: { Label("Choose library folder", systemImage: "folder") }
                     .buttonStyle(.borderless).labelStyle(.iconOnly)
@@ -120,23 +153,27 @@ struct LibrarySidebar: View {
     }
 }
 
+/// Name, then the model or the state as a dot and a word: nothing trails the line.
 struct LibraryRow: View {
     @ObservedObject var model: MachineModel
     @EnvironmentObject var app: AppModel
     var body: some View {
+        let line = model.line
         HStack(spacing: 8) {
             MachineArt(product: model.record.product, pt: Int(Tokens.Size.artSidebar))
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.name).lineLimit(1)
-                Text(model.record.product.name).font(.caption).foregroundStyle(.secondary)
+                Text(model.name).lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 4) {
+                    if line.tone != .none { Circle().fill(line.tone.colour).frame(width: 6, height: 6).accessibilityHidden(true) }
+                    Text(line.text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
-            Spacer(minLength: 4)
-            if let disk = model.record.systemDisk { DiskBadge(text: disk) }
-            StatusPill(state: model.state)
+            Spacer(minLength: 0)
         }
         .contentShape(Rectangle())
+        .help(model.rowDescription)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(model.name), \(model.record.product.name), \(model.state.pill)")
+        .accessibilityLabel(model.rowDescription)
     }
 }
 
@@ -169,11 +206,12 @@ struct TabItem: View {
         let chassis = Color(rgb: model.record.product.colour)
         HStack(spacing: 6) {
             MachineArt(product: model.record.product, pt: Int(Tokens.Size.artTab))
-            Text(model.name).lineLimit(1).font(.callout)
-            Circle().fill(model.state.tone.colour).frame(width: 6, height: 6).accessibilityHidden(true)
+            Text(model.name).lineLimit(1).truncationMode(.middle).font(.callout)
+            // A stopped machine has no tone, so no dot.
+            if model.tone != .none { Circle().fill(model.tone.colour).frame(width: 6, height: 6).accessibilityHidden(true) }
             // The close button shows on the selected tab and on hover; the space stays reserved.
             Button { app.closeTabAsking(model.id) } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
-                .buttonStyle(.borderless).help("Close tab").accessibilityLabel("Close \(model.name)")
+                .buttonStyle(.borderless).help(CommandID.closeTab.title).accessibilityLabel(CommandID.closeTab.title)
                 .opacity(active || hover ? 1 : 0)
         }
         .padding(.horizontal, 8)
@@ -190,19 +228,16 @@ struct TabItem: View {
 
 // MARK: toolbar and status bar
 
-/// Tooltip wording for the toolbar buttons; the Windows and GTK apps use the same text.
+/// The toolbar buttons' tooltips are the core's command tooltips, ending with the shortcut.
 enum ToolbarTip {
-    static let start = "Start the machine (⌘R)"
-    static let power = "Power off, pause, reset or force quit the machine"
-    static let pointer = "Pointer mode: follow my mouse or capture on click"
-    static let console = "Open the machine's serial console (⌥⌘C)"
-    static let cpu = "Show or hide the emulated CPU load"
-    static let diagnostics = "Open the diagnostics report (⌥⌘L)"
-    static let settings = "Open the machine's settings (⌘I)"
-    static var all: [String] { [start, power, pointer, console, cpu, diagnostics, settings] }
+    private static func tip(_ id: String) -> String { origamiCommandTooltip(id: id, platform: thisPlatform) ?? "" }
     /// By the toolbar item's label.
-    static let byLabel = ["Start": start, "Power": power, "Pointer": pointer, "Console": console,
-                          "CPU": cpu, "Diagnostics": diagnostics, "Settings": settings]
+    static var byLabel: [String: String] {
+        [ui(.showOrHideTheLibrary): ui(.showOrHideTheLibrary), ui(.start): tip("machine.start"), ui(.powerOff): tip("machine.stop"),
+         ui(.captureMouse): tip("machine.capture-mouse"), ui(.console): tip("window.console"), ui(.cpuLoad): tip("view.cpu-load"), ui(.cancelStart): tip("machine.cancel-start"),
+         ui(.diagnostics): tip("window.diagnostics"), ui(.settings): tip("machine.settings"), ui(.installIrix): ui(.installIrix)]
+    }
+    static var all: [String] { Array(byLabel.values) }
 }
 
 /// SwiftUI's `.help` does not reach the NSToolbarItem, so the items get their tooltips here.
@@ -230,27 +265,38 @@ struct MachineToolbar: ToolbarContent {
 
     // One item each: a tooltip on a button inside a shared group is not reliably shown.
     var body: some ToolbarContent {
+        // The library button stays whether the library is open or closed.
+        ToolbarItem(placement: .navigation) {
+            Button { app.invoke(.showLibrary) } label: { Label(ui(.showOrHideTheLibrary), systemImage: "sidebar.left") }
+                .help(ui(.showOrHideTheLibrary))
+        }
+        // While an install guide runs, a second button swaps the sidebar between the guide and the library.
+        if app.guideKey != nil {
+            ToolbarItem(placement: .navigation) {
+                Toggle(isOn: $app.sidebarGuide) { Label(ui(.installIrix), systemImage: "list.number") }
+                    .toggleStyle(.button).help(ui(.installIrix))
+            }
+        }
         // Items that need a machine are left out with it, so no empty capsule shows.
         if let m = app.current {
-            ToolbarItem(placement: .principal) { PillItem(model: m) }
             ToolbarItem(placement: .primaryAction) { PowerControl(model: m) }
             ToolbarItem(placement: .primaryAction) { PointerControl(model: m) }
         }
         ToolbarItem(placement: .primaryAction) {
             Button { app.invoke(.console) } label: { Label(ui(.console), systemImage: "terminal") }
-                .disabled(!app.isEnabled(.console)).help(ToolbarTip.console)
+                .disabled(!app.isEnabled(.console)).help(CommandID.console.tooltip ?? "")
         }
         ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: $app.showsCpu) { Label(ui(.cpu), systemImage: "cpu") }
-                .toggleStyle(.button).help(ToolbarTip.cpu)
+            Toggle(isOn: $app.showsCpu) { Label(ui(.cpuLoad), systemImage: "cpu") }
+                .toggleStyle(.button).help(CommandID.cpuLoad.tooltip ?? "")
         }
         ToolbarItem(placement: .primaryAction) {
             Button { app.invoke(.diagnostics) } label: { Label(ui(.diagnostics), systemImage: "waveform.path.ecg") }
-                .disabled(!app.isEnabled(.diagnostics)).help(ToolbarTip.diagnostics)
+                .disabled(!app.isEnabled(.diagnostics)).help(CommandID.diagnostics.tooltip ?? "")
         }
         ToolbarItem(placement: .primaryAction) {
             Button { app.invoke(.settings) } label: { Label(ui(.settings), systemImage: "gearshape") }
-                .disabled(!app.isEnabled(.settings)).help(ToolbarTip.settings)
+                .disabled(!app.isEnabled(.settings)).help(CommandID.settings.tooltip ?? "")
         }
     }
 }
@@ -266,67 +312,77 @@ struct CpuPanelHost: View {
     }
 }
 
-struct PillItem: View {
-    @ObservedObject var model: MachineModel
-    var body: some View { StatusPill(state: model.state) }
-}
-
+/// Start, which becomes the Power menu once the machine is up: Power off on the button, the rest in the menu.
 struct PowerControl: View {
     @ObservedObject var model: MachineModel
     @EnvironmentObject var app: AppModel
     var body: some View {
         if model.canStart {
             Button { app.invoke(.start) } label: { Label(ui(.start), systemImage: "play.fill") }
-                .help(ToolbarTip.start)
+                .help(CommandID.start.tooltip ?? "")
+        } else if model.state == .starting {
+            // A launch cannot be aborted, so Power off is not offered yet: the stop waits for it.
+            Button { app.invoke(.cancelStart) } label: { Label(ui(.cancelStart), systemImage: "xmark.circle") }
+                .help(CommandID.cancelStart.tooltip ?? "")
         } else {
+            let paused = model.state == .paused
             Menu {
-                Button(ui(.powerOff)) { app.invoke(.powerOff) }.disabled(!app.isEnabled(.powerOff))
-                Button(ui(.pause)) { app.invoke(.pause) }.disabled(!app.isEnabled(.pause))
-                Button("Resume") { app.invoke(.resume) }.disabled(!app.isEnabled(.resume))
-                Button("Save screenshot") { app.invoke(.screenshot) }.disabled(!app.isEnabled(.screenshot))
-                Button("Reset…") { app.invoke(.reset) }.disabled(!app.isEnabled(.reset))
+                Button(paused ? CommandID.resume.title : CommandID.pause.title) { app.invoke(paused ? .resume : .pause) }
+                    .disabled(!app.isEnabled(paused ? .resume : .pause))
+                Button(CommandID.reset.title) { app.invoke(.reset) }.disabled(!app.isEnabled(.reset))
                 Divider()
-                Button("Force quit emulator…") { app.invoke(.forceQuit) }.disabled(!app.isEnabled(.forceQuit))
-            } label: { Label("Power", systemImage: "power") }
-            .help(ToolbarTip.power)
+                Button(CommandID.forceQuit.title) { app.invoke(.forceQuit) }.disabled(!app.isEnabled(.forceQuit))
+            } label: { Label(ui(.powerOff), systemImage: "power") } primaryAction: { app.invoke(.powerOff) }
+            .disabled(!app.isEnabled(.powerOff) && !app.isEnabled(.forceQuit))
+            .help(CommandID.powerOff.tooltip ?? "")
         }
     }
 }
 
+/// One button: on, the mouse is captured on click; off, it follows the pointer.
 struct PointerControl: View {
     @ObservedObject var model: MachineModel
     var body: some View {
-        Picker(ui(.pointer), selection: $model.pointerMode) {
-            Label(ui(.followMyMouse), systemImage: "cursorarrow").tag(PointerMode.follow)
-            Label(ui(.captureOnClick), systemImage: "cursorarrow.click.2").tag(PointerMode.capture)
+        Toggle(isOn: Binding(get: { model.pointerMode == .capture }, set: { model.pointerMode = $0 ? .capture : .follow })) {
+            Label(ui(.captureMouse), systemImage: "cursorarrow.click.2")
         }
-        .pickerStyle(.segmented)
-        .help(ToolbarTip.pointer)
-        .accessibilityLabel("Pointer mode")
+        .toggleStyle(.button)
+        .help(CommandID.captureInput.tooltip ?? "")
     }
 }
 
+/// The picture's size and the pointer's words, from the core, while the machine runs. Never a card's text.
 struct StatusBar: View {
     @ObservedObject var model: MachineModel
-    @EnvironmentObject var app: AppModel
     var body: some View {
-        HStack(spacing: 14) {
-            if !model.statusLine.isEmpty { Text(model.statusLine).foregroundStyle(.secondary).lineLimit(1) }
-            if let n = app.notice {
-                Text(n.text).lineLimit(1)
-                if let url = n.reveal {
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }.buttonStyle(.link)
+        if let bar = model.statusBar, model.state == .running || model.state == .paused {
+            HStack(spacing: 14) {
+                if let picture = bar.picture { Text(picture) }
+                Spacer()
+                if let pointer = bar.pointer {
+                    Label(pointer, systemImage: model.captured ? "cursorarrow.motionlines" : "cursorarrow")
                 }
             }
-            Spacer()
-            if model.state == .running {
-                Label(origamiPointerStatus(follows: model.pointerMode == .follow, captured: model.captured),
-                      systemImage: model.captured ? "cursorarrow.motionlines" : "cursorarrow")
-                    .help(model.pointerMode == .follow ? "The guest's pointer follows your mouse" : "Click the screen to capture the mouse; press ⌃⌥ to release")
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, 12).frame(height: 24).background(.bar)
+            .overlay(alignment: .top) { Divider() }
+        }
+    }
+}
+
+/// Help > Keyboard shortcuts: the core's groups, the release keys first.
+struct ShortcutsView: View {
+    var body: some View {
+        Form {
+            ForEach(origamiShortcutGroups(platform: thisPlatform), id: \.title) { group in
+                Section(group.title) {
+                    ForEach(group.items, id: \.label) { item in
+                        LabeledContent(item.label) { Text(item.keys).font(.body.monospaced()) }
+                    }
+                }
             }
         }
-        .font(.caption)
-        .padding(.horizontal, 12).frame(height: 24).background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .formStyle(.grouped)
+        .frame(width: 440, height: 520)
     }
 }

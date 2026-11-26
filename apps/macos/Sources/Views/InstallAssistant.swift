@@ -1,28 +1,12 @@
-// The Install IRIX window: a step list, the step's content and a footer with the media server's line.
+// The Install IRIX set-up sheet, and the install guide that takes the sidebar once the install starts.
 
 import AppKit
 import SwiftUI
 
-/// One window per machine, opened by the machine's key.
-struct InstallWindow: View {
-    @EnvironmentObject var app: AppModel
-    let key: String
-    /// Kept once found, so a window that is closing does not ask the app for a new assistant.
-    @State private var held: InstallModel?
-
-    var body: some View {
-        if let model = held ?? app.installModel(for: key) {
-            InstallAssistant(model: model).navigationTitle("Install IRIX: \(model.machine.name)")
-                .onAppear { held = model }
-        } else {
-            Text("This machine is no longer in the library.").foregroundStyle(.secondary).frame(width: 360, height: 120)
-        }
-    }
-}
-
-struct InstallAssistant: View {
+/// Set-up: release, discs, software, method, disk and check, as a sheet over the main window with the numbered
+/// step list beside the page. Continue on the check starts the install and the guide takes over the sidebar.
+struct InstallSetupSheet: View {
     @ObservedObject var model: InstallModel
-    @Environment(\.dismiss) private var dismiss
     @State private var adding = false
 
     var body: some View {
@@ -42,52 +26,46 @@ struct InstallAssistant: View {
             Divider()
             footer
         }
-        .frame(width: 780, height: 540)
-        .background(CloseGuard(model: model).frame(width: 0, height: 0))
-        .onAppear { model.onClose = { dismiss() } }
+        .frame(width: 740, height: 480)
+        .interactiveDismissDisabled()
         .sheet(isPresented: $adding) { AddPackageSheet(model: model) }
     }
 
+    /// Numbered text from the core's list: a check for what is done, the current one bold. No radio circles.
     private var stepList: some View {
         VStack(alignment: .leading, spacing: 10) {
-            let steps = model.flow.steps(), here = steps.firstIndex(of: model.step) ?? 0
-            ForEach(steps.indices, id: \.self) { i in
-                let current = i == here
-                HStack(spacing: 8) {
-                    Image(systemName: i < here ? "checkmark.circle.fill" : current ? "circle.inset.filled" : "circle")
-                        .foregroundStyle(current ? Color.accentColor : Color.secondary)
-                    Text("\(i + 1). \(origamiInstallStepTitle(step: steps[i]))").fontWeight(current ? .semibold : .regular)
+            ForEach(model.flow.stepTitles(), id: \.number) { t in
+                let current = t.state == .current
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Group {
+                        if t.state == .done { Image(systemName: "checkmark").foregroundStyle(Color.secondary) } else { Text("\(t.number)") }
+                    }
+                    .frame(width: 16)
+                    Text(t.title).fontWeight(current ? .semibold : .regular)
+                        .foregroundStyle(t.state == .later ? Color.secondary : Color.primary)
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(current ? .isSelected : [])
             }
             Spacer()
         }
-        .padding(16).frame(width: 210, alignment: .topLeading)
+        .padding(16).frame(width: 200, alignment: .topLeading)
     }
-
-    // MARK: footer
 
     private var footer: some View {
         HStack {
-            if let failed = model.serveFailed {
-                Text(failed).font(.caption).foregroundStyle(.red).lineLimit(2)
-                Button(ui(.restart)) { model.restartServe() }
-            } else if !model.footer.isEmpty {
-                Text(model.footer).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            } else if let plan = model.planText {
-                Text(plan).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if model.flow.resumed() { Button(ui(.startOver)) { model.startOver() }.disabled(model.working) }
+            // Continue says why it is off.
+            if let reason = model.continueReason {
+                Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            if model.flow.resumed() { Button(ui(.startOver)) { model.startOver() }.disabled(model.working) }
             Button(ui(.cancel)) { model.requestClose() }.keyboardShortcut(.cancelAction)
             Button(ui(.back)) { model.back() }.disabled(!model.canBack)
             Button(model.flow.continueLabel()) { model.next() }.keyboardShortcut(.defaultAction).disabled(!model.canContinue)
         }
         .padding(10)
     }
-
-    // MARK: steps
 
     @ViewBuilder private var content: some View {
         switch model.step {
@@ -96,16 +74,8 @@ struct InstallAssistant: View {
         case .software: softwareStep
         case .disk: diskStep
         case .check: checkStep
-        case .prepare: guideStep(model.guide?.prepare, section: "prepare")
-        case .installer: guideStep(model.guide?.installer, section: "installer")
         case .method: methodStep
-        case .packages:
-            if model.flow.automatic() { automaticStep }
-            else if model.flow.byHand() { guideStep(model.guide?.restart, section: "restart") }
-            else { guideStep(model.guide.map { $0.packages + $0.restart }, section: "packages", note: model.guide?.packageNote) }
-        case .finish:
-            if model.flow.automatic() { Text("IRIX is installed and the machine is stopped.") }
-            else { guideStep(model.guide?.finish, section: "finish") }
+        case .prepare, .installer, .packages, .finish: ProgressView().controlSize(.small)
         }
     }
 
@@ -134,29 +104,12 @@ struct InstallAssistant: View {
         }
     }
 
-    private var automaticStep: some View {
-        let running = model.flow.apply() == .running
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(model.flow.applyHint()).fixedSize(horizontal: false, vertical: true)
-            if running {
-                if let f = model.applyFraction { ProgressView(value: f) } else { ProgressView().progressViewStyle(.linear) }
-                if !model.applyLine.isEmpty { Text(model.applyLine).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-            }
-            if let m = model.applyMessage { Text(m).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
-            HStack {
-                Button(ui(.install)) { model.install() }.disabled(!model.flow.canInstall(machineUp: model.machine.isRunning))
-                if running { Button(ui(.cancelInstall)) { model.cancelInstall() } }
-                if model.flow.canFixed() { Button(ui(.iFixedItAtInst)) { model.fixed() } }
-                Button(ui(.openConsole)) { model.openConsole() }
-            }
-        }
-    }
-
     private var mediaStep: some View {
         VStack(alignment: .leading, spacing: 10) {
-            RadioRow(title: "Download them from the Origami server", detail: model.texts.mediaDownload,
+            Text(ui(.whereShouldTheDiscsComeFrom)).font(.headline)
+            RadioRow(title: ui(.downloadThem), detail: ui(.needsAnInternetConnection),
                      selected: !model.flow.useFolder()) { model.edit { $0.setUseFolder(on: false) } }
-            RadioRow(title: model.texts.mediaFolder, detail: nil, selected: model.flow.useFolder()) { model.edit { $0.setUseFolder(on: true) } }
+            RadioRow(title: ui(.useDiscsIAlreadyHave), detail: nil, selected: model.flow.useFolder()) { model.edit { $0.setUseFolder(on: true) } }
             if model.flow.useFolder() {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -209,8 +162,15 @@ struct InstallAssistant: View {
                     .toggleStyle(.checkbox)
             } else {
                 Text("This machine has no disk.")
-                Stepper("Create a disk: \(model.flow.newDiskGb()) GB",
-                        value: Binding(get: { Int(model.flow.newDiskGb()) }, set: { n in model.edit { $0.setNewDiskGb(gb: UInt32(n)) } }), in: 1...2048)
+                LabeledContent(ui(.diskSize)) {
+                    HStack(spacing: 6) {
+                        TextField(ui(.diskSize), value: Binding(get: { Int(model.flow.newDiskGb()) },
+                                                                set: { n in model.edit { $0.setNewDiskGb(gb: UInt32(max(1, min(2048, n)))) } }),
+                                  format: .number)
+                            .labelsHidden().multilineTextAlignment(.trailing).frame(width: 70)
+                        Text(ui(.gb))
+                    }
+                }
             }
         }
     }
@@ -227,12 +187,12 @@ struct InstallAssistant: View {
             case .running:
                 ProgressView().progressViewStyle(.linear)
                 HStack {
-                    Text(model.texts.checking).font(.caption).foregroundStyle(.secondary)
+                    Text(model.flow.checkStatus() ?? "").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button(ui(.cancel)) { model.cancelCheck() }
                 }
             case .passed:
-                Label(model.texts.passed, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Label(model.flow.checkStatus() ?? "", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             case .failed:
                 Text(model.checkMessage ?? "").foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
                 Button(ui(.checkAgain)) { model.runCheck() }
@@ -241,45 +201,159 @@ struct InstallAssistant: View {
         }
     }
 
-    /// A guide section as a checklist; ticks never block Continue.
-    @ViewBuilder private func guideStep(_ steps: [OrigamiGuideStep]?, section: String, note: String? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if model.stoppedBySelf {
-                HStack {
-                    Label(ui(.theMachineStopped), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Button(ui(.startAgain)) { model.startMachine() }
-                }
-            }
-            if let steps {
-                ForEach(steps.indices, id: \.self) { i in
-                    let s = steps[i]
-                    HStack(alignment: .top) {
-                        Toggle(isOn: model.ticked(section, i)) {
-                            Text(s.text).fixedSize(horizontal: false, vertical: true)
-                        }.toggleStyle(.checkbox)
-                        Spacer()
-                        if let c = s.command {
-                            Button(ui(.copy)) {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(c, forType: .string)
-                            }
-                        }
-                        if let send = s.send, model.canTypeIt {
-                            Button("Type it") { model.typeIt(send) }
+}
+
+
+// MARK: the guide in the sidebar
+
+/// The install guide: the steps from the PROM menu to the halt, one marked as the next to do, beside the
+/// machine's screen or console. The core words it all.
+struct InstallGuideSidebar: View {
+    @ObservedObject var model: InstallModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    let steps = model.listedSteps
+                    Text(origamiGuideHeader(step: UInt32(min(model.progress + 1, max(1, steps.count))), total: UInt32(steps.count)))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if model.stoppedBySelf {
+                        HStack {
+                            Label(ui(.theMachineStopped), systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            Button(ui(.startAgain)) { model.startMachine() }
                         }
                     }
+                    if steps.isEmpty && model.error == nil { ProgressView().controlSize(.small) }
+                    ForEach(steps.indices, id: \.self) { i in
+                        GuideStepRow(model: model, index: i, step: steps[i])
+                    }
+                    if model.step == .packages && model.flow.automatic() { automatic }
+                    if let e = model.error { Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
                 }
-            } else if model.error == nil {
-                ProgressView().controlSize(.small)
+                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }
-            if let note { Text(note).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-            if model.step != .finish {
-                HStack {
-                    Button(ui(.showMachine)) { model.showMachine() }
-                    Button(ui(.openConsole)) { model.openConsole() }
+            Divider()
+            footer
+        }
+    }
+
+    /// The automatic method: Origami types the package commands once the installer is at Inst>.
+    private var automatic: some View {
+        let running = model.flow.apply() == .running
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(origamiInstallStepTitle(step: .packages)).fontWeight(.semibold)
+            Text(model.flow.applyHint()).font(.callout).fixedSize(horizontal: false, vertical: true)
+            if running {
+                if let f = model.applyFraction { ProgressView(value: f) } else { ProgressView().progressViewStyle(.linear) }
+                if !model.applyLine.isEmpty { Text(model.applyLine).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            if let m = model.applyMessage { Text(m).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+            HStack {
+                Button(ui(.install)) { model.install() }.disabled(!model.flow.canInstall(machineUp: model.machine.isRunning))
+                if running { Button(ui(.cancelInstall)) { model.cancelInstall() } }
+                if model.flow.canFixed() { Button(ui(.iFixedItAtInst)) { model.fixed() } }
+            }
+        }
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let failed = model.serveFailed {
+                HStack { Text(failed).font(.caption).foregroundStyle(.red).lineLimit(2); Button(ui(.restart)) { model.restartServe() } }
+            } else if let text = model.installFooter {
+                Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            if let reason = model.continueReason, model.step == .finish || (model.step == .packages && model.flow.automatic()) {
+                Text(reason).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Button(ui(.cancel)) { model.requestClose() }
+                Spacer()
+                // Continue only where the guide cannot tell the step is over: the automatic install, and Finish.
+                if model.step == .finish || (model.step == .packages && model.flow.automatic()) {
+                    Button(model.flow.continueLabel()) { model.next() }.keyboardShortcut(.defaultAction).disabled(!model.canContinue)
                 }
             }
         }
+        .padding(10)
+    }
+}
+
+/// One guide step: done, the next to do (with what to watch for and type) or still to come.
+struct GuideStepRow: View {
+    @ObservedObject var model: InstallModel
+    let index: Int
+    let step: OrigamiGuideStep
+
+    var body: some View {
+        let done = model.isDone(index), current = index == model.progress
+        HStack(alignment: .top, spacing: 8) {
+            Group {
+                if done { Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.green) }
+                else { Text("\(index + 1)").foregroundStyle(current ? Color.accentColor : Color.secondary) }
+            }
+            .frame(width: 18)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(step.title).fontWeight(current ? .semibold : .regular)
+                    .foregroundStyle(done || !current ? Color.secondary : Color.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if done {
+                    Text(model.serial && index < model.seen ? ui(.seen) : ui(.done)).font(.caption).foregroundStyle(.secondary)
+                }
+                if current { detail }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(current ? .isSelected : [])
+    }
+
+    /// What to watch for and type, a note, and how the step is finished.
+    @ViewBuilder private var detail: some View {
+        if let watch = step.watch {
+            line(ui(.watchFor)) { code(watch) }
+        }
+        ForEach(Array(step.typed.enumerated()), id: \.offset) { _, t in
+            line(ui(.typeLabel)) {
+                HStack(spacing: 6) {
+                    if let p = t.prompt, p != step.watch { Text(p).font(.caption).foregroundStyle(.secondary) }
+                    code(t.text)
+                    if t.text != "Return" {
+                        Button(ui(.copy)) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t.text, forType: .string) }
+                            .controlSize(.small)
+                    }
+                }
+            }
+        }
+        if let note = step.note {
+            Label { Text(note.text).font(.caption) } icon: {
+                Image(systemName: note.warning ? "exclamationmark.triangle.fill" : "info.circle")
+                    .foregroundStyle(note.warning ? Color.orange : Color.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        HStack {
+            if let send = step.send, model.canTypeIt { Button(ui(.typeIt)) { model.typeIt(send) }.controlSize(.small) }
+            if model.serial, step.confirm != nil {
+                if let watch = step.watch { Text(origamiWaitingFor(prompt: watch)).font(.caption).foregroundStyle(.secondary) }
+            } else {
+                // A graphics console cannot confirm a step, and a step with nothing to see ends by hand.
+                Button(ui(.done)) { model.markDone(index) }.controlSize(.small)
+            }
+        }
+    }
+
+    private func line<C: View>(_ label: String, @ViewBuilder _ value: () -> C) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label).font(.caption).foregroundStyle(.secondary).frame(width: 56, alignment: .leading)
+            value()
+        }
+    }
+
+    private func code(_ text: String) -> some View {
+        Text(text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.15)))
     }
 }
 
@@ -319,9 +393,9 @@ struct AddPackageSheet: View {
             Text(ui(.addAPackage)).font(.headline)
             HStack {
                 TextField(ui(.sourceAFileOrAn), text: $source)
-                Button(ui(.chooseFile)) { if let u = model.choosePath("Choose a package", false) { source = u.path } }
+                Button(ui(.chooseFile)) { if let u = model.choosePath(ui(.chooseFile), false) { source = u.path } }
             }
-            Text("Packages to install, one per line").font(.caption).foregroundStyle(.secondary)
+            Text(ui(.packagesToInstallOnePerLine)).font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $packages).font(.system(.body, design: .monospaced)).frame(height: 90)
                 .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.4)))
             HStack {
@@ -333,43 +407,4 @@ struct AddPackageSheet: View {
         }
         .padding(20).frame(width: 460)
     }
-}
-
-/// Lets the model veto the window's close button and Cmd-W, and tells it when the window is gone.
-struct CloseGuard: NSViewRepresentable {
-    let model: InstallModel
-
-    func makeNSView(context: Context) -> GuardView { GuardView() }
-    func updateNSView(_ view: GuardView, context: Context) { view.delegate.model = model }
-}
-
-final class GuardView: NSView {
-    let delegate = CloseDelegate()
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard let window, window.delegate !== delegate else { return }
-        delegate.previous = window.delegate
-        window.delegate = delegate
-    }
-}
-
-/// Answers the close questions and passes everything else to the delegate SwiftUI installed.
-final class CloseDelegate: NSObject, NSWindowDelegate {
-    weak var previous: NSWindowDelegate?
-    weak var model: InstallModel?
-
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        MainActor.assumeIsolated { model?.windowMayClose() ?? true }
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        MainActor.assumeIsolated {
-            model?.close(dismissing: false)
-            previous?.windowWillClose?(notification)
-        }
-    }
-
-    override func responds(to selector: Selector!) -> Bool { super.responds(to: selector) || (previous?.responds(to: selector) ?? false) }
-    override func forwardingTarget(for selector: Selector!) -> Any? { previous }
 }

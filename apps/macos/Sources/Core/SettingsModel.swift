@@ -9,8 +9,10 @@ final class SettingsModel: ObservableObject {
     /// What went wrong, in the core's words, shown under the pane.
     @Published private(set) var error: String?
     @Published private(set) var working = false
-    /// What each disk drive holds by drive name, read in the background; absent until read.
-    @Published private(set) var badges: [String: String] = [:]
+    /// The Drives list as the core words it: a title and a caption for each drive, read in the background.
+    @Published private(set) var driveRows: [OrigamiDriveRow] = []
+    /// Where the startup messages show, as the core words it: Screen or Console.
+    @Published private(set) var startup: String?
     /// The copy's progress, while one runs.
     @Published private(set) var progress: (fraction: Double, text: String)?
     /// Advice the last edit returned, such as the lease to clear after a network move.
@@ -39,8 +41,7 @@ final class SettingsModel: ObservableObject {
 
     func apply(_ change: OrigamiChange) {
         guard !working else { return }
-        if case .detachDrive(let name) = change { badges[name] = nil }
-        if locked { error = "Power off the machine to change its settings."; return }
+        if locked { error = ui(.powerOffToChangeHardwareSettings); return }
         run { m in let lines = try m.applyChange(change: change); return (try m.settings(), lines) }
     }
 
@@ -58,7 +59,7 @@ final class SettingsModel: ObservableObject {
     /// Add the chosen image as a disk at `target`; a copy shows progress and can be cancelled.
     func addDisk(_ choice: ImageChoice, target: UInt32, done: @escaping @MainActor (Bool) -> Void) {
         guard !working, let path = choice.path else { return }
-        if locked { error = "Power off the machine to change its settings."; return }
+        if locked { error = ui(.powerOffToChangeHardwareSettings); return }
         working = true
         let (copy, overlay) = (choice.copy, choice.overlay)
         let host = machine.coreHost, key = machine.record.key
@@ -75,7 +76,7 @@ final class SettingsModel: ObservableObject {
                     self.ticker?.invalidate(); self.progress = nil; self.operation = nil
                     self.working = false
                     if let failure { self.error = failure; done(false); return }
-                    if let settings { self.badges["disk\(target)"] = nil; self.settings = settings; self.error = nil; self.readBadges() }
+                    if let settings { self.settings = settings; self.error = nil; self.readRows() }
                     done(true)
                 }
             }
@@ -93,16 +94,18 @@ final class SettingsModel: ObservableObject {
         }
     }
 
-    /// Name the OS on each disk drive not read yet. Off the main actor; a running machine's disks are not read.
-    func readBadges() {
-        guard let drives = settings?.drives else { return }
+    /// Read the Drives list: titles and captions, with the OS where the core knows it. Off the main actor.
+    func readRows() {
         let host = machine.coreHost, key = machine.record.key
-        for d in drives where d.kind == "disk" && badges[d.name] == nil {
-            let name = d.name
-            DispatchQueue.global(qos: .utility).async {
-                // An empty label hides the badge: the disk could not be read.
-                let label = (try? host.core.openMachine(key: key).driveInfo(drive: name)) ?? ""
-                DispatchQueue.main.async { MainActor.assumeIsolated { self.badges[name] = label } }
+        DispatchQueue.global(qos: .utility).async {
+            let m = try? host.core.openMachine(key: key)
+            let rows = (try? m?.driveRows()) ?? []
+            let console = (try? m?.bootConsole()).map { origamiStartupValue(console: $0) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    if self.driveRows != rows { self.driveRows = rows }
+                    if self.startup != console { self.startup = console }
+                }
             }
         }
     }
@@ -155,7 +158,7 @@ final class SettingsModel: ObservableObject {
     /// The core builds the change from the machine's file; both steps run off the main actor.
     private func applyNetwork(_ mode: OrigamiNetworkMode, device: String, share: String?, subnet: String?) {
         guard !working else { return }
-        if locked { error = "Power off the machine to change its settings."; return }
+        if locked { error = ui(.powerOffToChangeHardwareSettings); return }
         run { m in
             let lines = try m.setNetwork(mode: mode, device: device, shareAddress: share, subnet: subnet)
             return (try m.settings(), lines)
@@ -195,7 +198,7 @@ final class SettingsModel: ObservableObject {
                     self.working = false
                     switch result {
                     case .success(let (s, lines)):
-                        self.settings = s; self.error = nil; self.readBadges()
+                        self.settings = s; self.error = nil; self.readRows()
                         self.notes = lines.filter { $0.shown != nil }
                         self.readNetwork(s.network)
                     case .failure(let e): self.error = Self.say(e)
@@ -205,15 +208,9 @@ final class SettingsModel: ObservableObject {
         }
     }
 
-    /// The core's sentence, with Busy told as what to do about it.
+    /// The core's plain sentence, with Busy told as what to do about it.
     nonisolated static func say(_ e: Error) -> String {
-        if let c = e as? CoreError, case .Busy = c { return "Power off the machine to change its settings." }
-        if let c = e as? CoreError {
-            switch c {
-            case .Invalid(let m, _), .NotFound(let m, _), .Unsupported(let m, _), .Io(let m, _), .Engine(let m, _), .Internal(let m, _),
-                 .Busy(let m, _), .NotRunning(let m, _), .NeedsUpgrade(let m, _), .Protocol(let m, _), .Cancelled(let m, _): return m
-            }
-        }
-        return "\(e)"
+        if let c = e as? CoreError, case .Busy = c { return ui(.powerOffToChangeHardwareSettings) }
+        return MachineModel.info(of: e).message
     }
 }
