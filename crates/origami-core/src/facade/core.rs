@@ -34,8 +34,29 @@ pub struct Config {
     pub trash: fn(&Path) -> Result<(), String>,
 }
 
+#[cfg_attr(feature = "selftest", allow(dead_code))]
 fn system_trash(path: &Path) -> Result<(), String> {
     trash::delete(path).map_err(|e| e.to_string())
+}
+
+/// With the `selftest` feature, "trashing" deletes the folder and records it,
+/// so an app's self-test never reaches the host's real trash.
+#[cfg(feature = "selftest")]
+static TRASHED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+#[cfg(feature = "selftest")]
+fn selftest_trash(path: &Path) -> Result<(), String> {
+    TRASHED
+        .lock()
+        .unwrap()
+        .push(path.to_string_lossy().into_owned());
+    std::fs::remove_dir_all(path).map_err(|e| e.to_string())
+}
+
+/// The library entries removed so far under the `selftest` feature, in order.
+#[cfg(feature = "selftest")]
+pub fn selftest_trashed() -> Vec<String> {
+    TRASHED.lock().unwrap().clone()
 }
 
 impl Config {
@@ -45,6 +66,9 @@ impl Config {
             console_ring_bytes: 1 << 20,
             stop_patience: Duration::from_secs(30),
             instigator: None,
+            #[cfg(feature = "selftest")]
+            trash: selftest_trash,
+            #[cfg(not(feature = "selftest"))]
             trash: system_trash,
         }
     }

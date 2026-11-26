@@ -332,6 +332,9 @@ mod tests {
                 AlertKind::PowerOffFailed {
                     names: vec!["Fuel".into()],
                 },
+                AlertKind::CloseWindow {
+                    names: vec!["Fuel".into(), "Octane".into()],
+                },
                 AlertKind::Remove {
                     name: "Fuel".into(),
                     disk_left: vec![],

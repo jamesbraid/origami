@@ -137,6 +137,17 @@ pub fn origami_row(summary: OrigamiMachineSummary, installing: bool) -> OrigamiR
     }
 }
 
+/// A row's tooltip from its parts, for an open machine whose state comes from its view.
+#[uniffi::export]
+pub fn origami_row_description_for(
+    state: OrigamiShownState,
+    name: String,
+    model: String,
+    os: Option<String>,
+) -> String {
+    f::row_description_for(state.into(), &name, &model, os.as_deref())
+}
+
 /// The second line for a row in `state`, such as No picture for a machine the
 /// app has opened, which the summary alone cannot tell.
 #[uniffi::export]
@@ -233,6 +244,9 @@ pub enum OrigamiAlertKind {
     PowerOffFailed {
         names: Vec<String>,
     },
+    CloseWindow {
+        names: Vec<String>,
+    },
     Remove {
         name: String,
         disk_left: Vec<String>,
@@ -249,6 +263,7 @@ pub fn origami_alert(kind: OrigamiAlertKind, platform: OrigamiPlatform) -> Origa
         K::ForceQuit { name } => f::AlertKind::ForceQuit { name },
         K::CloseTab { name } => f::AlertKind::CloseTab { name },
         K::PowerOffFailed { names } => f::AlertKind::PowerOffFailed { names },
+        K::CloseWindow { names } => f::AlertKind::CloseWindow { names },
         K::Remove { name, disk_left } => f::AlertKind::Remove { name, disk_left },
     };
     let a = f::alert(&kind, platform.into());

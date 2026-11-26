@@ -624,6 +624,11 @@ fn the_command_table_names_each_command_and_when_it_applies() {
     assert!(by("machine.stop")
         .enabled_when
         .holds(Some(MachineState::Running)));
+    let cancel = by("machine.cancel-start");
+    assert_eq!(cancel.title, "Cancel start");
+    assert!(cancel.enabled_when.holds(Some(MachineState::Starting)));
+    assert!(!cancel.enabled_when.holds(Some(MachineState::Running)));
+    assert_eq!(by("view.cpu-load").title, "CPU load");
     assert_eq!(by("app.quit").shortcuts[0].accelerator, "Cmd+Q");
 }
 

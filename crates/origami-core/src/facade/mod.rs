@@ -36,6 +36,8 @@ pub use commands::{
     commands_for, display_keys, shortcut_groups, Command, EnabledWhen, Platform, Shortcut,
     ShortcutGroup, ShortcutItem,
 };
+#[cfg(feature = "selftest")]
+pub use core::selftest_trashed;
 pub use core::{
     default_offering, Config, Core, CreateRequest, EngineSummary, MachineSummary, OfferingSummary,
     Removed, SystemDisk,
@@ -78,8 +80,8 @@ pub use settings::{
 };
 pub use shown::{
     file_manager, library_line, library_line_for, machine_card, row, row_description,
-    show_in_label, state_label, status_bar, ActionKind, Card, CardAction, LibraryLine, Row,
-    ShownState, StateLabel, StatusBar, Tone,
+    row_description_for, show_in_label, state_label, status_bar, ActionKind, Card, CardAction,
+    LibraryLine, Row, ShownState, StateLabel, StatusBar, Tone,
 };
 pub use ui_text::{capture_hint, machine_id_caption, power_off_progress, version_line, UiString};
 

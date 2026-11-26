@@ -49,6 +49,10 @@ pub enum AlertKind {
     PowerOffFailed {
         names: Vec<String>,
     },
+    /// Closing a window that holds these running machines.
+    CloseWindow {
+        names: Vec<String>,
+    },
     /// `disk_left` are disk images that stay where they are.
     Remove {
         name: String,
@@ -117,6 +121,18 @@ pub fn alert(kind: &AlertKind, platform: Platform) -> Alert {
             "A clean stop can take a while when a disk is saving its changes. Force quit ends the machine at once, and changes not yet saved to its disk may be lost."
                 .into(),
             vec![cancel(), button("Force quit", Destructive)],
+        ),
+        AlertKind::CloseWindow { names } if names.len() == 1 => {
+            return alert(&AlertKind::CloseTab { name: names[0].clone() }, platform);
+        }
+        AlertKind::CloseWindow { names } => (
+            format!("Close this window while {} machines are running?", names.len()),
+            "They can keep running without a window, and you can reconnect later.".into(),
+            vec![
+                button(UiString::KeepRunning.text(), Safe),
+                button("Power off all", Destructive),
+                cancel(),
+            ],
         ),
         AlertKind::CloseTab { name } => (
             format!("Close {name}'s tab?"),
@@ -301,6 +317,25 @@ mod tests {
         assert_eq!(win.title, "Delete fuel?");
         assert_eq!(labels(&win), ["Cancel", "Delete"]);
         assert!(win.body.contains("Recycle Bin"));
+    }
+
+    #[test]
+    fn closing_a_window_with_several_running_machines_names_how_many() {
+        let two = alert(
+            &AlertKind::CloseWindow {
+                names: vec!["a".into(), "b".into()],
+            },
+            Platform::Linux,
+        );
+        assert_eq!(two.title, "Close this window while 2 machines are running?");
+        assert_eq!(labels(&two), ["Keep running", "Power off all", "Cancel"]);
+        let one = alert(
+            &AlertKind::CloseWindow {
+                names: vec!["a".into()],
+            },
+            Platform::Linux,
+        );
+        assert_eq!(one.title, "Close a's tab?");
     }
 
     #[test]

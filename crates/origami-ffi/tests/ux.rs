@@ -189,4 +189,22 @@ fn the_apps_ask_the_core_for_the_words_they_wrote_themselves() {
         OrigamiPlatform::Linux,
     );
     assert_eq!(toast.text, "Picture size: Fit");
+    let close = origami_alert(
+        OrigamiAlertKind::CloseWindow {
+            names: vec!["a".into(), "b".into()],
+        },
+        OrigamiPlatform::Linux,
+    );
+    assert_eq!(close.buttons[1].label, "Power off all");
+    assert_eq!(
+        origami_row_description_for(
+            OrigamiShownState::NoPicture,
+            "fuel".into(),
+            "Fuel".into(),
+            None
+        ),
+        "fuel, Fuel, No picture"
+    );
+    let cancel = origami_ui_string(OrigamiUiString::CancelStart);
+    assert_eq!(cancel, "Cancel start");
 }

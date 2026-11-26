@@ -1030,6 +1030,8 @@ pub enum OrigamiEnabledWhen {
     Always,
     MachineSelected,
     MachineStopped,
+    /// Starting, which Cancel start ends.
+    MachineStarting,
     MachineLive,
     MachineRunning,
     MachinePaused,
@@ -1057,6 +1059,7 @@ impl From<f::EnabledWhen> for OrigamiEnabledWhen {
             f::EnabledWhen::Always => Self::Always,
             f::EnabledWhen::MachineSelected => Self::MachineSelected,
             f::EnabledWhen::MachineStopped => Self::MachineStopped,
+            f::EnabledWhen::MachineStarting => Self::MachineStarting,
             f::EnabledWhen::MachineLive => Self::MachineLive,
             f::EnabledWhen::MachineRunning => Self::MachineRunning,
             f::EnabledWhen::MachinePaused => Self::MachinePaused,
@@ -1070,6 +1073,7 @@ impl From<OrigamiEnabledWhen> for f::EnabledWhen {
             OrigamiEnabledWhen::Always => Self::Always,
             OrigamiEnabledWhen::MachineSelected => Self::MachineSelected,
             OrigamiEnabledWhen::MachineStopped => Self::MachineStopped,
+            OrigamiEnabledWhen::MachineStarting => Self::MachineStarting,
             OrigamiEnabledWhen::MachineLive => Self::MachineLive,
             OrigamiEnabledWhen::MachineRunning => Self::MachineRunning,
             OrigamiEnabledWhen::MachinePaused => Self::MachinePaused,
@@ -1109,6 +1113,7 @@ mirror!(
     Cancel,
     CancelInstall,
     CancelQuit,
+    CancelStart,
     CaptureMouse,
     CaptureOnClick,
     ChangeCd,
@@ -1125,6 +1130,7 @@ mirror!(
     Copy,
     CopyReport,
     Cpu,
+    CpuLoad,
     Create,
     Custom,
     Detach,
@@ -1453,19 +1459,6 @@ pub fn origami_install_media_folder(
     })
 }
 
-/// Under the fake engine "trashing" deletes the folder and records its path.
-#[cfg(feature = "fake")]
-static TRASHED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
-
-#[cfg(feature = "fake")]
-fn fake_trash(path: &std::path::Path) -> Result<(), String> {
-    TRASHED
-        .lock()
-        .unwrap()
-        .push(path.to_string_lossy().into_owned());
-    std::fs::remove_dir_all(path).map_err(|e| e.to_string())
-}
-
 /// The core. Make one per process.
 #[derive(uniffi::Object)]
 pub struct OrigamiCore {
@@ -1486,11 +1479,6 @@ impl OrigamiCore {
         let observer = observer.map(|o| Arc::new(ObserverBridge(o)) as Arc<dyn f::Observer>);
         let mut config = f::Config::new(library_root);
         config.instigator = engines.instigator;
-        // Self-tests never reach the host's real trash.
-        #[cfg(feature = "fake")]
-        {
-            config.trash = fake_trash;
-        }
         let core = f::Core::new(config, engines.list, observer)?;
         Ok(Arc::new(OrigamiCore {
             core,
@@ -1879,7 +1867,7 @@ impl OrigamiCore {
 impl OrigamiCore {
     /// The folders `remove_machine` has moved to the "trash" so far, in order.
     pub fn fake_trashed(&self) -> Vec<String> {
-        TRASHED.lock().unwrap().clone()
+        f::selftest_trashed()
     }
 
     /// Give the started machine `key` a new picture.

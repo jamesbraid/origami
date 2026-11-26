@@ -33,6 +33,8 @@ pub enum EnabledWhen {
     /// Selected and this core is not running it: `NotRunning`, `Exited` or
     /// `LeftRunning` (where start attaches).
     MachineStopped,
+    /// Selected and `Starting`, which can still be cancelled.
+    MachineStarting,
     /// Selected and running, paused or stopping.
     MachineLive,
     /// Selected and `Running`.
@@ -52,6 +54,7 @@ impl EnabledWhen {
             (EnabledWhen::MachineStopped, Some(s)) => {
                 matches!(s, NotRunning | Exited | LeftRunning)
             }
+            (EnabledWhen::MachineStarting, Some(s)) => s == Starting,
             (EnabledWhen::MachineLive, Some(s)) => matches!(s, Running | Paused | Stopping),
             (EnabledWhen::MachineRunning, Some(s)) => s == Running,
             (EnabledWhen::MachinePaused, Some(s)) => s == Paused,
@@ -167,6 +170,13 @@ pub fn commands_for(platform: Platform) -> Vec<Command> {
         ),
         // Force quit and reset have no shortcut: they always confirm.
         command(
+            "machine.cancel-start",
+            UiString::CancelStart.text(),
+            "Stop starting the machine",
+            MachineStarting,
+            ["", "", ""],
+        ),
+        command(
             "machine.force-quit",
             "Force quit",
             "End the machine at once",
@@ -270,6 +280,13 @@ pub fn commands_for(platform: Platform) -> Vec<Command> {
             "Close this machine's tab",
             MachineSelected,
             ["Cmd+W", "", ""],
+        ),
+        command(
+            "view.cpu-load",
+            UiString::CpuLoad.text(),
+            UiString::ShowOrHideTheEmulated.text(),
+            MachineLive,
+            ["", "", ""],
         ),
         command(
             "view.shortcuts",

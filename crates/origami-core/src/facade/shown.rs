@@ -151,20 +151,24 @@ pub fn library_line(summary: &MachineSummary, installing: bool) -> LibraryLine {
     library_line_for(summary.shown(installing), summary.model())
 }
 
-/// A row's tooltip and accessible label: name, model, state and the OS when known.
+/// A row's tooltip and accessible label from the parts: for an open machine,
+/// whose `state` comes from its view rather than a listing.
+pub fn row_description_for(state: ShownState, name: &str, model: &str, os: Option<&str>) -> String {
+    [name, model, state_label(state).word, os.unwrap_or("")]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// A listed machine's tooltip and accessible label: name, model, state and the OS when known.
 pub fn row_description(summary: &MachineSummary, installing: bool) -> String {
-    let state = state_label(summary.shown(installing)).word;
-    [
-        Some(summary.name.as_str()),
-        Some(summary.model()),
-        Some(state),
+    row_description_for(
+        summary.shown(installing),
+        &summary.name,
+        summary.model(),
         summary.system_disk.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .filter(|part| !part.is_empty())
-    .collect::<Vec<_>>()
-    .join(", ")
+    )
 }
 
 /// Everything a library row shows, from one call.
@@ -571,6 +575,10 @@ mod tests {
             Tone::Critical
         );
         assert_eq!(library_line_for(ShownState::Stopped, "Fuel").text, "Fuel");
+        assert_eq!(
+            row_description_for(ShownState::NoPicture, "fuel", "Fuel", None),
+            "fuel, Fuel, No picture"
+        );
         let problem = CoreError::new(ErrorKind::Invalid, "format 1 is too old");
         let card = machine_card(
             ShownState::CantOpen,
