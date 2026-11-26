@@ -278,6 +278,7 @@ public sealed class InstallWindow : Window
 
     /// <summary>The line at the foot while the install files are served, in the core's words and with no address.</summary>
     string Footer(OrigamiInstallFlow flow, OrigamiInstallStep step) =>
+        _serve is { } serve && serve.State() is OrigamiOperationState.Running && serve.Fraction() is not null ? serve.Progress() :
         _plan is { } p && (_serve?.State() is OrigamiOperationState.Running || (flow.Resumed() && step <= OrigamiInstallStep.Check)) ? OrigamiFfiMethods.OrigamiInstallFooter(p) : "";
 
     async Task<bool> BusyAsync(Func<Task> work)

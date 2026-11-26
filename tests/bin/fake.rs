@@ -40,7 +40,12 @@
 //!   test that fails cannot leave a machine behind;
 //! - `check-fails`: `instigator check` rejects its input;
 //! - `serve-fails`: `instigator serve` writes to its output and its capture
-//!   directory, then exits with status 7.
+//!   directory, then exits with status 7 (with `--json`: a `stopped` error
+//!   line and status 1);
+//! - `json`: `instigator --version` says v0.6.0 and `serve --json` writes the
+//!   events of one machine's start, then exits 0 when it leaves;
+//! - `hold-loading`: with `json`, the installer load stops at 42% until the
+//!   machine leaves.
 //!
 //! A guest script is one directive per line. `#` starts a comment line.
 //! Text takes `\r`, `\n`, `\t`, `\\` and `\xHH`.
@@ -1011,11 +1016,65 @@ fn machine_init(args: &[String]) -> Result<(), String> {
 
 // ------------------------------------------------------------- Instigator
 
+/// One line of `serve --json` output.
+fn event(kind: &str, fields: Value) {
+    let mut line = json!({"v": 1, "time": "2026-11-24T10:00:00.000000000Z", "type": kind});
+    line.as_object_mut()
+        .unwrap()
+        .extend(fields.as_object().cloned().unwrap_or_default());
+    println!("{line}");
+    let _ = io::stdout().flush();
+}
+
+/// `serve --json` for one machine, as the real server writes it: `ready`
+/// once the machine connects, then its start, and `stopped` when it leaves.
+fn serve_json(listener: Listener, hold_loading: bool) -> Result<(), String> {
+    let mut peer: Box<dyn Read> = match listener {
+        Listener::Tcp(listener) => Box::new(listener.accept().map_err(|e| e.to_string())?.0),
+        #[cfg(unix)]
+        Listener::Unix(listener) => Box::new(listener.accept().map_err(|e| e.to_string())?.0),
+    };
+    event(
+        "ready",
+        json!({"server_ip": "10.98.0.2", "network": "tcp", "sets": []}),
+    );
+    event(
+        "bootp",
+        json!({"client": "indy", "file": "/6.5.30/stand/fx.64", "result": "answered"}),
+    );
+    let sa = |phase: &str, extra: Value| {
+        let mut fields =
+            json!({"client": "indy", "file": "6.5.30/dist/sa", "phase": phase, "size": 1000});
+        fields
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().cloned().unwrap());
+        event("tftp", fields);
+    };
+    sa("start", json!({}));
+    sa("progress", json!({"bytes_sent": 420}));
+    if !hold_loading {
+        sa(
+            "end",
+            json!({"bytes_sent": 640, "result": "client_stopped"}),
+        );
+        event("inst", json!({"client": "indy", "phase": "session_start"}));
+    }
+    let mut sink = [0u8; 4096];
+    while peer.read(&mut sink).is_ok_and(|count| count > 0) {}
+    event("stopped", json!({"reason": "guest_disconnected"}));
+    Ok(())
+}
+
 fn instigator(args: &[String]) -> Result<(), String> {
     let switches = Switches::from_environment();
     match args.first().map(String::as_str) {
         Some("--version") | Some("version") => {
-            println!("instigator version {VERSION}");
+            if switches.has("json") {
+                println!("instigator version v0.6.0");
+            } else {
+                println!("instigator version {VERSION}");
+            }
             Ok(())
         }
         Some("check") => {
@@ -1034,9 +1093,11 @@ fn instigator(args: &[String]) -> Result<(), String> {
         Some("serve") => {
             let mut endpoint = None;
             let mut capture = None;
+            let mut json = false;
             let mut index = 1;
             while index < args.len() {
                 match args[index].as_str() {
+                    "--json" => json = true,
                     "--network-tcp" => {
                         endpoint = Some(Endpoint::Tcp {
                             address: args
@@ -1066,6 +1127,13 @@ fn instigator(args: &[String]) -> Result<(), String> {
                 index += 1;
             }
             let endpoint = endpoint.ok_or("serve needs --network-tcp or --network-socket")?;
+            if switches.has("serve-fails") && json {
+                event(
+                    "stopped",
+                    json!({"reason": "error", "error": "cannot serve, as asked"}),
+                );
+                std::process::exit(1);
+            }
             if switches.has("serve-fails") {
                 // As a server does that dies after leaving a capture behind.
                 println!("server stdout");
@@ -1078,13 +1146,16 @@ fn instigator(args: &[String]) -> Result<(), String> {
                 std::process::exit(7);
             }
             let listener = bind(&endpoint).map_err(|error| format!("cannot listen: {error}"))?;
-            println!("serving");
-            let _ = io::stdout().flush();
             let lifetime = Duration::from_secs(switches.number("lifetime").unwrap_or(120));
             thread::spawn(move || {
                 thread::sleep(lifetime);
                 std::process::exit(71);
             });
+            if json {
+                return serve_json(listener, switches.has("hold-loading"));
+            }
+            println!("serving");
+            let _ = io::stdout().flush();
             accept_loop(listener, |stream| {
                 println!("peer connected");
                 let mut stream = stream;

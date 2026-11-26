@@ -362,7 +362,12 @@ final class InstallModel: ObservableObject {
     }
 
     /// The footer while the install files are served, in the core's words; it never shows an address.
-    var installFooter: String? { serving && serveFailed == nil ? plan.map { origamiInstallFooter(plan: $0) } : nil }
+    /// While the machine loads the installer it says how far.
+    var installFooter: String? {
+        guard serving, serveFailed == nil else { return nil }
+        if serve?.fraction() != nil { return footer }
+        return plan.map { origamiInstallFooter(plan: $0) }
+    }
 
     func startMachine() {
         machine.start { e in if let e { self.error = Self.say(e) } }

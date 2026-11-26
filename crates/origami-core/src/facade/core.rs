@@ -244,8 +244,8 @@ pub(crate) struct CoreInner {
     next_operation: Arc<AtomicU64>,
     /// Install operations, which own child processes and the console lease.
     installs: Mutex<Vec<Operation>>,
-    /// Machines an automated install halted: their media server then ends
-    /// when the guest's network goes away, which is not an error.
+    /// Machines an automated install halted: an Instigator before 0.6.0 then
+    /// exits 1 when the guest's network goes away, which is not an error.
     halted: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 

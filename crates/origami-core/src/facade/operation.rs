@@ -85,6 +85,11 @@ impl Control {
         *self.0.fraction.lock().unwrap() = Some(done.clamp(0.0, 1.0));
     }
 
+    /// Say the work has no measurable progress now.
+    pub(crate) fn clear_fraction(&self) {
+        *self.0.fraction.lock().unwrap() = None;
+    }
+
     /// Say that the machine at `key` exists although the operation ends cancelled.
     pub(crate) fn kept(&self, key: String) {
         *self.0.kept.lock().unwrap() = Some(key);

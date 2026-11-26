@@ -134,6 +134,17 @@ pub(crate) fn run(
     stdin: Option<Vec<u8>>,
     control: &Control,
 ) -> io::Result<Option<Finished>> {
+    run_watching(command, stdin, control, &mut || {})
+}
+
+/// As [`run`], calling `watch` on every poll and once more after the child
+/// exits, so the caller sees what it wrote last.
+pub(crate) fn run_watching(
+    command: &mut Command,
+    stdin: Option<Vec<u8>>,
+    control: &Control,
+    watch: &mut dyn FnMut(),
+) -> io::Result<Option<Finished>> {
     let mut owned = OwnedChild::spawn(command)?;
     let feeder = owned
         .child
@@ -161,11 +172,13 @@ pub(crate) fn run(
             owned.kill();
             return Ok(None);
         }
+        watch();
         if let Some(status) = owned.try_wait()? {
             break status;
         }
         std::thread::sleep(POLL);
     };
+    watch();
     let join = |handle: Option<std::thread::JoinHandle<Vec<u8>>>| {
         handle.map_or_else(Vec::new, |h| h.join().unwrap_or_default())
     };

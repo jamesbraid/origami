@@ -340,8 +340,10 @@ puts a command on the clipboard. On a machine whose console is a serial line,
 Type it sends it to the console for you. A machine with graphics keeps its
 screen as the console and is never switched to serial. Show machine and Open
 Console bring the machine and its console forward. The footer shows what the
-media server is serving, and turns red with its message and a Restart button
-if the server stops. Cancel stops the media server, and in the middle of the
+media server is serving, and says how far the machine has loaded the installer
+or the disk tool while it does. It turns red with a Restart button if the
+server stops, and with Instigator 0.6.0 or newer says why in the server's own
+words. Cancel stops the media server, and in the middle of the
 install asks whether to stop the machine too. Quitting the app while the
 server runs asks first, because the server stops with the app.
 

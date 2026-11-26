@@ -119,6 +119,11 @@ pub(crate) fn plain_start(name: &str, error: CoreError, missing: Option<&str>) -
         .with_fix(fix)
 }
 
+/// The media server stopped on an error it worded itself; that wording is the detail.
+pub(crate) fn plain_serve(error: &str) -> CoreError {
+    CoreError::new(ErrorKind::Io, "The install server stopped.").with_detail(error.trim())
+}
+
 /// An upgrade that needs firmware files the person has not given.
 pub(crate) fn plain_upgrade(name: &str, error: CoreError) -> CoreError {
     // The engine says "; supply --prom FILE" when a firmware image is neither given nor found.

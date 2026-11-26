@@ -1810,7 +1810,8 @@ impl Asst {
             *self.server.borrow_mut() = s;
         }
         let (line, failed) = match &*self.server.borrow() {
-            // The files, never the server's address.
+            // The files, never the server's address; while the machine loads the installer, how far it is.
+            Server::Running(op) if op.fraction().is_some() => (op.progress(), false),
             Server::Running(_) => (
                 self.plan_line
                     .borrow()

@@ -402,7 +402,7 @@ fn forking_instigator(dir: &Path) -> (PathBuf, PathBuf) {
     fs::write(
         &script,
         format!(
-            "#!/bin/sh\nsleep 300 &\necho $! > {}\nwait\n",
+            "#!/bin/sh\n[ \"$1\" = --version ] && exit 0\nsleep 300 &\necho $! > {}\nwait\n",
             pids.display()
         ),
     )
@@ -506,4 +506,88 @@ fn a_second_ask_for_the_server_is_the_same_one_and_a_setup_under_it_is_refused()
     );
     serve.cancel();
     assert_eq!(serve.wait(Some(TIMEOUT)), OperationState::Cancelled);
+}
+
+/// The fake Instigator with `switches` set, as a program the core can run.
+#[cfg(unix)]
+fn fake_instigator(dir: &Path, switches: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let fake = support::fake_runtime(dir).join("instigator");
+    let script = dir.join("instigator.sh");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\nORIGAMI_FAKE={switches} exec {} \"$@\"\n",
+            fake.display()
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    script
+}
+
+/// The machine's end of its private network, as the guest's QEMU connects to it.
+#[cfg(unix)]
+fn join_network(machine: &Path) -> std::net::TcpStream {
+    let file = origami_machine::read_machine(machine).unwrap();
+    let address = file.network.endpoint.unwrap();
+    let address = address.strip_prefix("tcp:").unwrap().to_owned();
+    let mut stream = None;
+    wait_until("the server to listen", TIMEOUT, || {
+        stream = std::net::TcpStream::connect(&address).ok();
+        stream.is_some()
+    });
+    stream.unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn the_media_server_shows_the_installer_load_and_a_clean_leave_is_success() {
+    let machine = machine("serve-json");
+    let core = core_with(Some(fake_instigator(
+        machine.parent().unwrap(),
+        "json,hold-loading",
+    )));
+    let serve = core.install_serve(machine.to_str().unwrap()).unwrap();
+    let guest = join_network(&machine);
+    wait_until("the load to reach 42%", TIMEOUT, || {
+        serve.progress() == "Loading the installer, 42%"
+    });
+    assert_eq!(serve.fraction(), Some(0.42));
+    // The guest leaving is how a finished install ends: exit 0, no error.
+    drop(guest);
+    assert_eq!(serve.wait(Some(TIMEOUT)), OperationState::Succeeded);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_media_server_follows_the_machine_through_the_load_and_the_installer() {
+    let machine = machine("serve-json-run");
+    let core = core_with(Some(fake_instigator(machine.parent().unwrap(), "json")));
+    let serve = core.install_serve(machine.to_str().unwrap()).unwrap();
+    let guest = join_network(&machine);
+    wait_until("the installer to connect", TIMEOUT, || {
+        serve.progress() == "The installer is talking to the server."
+    });
+    // A finished transfer is not a percentage any more.
+    assert_eq!(serve.fraction(), None);
+    drop(guest);
+    assert_eq!(serve.wait(Some(TIMEOUT)), OperationState::Succeeded);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_server_that_stops_on_an_error_shows_the_error_it_reported() {
+    let machine = machine("serve-json-fails");
+    let core = core_with(Some(fake_instigator(
+        machine.parent().unwrap(),
+        "json,serve-fails",
+    )));
+    let serve = core.install_serve(machine.to_str().unwrap()).unwrap();
+    let OperationState::Failed(error) = serve.wait(Some(TIMEOUT)) else {
+        panic!("the server was meant to fail")
+    };
+    assert_eq!(error.message, "The install server stopped.");
+    assert_eq!(error.detail.as_deref(), Some("cannot serve, as asked"));
+    assert_eq!(error.kind, ErrorKind::Io);
 }

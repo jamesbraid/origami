@@ -684,11 +684,13 @@ pub struct ServeSetup {
 }
 
 /// Write the configuration and make the server's capture directory and log
-/// for the machine in `dir`.
+/// for the machine in `dir`. With `json` the server writes its events as
+/// JSON Lines (Instigator 0.6.0 and later); both streams still go to the log.
 pub fn serve_setup(
     instigator: impl FnOnce() -> Result<PathBuf>,
     dir: &Path,
     file: &MachineFile,
+    json: bool,
 ) -> Result<ServeSetup> {
     let media = read_media(dir)?;
     let config = config(dir, file, &media)?;
@@ -704,6 +706,9 @@ pub fn serve_setup(
         .ok_or("private network needs endpoint")?;
     let mut command = Command::new(instigator()?);
     command.arg("serve");
+    if json {
+        command.arg("--json");
+    }
     if let Some(address) = tcp_endpoint(endpoint)? {
         command.arg("--network-tcp").arg(address.to_string());
     } else {
@@ -749,7 +754,7 @@ pub fn serve(
         mut command,
         log_path,
         capture_dir,
-    } = serve_setup(instigator, dir, file)?;
+    } = serve_setup(instigator, dir, file, false)?;
     eprintln!("Instigator log: {}", log_path.display());
     eprintln!("Instigator timing capture: {}", capture_dir.display());
     #[cfg(unix)]

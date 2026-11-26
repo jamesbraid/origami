@@ -24,6 +24,7 @@ mod network;
 mod operation;
 mod osview;
 mod ready;
+mod serve_events;
 mod settings;
 mod shown;
 mod ui_text;

@@ -8,9 +8,10 @@
 
 use super::child;
 use super::core::Core;
-use super::error::{CoreError, CoreResult, ErrorKind};
+use super::error::{plain_serve, CoreError, CoreResult, ErrorKind};
 use super::lease::{self, InstallStart};
 use super::operation::{Control as OpControl, InstallFailure, Operation};
+use super::serve_events::{self, LogTail, Status};
 use crate::Report;
 use origami_machine::addressing::Addresses;
 use origami_machine::{install, MachineFile};
@@ -955,18 +956,48 @@ impl Core {
         self.install_operation(&machine, SERVE_TITLE, move |control| {
             let loaded = crate::open(engine.as_ref(), &dir).map_err(CoreError::machine)?;
             let line = serving_line(&dir, &loaded.file).map_err(CoreError::machine)?;
-            let install::ServeSetup { mut command, .. } =
-                install::serve_setup(|| Ok(instigator), &dir, &loaded.file)
-                    .map_err(CoreError::machine)?;
-            control.progress(line);
-            match child::run(&mut command, None, control)? {
-                None => Err(cancelled("the media server")),
-                Some(done) if done.status.success() || server_ended_normally(&halted, &name) => {
-                    Ok(None)
+            // From 0.6.0 the server reports JSON events and exits 0 once the guest leaves.
+            let json = serve_events::writes_json(&instigator);
+            let install::ServeSetup {
+                mut command,
+                log_path,
+                ..
+            } = install::serve_setup(|| Ok(instigator), &dir, &loaded.file, json)
+                .map_err(CoreError::machine)?;
+            control.progress(line.clone());
+            let (mut status, mut tail) = (Status::new(line), LogTail::new(log_path));
+            let mut watch = || {
+                for text in tail.lines() {
+                    let parsed = if json {
+                        serve_events::parse_json(&text)
+                    } else {
+                        serve_events::parse_text(&text)
+                    };
+                    let update = parsed.map(|event| status.apply(event)).unwrap_or_default();
+                    if let Some(line) = update.line {
+                        control.progress(line);
+                    }
+                    match update.fraction {
+                        Some(Some(done)) => control.fraction(done),
+                        Some(None) => control.clear_fraction(),
+                        None => {}
+                    }
                 }
-                Some(done) => Err(CoreError::new(
-                    ErrorKind::Io,
-                    format!("Instigator exited with {}", done.status),
+            };
+            let finished = child::run_watching(&mut command, None, control, &mut watch)?;
+            match finished {
+                None => Err(cancelled("the media server")),
+                Some(done) if done.status.success() => Ok(None),
+                // Before 0.6.0 a guest that powered off made the server exit 1.
+                Some(_) if !json && server_ended_normally(&halted, &name) => Ok(None),
+                Some(done) => Err(status.error.as_deref().map_or_else(
+                    || {
+                        CoreError::new(
+                            ErrorKind::Io,
+                            format!("Instigator exited with {}", done.status),
+                        )
+                    },
+                    plain_serve,
                 )),
             }
         })
@@ -1054,8 +1085,8 @@ impl Core {
     }
 }
 
-/// The server also exits (status 1, "private network disconnected") when
-/// the guest powers off after a finished automated install.
+/// An Instigator before 0.6.0 also exits (status 1, "private network
+/// disconnected") when the guest powers off after a finished automated install.
 pub(super) fn server_ended_normally(
     halted: &Mutex<std::collections::HashSet<String>>,
     key: &str,
