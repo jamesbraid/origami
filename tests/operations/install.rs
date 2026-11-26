@@ -485,14 +485,14 @@ fn the_media_server_and_the_check_report_how_instigator_ended() {
 
 #[cfg(unix)]
 #[test]
-fn a_second_server_and_a_setup_under_a_live_server_are_refused() {
+fn a_second_ask_for_the_server_is_the_same_one_and_a_setup_under_it_is_refused() {
     let machine = machine("serve-twice");
     let (script, _pids) = forking_instigator(machine.parent().unwrap());
     let core = core_with(Some(script));
     let key = machine.to_str().unwrap();
     let serve = core.install_serve(key).unwrap();
-    let error = core.install_serve(key).err().unwrap();
-    assert_eq!(error.kind, ErrorKind::Busy);
+    // What already runs is not started twice, and asking again is no fault.
+    assert_eq!(core.install_serve(key).unwrap().id(), serve.id());
     let setup = origami_core::facade::InstallSetup {
         method: None,
         release: "6.5.30".into(),

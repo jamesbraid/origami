@@ -88,6 +88,55 @@ impl CoreError {
     }
 }
 
+/// A start that failed validation, said plainly with a way to fix it. The
+/// machine crate's own wording goes in `detail`. `missing` is the kind of a
+/// drive whose image file is gone.
+pub(crate) fn plain_start(name: &str, error: CoreError, missing: Option<&str>) -> CoreError {
+    let (text, fix) = match missing {
+        Some("disk") => (
+            format!("{name}'s disk can't be found."),
+            ErrorFix::ChooseDisk,
+        ),
+        Some(kind) => (
+            format!(
+                "{name}'s {} points at a file that can't be found.",
+                if kind == "cdrom" {
+                    "CD drive"
+                } else {
+                    "tape drive"
+                }
+            ),
+            ErrorFix::OpenSettings,
+        ),
+        None if error.message.contains("graphics") => (
+            format!("{name}'s graphics board isn't set up correctly."),
+            ErrorFix::OpenSettings,
+        ),
+        None => return error,
+    };
+    CoreError::new(error.kind, text)
+        .with_detail(error.message)
+        .with_fix(fix)
+}
+
+/// An upgrade that needs firmware files the person has not given.
+pub(crate) fn plain_upgrade(name: &str, error: CoreError) -> CoreError {
+    // The engine says "; supply --prom FILE" when a firmware image is neither given nor found.
+    if !error.message.contains("; supply --") {
+        return error;
+    }
+    let detail = error
+        .detail
+        .clone()
+        .unwrap_or_else(|| error.message.clone());
+    CoreError::new(
+        error.kind,
+        format!("{name} can't be upgraded: it has no firmware files."),
+    )
+    .with_detail(detail)
+    .with_fix(ErrorFix::ChooseFirmware)
+}
+
 impl fmt::Display for CoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.message)

@@ -581,7 +581,7 @@ impl Core {
                 .map_or(d.name.clone(), |n| n.to_string_lossy().into_owned());
             let others = file.drive.iter().filter(|o| o.kind == "disk").count() - 1;
             let more = if others > 0 {
-                format!(" The machine has {others} more disk, which the formatter lists too: choose only this one.")
+                format!(" The machine has {others} more disk: choose only this one.")
             } else {
                 String::new()
             };
@@ -590,8 +590,7 @@ impl Core {
                 bus: d.bus,
                 target: d.target,
                 text: format!(
-                    "{file_name}{size} on SCSI bus {}, target {}. The disk formatter erases everything on it.{more}",
-                    d.bus, d.target
+                    "{file_name}{size}. Installing erases everything on this disk.{more}"
                 ),
             }
         }))

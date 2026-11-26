@@ -41,7 +41,10 @@ pub fn upgrade(
             report.result(format!("upgraded {}", dir.display()));
         }
         for note in upgraded.into_iter().flatten() {
-            let kind = if origami_machine::migrate::is_bookkeeping(&note) {
+            // The file-format line is for the log, not for a person.
+            let kind = if note.starts_with("machine.toml ") {
+                Kind::Detail
+            } else if origami_machine::migrate::is_bookkeeping(&note) {
                 Kind::Note
             } else {
                 Kind::GuestNote

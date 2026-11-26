@@ -1,3 +1,4 @@
+use super::error::{plain_start, plain_upgrade};
 use super::*;
 use crate::{Change, NetworkMode};
 use origami_engine::fake::{FakeEngine, FakeSession};
@@ -1311,6 +1312,15 @@ fn upgrading_an_older_machine_reports_what_the_guest_sees_and_then_it_opens() {
     let before = std::fs::read(dir.join("machine.toml")).unwrap();
     let report = f.core.upgrade_machine("old").unwrap();
     assert!(report.lines.iter().any(|l| l.text.starts_with("upgraded ")));
+    // The file-format line is kept for the log and never shown to a person.
+    let note = report
+        .lines
+        .iter()
+        .find(|l| l.text.starts_with("machine.toml is now"));
+    assert_eq!(
+        note.map(|l| (l.kind, l.shown())),
+        Some((crate::Kind::Detail, None))
+    );
     assert!(f
         .core
         .list_machines()
@@ -1887,8 +1897,9 @@ fn the_install_disk_names_the_one_to_erase_with_its_bus_and_target() {
         .unwrap();
     let disk = f.core.install_disk(&key).unwrap().unwrap();
     assert!(
-        disk.text
-            .contains(&format!("SCSI bus {}, target {}", disk.bus, disk.target)),
+        disk.text.starts_with(&disk.name)
+            && !disk.text.contains("SCSI")
+            && !disk.text.contains("target"),
         "{}",
         disk.text
     );
@@ -2300,6 +2311,114 @@ fn the_install_guide_lists_every_step_with_the_prompt_it_waits_for() {
     assert_eq!(fx.typed[0].text, "boot -f bootp():/6.5.30/stand/fx.64");
 }
 
+/// A message a person reads names no path, flag, address or file of ours.
+fn plain(error: &CoreError) {
+    for bad in ["/", "\\", "--", "@", "machine.toml"] {
+        assert!(!error.message.contains(bad), "{bad} in {}", error.message);
+    }
+}
+
+#[test]
+fn the_errors_people_meet_are_plain_and_keep_the_technical_part_in_detail() {
+    let f = fixture();
+    f.create("fuel", "fake.1");
+    let create = |name: &str, id: Option<&str>| {
+        f.core
+            .create_machine(CreateRequest {
+                name: name.into(),
+                offering: "fake.1".into(),
+                emu_id: id.map(Into::into),
+                ..Default::default()
+            })
+            .err()
+            .unwrap()
+    };
+    let taken = create("fuel", None);
+    assert_eq!(
+        taken.message,
+        "A machine named fuel already exists. Choose another name."
+    );
+    assert!(taken.detail.as_deref().unwrap().ends_with("fuel"));
+    for id in ["0", "3000", "4095", "x"] {
+        let error = create("new", Some(id));
+        assert_eq!(error.message, "Choose a number from 1 to 2999.", "{id}");
+        plain(&error);
+    }
+    let share = check_share_name("a b").unwrap_err();
+    assert_eq!(
+        share.message,
+        "Use letters, digits, hyphens and underscores."
+    );
+    assert!(share.detail.is_some());
+}
+
+#[test]
+fn a_start_that_cannot_find_its_disk_or_graphics_says_so_with_a_fix() {
+    let raw = |text: &str| CoreError::new(ErrorKind::Invalid, text);
+    let disk = plain_start(
+        "fuel",
+        raw("missing drive image /lib/fuel/disk.img"),
+        Some("disk"),
+    );
+    assert_eq!(
+        (disk.message.as_str(), disk.fix),
+        ("fuel's disk can't be found.", ErrorFix::ChooseDisk)
+    );
+    assert_eq!(
+        disk.detail.as_deref(),
+        Some("missing drive image /lib/fuel/disk.img")
+    );
+    // A missing CD image is not "the disk", and choosing a disk would not fix it.
+    let cd = plain_start(
+        "fuel",
+        raw("missing drive image /x/disc.iso"),
+        Some("cdrom"),
+    );
+    assert_eq!(
+        cd.message,
+        "fuel's CD drive points at a file that can't be found."
+    );
+    assert_eq!(cd.fix, ErrorFix::OpenSettings);
+    let pipe = plain_start("fuel", raw("two graphics pipes in widget-11"), None);
+    assert_eq!(pipe.fix, ErrorFix::OpenSettings);
+    plain(&pipe);
+    assert_eq!(
+        plain_start("fuel", raw("memory_per_node must use MiB"), None).fix,
+        ErrorFix::None
+    );
+    // A word that merely sounds related is not enough.
+    assert_eq!(
+        plain_start("fuel", raw("unsupported SCSI slot"), None).fix,
+        ErrorFix::None
+    );
+    let upgrade = plain_upgrade("old", raw("download failed; supply --prom FILE"));
+    assert_eq!(
+        upgrade.message,
+        "old can't be upgraded: it has no firmware files."
+    );
+    assert_eq!(upgrade.fix, ErrorFix::ChooseFirmware);
+    assert_eq!(
+        plain_upgrade("old", raw("--prom is not a file")).fix,
+        ErrorFix::None
+    );
+}
+
+#[test]
+fn asking_for_an_install_operation_that_runs_gives_the_same_one() {
+    let f = fixture();
+    let (machine, _session) = f.started("busy");
+    let work = |control: &operation::Control| {
+        while !control.is_cancelled() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(None)
+    };
+    let first = f.core.install_operation(&machine, "Serve", work).unwrap();
+    let again = f.core.install_operation(&machine, "Serve", work).unwrap();
+    assert_eq!(first.id(), again.id());
+    first.cancel();
+}
+
 /// Uses the host's real trash, so it only runs when asked.
 #[test]
 #[ignore]
@@ -2338,6 +2457,7 @@ fn the_error_of_a_failed_start_stays_in_the_view_until_the_next_start() {
         OperationState::Failed(_)
     ));
     let error = machine.view().start_error.unwrap();
+    assert_eq!(error.kind, ErrorKind::Invalid);
     assert!(error.message.contains("drive image"), "{error}");
     assert!(machine.start().unwrap().wait(Some(WAIT)) == OperationState::Succeeded);
     assert_eq!(machine.view().start_error, None);

@@ -1126,7 +1126,18 @@ impl MachineInner {
         let model = self.model.lock().unwrap().clone();
         let report = self.engine.validate(&model, &self.dir);
         if let Some(problem) = report.errors().next() {
-            return Err(CoreError::new(ErrorKind::Invalid, problem.message.clone()));
+            let dir = self.dir.path();
+            let missing = origami_machine::read_machine(dir).ok().and_then(|file| {
+                file.drive
+                    .into_iter()
+                    .find(|d| !origami_machine::resolve(dir, &d.image).is_file())
+                    .map(|d| d.kind)
+            });
+            return Err(super::error::plain_start(
+                &self.name,
+                CoreError::new(ErrorKind::Invalid, problem.message.clone()),
+                missing.as_deref(),
+            ));
         }
         let wiring = Wiring {
             display: DisplayRequest::Shared { gpu: None },

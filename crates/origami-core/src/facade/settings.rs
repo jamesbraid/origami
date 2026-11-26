@@ -177,7 +177,13 @@ fn share_setting(
 
 /// Refuses a share name the guest cannot type, in the core's words.
 pub fn check_share_name(name: &str) -> super::CoreResult<()> {
-    shares::check_name(name).map_err(super::CoreError::machine)
+    shares::check_name(name).map_err(|error| {
+        super::CoreError::new(
+            super::ErrorKind::Invalid,
+            "Use letters, digits, hyphens and underscores.",
+        )
+        .with_detail(error.to_string())
+    })
 }
 
 /// The share name the guest would see for the host folder `dir`: its own

@@ -585,6 +585,14 @@ impl Core {
             )
             .with_detail("name"));
         }
+        let taken = self.inner.root().join(&name);
+        if taken.exists() {
+            return Err(CoreError::new(
+                ErrorKind::Invalid,
+                format!("A machine named {name} already exists. Choose another name."),
+            )
+            .with_detail(taken.display().to_string()));
+        }
         let emu_id = match request
             .emu_id
             .as_deref()
@@ -593,7 +601,11 @@ impl Core {
         {
             Some(text) => Some(
                 text.parse::<u32>()
-                    .map_err(|_| CoreError::new(ErrorKind::Invalid, super::network::not_an_id()))?,
+                    .ok()
+                    .filter(|id| origami_machine::emu_id::check_range(*id).is_ok())
+                    .ok_or_else(|| {
+                        CoreError::new(ErrorKind::Invalid, super::network::not_an_id())
+                    })?,
             ),
             None => None,
         };
@@ -749,7 +761,10 @@ impl Core {
         // A failure after the file was rewritten still changes the listing.
         self.inner.slot.raise(&[EventKind::Library]);
         done.map_err(|incomplete| {
-            let error = CoreError::machine(incomplete.error);
+            let error = super::error::plain_upgrade(
+                &entry_name(&path),
+                CoreError::machine(incomplete.error),
+            );
             // The notes so far, for a failure after the rewrite.
             let notes: Vec<_> = incomplete
                 .report
@@ -878,7 +893,10 @@ impl Core {
 
     pub(crate) fn instigator(&self) -> CoreResult<PathBuf> {
         self.inner.config.instigator.clone().ok_or_else(|| {
-            CoreError::new(ErrorKind::Unsupported, "this build has no install server")
+            CoreError::new(
+                ErrorKind::Unsupported,
+                "This copy of Origami has no install server.",
+            )
         })
     }
 
@@ -918,17 +936,12 @@ impl Core {
     {
         let mut installs = self.inner.installs.lock().unwrap();
         installs.retain(|install| !install.state().is_finished());
-        if installs
+        // A second ask for what already runs is the same work, not a failure.
+        if let Some(running) = installs
             .iter()
-            .any(|op| op.title() == title && op.machine() == Some(machine.key()))
+            .find(|op| op.title() == title && op.machine() == Some(machine.key()))
         {
-            return Err(CoreError::new(
-                ErrorKind::Busy,
-                format!(
-                    "{} is already running on this machine",
-                    title.to_lowercase()
-                ),
-            ));
+            return Ok(running.clone());
         }
         let operation = self.inner.operation(
             title,
