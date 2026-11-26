@@ -1254,7 +1254,6 @@ public static class Selftest
         if (bigUp)
         {
             await Task.Delay(500);
-            await Until(() => w.LayoutCurrentForTest, 5000);
             var bdip = disp.DeviceScale;
             var bpad = ViewScale.PanePadding * bdip;
             var bwa = w.WorkArea;
@@ -1276,8 +1275,6 @@ public static class Selftest
             }
             foreach (var (id, dpg) in new[] { ("view.actual-size", 1 / bdip), ("view.scale1x", 1.0), ("view.scale2x", 2.0) })
             {
-                // The pane read below must be the layout of the window as it now is, whatever the last command left behind.
-                await Until(() => w.LayoutCurrentForTest, 5000);
                 var wb = WinRect();
                 var (p0w, p0h) = disp.PaneSize;
                 var exp = ViewScale.WindowFor(wb, bwa, bdip, p0w, p0h, 1280, 1024, MainWindow.MinWidthDips, MainWindow.MinHeightDips, dpg);

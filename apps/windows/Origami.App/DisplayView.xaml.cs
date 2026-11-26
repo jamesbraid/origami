@@ -164,7 +164,8 @@ public sealed partial class DisplayView : UserControl
             {
                 if (Win32.WaitForSingleObject(wake, 200) != 0) continue; // WAIT_OBJECT_0 only
                 Interlocked.Increment(ref Wakes);
-                if (Interlocked.Exchange(ref _pumpQueued, 1) == 0 && !_ui!.TryEnqueue(Pump)) _pumpQueued = 0;
+                // Low, so a slow draw cannot starve XAML's layout: at normal priority a resize waited as long as the guest drew.
+                if (Interlocked.Exchange(ref _pumpQueued, 1) == 0 && !_ui!.TryEnqueue(DispatcherQueuePriority.Low, Pump)) _pumpQueued = 0;
             }
         }) { IsBackground = true, Name = "frame-wake" };
         _waiter.Start();
@@ -251,9 +252,6 @@ public sealed partial class DisplayView : UserControl
         if (_view != IntPtr.Zero) { Frame.origami_view_set_visible(_view, 1); Pump(); }
     }
 
-    /// <summary>Places the picture for the pane as it is now, for a caller that has just laid the window out.</summary>
-    public void Refit() => Place();
-
     void Place()
     {
         if (_hidden || _hwnd == IntPtr.Zero || _headW <= 0 || XamlRoot is null) return;
@@ -289,7 +287,7 @@ public sealed partial class DisplayView : UserControl
                 _failures = 0;
                 if (drawn == Frame.DrawnPresented) Presents++;
                 if (drawn != Frame.DrawnAgain) break;
-                if (i == 2) _ui?.TryEnqueue(Pump); // still asking for another call
+                if (i == 2) _ui?.TryEnqueue(DispatcherQueuePriority.Low, Pump); // still asking for another call
             }
             return;
         }
