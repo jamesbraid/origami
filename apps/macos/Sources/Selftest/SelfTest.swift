@@ -1168,6 +1168,15 @@ func runSelfTest(library: String, out: String) {
                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
     }
     check("pointer-mode-default-follow", model.pointerMode == .follow && view.absolutePointer, [:])
+    // Key-ups taken by a system overlay (the screenshot tool) never arrive: the next event with fewer
+    // modifiers or buttons down than the guest holds lifts the difference.
+    view.flagsChanged(with: flagsEvent(59, raw: 0x40001))
+    view.flagsChanged(with: flagsEvent(56, raw: 0x60003))
+    view.mouseMoved(with: mouse(.mouseMoved, 321, 257))
+    check("stale-modifiers-lifted-by-next-event", session.releaseAll() == 0, [:])
+    view.mouseDown(with: mouse(.leftMouseDown, 320, 256))
+    view.mouseMoved(with: mouse(.mouseMoved, 321, 257))   // the host holds no button
+    check("stale-button-lifted-by-next-event", session.releaseAll() == 0, [:])
     view.mouseMoved(with: mouse(.mouseMoved, 320, 256))
     view.mouseDown(with: mouse(.leftMouseDown, 320, 256))
     check("follow-click-is-the-guests", !view.captured && session.releaseAll() >= 1, ["note": "a click in follow mode presses the guest's button"])

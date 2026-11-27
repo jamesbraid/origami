@@ -25,8 +25,9 @@ final class MachineView: NSView {
     var absolutePointer = true { didSet { refreshCursorRects() } }
     /// Called after the capture state changes, on the main thread.
     var onCaptureChange: ((Bool) -> Void)?
-    /// Non-modifier keys the guest sees as down, lifted when Command goes up.
+    /// Keys the guest sees as down; the non-modifiers are lifted when Command goes up.
     private var heldKeys = Set<UInt16>()
+    private var heldButtons = Set<UInt32>()
     private var scrollRemainder = 0.0
     private var cursorHidden = false
     private var hadFrame = false
@@ -228,6 +229,18 @@ final class MachineView: NSView {
     func releaseAllKeys() {
         session.releaseAll()
         heldKeys.removeAll()
+        heldButtons.removeAll()
+    }
+
+    /// Lift what the guest holds but the host no longer does. A system overlay (the screenshot
+    /// tool) can take the key-ups and mouse-ups without the window resigning key.
+    private func reconcile(_ flags: NSEvent.ModifierFlags) {
+        for (code, mask) in Self.modifierBit where heldKeys.contains(code) && flags.rawValue & mask == 0 { send(code, false) }
+        // Any host button counts: Control-click reaches us as a right click while the left is held.
+        if NSEvent.pressedMouseButtons == 0 {
+            for b in heldButtons { session.button(b, down: false) }
+            heldButtons.removeAll()
+        }
     }
 
     override func resignFirstResponder() -> Bool { endCapture(); releaseAllKeys(); return true }
@@ -241,9 +254,10 @@ final class MachineView: NSView {
     }
     private func isModifier(_ code: UInt16) -> Bool { code == 57 || Self.modifierBit[code] != nil }
     // The host's key repeat is the guest's: QEMU's PS/2 keyboard has no typematic of its own.
-    override func keyDown(with e: NSEvent) { send(e.keyCode, true) }
-    override func keyUp(with e: NSEvent) { send(e.keyCode, false) }
+    override func keyDown(with e: NSEvent) { reconcile(e.modifierFlags); send(e.keyCode, true) }
+    override func keyUp(with e: NSEvent) { reconcile(e.modifierFlags); send(e.keyCode, false) }
     override func flagsChanged(with e: NSEvent) {
+        reconcile(e.modifierFlags)
         // Control+Option together give the mouse back.
         if captured && e.modifierFlags.contains(.control) && e.modifierFlags.contains(.option) {
             endCapture(); return
@@ -292,6 +306,7 @@ final class MachineView: NSView {
         return (Int32(max(0, min(head.width - 1, x))), Int32(max(0, min(head.height - 1, y))))
     }
     private func moved(_ e: NSEvent) {
+        reconcile(e.modifierFlags)
         if captured { applyMouseDelta(Double(e.deltaX), Double(e.deltaY)) }
         else if absolutePointer {
             let (x, y) = headPoint(e)
@@ -304,11 +319,13 @@ final class MachineView: NSView {
     override func otherMouseDragged(with e: NSEvent) { moved(e) }
 
     private func button(_ b: UInt32, _ down: Bool, _ e: NSEvent) {
+        reconcile(e.modifierFlags)
         if !captured && !absolutePointer {
             if down { beginCapture() }   // the click that captures is not the guest's
             return
         }
         if absolutePointer && down { moved(e) }
+        if down { heldButtons.insert(b) } else { heldButtons.remove(b) }
         session.button(b, down: down)
     }
     override func mouseDown(with e: NSEvent) { window?.makeFirstResponder(self); button(UInt32(ORIGAMI_BUTTON_LEFT), true, e) }
