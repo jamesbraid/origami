@@ -1,4 +1,4 @@
-//! The 0.6.2 words and cards through the control plane.
+//! The redesign's words and cards through the control plane.
 #![cfg(feature = "fake")]
 
 mod common;

@@ -292,7 +292,7 @@ mod tests {
         assert_eq!(problem("IRIX is installed. Start the machine."), None);
     }
 
-    /// The words the 0.6.2 build added, from every call that makes them.
+    /// The words the redesign added, from every call that makes them.
     fn new_words() -> Vec<String> {
         use crate::facade::*;
         let mut all: Vec<String> = Vec::new();

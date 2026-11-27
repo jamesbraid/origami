@@ -1,4 +1,4 @@
-// The 0.6.2 redesign's checks: the library row, the new alerts, Remove, New machine, the status bar and the
+// The redesign's checks: the library row, the new alerts, Remove, New machine, the status bar and the
 // install guide. They take the self-test's `check` so each is one step in its JSON lines.
 
 import AppKit

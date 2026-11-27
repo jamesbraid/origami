@@ -167,7 +167,7 @@ public static class Selftest
         var key = w.SelectedKey!;
         Check("a machine is selected", !string.IsNullOrEmpty(key), key);
 
-        // --- the top bar, the command bar and the library rows of the 0.6.2 design ---
+        // --- the top bar, the command bar and the library rows of the redesign ---
         Check("title bar: it holds only the app icon and the title", w.TitleBarTitleForTest == Ui.T(OrigamiUiString.Origami) && !w.TitleBarHasContentForTest, $"title '{w.TitleBarTitleForTest}', content {w.TitleBarHasContentForTest}");
         var primary = w.PrimaryCommandNamesForTest;
         var more = w.SecondaryCommandNamesForTest;

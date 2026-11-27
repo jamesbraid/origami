@@ -1,4 +1,4 @@
-//! The 0.6.2 words and cards over the facade: thin mirrors of its types and
+//! The redesign's words and cards over the facade: thin mirrors of its types and
 //! calls. The core owns every word.
 
 use crate::control::*;
