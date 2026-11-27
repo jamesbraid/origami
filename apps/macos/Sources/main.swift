@@ -4,6 +4,7 @@
 //   Origami --selftest DIR OUT      headless: no window is ever shown
 //   Origami --docs-shots DIR OUT    the pictures the documentation shows, from real windows
 //   Origami --selftest-display DIR OUT   dev builds: the real window against the behaviour table
+//   Origami --selftest-scene OUT --machines DIR   the app's own window scene, started with `open`
 // The core finds its QEMU beside the executable (ORIGAMI_RUNTIME_DIR overrides).
 
 import AppKit
@@ -52,6 +53,7 @@ if args.first == "--selftest" {
     }
     MainActor.assumeIsolated {
         Shared.model = AppModel(root: Launch.root(arguments: args))
+        if args.first == "--selftest-scene", args.count >= 2 { scheduleSceneSelfTest(out: args[1]) }
     }
     MainActor.assumeIsolated { OrigamiApp.main() }
 }

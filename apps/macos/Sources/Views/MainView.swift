@@ -36,6 +36,8 @@ struct MainView: View {
         NavigationSplitView(columnVisibility: visibility) {
             sidebar
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
+                // Applied to the split view itself this leaves the system toggle beside ours, on macOS 15 and 26.
+                .toolbar(removing: .sidebarToggle)
         } detail: {
             VStack(spacing: 0) {
                 if app.showsTabBar { TabBar() }
@@ -52,7 +54,6 @@ struct MainView: View {
             .navigationSubtitle(app.current?.word ?? "")
             .toolbar { MachineToolbar() }
         }
-        .toolbar(removing: .sidebarToggle)
         .frame(minWidth: 820, minHeight: 560)
         .background(ToolbarTooltips().frame(width: 0, height: 0))
         .onAppear {

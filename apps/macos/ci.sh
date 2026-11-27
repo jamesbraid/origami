@@ -2,7 +2,7 @@
 # The macOS app's nightly check, one command for the workflow to call: build
 # the app on the core's fake engine and run its headless self-test. No window
 # is shown; then a second pass shows the real window and checks what it draws
-# against the core's behaviour table.
+# against the core's behaviour table; a third starts the app's own window scene.
 #
 #   apps/macos/ci.sh [WORKDIR]
 #
@@ -36,4 +36,14 @@ display_code=${pipestatus[1]}
 set -e
 cp -R $work/display-out/. $work/out/ 2>/dev/null || true
 echo "display self-test exit status: $display_code"
-(( exit_code == 0 && display_code == 0 ))
+
+# The app's own window scene, which only a launch through `open` brings up. The result comes back in the
+# output file, since `open` does not pass on an exit status.
+rm -rf $work/scene-machines; mkdir -p $work/scene-machines
+open -W -n --stdout $work/out/selftest-scene.jsonl --stderr $work/out/selftest-scene.err $work/Origami.app \
+    --args --selftest-scene $work/out --machines $work/scene-machines
+cat $work/out/selftest-scene.jsonl
+scene_code=1
+grep -q '"ok":true,"step":"done"' $work/out/selftest-scene.jsonl && scene_code=0
+echo "scene self-test exit status: $scene_code"
+(( exit_code == 0 && display_code == 0 && scene_code == 0 ))
