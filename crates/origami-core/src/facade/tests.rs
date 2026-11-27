@@ -8,7 +8,8 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-const WAIT: Duration = Duration::from_secs(10);
+// Only a hang-detector: a copy's fsync can stall for many seconds on a busy CI disk.
+const WAIT: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
 struct Recorder {
