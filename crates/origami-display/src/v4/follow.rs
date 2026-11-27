@@ -719,7 +719,19 @@ mod tests {
                 link.send(0, vec![Item::Press(b"KEY!".to_vec(), false)])
                     .unwrap();
             }
-            std::thread::sleep(Duration::from_millis(20));
+            // Wait for the last key, not a fixed time: a loaded runner is slow to serve.
+            let end = Instant::now() + Duration::from_secs(10);
+            let keys = || {
+                log.lock()
+                    .unwrap()
+                    .windows(4)
+                    .filter(|w| w == b"KEY!")
+                    .count()
+            };
+            while keys() < 50 {
+                assert!(Instant::now() < end, "nothing released");
+                std::thread::sleep(Duration::from_millis(1));
+            }
             link.stop();
             t.join().unwrap();
             let log = log.lock().unwrap();
