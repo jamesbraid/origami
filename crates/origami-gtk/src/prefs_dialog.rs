@@ -40,7 +40,7 @@ impl Prefs {
         let dialog = adw::Dialog::builder()
             .title(title)
             .content_width(760)
-            .content_height(560)
+            .content_height(735)
             .build();
         let list = gtk::ListBox::builder()
             .css_classes(["navigation-sidebar"])
