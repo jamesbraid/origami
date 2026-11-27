@@ -77,7 +77,7 @@ struct NewMachineSheet: View {
                             Text(o.title)
                             if o.recommended { Text(ui(.recommended)).font(.caption).foregroundStyle(Color.accentColor) }
                         }
-                        under(model.caption(o))
+                        under(o.caption)
                     }
                     .tag(DiskChoice(o.choice))
                 }

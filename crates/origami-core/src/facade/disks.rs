@@ -144,15 +144,6 @@ pub fn disk_options(ready_available: bool) -> Vec<DiskOption> {
         .collect()
 }
 
-/// What to say under a ready-made disk: its download size, or that it is here.
-pub fn ready_caption(bytes: u64, cached: bool) -> String {
-    if cached {
-        "Downloaded".into()
-    } else {
-        format!("{} download", size_label(bytes))
-    }
-}
-
 pub fn disk_labels() -> DiskLabels {
     let list = |items: &[&str]| items.iter().map(|s| s.to_string()).collect();
     DiskLabels {
@@ -522,8 +513,6 @@ mod tests {
         let without = disk_options(false);
         assert_eq!(without[0].choice, DiskChoice::Install);
         assert!(without.iter().all(|o| !o.recommended));
-        assert_eq!(ready_caption(835_000_000, false), "835 MB download");
-        assert_eq!(ready_caption(835_000_000, true), "Downloaded");
     }
 
     #[test]

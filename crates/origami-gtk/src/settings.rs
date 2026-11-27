@@ -1838,23 +1838,6 @@ fn new_machine_dialog(
     // The disks that fit the chosen model, asked of the server off the UI thread.
     let ready_disks = Rc::new(RefCell::new(Vec::<origami_core::facade::ReadyDisk>::new()));
     let asked = Rc::new(std::cell::Cell::new(0u32));
-    // The ready-made row says what the chosen release costs to get.
-    let ready_caption = {
-        let (ready_row, release, ready_disks) =
-            (ready_row.clone(), release.clone(), ready_disks.clone());
-        Rc::new(move || {
-            let disks = ready_disks.borrow();
-            if let Some(d) = disks.get(release.selected() as usize) {
-                let base = origami_core::facade::disk_options(true)[0].caption.clone();
-                let tail = origami_core::facade::ready_caption(d.bytes, d.cached);
-                ready_row.set_subtitle(&format!("{base} {tail}"));
-            }
-        })
-    };
-    release.connect_selected_notify({
-        let c = ready_caption.clone();
-        move |_| c()
-    });
     let refresh = {
         let (app, offerings, ready_disks, asked) = (
             app.clone(),
@@ -1870,7 +1853,6 @@ fn new_machine_dialog(
             choice.clone(),
             touched.clone(),
         );
-        let (set_default, ready_caption) = (set_default.clone(), ready_caption.clone());
         move |combo: &adw::ComboRow| {
             let Some(offering) = offerings.borrow().get(combo.selected() as usize).cloned() else {
                 return;
@@ -1889,7 +1871,7 @@ fn new_machine_dialog(
                 choice.clone(),
                 touched.clone(),
             );
-            let (set_default, ready_caption) = (set_default.clone(), ready_caption.clone());
+            let set_default = set_default.clone();
             glib::spawn_future_local(async move {
                 let found =
                     gtk::gio::spawn_blocking(move || core.ready_disks(&id).unwrap_or_default())
@@ -1904,7 +1886,6 @@ fn new_machine_dialog(
                     &found.iter().map(|d| d.label.as_str()).collect::<Vec<_>>(),
                 )));
                 *ready_disks.borrow_mut() = found;
-                ready_caption();
                 let gone = radios
                     .iter()
                     .any(|(c, row, _)| *c == choice.get() && !row.is_visible());

@@ -106,13 +106,6 @@ final class NewMachineModel: ObservableObject {
     /// The core's disk choices in listing order; the first is the default.
     var options: [OrigamiDiskOption] { origamiDiskOptions(readyAvailable: !readyDisks.isEmpty) }
 
-    /// The line under a choice: the core's caption, and for the ready-made disk the download it would be.
-    func caption(_ o: OrigamiDiskOption) -> String {
-        guard o.choice == .ready, readyDisks.indices.contains(readyPick) else { return o.caption }
-        let d = readyDisks[readyPick]
-        return "\(o.caption) \(origamiReadyCaption(bytes: d.bytes, cached: d.cached))"
-    }
-
     private func useDefaultDisk() {
         guard !diskTouched, let first = options.first else { return }
         settingDefault = true; disk = DiskChoice(first.choice); settingDefault = false

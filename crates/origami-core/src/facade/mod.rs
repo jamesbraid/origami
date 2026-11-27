@@ -45,8 +45,8 @@ pub use core::{
 };
 pub use cpu::{CpuLoadReport, CpuLoadSource};
 pub use disks::{
-    classify_drop, disk_labels, disk_options, drop_caption, image_verdict, ready_caption,
-    size_label, DiskChoice, DiskImageCheck, DiskLabels, DiskOption, DropKind, ImageVerdict,
+    classify_drop, disk_labels, disk_options, drop_caption, image_verdict, size_label, DiskChoice,
+    DiskImageCheck, DiskLabels, DiskOption, DropKind, ImageVerdict,
 };
 pub use error::{CoreError, CoreResult, ErrorFix, ErrorKind};
 pub use event::{Event, EventKind, Observer};

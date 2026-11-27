@@ -380,7 +380,6 @@ mod tests {
         for o in disk_options(true) {
             all.extend([o.title, o.caption]);
         }
-        all.extend([ready_caption(835_000_000, false), ready_caption(0, true)]);
         all.extend([
             guide_header(3, 22),
             waiting_for("login:"),

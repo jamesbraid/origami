@@ -431,12 +431,6 @@ pub fn origami_disk_options(ready_available: bool) -> Vec<OrigamiDiskOption> {
         .collect()
 }
 
-/// Under a ready-made disk: its download size, or `Downloaded`.
-#[uniffi::export]
-pub fn origami_ready_caption(bytes: u64, cached: bool) -> String {
-    f::ready_caption(bytes, cached)
-}
-
 #[uniffi::export]
 pub fn origami_classify_drop(path: String) -> OrigamiDropKind {
     f::classify_drop(std::path::Path::new(&path)).into()

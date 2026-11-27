@@ -83,7 +83,6 @@ public static class NewMachineDialog
         var disk = new DiskList { Spacing = 2 };
         List<OrigamiDiskOption> options = new();
         var release = new ComboBox { Header = labels.Release, HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
-        var releaseCaption = Caption("new.release.caption");
         IReadOnlyList<ReadyDisk> ready = Array.Empty<ReadyDisk>();
         var picked = false; // a choice the person made is kept when the ready-made disks arrive
         var filling = false;
@@ -158,7 +157,7 @@ public static class NewMachineDialog
         var stack = new StackPanel
         {
             Spacing = 10, Width = 420,
-            Children = { Heading(Ui.T(OrigamiUiString.Machine)), engine, model, name, nameError, Heading(Ui.T(OrigamiUiString.Disk)), disk, release, releaseCaption, sizeRow, picture.Root, diskError, advanced, bar, line, stop },
+            Children = { Heading(Ui.T(OrigamiUiString.Machine)), engine, model, name, nameError, Heading(Ui.T(OrigamiUiString.Disk)), disk, release, sizeRow, picture.Root, diskError, advanced, bar, line, stop },
         };
         // Everything scrolls inside the dialog, so an error under a field further down is reached, never cut off.
         var scroll = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Padding = new Thickness(0, 0, 12, 0),
@@ -198,12 +197,6 @@ public static class NewMachineDialog
             Show(addressError, p.Problem is not null && p.Field == IdentityField.Address ? p.Problem : null);
             Sync();
         }
-        void SyncReadyCaption()
-        {
-            var d = release.SelectedIndex >= 0 && release.SelectedIndex < ready.Count ? ready[release.SelectedIndex] : null;
-            releaseCaption.Text = d is null ? "" : OrigamiFfiMethods.OrigamiReadyCaption(d.Bytes, d.Cached);
-            releaseCaption.Visibility = d is null || Chosen() != OrigamiDiskChoice.Ready ? Visibility.Collapsed : Visibility.Visible;
-        }
         void ShowDiskParts()
         {
             var choice = Chosen();
@@ -211,7 +204,6 @@ public static class NewMachineDialog
             sizeRow.Visibility = choice == OrigamiDiskChoice.Install ? Visibility.Visible : Visibility.Collapsed;
             picture.Root.Visibility = choice == OrigamiDiskChoice.Image ? Visibility.Visible : Visibility.Collapsed;
             Show(diskError, null);
-            SyncReadyCaption();
             Sync();
         }
         id.TextChanged += (_, _) => { if (!writing) RefreshIdentity(); };
@@ -223,7 +215,7 @@ public static class NewMachineDialog
         picture.Changed += Sync;
         disk.SelectionChanged += () => { if (!filling) picked = true; ShowDiskParts(); };
         model.SelectionChanged += (_, _) => { SyncEngines(); SyncReady(); FillDisks(); Sync(); RefreshIdentity(); };
-        release.SelectionChanged += (_, _) => { SyncReadyCaption(); Sync(); };
+        release.SelectionChanged += (_, _) => Sync();
         SyncEngines();
         FillDisks();
         SyncReady();
