@@ -38,17 +38,24 @@ impl Ports {
 }
 
 fn quote(path: &Path) -> String {
-    toml::Value::String(path.display().to_string()).to_string()
+    quote_str(&path.display().to_string())
+}
+
+fn quote_str(text: &str) -> String {
+    toml::Value::String(text.into()).to_string()
 }
 
 /// Refuse what iris cannot run, in the model's words.
 pub fn check(file: &MachineFile) -> Result<()> {
-    if file.network.mode != "user" {
+    if !matches!(file.network.mode.as_str(), "user" | "private") {
         return Err(format!(
-            "iris machines take user networking only, not {}",
+            "iris machines take user or private networking only, not {}",
             file.network.mode
         )
         .into());
+    }
+    if file.network.mode == "private" && file.network.endpoint.is_none() {
+        return Err("private network needs endpoint".into());
     }
     if !file.network.forward.is_empty() {
         return Err("iris machines do not take port forwards yet".into());
@@ -138,7 +145,22 @@ pub fn iris_toml(
         // The VPro's raster runs on the CPU threads: no host GPU needed.
         writeln!(t, "\n[graphics]\nboard = \"{board}\"\nraster = \"cpu\"")?;
     }
-    writeln!(t, "\n[network]\nmode = \"nat\"")?;
+    // A private network is the install server's, which iris joins as a client.
+    match (file.network.mode.as_str(), file.network.endpoint.as_deref()) {
+        ("private", Some(endpoint)) => {
+            let peer = if endpoint.starts_with("tcp:") {
+                endpoint.to_owned()
+            } else {
+                format!("unix:{}", dir.resolve(endpoint).display())
+            };
+            writeln!(
+                t,
+                "\n[network]\nmode = \"stream\"\nstream = {}",
+                quote_str(&peer)
+            )?;
+        }
+        _ => writeln!(t, "\n[network]\nmode = \"nat\"")?,
+    }
     let mac = file
         .identity
         .as_ref()
@@ -213,6 +235,35 @@ mod tests {
             monitor: 3,
         };
         let error = iris_toml(&offering, &file, &MachineDir::new("/m"), ports).unwrap_err();
-        assert!(error.to_string().contains("user networking"), "{error}");
+        assert!(
+            error.to_string().contains("user or private networking"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_private_network_is_a_stream_to_the_install_server() {
+        let (offering, mut file) = indy();
+        let ports = Ports {
+            console: 1,
+            second: 2,
+            monitor: 3,
+        };
+        let toml = |file: &MachineFile| iris_toml(&offering, file, &MachineDir::new("/m"), ports);
+        file.network.mode = "private".into();
+        assert!(toml(&file)
+            .unwrap_err()
+            .to_string()
+            .contains("needs endpoint"));
+        file.network.endpoint = Some("tcp:127.0.0.1:4000".into());
+        let text = toml(&file).unwrap();
+        assert!(
+            text.contains("mode = \"stream\"\nstream = \"tcp:127.0.0.1:4000\""),
+            "{text}"
+        );
+        file.network.endpoint = Some("install.sock".into());
+        assert!(toml(&file)
+            .unwrap()
+            .contains("stream = \"unix:/m/install.sock\""));
     }
 }
