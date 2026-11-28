@@ -121,10 +121,10 @@ fn catalogue() -> Catalogue {
     // The product of the format 4 machine fixtures, so they can be upgraded here.
     let mut origin = offering("origin200.1", "origin200", 1, 0);
     origin["product"] = json!("origin200");
-    // An Indy, which also installs the older IRIX releases.
+    // An Indy, whose last IRIX is 6.5.22.
     let mut indy = offering("indy.1", "indy", 1, 0);
     indy["product"] = json!("indy");
-    indy["older-irix"] = json!(["6.2", "5.3"]);
+    indy["irix-releases"] = json!(["6.5.22", "6.2", "5.3"]);
     serde_json::from_value(json!({
         "version": 1,
         "offerings": [

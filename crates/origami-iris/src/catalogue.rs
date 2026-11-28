@@ -88,7 +88,8 @@ pub fn catalogue() -> Catalogue {
                 {"kind": "second-port", "node": 0, "name": "tty2"},
             ],
             "networks": [{"kind": "seeq8003-ethernet", "interface": "ec0", "default": true}],
-            "older-irix": ["6.2", "5.3"],
+            // 6.5.23 and later do not install on the Indy and Indigo2.
+            "irix-releases": ["6.5.22", "6.2", "5.3"],
             "engines": [ENGINE],
             "engine": {ENGINE: {
                 "profile": profile,
@@ -176,6 +177,23 @@ mod tests {
         for offering in &catalogue().offerings {
             assert_eq!(offering.engine[ENGINE]["display"], true, "{}", offering.id);
         }
+    }
+
+    #[test]
+    fn the_indy_and_indigo2_install_nothing_after_6_5_22() {
+        use origami_machine::install::releases_for;
+        let names =
+            |offering| -> Vec<&str> { releases_for(offering).iter().map(|r| r.name).collect() };
+        let catalogue = catalogue();
+        for offering in catalogue
+            .offerings
+            .iter()
+            .filter(|o| o.product != "octane2")
+        {
+            assert_eq!(names(offering), ["6.5.22", "6.2", "5.3"], "{}", offering.id);
+        }
+        let octane2 = catalogue.offerings.iter().find(|o| o.product == "octane2");
+        assert_eq!(names(octane2.unwrap()), ["6.5.30", "6.5.22"]);
     }
 
     #[test]

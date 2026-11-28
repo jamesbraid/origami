@@ -340,7 +340,7 @@ pub fn install_releases(offering: &Offering) -> Vec<InstallRelease> {
 pub fn default_install_releases() -> Vec<InstallRelease> {
     install::RELEASES
         .iter()
-        .filter(|r| !r.older)
+        .filter(|r| r.by_default)
         .map(describe)
         .collect()
 }

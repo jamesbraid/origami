@@ -111,9 +111,8 @@ pub const DEFAULT_RELEASE: &str = "6.5.30";
 pub struct Release {
     pub name: &'static str,
     pub profiles: &'static [&'static str],
-    /// 5.3 and 6.2: offered only where the catalogue lists the machine's
-    /// `older-irix`. The 6.5 releases are offered on every machine that runs IRIX.
-    pub older: bool,
+    /// Offered on a machine whose catalogue entry lists no `irix-releases`.
+    pub by_default: bool,
     /// Whether Instigator serves an `admin source` command file. 5.3 and 6.2
     /// have none, so their commands are typed at `Inst>`.
     pub scripted: bool,
@@ -124,25 +123,25 @@ pub const RELEASES: &[Release] = &[
     Release {
         name: "6.5.30",
         profiles: &["standard", "minimal"],
-        older: false,
+        by_default: true,
         scripted: true,
     },
     Release {
         name: "6.5.22",
         profiles: &["standard"],
-        older: false,
+        by_default: true,
         scripted: true,
     },
     Release {
         name: "6.2",
         profiles: &["standard"],
-        older: true,
+        by_default: false,
         scripted: false,
     },
     Release {
         name: "5.3",
         profiles: &["standard"],
-        older: true,
+        by_default: false,
         scripted: false,
     },
 ];
@@ -151,11 +150,15 @@ pub fn release(name: &str) -> Option<&'static Release> {
     RELEASES.iter().find(|release| release.name == name)
 }
 
-/// The releases a machine of `offering` installs.
+/// The releases a machine of `offering` installs: the ones its catalogue
+/// entry lists, or the defaults where it lists none.
 pub fn releases_for(offering: &Offering) -> Vec<&'static Release> {
     RELEASES
         .iter()
-        .filter(|r| !r.older || offering.older_irix.iter().any(|name| name == r.name))
+        .filter(|r| match offering.irix_releases.as_slice() {
+            [] => r.by_default,
+            listed => listed.iter().any(|name| name == r.name),
+        })
         .collect()
 }
 

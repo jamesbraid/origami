@@ -1831,7 +1831,7 @@ fn the_catalogue_decides_which_releases_a_machine_installs() {
     let origin = f.create("irix", "origin200.1");
     assert_eq!(names(&origin), ["6.5.30", "6.5.22"]);
     let indy = f.create("indy", "indy.1");
-    assert_eq!(names(&indy), ["6.5.30", "6.5.22", "6.2", "5.3"]);
+    assert_eq!(names(&indy), ["6.5.22", "6.2", "5.3"]);
     let detail = |release: &str| {
         let releases = f.core.install_releases(&indy).unwrap();
         let r = releases.into_iter().find(|r| r.release == release).unwrap();
