@@ -113,7 +113,8 @@ fn the_library_lists_created_machines_and_the_catalogue_lists_offerings() {
             "fakeview.1",
             "fakeblind.1",
             "fakebig.1",
-            "origin200.1"
+            "origin200.1",
+            "indy.1"
         ]
     );
     assert_eq!(offerings[0].engine, "fake");
@@ -1821,6 +1822,91 @@ fn the_install_setup_is_prepared_read_back_and_reset() {
 }
 
 #[test]
+fn the_catalogue_decides_which_releases_a_machine_installs() {
+    let f = fixture();
+    let names = |key: &str| -> Vec<String> {
+        let releases = f.core.install_releases(key).unwrap();
+        releases.into_iter().map(|r| r.release).collect()
+    };
+    let origin = f.create("irix", "origin200.1");
+    assert_eq!(names(&origin), ["6.5.30", "6.5.22"]);
+    let indy = f.create("indy", "indy.1");
+    assert_eq!(names(&indy), ["6.5.30", "6.5.22", "6.2", "5.3"]);
+    let detail = |release: &str| {
+        let releases = f.core.install_releases(&indy).unwrap();
+        let r = releases.into_iter().find(|r| r.release == release).unwrap();
+        (r.profiles[0].detail.clone(), r.software)
+    };
+    assert_eq!(detail("5.3"), ("1 disc".into(), false));
+    assert_eq!(detail("6.2"), ("All 2 discs".into(), false));
+    let error = f
+        .core
+        .install_prepare(&origin, &setup("5.3", "standard", &[]))
+        .unwrap_err();
+    assert!(
+        error.message.contains("IRIX 5.3 does not install on"),
+        "{}",
+        error.message
+    );
+    assert_eq!(f.core.install_plan(&origin).unwrap(), None);
+}
+
+#[test]
+fn an_older_release_guide_types_inst_commands_and_labels_5_3_as_one_partition() {
+    let f = fixture();
+    let key = f.create("indy", "indy.1");
+    f.core
+        .open_machine(&key)
+        .unwrap()
+        .apply_change(&Change::CreateDisk { size_mib: 64 })
+        .unwrap();
+    let typed = |steps: &[GuideStep]| -> Vec<String> {
+        steps
+            .iter()
+            .flat_map(|s| s.typed.iter().map(|t| t.text.clone()))
+            .collect()
+    };
+    f.core
+        .install_prepare(&key, &setup("6.2", "standard", &[]))
+        .unwrap();
+    let guide = f.core.install_guide(&key).unwrap();
+    assert_eq!(
+        guide.prepare[2].typed[0].text,
+        "boot -f bootp():/6.2/stand/fx.ARCS"
+    );
+    assert_eq!(guide.prepare[4].typed[0].text, "/l/sy");
+    assert_eq!(
+        typed(&guide.packages),
+        [
+            "from 10.98.0.2:/6.2/dist",
+            "Space",
+            "2",
+            "install default",
+            "go"
+        ]
+    );
+    assert_eq!(
+        guide.installer.last().unwrap().title,
+        "Skip the startup script"
+    );
+    f.core
+        .install_prepare(&key, &setup("5.3", "standard", &[]))
+        .unwrap();
+    let guide = f.core.install_guide(&key).unwrap();
+    assert_eq!(guide.prepare[4].typed[0].text, "/r/ro");
+    assert_eq!(
+        guide.installer.last().unwrap().confirm.as_deref(),
+        Some("Inst> ")
+    );
+    assert_eq!(
+        typed(&guide.packages),
+        ["from 10.98.0.2:/5.3/dist", "indy", "install default", "go"]
+    );
+    let all: Vec<_> = guide.steps.iter().map(|s| s.title.as_str()).collect();
+    assert_eq!(all.len(), guide.steps.len());
+}
+
+#[test]
 fn a_running_machine_is_not_prepared_for_an_install() {
     let f = fixture();
     let (machine, _session) = f.started("busy");
@@ -1840,7 +1926,7 @@ fn the_install_choices_follow_the_profile_and_the_media_folder() {
     let minimal = &choices("minimal")[0];
     assert!(minimal.locked && !minimal.checked);
     assert_eq!(minimal.note.as_deref(), Some("Not in the Minimal install."));
-    let releases = install_releases();
+    let releases = f.core.install_releases(&key).unwrap();
     assert_eq!(releases[0].release, "6.5.30");
     assert_eq!(releases[0].profiles.len(), 2);
     assert_eq!(releases[1].profiles.len(), 1);
@@ -2496,6 +2582,35 @@ fn a_real_automated_install_console_shows_every_guide_step_seen_in_order() {
         last = now;
     }
     assert_eq!(last, steps.len() - 1);
+}
+
+#[test]
+fn the_real_install_consoles_of_5_3_and_6_2_show_every_guide_step_seen() {
+    let f = fixture();
+    let key = f.create("indy", "indy.1");
+    f.core
+        .open_machine(&key)
+        .unwrap()
+        .apply_change(&Change::CreateDisk { size_mib: 64 })
+        .unwrap();
+    // Serial consoles of installs on an iris Indy named for its machine directory.
+    let consoles: [(&str, &[u8]); 2] = [
+        (
+            "5.3",
+            include_bytes!("../../tests/data/irix-5.3-install-console.txt"),
+        ),
+        (
+            "6.2",
+            include_bytes!("../../tests/data/irix-6.2-install-console.txt"),
+        ),
+    ];
+    for (release, console) in consoles {
+        f.core
+            .install_prepare(&key, &setup(release, "standard", &[]))
+            .unwrap();
+        let steps = f.core.install_guide(&key).unwrap().steps;
+        assert_eq!(seen_steps(&steps, console), steps.len() - 1, "{release}");
+    }
 }
 
 #[test]

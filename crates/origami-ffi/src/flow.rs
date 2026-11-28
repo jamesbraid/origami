@@ -183,7 +183,7 @@ pub fn origami_install_step_title(step: OrigamiInstallStep) -> String {
     f::InstallStep::from(step).title().into()
 }
 
-fn release(r: &f::InstallRelease) -> OrigamiInstallRelease {
+pub(crate) fn release_out(r: &f::InstallRelease) -> OrigamiInstallRelease {
     OrigamiInstallRelease {
         release: r.release.clone(),
         label: r.label.clone(),
@@ -196,6 +196,24 @@ fn release(r: &f::InstallRelease) -> OrigamiInstallRelease {
                 detail: p.detail.clone(),
             })
             .collect(),
+        software: r.software,
+    }
+}
+
+fn release_in(r: OrigamiInstallRelease) -> f::InstallRelease {
+    f::InstallRelease {
+        release: r.release,
+        label: r.label,
+        profiles: r
+            .profiles
+            .into_iter()
+            .map(|p| f::InstallProfile {
+                name: p.name,
+                label: p.label,
+                detail: p.detail,
+            })
+            .collect(),
+        software: r.software,
     }
 }
 
@@ -240,7 +258,7 @@ impl OrigamiInstallFlow {
     #[uniffi::constructor]
     pub fn new(plan: Option<OrigamiInstallPlan>) -> std::sync::Arc<Self> {
         std::sync::Arc::new(Self(Mutex::new(f::InstallFlow::new(
-            f::install_releases(),
+            f::default_install_releases(),
             plan.map(plan_in),
             f::disk_labels().default_gb,
         ))))
@@ -307,8 +325,16 @@ impl OrigamiInstallFlow {
             .unwrap()
             .releases()
             .iter()
-            .map(release)
+            .map(release_out)
             .collect()
+    }
+    /// Offer the machine's own releases, from `OrigamiCore::install_releases`,
+    /// in place of the ones every machine has.
+    pub fn set_releases(&self, releases: Vec<OrigamiInstallRelease>) {
+        self.0
+            .lock()
+            .unwrap()
+            .set_releases(releases.into_iter().map(release_in).collect());
     }
     pub fn release(&self) -> String {
         self.0.lock().unwrap().release().into()

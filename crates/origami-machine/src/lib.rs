@@ -155,6 +155,10 @@ pub struct Offering {
     /// does not say.
     #[serde(default)]
     pub clock: Option<Clock>,
+    /// The older IRIX releases (5.3, 6.2) that install on this offering. The
+    /// 6.5 releases are offered on every machine that runs IRIX.
+    #[serde(rename = "older-irix", default)]
+    pub older_irix: Vec<String>,
     /// The engines that run this offering.
     #[serde(default)]
     pub engines: Vec<String>,

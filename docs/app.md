@@ -337,7 +337,9 @@ New machine can open it for you: choose Install IRIX from discs. It is the app's
 gets everything ready, serves the discs and lists each step with the
 machine's own release and addresses in it.
 
-Choose the release and profile (IRIX 6.5.30 Standard or Minimal, or 6.5.22),
+Choose the release and profile (IRIX 6.5.30 Standard or Minimal, or 6.5.22;
+an Indy or Indigo2 also offers IRIX 6.2 and 5.3, which have the Standard
+profile only and take no extra software, so their Software step is skipped),
 then where the discs come from: downloaded from the Origami server while the
 install runs, or a folder of disc images you already have, which the
 assistant checks as soon as you choose it. Tick the software to add after

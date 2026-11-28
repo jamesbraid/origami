@@ -9,10 +9,10 @@ use adw::prelude::*;
 use gtk::glib;
 use origami_core::facade::UiString;
 use origami_core::facade::{
-    disk_labels, guide_header, install_footer, install_media_folder, install_releases, step_titles,
-    texts, waiting_for, ApplyState, BootConsole, CheckState, CloseAction, CloseQuestion, Core,
-    CoreResult, DiskState, GuideStep, InstallFailure, InstallFlow, InstallGuide, InstallMethod,
-    InstallPlan, InstallStep, MachineState, MediaFolder, Operation, OperationState, StepState,
+    disk_labels, guide_header, install_footer, install_media_folder, step_titles, texts,
+    waiting_for, ApplyState, BootConsole, CheckState, CloseAction, CloseQuestion, Core, CoreResult,
+    DiskState, GuideStep, InstallFailure, InstallFlow, InstallGuide, InstallMethod, InstallPlan,
+    InstallRelease, InstallStep, MachineState, MediaFolder, Operation, OperationState, StepState,
     StopKind,
 };
 use origami_core::{Change, Kind};
@@ -293,17 +293,18 @@ pub fn open(app: &Rc<App>, parent: &adw::ApplicationWindow, m: &Rc<MachineUi>) {
             let pending = core
                 .install_restore_pending(&key)
                 .map_err(|e| e.to_string())?;
-            Ok::<_, String>((plan, serial, pending))
+            let releases = core.install_releases(&key).map_err(|e| e.to_string())?;
+            Ok::<_, String>((plan, serial, pending, releases))
         })
         .await
         .unwrap_or_else(|_| Err("the machine could not be read".into()));
         match r {
-            Ok((plan, serial, pending)) => {
+            Ok((plan, serial, pending, releases)) => {
                 let key = m.machine.key();
                 if assistants().iter().any(|a| a.m.machine.key() == key) {
                     return;
                 }
-                let a = Asst::new(&app, &parent, &m, plan, serial, pending);
+                let a = Asst::new(&app, &parent, &m, plan, releases, serial, pending);
                 OPEN.with(|o| o.borrow_mut().push(a.clone()));
                 a.place();
             }
@@ -322,10 +323,11 @@ impl Asst {
         parent: &adw::ApplicationWindow,
         m: &Rc<MachineUi>,
         plan: Option<InstallPlan>,
+        releases: Vec<InstallRelease>,
         serial: bool,
         pending: bool,
     ) -> Rc<Asst> {
-        let mut flow = InstallFlow::new(install_releases(), plan.clone(), disk_labels().default_gb);
+        let mut flow = InstallFlow::new(releases, plan.clone(), disk_labels().default_gb);
         // A machine left on the installation network offers to set it back on close.
         if pending {
             flow.set_prepared();

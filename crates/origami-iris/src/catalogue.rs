@@ -88,6 +88,7 @@ pub fn catalogue() -> Catalogue {
                 {"kind": "second-port", "node": 0, "name": "tty2"},
             ],
             "networks": [{"kind": "seeq8003-ethernet", "interface": "ec0", "default": true}],
+            "older-irix": ["6.2", "5.3"],
             "engines": [ENGINE],
             "engine": {ENGINE: {
                 "profile": profile,

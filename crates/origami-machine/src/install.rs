@@ -1,5 +1,7 @@
 use crate::console::Console;
-use crate::{addressing::Addresses, resolve, tcp_endpoint, MachineFile, Machines, Result};
+use crate::{
+    addressing::Addresses, resolve, tcp_endpoint, MachineFile, Machines, Offering, Result,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -105,6 +107,58 @@ fn legacy_profile() -> String {
 /// install-init uses unless told otherwise.
 pub const DEFAULT_RELEASE: &str = "6.5.30";
 
+/// An IRIX release `install-init` takes.
+pub struct Release {
+    pub name: &'static str,
+    pub profiles: &'static [&'static str],
+    /// 5.3 and 6.2: offered only where the catalogue lists the machine's
+    /// `older-irix`. The 6.5 releases are offered on every machine that runs IRIX.
+    pub older: bool,
+    /// Whether Instigator serves an `admin source` command file. 5.3 and 6.2
+    /// have none, so their commands are typed at `Inst>`.
+    pub scripted: bool,
+}
+
+/// The releases `install-init` takes, newest first.
+pub const RELEASES: &[Release] = &[
+    Release {
+        name: "6.5.30",
+        profiles: &["standard", "minimal"],
+        older: false,
+        scripted: true,
+    },
+    Release {
+        name: "6.5.22",
+        profiles: &["standard"],
+        older: false,
+        scripted: true,
+    },
+    Release {
+        name: "6.2",
+        profiles: &["standard"],
+        older: true,
+        scripted: false,
+    },
+    Release {
+        name: "5.3",
+        profiles: &["standard"],
+        older: true,
+        scripted: false,
+    },
+];
+
+pub fn release(name: &str) -> Option<&'static Release> {
+    RELEASES.iter().find(|release| release.name == name)
+}
+
+/// The releases a machine of `offering` installs.
+pub fn releases_for(offering: &Offering) -> Vec<&'static Release> {
+    RELEASES
+        .iter()
+        .filter(|r| !r.older || offering.older_irix.iter().any(|name| name == r.name))
+        .collect()
+}
+
 fn default_release() -> String {
     DEFAULT_RELEASE.into()
 }
@@ -122,7 +176,15 @@ fn release_config(release: &str, profile: &str) -> Result<&'static str> {
         ("6.5.22", "standard") => Ok(include_str!(
             "../../../resources/instigator/configs/irix-6.5.22-standard.yaml"
         )),
-        ("6.5.22", _) => Err(format!("IRIX {release} has no {profile} install profile").into()),
+        ("6.2", "standard") => Ok(include_str!(
+            "../../../resources/instigator/configs/irix-6.2-standard.yaml"
+        )),
+        ("5.3", "standard") => Ok(include_str!(
+            "../../../resources/instigator/configs/irix-5.3-standard.yaml"
+        )),
+        ("6.5.22" | "6.2" | "5.3", _) => {
+            Err(format!("IRIX {release} has no {profile} install profile").into())
+        }
         _ => Err(format!("unknown IRIX release: {release}").into()),
     }
 }
@@ -160,12 +222,6 @@ pub fn installer_for(product: &str, topology: &str) -> (&'static str, &'static s
     }
 }
 
-/// The releases `install-init` takes, newest first, each with its profiles.
-pub const RELEASES: &[(&str, &[&str])] = &[
-    ("6.5.30", &["standard", "minimal"]),
-    ("6.5.22", &["standard"]),
-];
-
 /// Where a local media folder holds each disc image of a release and
 /// profile, relative to the folder.
 pub fn local_media_paths(release: &str, profile: &str) -> Result<Vec<String>> {
@@ -189,9 +245,9 @@ fn recipe(release: &str, profile: &str) -> Result<InstallRecipe> {
         }
         _ => return Err(format!("unknown install profile: {profile}").into()),
     };
-    if !["6.5.22", "6.5.30"].contains(&release) {
-        return Err(format!("unknown IRIX release: {release}").into());
-    }
+    let scripted = self::release(release)
+        .ok_or_else(|| format!("unknown IRIX release: {release}"))?
+        .scripted;
     let document: Value = serde_saphyr::from_str(release_config(release, selection_profile)?)
         .map_err(|error| format!("Instigator configuration for IRIX {release}: {error}"))?;
     let mut layers = Vec::new();
@@ -210,7 +266,7 @@ fn recipe(release: &str, profile: &str) -> Result<InstallRecipe> {
                 .iter()
                 .any(|script| script["name"] == STANDARD_INSTALL_SCRIPT)
         });
-    if !has_script {
+    if scripted && !has_script {
         return Err(format!(
             "Instigator configuration for IRIX {release} has no {STANDARD_INSTALL_SCRIPT} script"
         )
@@ -335,6 +391,16 @@ fn init_sources(
     profile: &str,
 ) -> Result<Initialised> {
     let recipe = recipe(release, profile)?;
+    if !releases_for(crate::offering(machines, &file.machine)?)
+        .iter()
+        .any(|r| r.name == release)
+    {
+        return Err(format!(
+            "IRIX {release} does not install on the {}",
+            crate::product_label(&file.machine.model, file.machine.topology.as_deref())
+        )
+        .into());
+    }
     let install_dir = dir.join("install");
     let manifest_path = install_dir.join("media.toml");
     if manifest_path.exists() {
@@ -454,6 +520,9 @@ pub fn add_addon(
         source.display().to_string()
     };
     let mut media = read_media(dir)?;
+    if release(&media.release).is_some_and(|r| !r.scripted) {
+        return Err(format!("IRIX {} installs no add-ons", media.release).into());
+    }
     if media.addons.iter().any(|addon| addon.name == name) {
         return Err(format!("add-on already configured: {name}").into());
     }
@@ -770,6 +839,10 @@ pub fn serve(
 
 const INSTALL_PROMPT: &[u8] = b"Inst> ";
 const SHELL_PROMPT: &[u8] = b"# ";
+/// inst of IRIX 5.3 and 6.2 prints this when `go` has installed everything.
+const INSTALL_DONE: &str = "Installations and removals were successful.";
+/// 5.3 and 6.2 print no "console" in the login prompt: `IRIS login:`.
+const OLD_LOGIN_PROMPT_SUFFIX: &[u8] = b" login: ";
 const RESTART_PROMPT: &[u8] = b"Restart? { (y)es, (n)o, (sh)ell, (h)elp }: ";
 const SERIAL_LOGIN_PROMPT_SUFFIX: &[u8] = b" console login: ";
 const TERMINAL_PROMPT: &[u8] = b"TERM = (vt100) ";
@@ -1005,6 +1078,57 @@ fn install_script(media: &InstallMedia, host: Ipv4Addr) -> (String, usize) {
     )
 }
 
+impl Console {
+    /// Type one inst command and wait for the next `Inst> `, answering the
+    /// questions 5.3 and 6.2 ask on the way.
+    fn inst_command(
+        &mut self,
+        command: &str,
+        answers: &[(&[u8], String)],
+        timeout: Duration,
+        out: &mut dyn Write,
+    ) -> Result<String> {
+        self.send(format!("{command}\n"))?;
+        self.wait_answering(INSTALL_PROMPT, answers, timeout, out)
+    }
+
+    /// Install 5.3 or 6.2, whose inst has no command file: open the
+    /// distribution, take the default selection, go.
+    fn install_by_commands(
+        &mut self,
+        release: &str,
+        host: Ipv4Addr,
+        name: &str,
+        out: &mut dyn Write,
+    ) -> Result<()> {
+        // 5.3 asks for a hostname at `from`; 6.2 pages a startup-script notice:
+        // space for each more?, 2 to skip it.
+        let answers = [
+            (b"more? (h=help)".as_slice(), " ".to_owned()),
+            (b"hostname of this machine?".as_slice(), format!("{name}\n")),
+            (b"Please enter a choice [1]:".as_slice(), "2\n".to_owned()),
+        ];
+        let minutes = |n: u64| Duration::from_secs(n * 60);
+        let from = format!("from {host}:/{release}/dist");
+        self.inst_command(&from, &answers, minutes(30), out)?;
+        self.inst_command("install default", &answers, minutes(10), out)?;
+        let done = self.inst_command("go", &answers, minutes(4 * 60), out)?;
+        if done.contains("ERROR: Conflicts must be resolved.") {
+            return Err(Stopped(
+                "IRIX reported unresolved installation conflicts; guest remains running".into(),
+            )
+            .into());
+        }
+        if !done.contains(INSTALL_DONE) {
+            return Err(Stopped(
+                "inst returned from go without reporting a successful install; guest remains running".into(),
+            )
+            .into());
+        }
+        Ok(())
+    }
+}
+
 /// The quit output stops at the restart prompt. IRIX relinks the kernel
 /// there, and an lboot message means that kernel may be missing objects.
 fn check_quit(output: &str) -> Result<()> {
@@ -1078,17 +1202,27 @@ fn run_apply(
         return Err("package installation requires private installation networking".into());
     }
     let media = read_media(dir)?;
-    let (command, passes) = install_script(&media, Addresses::of(file)?.host());
+    let release = release(&media.release)
+        .ok_or_else(|| format!("unknown IRIX release: {}", media.release))?;
+    let host = Addresses::of(file)?.host();
     let mut console = connect(dir)?;
     writeln!(out, "Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.")?;
     console.command("", INSTALL_PROMPT, Duration::from_secs(30), out)?;
     *stage = ApplyStage::Packages;
-    console.send(command)?;
-    console.wait_for_install(passes, Duration::from_secs(4 * 60 * 60), out)?;
+    let login = if release.scripted {
+        let (command, passes) = install_script(&media, host);
+        console.send(command)?;
+        console.wait_for_install(passes, Duration::from_secs(4 * 60 * 60), out)?;
+        SERIAL_LOGIN_PROMPT_SUFFIX
+    } else {
+        let name = crate::addressing::dhcp_hostname(dir).unwrap_or("irix");
+        console.install_by_commands(release.name, host, name, out)?;
+        OLD_LOGIN_PROMPT_SUFFIX
+    };
     let quit = console.command("quit", RESTART_PROMPT, Duration::from_secs(900), out)?;
     check_quit(&quit).map_err(|e| Stopped(e.to_string()))?;
     *stage = ApplyStage::Login;
-    console.restart(out)?;
+    console.restart(login, out)?;
     writeln!(out, "Installed IRIX reached serial login. Stop the machine before switching to user networking.")?;
     if shutdown {
         console.login_root(out)?;
@@ -1126,13 +1260,8 @@ impl Console {
     /// autoconfig built a kernel instead of the quit-time reconfiguration,
     /// log in as root, which has no password on a new install, and restart
     /// once more so the guest runs that kernel.
-    fn restart(&mut self, out: &mut dyn Write) -> Result<()> {
-        let boot = self.command(
-            "y",
-            SERIAL_LOGIN_PROMPT_SUFFIX,
-            Duration::from_secs(900),
-            out,
-        )?;
+    fn restart(&mut self, login: &[u8], out: &mut dyn Write) -> Result<()> {
+        let boot = self.command("y", login, Duration::from_secs(900), out)?;
         if !boot.contains(STARTUP_REBUILD) {
             return Ok(());
         }
@@ -1142,12 +1271,7 @@ impl Console {
         )?;
         self.command("root", TERMINAL_PROMPT, Duration::from_secs(60), out)?;
         self.command("", SHELL_PROMPT, Duration::from_secs(60), out)?;
-        self.command(
-            "reboot",
-            SERIAL_LOGIN_PROMPT_SUFFIX,
-            Duration::from_secs(900),
-            out,
-        )?;
+        self.command("reboot", login, Duration::from_secs(900), out)?;
         Ok(())
     }
 }
@@ -1484,7 +1608,9 @@ mod tests {
             received
         });
         let mut console = Console::from_stream(TcpStream::connect(address).unwrap());
-        console.restart(&mut io::sink()).unwrap();
+        console
+            .restart(SERIAL_LOGIN_PROMPT_SUFFIX, &mut io::sink())
+            .unwrap();
         assert_eq!(guest.join().unwrap(), ["y", "root", "", "reboot"]);
     }
 
@@ -1493,7 +1619,9 @@ mod tests {
         let (mut console, writer) = scripted_console(vec![
             b"RAD4 driver 1.101\r\nThe system is coming up.\r\nIRIS console login: ",
         ]);
-        console.restart(&mut io::sink()).unwrap();
+        console
+            .restart(SERIAL_LOGIN_PROMPT_SUFFIX, &mut io::sink())
+            .unwrap();
         writer.join().unwrap();
     }
 
@@ -2341,6 +2469,109 @@ mod tests {
             .to_string();
         assert!(error.contains("6.5.22 has no minimal"), "{error}");
         assert!(super::recipe("6.5.7", "standard").is_err());
+    }
+
+    #[test]
+    fn releases_5_3_and_6_2_load_their_discs() {
+        let paths = |release| local_media_paths(release, "standard").unwrap();
+        assert_eq!(paths("5.3"), ["5.3/general.image"]);
+        assert_eq!(paths("6.2"), ["6.2/part1.image", "6.2/part2.image"]);
+        assert!(super::recipe("5.3", "minimal").is_err());
+    }
+
+    /// Plays a guest that prints each prompt and expects the bytes after it.
+    fn guest_session(
+        script: Vec<(&'static str, &'static str)>,
+    ) -> (Console, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let guest = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            for (prompt, expected) in script {
+                stream.write_all(prompt.as_bytes()).unwrap();
+                let mut got = vec![0; expected.len()];
+                io::Read::read_exact(&mut stream, &mut got).unwrap();
+                assert_eq!(String::from_utf8(got).unwrap(), expected);
+            }
+        });
+        let stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        (Console::from_stream(stream), guest)
+    }
+
+    const GO_DONE: &str = "UX:make: ERROR: don't know how to make /usr/sbin/fftr\r\nInstallations and removals were successful.\r\nInst> ";
+
+    #[test]
+    fn irix_6_2_skips_its_startup_script_and_installs_with_typed_commands() {
+        let (mut console, guest) = guest_session(vec![
+            ("", "from 10.98.0.2:/6.2/dist\n"),
+            ("Check for COFF Programs\r\nmore? (h=help) ", " "),
+            ("more? (h=help) ", " "),
+            ("Do you wish to run the optional installation startup script?\r\nPlease enter a choice [1]: ", "2\n"),
+            ("Reading distribution ..100%\r\nInst> ", "install default\n"),
+            ("Inst> ", "go\n"),
+            (GO_DONE, ""),
+        ]);
+        let host = "10.98.0.2".parse().unwrap();
+        console
+            .install_by_commands("6.2", host, "irix", &mut io::sink())
+            .unwrap();
+        guest.join().unwrap();
+    }
+
+    #[test]
+    fn irix_5_3_names_the_machine_at_from_and_a_go_without_success_stops() {
+        let (mut console, guest) = guest_session(vec![
+            ("", "from 10.98.0.2:/5.3/dist\n"),
+            ("What is the hostname of this machine? ", "indy\n"),
+            ("Calculating sizes ..100%\r\nInst> ", "install default\n"),
+            ("Inst> ", "go\n"),
+            ("ERROR: Conflicts must be resolved.\r\nInst> ", ""),
+        ]);
+        let host = "10.98.0.2".parse().unwrap();
+        let error = console
+            .install_by_commands("5.3", host, "indy", &mut io::sink())
+            .unwrap_err();
+        guest.join().unwrap();
+        assert!(error.downcast_ref::<Stopped>().is_some(), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains("unresolved installation conflicts"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn an_older_release_takes_no_add_ons() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("install")).unwrap();
+        let media = InstallMedia {
+            format: 1,
+            profile: "standard".into(),
+            release: "5.3".into(),
+            media: BTreeMap::new(),
+            addons: vec![],
+            method: None,
+        };
+        fs::write(
+            dir.path().join("install/media.toml"),
+            toml::to_string_pretty(&media).unwrap(),
+        )
+        .unwrap();
+        let error = add_addon(
+            dir.path(),
+            "tablet",
+            "https://origami-dist.irix.fans/x",
+            None,
+            None,
+            &["x.sw".into()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(error, "IRIX 5.3 installs no add-ons");
     }
 
     #[test]

@@ -131,9 +131,10 @@ public sealed class InstallWindow : Window
     {
         try
         {
-            var (plan, serial, pending) = await Task.Run(() => (_core.Raw.InstallPlan(_key), _core.Open(_key).BootConsole() == OrigamiBootConsole.Serial, _core.Raw.InstallRestorePending(_key)));
+            var (plan, serial, pending, releases) = await Task.Run(() => (_core.Raw.InstallPlan(_key), _core.Open(_key).BootConsole() == OrigamiBootConsole.Serial, _core.Raw.InstallRestorePending(_key), _core.Raw.InstallReleases(_key)));
             _serial = serial;
             _flow = new OrigamiInstallFlow(plan);
+            _flow.SetReleases(releases);
             // A machine left on the installation network offers to set it back on close.
             if (pending) _flow.SetPrepared();
             _flow.SetSerial(serial);

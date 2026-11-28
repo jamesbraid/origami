@@ -14,7 +14,7 @@ use super::operation::{Control as OpControl, InstallFailure, Operation};
 use super::serve_events::{self, LogTail, Status};
 use crate::Report;
 use origami_machine::addressing::Addresses;
-use origami_machine::{install, MachineFile};
+use origami_machine::{install, MachineFile, Offering};
 use std::cell::Cell;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -35,6 +35,9 @@ pub struct InstallRelease {
     pub release: String,
     pub label: String,
     pub profiles: Vec<InstallProfile>,
+    /// Whether the assistant offers software after IRIX. 5.3 and 6.2 have
+    /// no install script to add it to.
+    pub software: bool,
 }
 
 /// How the assistant runs the install on a serial console.
@@ -300,31 +303,52 @@ fn profile_label(profile: &str) -> &'static str {
     }
 }
 
-/// The releases the assistant offers, newest first.
-pub fn install_releases() -> Vec<InstallRelease> {
+fn describe(r: &install::Release) -> InstallRelease {
+    InstallRelease {
+        release: r.name.into(),
+        label: format!("IRIX {}", r.name),
+        profiles: r
+            .profiles
+            .iter()
+            .map(|profile| {
+                let discs = install::local_media_paths(r.name, profile).map_or(0, |p| p.len());
+                let detail = match (*profile, discs) {
+                    ("minimal", _) => format!("{discs} discs: overlay, foundation and NFS only"),
+                    (_, 1) => "1 disc".into(),
+                    _ => format!("All {discs} discs"),
+                };
+                InstallProfile {
+                    name: (*profile).into(),
+                    label: profile_label(profile).into(),
+                    detail,
+                }
+            })
+            .collect(),
+        software: r.scripted,
+    }
+}
+
+/// The releases the assistant offers for a machine, newest first.
+pub fn install_releases(offering: &Offering) -> Vec<InstallRelease> {
+    install::releases_for(offering)
+        .into_iter()
+        .map(describe)
+        .collect()
+}
+
+/// The releases every machine that runs IRIX installs: the 6.5 ones.
+pub fn default_install_releases() -> Vec<InstallRelease> {
     install::RELEASES
         .iter()
-        .map(|(release, profiles)| InstallRelease {
-            release: (*release).into(),
-            label: format!("IRIX {release}"),
-            profiles: profiles
-                .iter()
-                .map(|profile| {
-                    let discs = install::local_media_paths(release, profile).map_or(0, |p| p.len());
-                    let detail = if *profile == "minimal" {
-                        format!("{discs} discs: overlay, foundation and NFS only")
-                    } else {
-                        format!("All {discs} discs")
-                    };
-                    InstallProfile {
-                        name: (*profile).into(),
-                        label: profile_label(profile).into(),
-                        detail,
-                    }
-                })
-                .collect(),
-        })
+        .filter(|r| !r.older)
+        .map(describe)
         .collect()
+}
+
+/// Every release, for tests of the assistant that need no machine.
+#[cfg(test)]
+pub(crate) fn every_release() -> Vec<InstallRelease> {
+    install::RELEASES.iter().map(describe).collect()
 }
 
 /// What `folder` holds of the discs the release and profile install, as one
@@ -449,6 +473,16 @@ impl Write for ProgressSink<'_> {
 }
 
 impl Core {
+    /// The releases to offer for the machine at `key`, newest first.
+    pub fn install_releases(&self, key: &str) -> CoreResult<Vec<InstallRelease>> {
+        let machine = self.open_machine(key)?;
+        let loaded = crate::open(machine.engine().as_ref(), Path::new(machine.key()))
+            .map_err(CoreError::machine)?;
+        Ok(install_releases(
+            loaded.offering().map_err(CoreError::machine)?,
+        ))
+    }
+
     /// The add-ons to offer for an install of `profile` on the machine at
     /// `key`, with those the machine needs already ticked.
     pub fn install_addon_choices(
@@ -489,14 +523,14 @@ impl Core {
             return Ok(None);
         }
         let media = install::read_media(dir).map_err(CoreError::machine)?;
-        let releases = install_releases();
-        let release = releases.iter().find(|r| r.release == media.release);
+        let release = install::release(&media.release).map(describe);
         let profile = release
+            .as_ref()
             .and_then(|r| r.profiles.iter().find(|p| p.name == media.profile))
             .map_or(media.profile.clone(), |p| p.label.clone());
         let summary = std::iter::once(format!(
             "{}, {profile}",
-            release.map_or(format!("IRIX {}", media.release), |r| r.label.clone())
+            release.map_or(format!("IRIX {}", media.release), |r| r.label)
         ))
         .chain(
             media
@@ -714,12 +748,15 @@ impl Core {
             )
         };
         let target = disk.target.to_string();
-        let steps = vec![
+        let mut prepare = vec![
             guide_step(
                 "Get past \"Unable to boot\"",
                 Some("Unable to boot"),
                 &[],
-                Some(("Press any key. If the PROM does not say this, go on.", false)),
+                Some((
+                    "Press any key. If the PROM does not say this, go on.",
+                    false,
+                )),
                 go("\r".into()),
                 Some("Option? "),
             ),
@@ -768,6 +805,8 @@ impl Core {
                 go("/exi\r".into()),
                 Some("Option? "),
             ),
+        ];
+        let mut installer = vec![
             guide_step(
                 "Open the installer",
                 Some("Option? "),
@@ -856,6 +895,8 @@ impl Core {
                 go("255.255.255.0\r".into()),
                 Some("Inst> "),
             ),
+        ];
+        let mut packages = vec![
             guide_step(
                 "Point the installer at the packages",
                 Some("Inst> "),
@@ -883,6 +924,8 @@ impl Core {
                 None,
                 Some("instigator: post-install commands finished"),
             ),
+        ];
+        let restart = vec![
             guide_step(
                 "Quit the installer",
                 Some("Inst> "),
@@ -899,24 +942,160 @@ impl Core {
                 go("y\r".into()),
                 Some("login:"),
             ),
-            guide_step(
-                "Log in and halt",
-                Some("login:"),
-                &[(Some("login:"), "root"), (None, "halt -p")],
-                Some(("A new install has no password.", false)),
-                None,
-                None,
-            ),
         ];
-        // The older per-page lists are slices of the one list.
-        let page = |range: std::ops::Range<usize>| steps[range].to_vec();
+        let finish = vec![guide_step(
+            "Log in and halt",
+            Some("login:"),
+            &[(Some("login:"), "root"), (None, "halt -p")],
+            Some(("A new install has no password.", false)),
+            None,
+            None,
+        )];
+        // 5.3 and 6.2 take typed inst commands, not a command file, and ask a few
+        // other questions on the way.
+        let older = install::release(&release).is_some_and(|r| !r.scripted);
+        let note = if older {
+            "If inst reports a conflict or an error and never prints that it was successful, read the console and fix it at Inst>."
+        } else {
+            "If a conflict or a failed command stops it, the line above never appears. Read the console and fix it at Inst>."
+        };
+        if release == "5.3" {
+            // Its default label also cuts a /usr partition, which the miniroot does not mount.
+            prepare[4] = guide_step(
+                "Label the disk",
+                Some("fx> "),
+                &[
+                    (Some("fx>"), "/r/ro"),
+                    (Some("Continue?"), "y"),
+                    (Some("fx>"), "/l/sy"),
+                ],
+                None,
+                go("/r/ro\ry\r/l/sy\r".into()),
+                Some("writing label info"),
+            );
+        }
+        if older {
+            let asks_type = release == "6.2";
+            // One typed answer to one prompt.
+            let ask = |title: &str, prompt: &str, text: &str, keys: String, next: &str| {
+                let typed = [(Some(prompt.trim_end()), text)];
+                guide_step(title, Some(prompt), &typed, None, go(keys), Some(next))
+            };
+            let skip = |title: &str| {
+                let typed = [
+                    (Some("more?"), "Space"),
+                    (Some("Please enter a choice"), "2"),
+                ];
+                let note = (
+                    "Press the space bar at each more? to reach the question.",
+                    false,
+                );
+                let keys = "        2\r".to_owned();
+                guide_step(
+                    title,
+                    Some("more?"),
+                    &typed,
+                    Some(note),
+                    go(keys),
+                    Some("Inst> "),
+                )
+            };
+            installer.truncate(6);
+            installer.push(ask(
+                "Confirm it",
+                "Are you sure?",
+                "y",
+                "y\r".into(),
+                if asks_type { "EFS or an XFS" } else { "Inst> " },
+            ));
+            if asks_type {
+                installer.extend([
+                    ask(
+                        "Choose XFS",
+                        "EFS or an XFS",
+                        "xfs",
+                        "xfs\r".into(),
+                        "Block size of filesystem",
+                    ),
+                    ask(
+                        "Choose the block size",
+                        "Block size of filesystem",
+                        "4096",
+                        "4096\r".into(),
+                        "hostname of this machine",
+                    ),
+                    ask(
+                        "Name the machine",
+                        "hostname of this machine",
+                        name,
+                        format!("{name}\r"),
+                        "network address of",
+                    ),
+                    ask(
+                        "Give it an address",
+                        "network address of",
+                        &guest,
+                        format!("{guest}\r"),
+                        "more?",
+                    ),
+                    skip("Skip the startup script"),
+                ]);
+            }
+            let from = format!("from {host}:/{release}/dist");
+            let asked = if asks_type {
+                "more?"
+            } else {
+                "hostname of this machine"
+            };
+            packages = vec![
+                guide_step(
+                    "Point the installer at the packages",
+                    Some("Inst> "),
+                    &[(Some("Inst>"), &from)],
+                    None,
+                    go(format!("{from}\r")),
+                    Some(asked),
+                ),
+                if asks_type {
+                    skip("Skip the startup script again")
+                } else {
+                    ask(
+                        "Name the machine",
+                        asked,
+                        name,
+                        format!("{name}\r"),
+                        "Inst> ",
+                    )
+                },
+                ask(
+                    "Select the default software",
+                    "Inst> ",
+                    "install default",
+                    "install default\r".into(),
+                    "Inst> ",
+                ),
+                guide_step(
+                    "Install the software",
+                    Some("Inst> "),
+                    &[(Some("Inst>"), "go")],
+                    Some(("This takes a while. inst says when it is done.", false)),
+                    go("go\r".into()),
+                    Some("Installations and removals were successful."),
+                ),
+            ];
+        }
+        let steps: Vec<GuideStep> = [&prepare, &installer, &packages, &restart, &finish]
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect();
         Ok(InstallGuide {
-            prepare: page(0..6),
-            installer: page(6..17),
-            packages: page(17..20),
-            restart: page(20..22),
-            finish: page(22..23),
-            package_note: "If a conflict or a failed command stops it, the line above never appears. Read the console and fix it at Inst>.".into(),
+            prepare,
+            installer,
+            packages,
+            restart,
+            finish,
+            package_note: note.into(),
             server: host,
             steps,
         })

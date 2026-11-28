@@ -302,6 +302,8 @@ at start.
   `--profile minimal` installs the six overlay, foundation and NFS discs.
 - `--release 6.5.22` installs IRIX 6.5.22 instead, standard profile only. Use
   `6.5.22` where this guide says `6.5.30`, in paths and `--media-root`.
+- `--release 6.2` and `--release 5.3` install on the Indy and Indigo2, standard
+  profile only, with no add-ons. They differ from 6.5 at the steps below.
 - `--media-root DIR` reads local discs from `DIR/6.5.30/` and
   `DIR/6.5-base/`, named `.image`.
 
@@ -401,6 +403,25 @@ window manager gives keyboard focus to the window under the pointer.
 > origami run my-octane --display none --background
 > origami console my-octane
 > ```
+
+### IRIX 5.3 and 6.2
+
+On an Indy or Indigo2 the steps differ from the ones above:
+
+- The formatter is `boot -f bootp():/5.3/stand/fx.ARCS` (`/6.2/` for 6.2), and
+  **Remote Directory** is menu entry `2`.
+- IRIX 5.3's default label cuts a separate `/usr` partition that its miniroot
+  does not mount. At `fx>` type `/r/ro`, answer `y`, then `/l/sy`, then `/exi`.
+  IRIX 6.2's default label is right: `/l/sy`, `/exi`.
+- At the miniroot's file system question answer `yes` and `y`. IRIX 6.2 then
+  asks `efs/xfs` (answer `xfs`) and the block size (`4096`), and asks for the
+  hostname and address. It pages a startup-script notice: press the space bar
+  to the question and answer `2` to skip it.
+- `Inst>` has no `admin source`. Type `from 10.98.0.2:/5.3/dist` (`/6.2/dist`),
+  `install default` and `go`. IRIX 5.3 asks for a hostname at `from`; IRIX 6.2
+  asks the startup-script question again. Wait for `Installations and removals
+  were successful.`, then `quit` and `y`. `install-apply` types all of this.
+- The first boot reaches a serial or graphics login as `root`, with no password.
 
 ### 7. After installation
 

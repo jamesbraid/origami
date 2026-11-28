@@ -1308,6 +1308,8 @@ pub struct OrigamiInstallRelease {
     pub release: String,
     pub label: String,
     pub profiles: Vec<OrigamiInstallProfile>,
+    /// Whether software can be added after IRIX.
+    pub software: bool,
 }
 
 /// What a machine's install setup configures.
@@ -1427,24 +1429,12 @@ pub enum OrigamiBootConsole {
     Screen,
 }
 
-/// The IRIX releases the install assistant offers.
+/// The IRIX releases every machine that runs IRIX installs.
 #[uniffi::export]
 pub fn origami_install_releases() -> Vec<OrigamiInstallRelease> {
-    f::install_releases()
-        .into_iter()
-        .map(|r| OrigamiInstallRelease {
-            release: r.release,
-            label: r.label,
-            profiles: r
-                .profiles
-                .into_iter()
-                .map(|p| OrigamiInstallProfile {
-                    name: p.name,
-                    label: p.label,
-                    detail: p.detail,
-                })
-                .collect(),
-        })
+    f::default_install_releases()
+        .iter()
+        .map(crate::flow::release_out)
         .collect()
 }
 
@@ -1704,6 +1694,16 @@ impl OrigamiCore {
 
     pub fn open_machine(&self, key: String) -> Res<Arc<OrigamiMachine>> {
         Ok(Arc::new(OrigamiMachine(self.core.open_machine(&key)?)))
+    }
+
+    /// The IRIX releases to offer on the machine at `key`, newest first.
+    pub fn install_releases(&self, key: String) -> Res<Vec<OrigamiInstallRelease>> {
+        Ok(self
+            .core
+            .install_releases(&key)?
+            .iter()
+            .map(crate::flow::release_out)
+            .collect())
     }
 
     /// The add-ons to offer for `profile` on the machine at `key`.

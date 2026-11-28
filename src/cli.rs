@@ -605,6 +605,10 @@ impl Protocol {
 }
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum Release {
+    #[value(name = "5.3")]
+    R5_3,
+    #[value(name = "6.2")]
+    R6_2,
     #[value(name = "6.5.22")]
     R6_5_22,
     #[value(name = "6.5.30")]
@@ -613,6 +617,8 @@ pub enum Release {
 impl Release {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::R5_3 => "5.3",
+            Self::R6_2 => "6.2",
             Self::R6_5_22 => "6.5.22",
             Self::R6_5_30 => "6.5.30",
         }

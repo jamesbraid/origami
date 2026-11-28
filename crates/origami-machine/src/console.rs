@@ -116,6 +116,54 @@ impl Console {
         .into())
     }
 
+    /// As [`Console::wait_for`], typing the reply to each question in
+    /// `answers` once as it appears.
+    pub fn wait_answering(
+        &mut self,
+        prompt: &[u8],
+        answers: &[(&[u8], String)],
+        timeout: Duration,
+        out: &mut dyn Write,
+    ) -> Result<String> {
+        let deadline = Instant::now() + timeout;
+        let (mut output, mut fresh) = (Vec::new(), 0);
+        let mut chunk = [0u8; 4096];
+        while Instant::now() < deadline {
+            match self.read_some(&mut chunk)? {
+                Some(0) => return Err("guest serial console closed".into()),
+                Some(count) => {
+                    out.write_all(&chunk[..count])?;
+                    out.flush()?;
+                    output.extend_from_slice(&chunk[..count]);
+                    if output[fresh..].ends_with(prompt) {
+                        return Ok(String::from_utf8_lossy(&output).into_owned());
+                    }
+                    let asked = answers.iter().find(|(question, _)| {
+                        output[fresh..]
+                            .windows(question.len())
+                            .any(|window| window == *question)
+                    });
+                    if let Some((_, reply)) = asked {
+                        self.send(reply)?;
+                        fresh = output.len();
+                    }
+                    if output.len() > KEEP {
+                        let drop = output.len() - KEEP;
+                        output.drain(..drop);
+                        fresh = fresh.saturating_sub(drop);
+                    }
+                }
+                None => {}
+            }
+        }
+        Err(format!(
+            "guest did not reach {} within {} seconds; machine remains running",
+            String::from_utf8_lossy(prompt),
+            timeout.as_secs()
+        )
+        .into())
+    }
+
     /// Type `command` and a newline, then wait for `prompt`.
     pub fn command(
         &mut self,

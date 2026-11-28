@@ -230,13 +230,24 @@ impl InstallFlow {
     }
 
     /// The steps this machine has: Method only on a serial console, and
-    /// not once a setup exists.
+    /// not once a setup exists; Software only for a release that takes it.
     pub fn steps(&self) -> Vec<InstallStep> {
         ALL.into_iter().filter(|s| self.has(*s)).collect()
     }
 
     fn has(&self, step: InstallStep) -> bool {
-        step != InstallStep::Method || (self.serial && !self.resumed)
+        match step {
+            InstallStep::Method => self.serial && !self.resumed,
+            InstallStep::Software => self.takes_software(),
+            _ => true,
+        }
+    }
+
+    fn takes_software(&self) -> bool {
+        self.releases
+            .iter()
+            .find(|r| r.release == self.release)
+            .is_none_or(|r| r.software)
     }
 
     /// Whether the PROM prints on the serial line, so the install can be typed.
@@ -323,6 +334,18 @@ impl InstallFlow {
 
     pub fn releases(&self) -> &[InstallRelease] {
         &self.releases
+    }
+
+    /// Offer a machine's own releases in place of the ones every machine has.
+    /// The choice stays when it is still offered.
+    pub fn set_releases(&mut self, releases: Vec<InstallRelease>) {
+        if releases.is_empty() {
+            return;
+        }
+        self.releases = releases;
+        if !self.resumed && self.releases.iter().all(|r| r.release != self.release) {
+            self.select_release(&self.releases[0].release.clone());
+        }
     }
 
     pub fn release(&self) -> &str {
@@ -576,16 +599,17 @@ impl InstallFlow {
 
     /// What `install_prepare` takes.
     pub fn setup(&self) -> InstallSetup {
+        let software = self.takes_software();
         let known = self
             .addons
             .iter()
-            .filter(|(_, on)| *on)
+            .filter(|(_, on)| *on && software)
             .map(|(c, _)| InstallSetupAddon {
                 name: c.name.clone(),
                 source: None,
                 install: vec![],
             });
-        let extras = self.extras.iter().cloned();
+        let extras = self.extras.iter().filter(|_| software).cloned();
         InstallSetup {
             method: self.serial.then_some(self.method),
             release: self.release.clone(),
@@ -651,10 +675,10 @@ impl InstallFlow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::facade::install::install_releases;
+    use crate::facade::install::{default_install_releases, every_release};
 
     fn flow() -> InstallFlow {
-        InstallFlow::new(install_releases(), None, 4)
+        InstallFlow::new(every_release(), None, 4)
     }
 
     #[test]
@@ -799,6 +823,36 @@ mod tests {
     }
 
     #[test]
+    fn an_older_release_has_no_software_step_and_installs_no_add_ons() {
+        let mut f = flow();
+        f.set_choices(vec![InstallAddonChoice {
+            name: "mipspro".into(),
+            label: "MIPSpro".into(),
+            note: None,
+            checked: true,
+            locked: false,
+        }]);
+        assert!(f.steps().contains(&InstallStep::Software));
+        assert_eq!(f.setup().addons.len(), 1);
+        f.select_release("5.3");
+        assert!(!f.steps().contains(&InstallStep::Software));
+        assert!(f.setup().addons.is_empty());
+    }
+
+    #[test]
+    fn a_machines_releases_replace_the_default_ones_and_keep_the_choice_when_offered() {
+        let mut f = InstallFlow::new(default_install_releases(), None, 4);
+        assert_eq!(f.releases().len(), 2);
+        f.select_release("6.5.22");
+        f.set_releases(every_release());
+        assert_eq!((f.releases().len(), f.release()), (4, "6.5.22"));
+        f.set_releases(default_install_releases()[1..].to_vec());
+        f.select_release("6.5.22");
+        f.set_releases(every_release()[2..].to_vec());
+        assert_eq!(f.release(), "6.2");
+    }
+
+    #[test]
     fn a_resumed_assistant_starts_at_disk_and_cannot_go_back() {
         let plan = InstallPlan {
             summary: String::new(),
@@ -808,7 +862,7 @@ mod tests {
             local_media: false,
             addons: vec!["mipspro".into()],
         };
-        let f = InstallFlow::new(install_releases(), Some(plan.clone()), 4);
+        let f = InstallFlow::new(every_release(), Some(plan.clone()), 4);
         assert_eq!(
             (f.step(), f.can_back(), f.resumed()),
             (InstallStep::Disk, false, true)
@@ -913,7 +967,7 @@ mod tests {
             local_media: false,
             addons: vec![],
         };
-        let mut r = InstallFlow::new(install_releases(), Some(plan), 4);
+        let mut r = InstallFlow::new(every_release(), Some(plan), 4);
         r.set_serial(true);
         assert!(r.automatic() && !r.steps().contains(&InstallStep::Method));
     }

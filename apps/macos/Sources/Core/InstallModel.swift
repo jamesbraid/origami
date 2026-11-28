@@ -83,17 +83,17 @@ final class InstallModel: ObservableObject {
     /// An existing setup opens the assistant at Disk; the boot console says whether Type It applies.
     private func load() {
         let host = machine.coreHost, key = machine.record.key
-        background({ () throws -> (OrigamiInstallPlan?, Bool, Bool) in
+        background({ () throws -> (OrigamiInstallPlan?, Bool, Bool, [OrigamiInstallRelease]) in
             (try host.core.installPlan(key: key), try host.core.openMachine(key: key).bootConsole() == .serial,
-             try host.core.installRestorePending(key: key))
+             try host.core.installRestorePending(key: key), try host.core.installReleases(key: key))
         }) { result in
             self.loaded = true
             switch result {
-            case .success(let (plan, serial, pending)):
+            case .success(let (plan, serial, pending, releases)):
                 self.serial = serial
                 // A machine left on the installation network offers to set it back on close.
-                guard let plan else { self.edit { $0.setSerial(serial: serial); if pending { $0.setPrepared() } }; return }
-                self.objectWillChange.send(); self.flow = OrigamiInstallFlow(plan: plan); self.flow.setSerial(serial: serial)
+                guard let plan else { self.edit { $0.setSerial(serial: serial); $0.setReleases(releases: releases); if pending { $0.setPrepared() } }; return }
+                self.objectWillChange.send(); self.flow = OrigamiInstallFlow(plan: plan); self.flow.setSerial(serial: serial); self.flow.setReleases(releases: releases)
                 if pending { self.flow.setPrepared() }
                 self.planText = plan.summary
                 self.entered()

@@ -517,7 +517,7 @@ Options:
       --media-root <DIR>   
       --mac <MAC>          Machine MAC, when it has none yet
       --profile <PROFILE>  [default: standard] [possible values: minimal, standard]
-      --release <RELEASE>  IRIX release to install [default: 6.5.30] [possible values: 6.5.22, 6.5.30]
+      --release <RELEASE>  IRIX release to install [default: 6.5.30] [possible values: 5.3, 6.2, 6.5.22, 6.5.30]
   -h, --help               Print help
 --- stderr
 === origami install-addon --help

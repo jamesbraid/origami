@@ -54,6 +54,21 @@ fn a_machine_is_prepared_checked_served_and_reset() {
 }
 
 #[test]
+fn a_flow_takes_the_releases_of_its_machine() {
+    let lab = Lab::new(None);
+    let releases = lab.core.install_releases(lab.key.clone()).unwrap();
+    assert_eq!(releases.len(), origami_install_releases().len());
+    let flow = OrigamiInstallFlow::new(None);
+    let mut older = releases.clone();
+    older.truncate(1);
+    older[0].release = "5.3".into();
+    older[0].software = false;
+    flow.set_releases(older);
+    assert_eq!(flow.release(), "5.3");
+    assert!(!flow.steps().contains(&OrigamiInstallStep::Software));
+}
+
+#[test]
 fn the_flow_gates_continue_and_asks_what_to_do_on_close() {
     let flow = OrigamiInstallFlow::new(None);
     assert_eq!(flow.step(), OrigamiInstallStep::Release);

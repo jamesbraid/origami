@@ -1,0 +1,303 @@
+
+dks0d1s0: volume header not valid
+Warning: unrecognized volume header type.
+
+
+System Maintenance Menu
+
+1) Start System
+2) Install System Software
+3) Run Diagnostics
+4) Recover System
+5) Enter Command Monitor
+
+Option? 
+
+
+System Maintenance Menu
+
+1) Start System
+2) Install System Software
+3) Run Diagnostics
+4) Recover System
+5) Enter Command Monitor
+
+Option? 5
+Command Monitor.  Type "exit" to return to the menu.
+>> boot -f bootp():/5.3/stand/fx.ARCS
+Setting $netaddr to 10.98.0.65 (from server )
+Obtaining /5.3/stand/fx.ARCS from server 
+         112784+   |/-\|/-28720+   |19296+   |2817088+59600   |/-d+   7076+   |/10944    entry: 0x8fd3d4d0
+Currently in safe read-only mode.
+Do you require extended mode with all options available? (no) yes
+SGI Version 5.3 ARCS   Oct 18, 1994
+fx: "device-name" = (dksc) 
+fx: ctlr# = (0) 0
+fx: drive# = (1) 1
+...opening dksc(0,1,)
+dks0d1s10: volume header not valid
+...controller test...OK
+fx: Warning:  invalid label on disk, ignored
+Scsi drive type == SGI     IRIS EMUL DISK  1.0 
+fx: Warning:  can't read sgilabel on disk
+
+creating new sgilabel
+...creating default bootinfo
+...creating default partitions
+...creating default volume directory
+
+----- please choose one (? for help, .. to quit this menu)-----
+[exi]t             [d]ebug/           [l]abel/           [a]uto
+[b]adblock/        [exe]rcise/        [r]epartition/     [f]ormat
+fx> /r
+
+----- partitions-----
+part  type       cyls             blocks          Megabytes   (base+size)
+  0: efs        4 + 50         4032 + 50400         2 + 25   
+  1: raw       54 + 81        54432 + 81648        27 + 40   
+  6: efs      135 + 8187     136080 + 8252496      66 + 4030 
+  7: efs        4 + 8318       4032 + 8384544       2 + 4094 
+  8: volhdr     0 + 4             0 + 4032          0 + 2    
+ 10: volume     0 + 8322          0 + 8388576       0 + 4096 
+
+capacity is 8388608 blocks
+
+----- please choose one (? for help, .. to quit this menu)-----
+[ro]otdrive           [o]ptiondrive         [e]xpert
+[u]srrootdrive        [re]size
+fx/repartition> /r/ro
+
+Warning: you will need to re-install all software and restore user data
+from backups after changing the partition layout.  Changing partitions
+will cause all data on the drive to be lost.  Be sure you have the drive
+backed up if it contains any user data.  Continue? y
+
+----- partitions-----
+part  type       cyls             blocks          Megabytes   (base+size)
+  0: efs        4 + 8237       4032 + 8302896       2 + 4054 
+  1: raw     8241 + 81      8306928 + 81648      4056 + 40   
+  8: volhdr     0 + 4             0 + 4032          0 + 2    
+ 10: volume     0 + 8322          0 + 8388576       0 + 4096 
+
+capacity is 8388608 blocks
+
+----- please choose one (? for help, .. to quit this menu)-----
+[ro]otdrive           [o]ptiondrive         [e]xpert
+[u]srrootdrive        [re]size
+fx/repartition> /l/sy
+
+writing label info to dksc(0,1,)
+
+----- partitions-----
+part  type       cyls             blocks          Megabytes   (base+size)
+  0: efs        4 + 8237       4032 + 8302896       2 + 4054 
+  1: raw     8241 + 81      8306928 + 81648      4056 + 40   
+  8: volhdr     0 + 4             0 + 4032          0 + 2    
+ 10: volume     0 + 8322          0 + 8388576       0 + 4096 
+
+capacity is 8388608 blocks
+
+----- please choose one (? for help, .. to quit this menu)-----
+[ro]otdrive           [o]ptiondrive         [e]xpert
+[u]srrootdrive        [re]size
+fx/repartition> /exi
+
+
+
+System Maintenance Menu
+
+1) Start System
+2) Install System Software
+3) Run Diagnostics
+4) Recover System
+5) Enter Command Monitor
+
+Option? 2
+
+
+                         Installing System Software...
+
+                       Press <Esc> to return to the menu.
+
+
+
+1) Remote Tape  2) Remote Directory  X) Local CD-ROM  X) Local Tape  
+
+Enter 1-4 to select source type, <esc> to quit,
+or <enter> to start: 2
+
+
+Enter the name of the remote host: 10.98.0.2
+Enter the remote directory: /5.3/dist
+
+
+1) Remote Tape  2)[Remote Directory]  X) Local CD-ROM  X) Local Tape  
+      *a) Remote directory /5.3/dist from server 10.98.0.2.
+
+Enter 1-4 to select source type, a to select the source, <esc> to quit,
+or <enter> to start: 
+
+
+Setting $netaddr to 10.98.0.65 (from server )
+Setting $netaddr to 10.98.0.65 (from server )
+Copying installation program to disk.
+Setting $netaddr to 10.98.0.65 (from server )
+......... 10% ......... 20% ......... 30% ......... 40% ......... 50% 
+......... 60% ......... 70% ......... 80% ......... 90% ......... 100% 
+
+Copy complete
+IRIX Release 5.3 IP22 Version 11091812 System V
+Copyright 1987-1994 Silicon Graphics, Inc.
+All Rights Reserved.
+
+xpi0: missing from slot 1
+xpi0: missing from slot 0
+xpi0: not an FDDI board in slot 2
+gtr0: missing
+gtr0: missing
+root on dev 128,17; boot swap file on /dev/swap swplo 50000
+Creating miniroot devices, please wait...
+
+Current system date is Sat Nov 28 00:59:43 PST 2026
+
+Mounting file systems:
+
+/dev/dsk/dks0d1s0: Invalid argument
+No valid file system found on: /dev/dsk/dks0d1s0
+This is your system disk: without it we have nothing
+on which to install software.
+
+
+Make new file system on /dev/dsk/dks0d1s0 [yes/no/sh/help]: yes
+
+About to remake (mkfs) file system on: /dev/dsk/dks0d1s0
+This will destroy all data on disk partition: /dev/dsk/dks0d1s0.
+
+        Are you sure? [y/n] (n): y
+
+Doing: mkfs /dev/dsk/dks0d1s0
+mkfs_efs: /dev/rdsk/dks0d1s0: blocks=8302896 inodes=851200
+mkfs_efs: /dev/rdsk/dks0d1s0: sectors=63 cgfsize=103760
+mkfs_efs: /dev/rdsk/dks0d1s0: cgalign=1 ialign=1 ncg=80
+mkfs_efs: /dev/rdsk/dks0d1s0: firstcg=2030 cgisize=2660
+mkfs_efs: /dev/rdsk/dks0d1s0: bitmap blocks=2028
+
+Trying again to mount /dev/dsk/dks0d1s0 on /root.
+
+    /dev/miniroot            on  /
+    /dev/dsk/dks0d1s0        on  /root
+
+Invoking software installation.
+
+Default distribution to install from: 10.98.0.2:/5.3/dist
+
+For help on inst commands, type "help overview".
+
+
+Inst Main Menu
+
+ 1. from [source]                Specify location of software to be installed
+ 2. list [keywords] [names]      Display information about software subsystems
+ 3. go                           Perform software installation and removal now
+ 4. install [keywords] [names]   Select subsystems to be installed
+ 5. remove [keywords] [names]    Select subsystems to be removed
+ 6. keep [keywords] [names]      Do not install or remove these subsystems
+ 7. step [keywords] [names]      Interactive mode for install/remove/keep
+ 8. conflicts [choice ...]       List or resolve installation conflicts
+ 9. help [topic]                 Get help in general or on a specific word
+10. view ...                     Go to the View Commands Menu
+11. admin ...                    Go to the Administrative Commands Menu
+12. quit                         Terminate software installation
+
+Inst> Load the package script only after the guest reaches Inst>. Disconnect any interactive console first.
+
+
+Inst Main Menu
+
+ 1. from [source]                Specify location of software to be installed
+ 2. list [keywords] [names]      Display information about software subsystems
+ 3. go                           Perform software installation and removal now
+ 4. install [keywords] [names]   Select subsystems to be installed
+ 5. remove [keywords] [names]    Select subsystems to be removed
+ 6. keep [keywords] [names]      Do not install or remove these subsystems
+ 7. step [keywords] [names]      Interactive mode for install/remove/keep
+ 8. conflicts [choice ...]       List or resolve installation conflicts
+ 9. help [topic]                 Get help in general or on a specific word
+10. view ...                     Go to the View Commands Menu
+11. admin ...                    Go to the Administrative Commands Menu
+12. quit                         Terminate software installation
+
+Inst> from 10.98.0.2:/5.3/dist
+What is the hostname of this machine? indy53
+Starting network with hostname: indy53, at ip address: 10.98.0.65
+Reading installation history ..   0%  50% 100% Done.
+Reading distribution ..   0%   1%   3%   5%   7%   9%  11%  13%  15%  17%  19%  21%  23%  26%  28%  30%  32%  34%  36%  38%  40%  42%  44%  46%  48%  51%  52%  53%  54%  55%  56%  57%  58%  59%  60%  61%  62%  63%  64%  65%  66%  67%  68%  69%  70%  71%  72%  73%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98% 100% Done.
+Checking dependencies ..   0%   1%   2%   3%   4%   5%   6%   7%   8%   9%  10%  11%  12%  13%  14%  15%  16%  17%  18%  19%  20%  21%  22%  23%  24%  25%  26%  27%  28%  29%  30%  31%  32%  33%  34%  35%  36%  37%  38%  39%  40%  41%  42%  43%  44%  45%  46%  47%  48%  49%  50%  51%  52%  53%  54%  55%  56%  57%  58%  59%  60%  61%  62%  63%  64%  65%  66%  67%  68%  69%  70%  71%  72%  73%  74%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98%  99% 100% Done.
+Calculating sizes ..   0%   1%   3%   5%   7%   9%  11%  14%  16%  18%  20%  22%  24%  26%  28%  30%  32%  34%  35%  37%  38%  39%  41%  42%  43%  45%  46%  47%  49%  51%  52%  53%  55%  56%  57%  59%  60%  61%  63%  64%  66%  67%  69%  70%  71%  73%  74%  75%  77%  78%  79%  81%  83%  84%  85%  87%  88%  89%  91%  92%  93%  95%  96%  97% 100% Done.
+
+Inst> install default
+
+Inst> go
+Done.
+Checking dependencies ..   0%   1%   2%   3%   4%   5%   6%   7%   8%   9%  10%  11%  12%  13%  14%  15%  16%  17%  18%  19%  20%  21%  22%  23%  24%  25%  26%  27%  28%  29%  30%  31%  32%  33%  34%  35%  36%  37%  38%  39%  40%  41%  42%  43%  44%  45%  46%  47%  48%  49%  50%  51%  52%  53%  54%  55%  56%  57%  58%  59%  60%  61%  62%  63%  64%  65%  66%  67%  68%  69%  70%  71%  72%  73%  74%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98%  99% 100% Done.
+Installations and removals were successful.
+You may continue with installations or quit now.
+
+Inst> quit
+Building dynamic ELF inventory file for rqs(1) processing ..   0%   1%   2%   3%   4%   5%   6%   7%   8%   9%  10%  11%  12%  13%  14%  15%  16%  17%  18%  19%  20%  21%  22%  23%  24%  25%  26%  27%  28%  29%  30%  31%  32%  33%  34%  35%  36%  37%  38%  39%  40%  41%  42%  43%  44%  45%  46%  47%  48%  49%  50%  51%  52%  53%  54%  55%  56%  57%  58%  59%  60%  61%  62%  63%  64%  65%  66%  67%  68%  69%  70%  71%  72%  73%  74%  75%  76%  77%  78%  79%  80%  81%  82%  83%  84%  85%  86%  87%  88%  89%  90%  91%  92%  93%  94%  95%  96%  97%  98%  99% 100% Done.
+Invoking rqs(1) on necessary dynamic ELF objects ..   0%   1%   3%   5%   7%   8%  10%  12%  14%  15%  17%  19%  21%  22%  24%  26%  28%  29%  31%  33%  35%  36%  38%  40%  42%  43%  45%  47%  49%  50%  52%  54%  56%  57%  59%  61%  63%  64%  66%  68%  70%  71%  73%  75%  77%  78%  80%  82%  84%  85%  87%  89%  91%  92%  94%  96%  98%  99% 100% Done.
+Automatically reconfiguring the operating system.
+Ready to restart the system.  Restart? { (y)es, (n)o, (sh)ell, (h)elp }: y
+Preparing to restart system ...
+The system is being restarted.
+
+
+                           Starting up the system...
+
+IRIX Release 5.3 IP22 Version 11091812 System V
+Copyright 1987-1994 Silicon Graphics, Inc.
+All Rights Reserved.
+
+
+The system is coming up.
+
+network: WARNING: IRIS's Internet address is the default.
+Using standalone network mode.
+
+
+
+IRIS login: 
+
+
+
+IRIS login: root
+IRIX Release 5.3 IP22 IRIS
+Copyright 1987-1994 Silicon Graphics, Inc. All Rights Reserved.
+TERM = (vt100) 
+IRIS 1# hinv; uname -r
+1 150 MHZ IP22 Processor
+FPU: MIPS R4010 Floating Point Chip Revision: 0.0
+CPU: MIPS R4400 Processor Chip Revision: 5.0
+On-board serial ports: 2
+On-board bi-directional parallel port
+Data cache size: 16 Kbytes
+Instruction cache size: 16 Kbytes
+Secondary unified instruction/data cache size: 1 Mbyte
+Main memory size: 128 Mbytes
+Integral ISDN: Basic Rate Interface unit 0, revision 1.0
+Integral Ethernet: ec0, version 1
+Integral SCSI controller 0: Version WD33C93A
+Disk drive: unit 1 on SCSI controller 0
+Graphics board: Indy 24-bit
+Vino video: unit 0, revision 0, IndyCam connected
+5.3
+IRIS 2# halt -p
+Shutdown started.     Sat Nov 28 01:23:43 PST 2026
+Broadcast Message from root (ttyd1) on IRIS Sat Nov 28 01:23:44 2026
+
+THE SYSTEM IS BEING SHUT DOWN! Log off now.
+
+
+INIT: New run level: 0
+The system is shutting down.
+Please wait.

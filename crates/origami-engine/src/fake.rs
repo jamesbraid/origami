@@ -1,7 +1,7 @@
 //! [`FakeEngine`]: an engine that runs no emulator, for tests of everything
 //! above the engine boundary (the facade, the bindings, the front ends).
 //!
-//! It is deterministic and in-process. Its catalogue has three offerings;
+//! It is deterministic and in-process. Its catalogue has a few offerings;
 //! a launched machine has synthetic frames that change when the test says
 //! so, a console that prints a banner and then echoes what is written to it,
 //! controls and media changes that are recorded, and an exit that the test
@@ -121,6 +121,10 @@ fn catalogue() -> Catalogue {
     // The product of the format 4 machine fixtures, so they can be upgraded here.
     let mut origin = offering("origin200.1", "origin200", 1, 0);
     origin["product"] = json!("origin200");
+    // An Indy, which also installs the older IRIX releases.
+    let mut indy = offering("indy.1", "indy", 1, 0);
+    indy["product"] = json!("indy");
+    indy["older-irix"] = json!(["6.2", "5.3"]);
     serde_json::from_value(json!({
         "version": 1,
         "offerings": [
@@ -130,6 +134,7 @@ fn catalogue() -> Catalogue {
             offering("fakeblind.1", "fakeblind", 1, 0),
             big,
             origin,
+            indy,
         ],
     }))
     .expect("the fake catalogue is well formed")

@@ -398,9 +398,13 @@ mod tests {
             .map(String::from),
         );
         all.extend(
-            step_titles(&InstallFlow::new(install_releases(), None, 4))
-                .into_iter()
-                .map(|t| t.title.to_string()),
+            step_titles(&InstallFlow::new(
+                crate::facade::install::every_release(),
+                None,
+                4,
+            ))
+            .into_iter()
+            .map(|t| t.title.to_string()),
         );
         all.extend(
             [
