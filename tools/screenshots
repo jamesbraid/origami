@@ -30,6 +30,9 @@ SETS = {
 }
 # The main window with a running machine, per app: what `compare` holds against a stored image.
 RUNNING = {"linux": "linux-running", "windows": "windows-running", "macos": "macos-running"}
+# macOS 15 takes the same picture as macOS 26 and holds it against its own stored one, so a styling difference is not a failure.
+MACOS_15 = "macos-15"
+BASELINE_NAME = {MACOS_15: "macos-15-running"}
 # A pixel is wrong when any channel differs by more than DIFF; the picture fails when more than BAD of its pixels are wrong.
 DIFF, BAD = 32, 0.15
 
@@ -114,8 +117,8 @@ def pull(a):
     CACHE.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=getattr(a, "tmp", None) or CACHE) as t:
         run("gh", "run", "download", run_id, *repo, "--dir", t,
-            "-n", "screenshots-linux", "-n", "screenshots-windows", "-n", "screenshots-macos")
-        for artifact, platforms in (("screenshots-linux", ("linux", "cli")), ("screenshots-windows", ("windows",)), ("screenshots-macos", ("macos",))):
+            "-n", "screenshots-linux", "-n", "screenshots-windows", "-n", "screenshots-macos-26")
+        for artifact, platforms in (("screenshots-linux", ("linux", "cli")), ("screenshots-windows", ("windows",)), ("screenshots-macos-26", ("macos",))):
             for platform in platforms:
                 collect(pathlib.Path(t) / artifact, platform)
         parity(argparse.Namespace(src=t))
@@ -183,8 +186,8 @@ def compare(a):
     src = pathlib.Path(a.src)
     failed = False
     for platform in a.platform or RUNNING:
-        name = RUNNING[platform]
-        base = BASELINES / f"{name}.png"
+        name = RUNNING.get(platform, RUNNING["macos"])
+        base = BASELINES / f"{BASELINE_NAME.get(platform, name)}.png"
         if not (src / f"{name}.png").is_file() or not base.is_file():
             print(f"{name}: missing {'picture' if not (src / f'{name}.png').is_file() else 'baseline'}")
             failed = True
@@ -210,9 +213,11 @@ def baseline(a):
     repo = ["--repo", a.repo]
     CACHE.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=getattr(a, "tmp", None) or CACHE) as t:
-        run("gh", "run", "download", a.run, *repo, "--dir", t, "-n", "screenshots-linux", "-n", "screenshots-windows", "-n", "screenshots-macos")
-        for artifact, platform in (("screenshots-linux", "linux"), ("screenshots-windows", "windows"), ("screenshots-macos", "macos")):
-            save(pathlib.Path(t) / artifact / f"{RUNNING[platform]}.png", RUNNING[platform])
+        run("gh", "run", "download", a.run, *repo, "--dir", t, "-n", "screenshots-linux", "-n", "screenshots-windows",
+            "-n", "screenshots-macos-26", "-n", "screenshots-macos-15")
+        for artifact, platform in (("screenshots-linux", "linux"), ("screenshots-windows", "windows"), ("screenshots-macos-26", "macos"),
+                                   ("screenshots-macos-15", MACOS_15)):
+            save(pathlib.Path(t) / artifact / f"{RUNNING.get(platform, RUNNING['macos'])}.png", BASELINE_NAME.get(platform, RUNNING.get(platform)))
 
 
 def macos(a):
@@ -251,7 +256,7 @@ def main():
     c.add_argument("--repo", default=GITHUB_REPO, help="GitHub OWNER/NAME (origin is Forgejo); default %(default)s")
     c = sub.add_parser("compare", help=HELP["compare"])
     c.add_argument("--from", dest="src", required=True, help="a folder holding the pictures: linux-running.png and so on")
-    c.add_argument("--platform", action="append", choices=sorted(RUNNING), help="only this app (repeatable)")
+    c.add_argument("--platform", action="append", choices=sorted([*RUNNING, MACOS_15]), help="only this app (repeatable)")
     c.add_argument("--bad", type=float, default=BAD, help="the fraction of pixels that may differ; default %(default)s")
     c = sub.add_parser("baseline", help=HELP["baseline"])
     c.add_argument("--tmp", help="where to download the artifacts; default .cache/ in the repository")
@@ -262,7 +267,7 @@ def main():
     c = sub.add_parser("windows", help=HELP["windows"])
     c.add_argument("--from", dest="src", required=True, help="the unzipped screenshots-windows artifact")
     c = sub.add_parser("macos", help=HELP["macos"])
-    c.add_argument("--from", dest="src", help="the folder OrigamiApp --docs-shots wrote, or the unzipped screenshots-macos artifact")
+    c.add_argument("--from", dest="src", help="the folder OrigamiApp --docs-shots wrote, or the unzipped screenshots-macos-26 artifact")
     c.add_argument("--scratch")
     a = p.parse_args()
     {"linux": linux, "cli": cli, "windows": windows, "macos": macos, "pull": pull, "compare": compare, "baseline": baseline, "parity": parity}[a.cmd](a)

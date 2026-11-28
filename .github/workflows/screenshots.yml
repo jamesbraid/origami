@@ -177,9 +177,16 @@ jobs:
           retention-days: 3
 
   macos:
-    # macos-26 and Rust 1.97.1 are what app-macos.yml builds this app with.
+    # macos-26 and Rust 1.97.1 are what app-macos.yml builds this app with. The docs pictures come from macos-26;
+    # macos-15 is held against its own stored picture, to show what differs between the two systems.
     if: github.server_url == 'https://github.com'
-    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-26, platform: macos}
+          - {os: macos-15, platform: macos-15}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -211,7 +218,7 @@ jobs:
           key: screenshots-cache-macos-v2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: screenshots-macos
+          name: screenshots-${{ matrix.os }}
           path: |
             ${{ runner.temp }}/macos-shots/macos-*.png
             ${{ runner.temp }}/macos-shots/macos-parity.json
@@ -221,11 +228,11 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/pil"
           "$RUNNER_TEMP/pil/bin/pip" install --quiet pillow
-          "$RUNNER_TEMP/pil/bin/python" tools/screenshots compare --platform macos --from "$RUNNER_TEMP/macos-shots"
+          "$RUNNER_TEMP/pil/bin/python" tools/screenshots compare --platform ${{ matrix.platform }} --from "$RUNNER_TEMP/macos-shots"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
-          name: screenshots-macos-diff
+          name: screenshots-${{ matrix.os }}-diff
           path: ${{ runner.temp }}/macos-shots/*.diff.png
           if-no-files-found: ignore
 
@@ -249,7 +256,7 @@ jobs:
           path: names/windows
       - uses: actions/download-artifact@v4
         with:
-          name: screenshots-macos
+          name: screenshots-macos-26
           path: names/macos
       - run: |
           python3 -m venv "$RUNNER_TEMP/pil"
