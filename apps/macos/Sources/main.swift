@@ -2,7 +2,7 @@
 //   Origami                         the app
 //   Origami --machines DIR          use DIR as the library (repeatable)
 //   Origami --selftest DIR OUT      headless: no window is ever shown
-//   Origami --docs-shots DIR OUT    the pictures the documentation shows, from real windows
+//   Origami --docs-shots OUT --machines DIR   the pictures the documentation shows, started with `open`
 //   Origami --selftest-display DIR OUT   dev builds: the real window against the behaviour table
 //   Origami --selftest-scene OUT --machines DIR   the app's own window scene, started with `open`
 // The core finds its QEMU beside the executable (ORIGAMI_RUNTIME_DIR overrides).
@@ -37,23 +37,16 @@ if args.first == "--selftest" {
     }
     nsApp.setActivationPolicy(.prohibited)
     MainActor.assumeIsolated { runSelfTest(library: args[1], out: args[2]) }
-} else if args.first == "--docs-shots" {
-    guard args.count >= 3 else {
-        FileHandle.standardError.write(Data("usage: Origami --docs-shots MACHINES_DIR OUTDIR\n".utf8))
-        exit(2)
-    }
-    nsApp.setActivationPolicy(.regular)
-    nsApp.finishLaunching()
-    MainActor.assumeIsolated { runDocsShots(library: args[1], out: args[2]) }
 } else {
     nsApp.setActivationPolicy(.regular)
     // From a launcher there is no terminal: keep a log.
-    if isatty(2) == 0 {
+    if isatty(2) == 0, args.first != "--docs-shots", args.first != "--selftest-scene" {
         freopen(NSHomeDirectory() + "/Library/Logs/Origami.log", "a", stderr)
     }
     MainActor.assumeIsolated {
         Shared.model = AppModel(root: Launch.root(arguments: args))
         if args.first == "--selftest-scene", args.count >= 2 { scheduleSceneSelfTest(out: args[1]) }
+        if args.first == "--docs-shots", args.count >= 2 { scheduleDocsShots(out: args[1]) }
     }
     MainActor.assumeIsolated { OrigamiApp.main() }
 }

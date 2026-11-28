@@ -22,7 +22,7 @@ cp $CARGO_TARGET_DIR/release/origami $product/bin/origami
 APP_OUT=$work/Origami.app ORIGAMI_PRODUCT=$product $here/build.sh
 
 rm -rf $work/machines; mkdir -p $work/machines
-# Started through LaunchServices so the app is frontmost: its windows then draw as active (coloured traffic lights).
+# Started through LaunchServices, as a person starts it: the main window is the app's own scene, frontmost, drawn as active.
 # A capture needs this script's screen permission, so the app asks for each by file and the loop below takes it.
 rm -f $work/stderr.log $out/want-*.txt(N) $out/got-*.txt(N) $out/done.txt
 (
@@ -36,7 +36,7 @@ rm -f $work/stderr.log $out/want-*.txt(N) $out/got-*.txt(N) $out/done.txt
     done
 ) &
 loop=$!
-open -W -n --env ORIGAMI_FIXTURES=$root/tests/fixtures/machines --stdout $work/stdout.log --stderr $work/stderr.log $work/Origami.app --args --docs-shots $work/machines $out
+open -W -n --env ORIGAMI_FIXTURES=$root/tests/fixtures/machines --stdout $work/stdout.log --stderr $work/stderr.log $work/Origami.app --args --docs-shots $out --machines $work/machines
 touch $out/done.txt
 wait $loop
 cat $work/stdout.log $work/stderr.log

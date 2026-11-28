@@ -1,4 +1,5 @@
-// `OrigamiApp --docs-shots LIBRARY OUTDIR`: the pictures docs/app.md shows, taken of real windows with screencapture.
+// `OrigamiApp --docs-shots OUTDIR --machines LIBRARY`, started with `open` (see screenshots.sh): the pictures docs/app.md shows.
+// The main window is the app's own scene window; sheets, dialogs and the other windows are their views hosted in a titled window.
 // On the QEMU build it creates an Octane2 from the catalogue and starts it; on the fake build it makes a fake machine.
 
 import AppKit
@@ -6,19 +7,42 @@ import Foundation
 import OrigamiFrame
 import SwiftUI
 
+/// Waits for the scene's main window, then takes the pictures. From a timer, not a dispatch block: the main queue does not
+/// run while a block on it spins the run loop, and the core's answers come back through it.
 @MainActor
-func runDocsShots(library: String, out: String) {
+func scheduleDocsShots(out: String) {
+    let start = Date()
+    Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+        MainActor.assumeIsolated {
+            let age = Date().timeIntervalSince(start)
+            if sceneMainWindow() != nil, age > 3 {
+                timer.invalidate()
+                runDocsShots(out: out)
+            } else if age > 60 {
+                FileHandle.standardError.write(Data("docs-shots: the main window never showed its toolbar\n".utf8))
+                exit(1)
+            }
+        }
+    }
+}
+
+@MainActor
+private func runDocsShots(out: String) {
     func fail(_ why: String) -> Never {
         FileHandle.standardError.write(Data("docs-shots: \(why)\n".utf8))
         exit(1)
     }
     do { try FileManager.default.createDirectory(atPath: out, withIntermediateDirectories: true) } catch { fail("cannot create \(out): \(error)") }
-    let app = AppModel(root: URL(fileURLWithPath: library))
+    let app = Shared.model!
+    let library = app.root.path
     guard let host = app.host else { fail(app.launchError ?? "the core did not start") }
+    guard let main = sceneMainWindow() else { fail("the main window is gone") }
+    let screen = main.screen?.visibleFrame ?? .zero
+    emit(["step": "scene", "os": ProcessInfo.processInfo.operatingSystemVersionString, "window": NSStringFromRect(main.frame), "screen": NSStringFromRect(screen)])
     NSApp.activate(ignoringOtherApps: true)
 
-    func window<V: View>(_ title: String, _ view: V, _ w: CGFloat, _ h: CGFloat, fit: Bool = false, dark: Bool = false, using model: AppModel? = nil) -> NSWindow {
-        let controller = NSHostingController(rootView: view.environmentObject(model ?? app))
+    func window<V: View>(_ title: String, _ view: V, _ w: CGFloat, _ h: CGFloat, fit: Bool = false, dark: Bool = false) -> NSWindow {
+        let controller = NSHostingController(rootView: view.environmentObject(app))
         let win = NSWindow(contentViewController: controller)
         win.styleMask = [.titled, .closable, .resizable]
         win.title = title
@@ -66,9 +90,9 @@ func runDocsShots(library: String, out: String) {
         guard let base = NSBitmapImageRep(data: (try? Data(contentsOf: URL(fileURLWithPath: file))) ?? Data()),
               let pic = NSBitmapImageRep(data: (try? Data(contentsOf: guest)) ?? Data()) else { fail("cannot read the pictures to combine") }
         let scale = CGFloat(base.pixelsWide) / win.frame.width
-        let titlebar = win.frame.height - win.contentLayoutRect.height
+        // Window coordinates run up from the frame's bottom edge, whatever the toolbar takes of the content.
         let r = view.convert(view.bounds, to: nil)
-        let rect = CGRect(x: r.minX * scale, y: (titlebar + content.frame.height - r.maxY) * scale, width: r.width * scale, height: r.height * scale)
+        let rect = CGRect(x: r.minX * scale, y: (win.frame.height - r.maxY) * scale, width: r.width * scale, height: r.height * scale)
         let result = NSImage(size: NSSize(width: base.pixelsWide, height: base.pixelsHigh))
         result.lockFocus()
         base.draw(in: NSRect(x: 0, y: 0, width: base.pixelsWide, height: base.pixelsHigh))
@@ -78,6 +102,12 @@ func runDocsShots(library: String, out: String) {
         guard let tiff = result.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { fail("cannot encode \(name)") }
         try? png.write(to: URL(fileURLWithPath: file))
         try? FileManager.default.removeItem(at: guest)
+    }
+
+    /// Light or dark for the whole app, as the system setting does: a window's own override leaves macOS 15's toolbar band light.
+    func look(_ appearance: NSAppearance?) {
+        NSApp.appearance = appearance
+        spin(1)
     }
 
     /// The library list draws its selection in the accent colour only while it is the first responder.
@@ -111,11 +141,10 @@ func runDocsShots(library: String, out: String) {
         guard waitFor(120, { app.rescanNow(); return app.model(named: "octane2-irix")?.record.systemDisk != nil }),
               let withDisk = app.model(named: "octane2-irix") else { fail("the system disk was not recognised") }
         app.select(withDisk.id)
-        let main = window("Origami", MainView(), 1100, 720)
         capture(main, "macos-system-card", hide: false, after: { focusLibrary(main) })
-        main.appearance = NSAppearance(named: .darkAqua)
+        look(NSAppearance(named: .darkAqua))
         capture(main, "macos-system-card-dark", hide: false, after: { focusLibrary(main) })
-        main.orderOut(nil)
+        look(nil)
 
         // The cards for each state, on machines that are in no library; light, and dark for the first and last.
         func card(_ name: String, _ state: MachineState, dark: Bool = false, problem: String? = nil, prepare: (MachineModel) -> Void = { _ in }) {
@@ -138,9 +167,6 @@ func runDocsShots(library: String, out: String) {
             LibraryRow(model: MachineModel(summary: syntheticSummary("fuel"), host: host, defaultPointer: .follow))
         }.padding(10).frame(width: 260)
         capture(window("Library", rows, 260, 100), "macos-row-cant-open")
-        let emptyRoot = URL(fileURLWithPath: out).appendingPathComponent("empty-library")
-        let empty = AppModel(root: emptyRoot)
-        capture(window("Origami", MainView(), 1100, 720, using: empty), "macos-empty-library", hide: true)
 
         // Each alert, with its default button.
         let alerts: [(String, OrigamiAlertKind)] = [
@@ -175,6 +201,9 @@ func runDocsShots(library: String, out: String) {
         })
     }
 
+    // The library is empty until the machines below are made.
+    capture(main, "macos-empty-library", hide: false)
+
     #if FAKE
     if let e = makeFakeMachine(host, library: library, name: "octane2") { fail("creating the machine failed: \(e)") }
     app.rescanNow()
@@ -190,7 +219,7 @@ func runDocsShots(library: String, out: String) {
         #if !FAKE
         nm.engine = "qemu"
         guard let pick = nm.offerings.firstIndex(where: { $0.id.hasPrefix("octane2") && $0.engine == "qemu" }) else {
-            fail("the catalogue has no Octane2 on qemu: \(nm.offerings.map(\.id))")
+            fail("the catalogue has no Octane2 on qemu: \(nm.offerings.map(\.id)) (loading \(nm.loading), error \(nm.error ?? "none"))")
         }
         nm.selected = pick
         #endif
@@ -227,7 +256,6 @@ func runDocsShots(library: String, out: String) {
     #endif
     guard let model = app.models.first else { fail("no machine in \(library)") }
     app.select(model.id)
-    let main = window("Origami", MainView(), 1100, 720)
     capture(main, "macos-library", hide: false, after: { focusLibrary(main) })
 
     // The Install IRIX assistant on the stopped machine, at its Software step.
@@ -291,10 +319,10 @@ func runDocsShots(library: String, out: String) {
     model.captureChanged(false)
     model.pointerMode = .follow
     _ = waitFor(20) { model.statusBar?.pointer?.hasPrefix("Follows") == true }
-    main.appearance = NSAppearance(named: .darkAqua)
+    look(NSAppearance(named: .darkAqua))
     capture(main, "macos-running-dark", settle: 3, hide: false, after: { focusLibrary(main) })
     laidOverPicture(main, model, "macos-running-dark")
-    main.appearance = nil
+    look(nil)
     capture(window("Diagnostics", DiagnosticsView(), 640, 400), "macos-diagnostics")
     let about = window("About Origami", AboutView(), 360, 0, fit: true)
     capture(about, "macos-about", settle: 4, hide: false)
@@ -305,7 +333,6 @@ func runDocsShots(library: String, out: String) {
     capture(window("Acknowledgements", AcknowledgementsView(), 480, 560), "macos-acknowledgements")
     capture(window("Licences", LicencesView(), 520, 600), "macos-licences")
 
-    main.orderOut(nil)
     var stopped = false
     app.stopAll(force: true) { _ in stopped = true }
     _ = waitFor(120) { stopped }
