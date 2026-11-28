@@ -35,9 +35,10 @@ struct MainView: View {
     private var content: some View {
         NavigationSplitView(columnVisibility: visibility) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
                 // Applied to the split view itself this leaves the system toggle beside ours, on macOS 15 and 26.
                 .toolbar(removing: .sidebarToggle)
+                // Last: placed before the toolbar modifier, the width is lost and the column comes up 140 wide.
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
         } detail: {
             VStack(spacing: 0) {
                 if app.showsTabBar { TabBar() }
